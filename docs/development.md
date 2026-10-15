@@ -62,7 +62,7 @@ node scripts/generate-macos-icon.mjs --preview-dir /tmp/sessionbay-icon-preview
 
 ## 第一次使用
 
-1. 開啟「設定與資料來源」。四 Agent 的能力卡片固定可見，與是否啟動過或找到執行檔無關；Codex／Claude／Grok 可設定資料根目錄後啟用索引，Antigravity 明示歷史尚不支援，目前僅提供啟動與手動 ID 接續。
+1. 開啟「設定與資料來源」。四 Agent 的能力卡片固定可見，與是否啟動過或找到執行檔無關；四工具可設定資料根目錄後啟用索引；Antigravity 只涵蓋 CLI，來源預設 ~/.gemini/antigravity-cli，App／IDE 不混用。舊設定以「偵測歷史來源」明確加入後保存。
 2. 全新設定的預設來源尊重 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`GROK_HOME`；否則為 `~/.codex`、`~/.claude`、`~/.grok`。升級保留既有來源清單；若缺少 Grok，使用卡片設定入口新增草稿，填入絕對路徑並明確保存，不會猜測 home 或自動新增索引根目錄。欄位輸入完整絕對路徑，依工具包含 `sessions`／`archived_sessions`、`projects` 或 Grok 的 `sessions`。
 3. 每個來源有獨立 ID。同一 Agent 的相同 canonical root 不可重複；不同來源同名 Session 不會被合併。
 4. 預設開啟「專案」總覽，管理自己加入的目錄；切到「所有目錄」可看所有有 Session 的分組，包含未知或失效路徑。兩頁都有卡片與側欄，選擇一組後才搜尋該目錄歷史；掃描不自動加入專案，總覽不混列各目錄的 Session。中文以連續子字串匹配；英文 ASCII 不分大小寫，`%`、`_` 不當 SQL wildcard；不提供模糊或語意搜尋。3 字元以上使用 compact trigram 候選索引再精確驗證，不足 3 字元掃描匹配。
@@ -101,7 +101,7 @@ Shell「重新偵測」只列候選，由你選擇加入 Profile 並保存，保
 
 如需減少工具的權限提示，閱讀風險說明後明確勾選該 Agent 的高風險選項並保存。它預設關閉，勾選後跨重開沿用，不必每次在 Session Bay 重複確認；CLI 自身登入、工作區信任或政策仍可能要求操作。Codex 的預設會同時取消審批與沙箱；Grok 的預設只自動核准工具，沙箱另行設定。各工具實際旗標與自訂權限模式優先規則見 [Agent 整合規格](agent-integrations.md#每個-agent-的自訂參數與危險模式)。
 
-新增工作選擇 Agent 後，查看後端產生的 executable、argv 陣列與 cwd 預覽；預檢失敗需先修正。Grok／Antigravity 可以手動填入原工具的 ID 接續；留空開始新工作。Antigravity 的 ID 不會自動成為可搜尋的本機歷史，實際載入結果以原 CLI 為準。預覽不執行命令，啟動時會重新檢查。
+新增工作選擇 Agent 後，查看後端產生的 executable、argv 陣列與 cwd 預覽；預檢失敗需先修正。Grok／Antigravity 可以手動填入原工具的 ID 接續；留空開始新工作。手動輸入 Antigravity ID 不會建立虛構 catalog 紀錄，實際載入結果以原 CLI 為準；由索引接續另驗證原生來源與對話身份。預覽不執行命令，啟動時會重新檢查。
 
 ## Session 名稱
 
@@ -114,7 +114,7 @@ Shell「重新偵測」只列候選，由你選擇加入 Profile 並保存，保
 - Codex：解析 `session_meta`、`response_item` 與支援的 `event_msg` JSONL，啟動使用 `codex resume <id> --cd <cwd>`；資料 root 透過 `CODEX_HOME` 傳入。
 - Claude Code：解析 `projects` 內的 user／assistant transcript JSONL，保留 parent／子代理關係；啟動使用 `claude --resume <id>`，獨立 cwd 與 `CLAUDE_CONFIG_DIR`。
 - Grok Build：唯讀解析 `sessions/<encoded-cwd>/<session-id>/summary.json` 與 `updates.jsonl` 的支援訊息／rewind 事件；使用 `grok --resume <id>`、獨立 cwd 與選中來源的 `GROK_HOME`。
-- Antigravity CLI：使用 `agy` 新建或 `agy --conversation <id>` 手動接續；尚無已驗證 transcript adapter，不提供其歷史索引／搜尋／預覽，也不涵蓋桌面 App／IDE 歷史。
+- Antigravity CLI：使用 `agy` 新建或 `agy --conversation <id>` 接續；支援 CLI metadata／持久化 transcript 的防禦讀取與預覽。備份來源只讀、缺 cwd 需明確選擇；1.3.5 實際資料仍待驗證，不涵蓋 App／IDE。見[相容性說明](antigravity-cli-history.md)。
 - CLI 格式不是本專案保證穩定的公開資料 API。實際版本相容性與尚未驗證項目列於驗收紀錄，不能把合成 fixture 通過等同真實版本已驗證。
 - 成功 spawn 只表示「已啟動，待確認 Session」，不表示原工具已載入正確對話。外部已啟動的程序狀態未知，不會被自動附接或關閉。
 - 同來源多個 transcript 同 ID、跨來源同 ID 造成 CLI 歧義、來源遺失或身分衝突時，恢復會被阻擋；先修正資料來源後重新索引。
@@ -169,7 +169,7 @@ Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](
 - 找不到 CLI：在設定填可執行檔絕對路徑。桌面 GUI 的 PATH 可能和 terminal 不同；本應用另搜尋 Homebrew、`~/.local/bin`、`~/.cargo/bin` 等常見位置。
 - 參數保存失敗：確認格式為 JSON 字串陣列，使用支援選項，並分開傳入參數和值；需同意的權限選項必須先勾選。取消勾選時要一併移除仍需同意的參數。
 - 舊設定只有 Codex／Claude 來源：升級刻意保留來源，與是否啟動過其他 Agent 無關。在 Grok 卡片建立來源草稿、填入絕對路徑並保存；原來源的 ID、root 與 enabled 不會因此改變。
-- Antigravity 沒有歷史清單：目前只有 CLI 新工作及手動 conversation ID 接續；找到執行檔不代表已支援 transcript。
+- Antigravity 沒有歷史清單：先確認資料來自 CLI，不是 App／IDE；舊設定需偵測或新增 ~/.gemini/antigravity-cli 來源並儲存／掃描。查看來源錯誤、未知 schema 與截斷警告；找到執行檔不證明來源可讀或已登入。
 - 有歷史沒工具：仍可搜尋預覽，指定工具後才能接續。
 - 工具有但無歷史：加入專案並開新工作即可；不存在的預設來源不會當成整批失敗。
 - 有歷史但左側專案空白：這是完整歷史與自選專案分開的預期行為；切到所有目錄、選組後加入，或用新增入口加入既有目錄／建立新專案。

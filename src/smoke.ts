@@ -14,8 +14,8 @@ export async function runSmokeInteraction(): Promise<void> {
       requestAnimationFrame(poll);
     });
   };
-  const click = (button: HTMLButtonElement | null) => {
-    if (!button || button.disabled || button.getBoundingClientRect().width <= 0)
+  const click = (button: HTMLElement | null) => {
+    if (!button || button.matches(':disabled, [aria-disabled="true"]') || button.getBoundingClientRect().width <= 0)
       throw new Error('UI smoke: expected a visible, enabled control');
     button.focus({ preventScroll: true });
     button.click();
@@ -175,6 +175,42 @@ export async function runSmokeInteraction(): Promise<void> {
     await waitFor(() => !!document.querySelector('[role="dialog"][aria-label="選擇開始日期"] [role="grid"]'),
       'history calendar did not open');
     await smokeSnapshot(`calendar-${theme}`);
+    document.querySelector<HTMLElement>('[role="dialog"][aria-label="選擇開始日期"]')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await waitFor(() => !document.querySelector('[role="dialog"][aria-label="選擇開始日期"]'),
+      'fixture calendar did not dismiss');
+    // Keep the five screenshot states stable; verify the new CLI reader through
+    // the real UI and IPC only after the final snapshot has been captured.
+    open();
+    await waitFor(() => !!dialog(), 'settings did not reopen for CLI history discovery');
+    const antigravityRootsBefore = sourceRoots();
+    click(dialog()!.querySelector<HTMLButtonElement>('button[aria-label="偵測 Antigravity CLI 歷史來源"]'));
+    const antigravityHistory = () => dialog()?.querySelector<HTMLElement>('[aria-label="Antigravity CLI 歷史來源"]');
+    await waitFor(() => !!antigravityHistory()?.querySelector('.settings-source-candidate') &&
+      !antigravityHistory()?.querySelector<HTMLButtonElement>('button[aria-label="偵測 Antigravity CLI 歷史來源"]')?.matches(':disabled'),
+    'Antigravity CLI history discovery did not resolve');
+    const nativeCandidate = Array.from(antigravityHistory()!.querySelectorAll<HTMLElement>('.settings-source-candidate'))
+      .find((candidate) => candidate.querySelector('code')?.textContent?.endsWith('/.gemini/antigravity-cli'));
+    if (nativeCandidate?.querySelector('.settings-status')?.textContent !== '找到可讀目錄' ||
+      !nativeCandidate.querySelector<HTMLButtonElement>('button[aria-label^="加入 Antigravity CLI 偵測來源 "]')?.disabled ||
+      JSON.stringify(sourceRoots()) !== JSON.stringify(antigravityRootsBefore))
+      throw new Error('UI smoke: native CLI discovery must recognize its configured synthetic root without mutating sources');
+    close();
+    await waitFor(() => !dialog(), 'CLI discovery settings did not close without saving');
+    click(document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="篩選 Agent"]'));
+    await waitFor(() => !!document.querySelector('[role="listbox"][aria-label="篩選 Agent"]'),
+      'history Agent filter did not open');
+    click(Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+      .find((option) => option.querySelector('.select-option-copy > span')?.textContent === 'Antigravity CLI') ?? null);
+    await waitFor(() => document.querySelector('[aria-label="對話預覽"]')?.textContent?.includes('SESSIONBAY_SYNTHETIC_AG_USER') === true &&
+      document.querySelector('[aria-label="對話預覽"]')?.textContent?.includes('SESSIONBAY_SYNTHETIC_AG_ASSISTANT') === true,
+    'Antigravity CLI persisted transcript did not reach the read-only UI preview');
+    const preview = document.querySelector<HTMLElement>('[aria-label="對話預覽"]')!;
+    if (!preview.textContent?.includes('sessionbay-smoke-antigravity') ||
+      preview.textContent.includes('SESSIONBAY_SYNTHETIC_METADATA_NOT_TRANSCRIPT') ||
+      Array.from(document.querySelectorAll('.session-card .agent-badge')).some((badge) => badge.textContent !== 'Antigravity CLI') ||
+      document.querySelector('.workspace-tab, .xterm-host'))
+      throw new Error('UI smoke: CLI filter must show only its real synthetic transcript without launching work');
   }
   // Allow the final committed layout to reach the compositor before capture.
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));

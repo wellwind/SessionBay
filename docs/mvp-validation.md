@@ -2,17 +2,33 @@
 
 日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
+## 2026-10-15 最新提交與 Antigravity CLI 驗證中
+
+獨立修正已推至 **a1fecb63f884ea2bba7a922c026a69658bfaa240**（本機 e2bdeff，tree `1a35f94f16f5def26026c00a6c73628ff6febbef` 相同），並保留 main `e5b85ddb` 的 17 項未來待辦 ancestry。前端 380、core 176、desktop 180 的既有檢查點適用這批修正。
+
+[三平台 CI run 38713887778](https://github.com/wellwind/SessionBay/actions/runs/38713887778) 原 attempt 與一次正常重跑皆在任何 step 前失敗，無程式執行 log；尚待取得 GitHub annotations 的真實原因，不推測額度，也不把它算成程式測試結果。新 native screenshots 尚未產生。雲端 Xvfb 本機 display socket 與標準執行權限路徑也受執行器限制，沒有繞過 sandbox。
+
+使用者確認 Antigravity 1.3.5 是 CLI，App／IDE 不是本輪必要條件。CLI 防禦 reader、唯讀 DB／WAL metadata、明確來源偵測、列表／搜尋／預覽與受限制的索引接續已實作。只讀官方 transcript.jsonl 正文，full-only 僅列 metadata，清除衍生索引也不復活可能已撤銷的 full 文字。全來源新增整份索引快照 token，背景掃描沒有變更時保留較早頁與捲動位置，改寫與跨快照分頁不混接。
+
+2026-10-15 10:07 UTC 本機最終檢查：**前端 13 檔 398／398、Rust core 241／241、desktop 245／245** 通過；typecheck／lint／production build、兩種 features 的 all-target strict Clippy、fmt、44 組語意對比及 10 個 ICNS representations 全過。Rust 有 1 個標為 ignored 的隔離 HOME helper，由正常 wrapper 必定以子程序呼叫並斷言成功，不是略過接續測試。獨立 reviewer 已實跑 23 個 Antigravity catalog、27 個 metadata 與隔離 HOME service 測試，對 full／WAL／原檔不變／競態／接續限制的阻擋點已閉環。
+
+原生 smoke 已加入自行編寫的 Antigravity SQLite＋transcript 合成資料；先以真 Rust catalog 讀取，確認 6 sessions／4 目錄、原生 title／cwd、user／assistant 正文與 snapshotId，DB preview 不冒充正文。兩平台 smoke 使用相同 fixture，再由真正 WebView／IPC 驗證來源偵測與預覽；**尚待新 CI 實際執行，fixture 通過不能冒充原生畫面通過**。前端 source／resume-disabled／warning／compaction／背景刷新回歸已通過。107 個相對連結及錨點有效，原始 143 項仍 77／66、ADD 20 項仍 12／8、未來 17 項均未勾選。
+
+尚無實際 1.3.5 磁碟 fixture／已登入 CLI 接續證據；詳見 [相容性邊界](antigravity-cli-history.md)，版本驗收項不提前勾選。
+
 ## 2026-10-15 歷史來源偵測、快捷鍵與 Antigravity 歷史追加
+
+本節保留 a1fecb63 推送前的檢查點，Antigravity 當時尚未實作；目前 CLI reader 的狀態以上方最新紀錄為準。
 
 本批新增統一 `detect_history_sources`，以共用 provider metadata 唯讀檢查已知來源根目錄，候選必須由使用者明確加入／保存；不啟動 CLI、不讀取對話內容、不自動改變既有來源。Antigravity 仍明示尚無歷史 parser。Grok 來源根目錄維持 `GROK_HOME`／`.grok`，另外有界檢查 sessions 子目錄並回報狀態說明。
 
 同批追加分頁切換快捷鍵及舊 next-pane 預設衝突修正。2026-10-15 09:09 UTC 本機 Rust 全套 **174 個 core／178 個 desktop** 測試通過，包含新增 20 個來源偵測整合測試及 1 個錯誤分類 unit；兩種 features 的 all-target strict Clippy 與 rustfmt 通過。09:16 UTC 輸出上限／configuredSourceIds 修正後，**176 個 core**、strict Clippy／fmt 通過；22 個來源偵測整合測試包含 1 MiB 非法環境值的有界 IPC 回應。前端追加 breadcrumb 前的檢查點 **13 檔 377／377**、typecheck／lint／build、44 組色彩及 10 個 ICNS representations 驗證通過。09:19 UTC 最後完整 **180 個 desktop** 與 default all-target strict Clippy 通過（49 unit、8 additional_agents、39 catalog、9 curated、19 Grok、22 history_sources、21 runtime、2 service、11 shells）。09:20 UTC 最新 Linux release `.deb` 重建成功（約 3.86 MiB）。**原生 smoke 與 exact-commit 三平台 CI 仍待完成**。下方 frontend 324／Rust desktop 157 與 `bcd3bcc` 證據只適用於追加前的工作樹；不拿較早提交的成功提前勾選本批驗收。
 
-使用者另明確要求 Antigravity 完整歷史納入 PR #1；目前正在核對官方持久化 serializer／schema 與有版本的公開樣本，**尚未實作或驗收**。CLI／App／IDE 的根目錄與匯入語意必須分開，不能把官方 stdout stream-json 或 latest-ID cache 當完整歷史 parser；compaction、rewind 與 fork 的重寫／分支語意仍須有證據。特定 CapsLock 重複組字已有合成修正，真實 macOS 輸入法仍待驗收。另新增 breadcrumb 修正與 3 個 App 回歸，09:24 UTC 最後前端全套 **13 檔 380／380**、typecheck／lint／build 通過；3.86 MiB `.deb` 是追加 breadcrumb 前的檢查點，最新原生 bundle 以新 exact-commit CI 為準。五項追加以 ADD-16–ADD-20 另列，不更動原始 143 個 ID。
+09:24 UTC 當時，使用者另要求 Antigravity 完整歷史納入 PR #1，當時仍在核對官方持久化 serializer／schema 與版本樣本，**尚未實作或驗收**；此為歷史檢查點，後續已加入的 CLI reader 狀態見最上方紀錄。CLI／App／IDE 的根目錄與匯入語意必須分開，不能把官方 stdout stream-json 或 latest-ID cache 當完整歷史 parser；compaction、rewind 與 fork 的重寫／分支語意仍須有證據。特定 CapsLock 重複組字已有合成修正，真實 macOS 輸入法仍待驗收。另新增 breadcrumb 修正與 3 個 App 回歸，09:24 UTC 最後前端全套 **13 檔 380／380**、typecheck／lint／build 通過；3.86 MiB `.deb` 是追加 breadcrumb 前的檢查點，最新原生 bundle 以新 exact-commit CI 為準。五項追加以 ADD-16–ADD-20 另列，不更動原始 143 個 ID。
 
 ## 2026-10-15 雙頁導覽、來源入口與 macOS 圖示修正
 
-本節是最新需求批次，取代先前以「所有工作階段」平面清單為主的導覽。下方 230 個前端／131 個 core／134 個 desktop 測試與先前 `f6a9e1d` CI 均屬本次澄清前的程式碼，不能當成本次凍結範圍通過的證據。本批另包括共用 provider 登錄、安裝／版本重新偵測、目前目錄搜尋快捷鍵、統一表單焦點／控制項、兩段式 Shell／Agent 啟動器及唯讀 Shell 候選偵測。
+本節保留雙頁導覽批次的檢查點，當時取代先前以「所有工作階段」平面清單為主的導覽。下方 230 個前端／131 個 core／134 個 desktop 測試與先前 `f6a9e1d` CI 均屬本次澄清前的程式碼，不能當成本次凍結範圍通過的證據。本批另包括共用 provider 登錄、安裝／版本重新偵測、目前目錄搜尋快捷鍵、統一表單焦點／控制項、兩段式 Shell／Agent 啟動器及唯讀 Shell 候選偵測。
 
 | 範圍 | 本次契約 | 驗證狀態 |
 | --- | --- | --- |
@@ -48,7 +64,7 @@ ICNS 的 16／32／64／128／256／512／1024 px 圖形，量測透明邊距分
 
 仍缺的實作或證據包括：CLI 發行版本矩陣與對應 fixtures、filesystem watcher（已有每 10 秒 reconcile）、renderer fallback、Palette 直接 Session 快切、OS／Shell 保留快捷鍵檢查、控制序列專門安全回歸，以及 IME／真實 CLI／螢幕閱讀器／完整資源與長時間壓力測量。詳見原任務每列原因。
 
-[15 項後續待辦](future-backlog.md)維持未完成。UI 離開後持續執行與重新連線是下一階段最高優先計畫，本輪沒有 daemon／重新附接實作；重新啟動電腦後持續執行也不是本輪要求。
+[17 項後續待辦](future-backlog.md)維持未完成。UI 離開後持續執行與重新連線是下一階段最高優先計畫，本輪沒有 daemon／重新附接實作；重新啟動電腦後持續執行也不是本輪要求。
 
 ## 2026-10-15 自選專案導覽變更紀錄
 

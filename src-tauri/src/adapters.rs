@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-pub const PARSER_VERSION: i64 = 3;
+pub const PARSER_VERSION: i64 = 4;
 pub const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TITLE_INDEX_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -36,6 +36,12 @@ pub struct ParsedState {
     pub conflicting_context: bool,
     #[serde(default)]
     pub grok_metadata_hash: Option<String>,
+    #[serde(default)]
+    pub antigravity_metadata_hash: Option<String>,
+    #[serde(default)]
+    pub antigravity_updated_at: Option<String>,
+    #[serde(default)]
+    pub history_warning: Option<String>,
     #[serde(default)]
     pub grok_summary_at: Option<String>,
     #[serde(default)]
@@ -337,7 +343,7 @@ pub fn search_text(value: &Value, kind: AgentKind, parsed: &ParsedMessage) -> St
                 .or_else(|| value.get("content"))
                 .unwrap_or(&Value::Null),
         ),
-        Some(ParserId::Grok) => parsed.text.clone(),
+        Some(ParserId::Grok | ParserId::Antigravity) => parsed.text.clone(),
         None => String::new(),
     }
 }
@@ -358,11 +364,33 @@ pub fn parse_value(
     state: &mut ParsedState,
     path: &Path,
 ) -> Option<ParsedMessage> {
-    let timestamp = observe_timestamp(state, value);
+    let timestamp = if kind == AgentKind::Antigravity {
+        None
+    } else {
+        observe_timestamp(state, value)
+    };
     match providers::definition(kind).history.parser_id {
         Some(ParserId::Codex) => parse_codex(value, state, timestamp),
         Some(ParserId::Claude) => parse_claude(value, state, timestamp, path),
         Some(ParserId::Grok) => parse_grok(value, state),
+        Some(ParserId::Antigravity) => match crate::antigravity::parse_step(value) {
+            Ok(step) => {
+                state.recognized = true;
+                if step.partial {
+                    state.unknown_events += 1;
+                }
+                if let Some(time) = step.timestamp {
+                    if state.event_at.as_ref().is_none_or(|old| old < &time) {
+                        state.event_at = Some(time);
+                    }
+                }
+                step.message
+            }
+            Err(_) => {
+                state.unknown_events += 1;
+                None
+            }
+        },
         None => None,
     }
 }

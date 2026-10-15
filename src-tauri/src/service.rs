@@ -287,11 +287,15 @@ impl Service {
             if let Some(key) = history_environment(session.kind) {
                 resume_key = Some(provider_resume_key(session.kind, &source.root, id));
                 env.insert(key.into(), source.root);
+            } else if session.kind == AgentKind::Antigravity {
+                if let Some(reason) =
+                    crate::catalog::antigravity_resume_disabled_reason(&source.root, id)
+                {
+                    return Err(reason);
+                }
+                resume_key = Some(provider_resume_key(session.kind, &source.root, id));
             } else {
-                return Err(
-                    "Indexed Antigravity history is unsupported; use a manual conversation ID."
-                        .into(),
-                );
+                return Err("This provider has no supported indexed resume source.".into());
             }
             args = resume_arguments(session.kind, id);
         } else if let Some(kind) = agent {
@@ -413,7 +417,8 @@ impl Service {
             .filter(|_| request.resume_id.is_none())
         {
             if let Ok(session) = self.catalog.session(id) {
-                if session.kind.as_str() == request.kind
+                if session.resume_disabled_reason.is_none()
+                    && session.kind.as_str() == request.kind
                     && request
                         .project_id
                         .as_ref()
@@ -462,8 +467,16 @@ impl Service {
 
 fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> String {
     let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
+    let canonical_uuid = (kind == AgentKind::Antigravity)
+        .then(|| uuid::Uuid::parse_str(id).ok())
+        .flatten()
+        .map(|id| id.hyphenated().to_string());
     let mut hash = Sha256::new();
-    for part in [kind.as_str(), canonical.to_str().unwrap_or(root), id] {
+    for part in [
+        kind.as_str(),
+        canonical.to_str().unwrap_or(root),
+        canonical_uuid.as_deref().unwrap_or(id),
+    ] {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part.as_bytes());
     }
@@ -508,6 +521,22 @@ fn empty_index() -> IndexStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn antigravity_runtime_identity_normalizes_uuid_case_without_rewriting_argv() {
+        let id = "07EB4413-E2D7-4D1D-9E39-85AD75ECFF49";
+        assert_eq!(
+            super::provider_resume_key(crate::models::AgentKind::Antigravity, "/synthetic/cli", id),
+            super::provider_resume_key(
+                crate::models::AgentKind::Antigravity,
+                "/synthetic/cli",
+                &id.to_ascii_lowercase()
+            )
+        );
+        assert_eq!(
+            super::resume_arguments(crate::models::AgentKind::Antigravity, id),
+            ["--conversation", id]
+        );
+    }
     use super::*;
     fn request(cwd: Option<String>) -> LaunchRequest {
         LaunchRequest {

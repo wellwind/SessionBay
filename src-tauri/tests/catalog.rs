@@ -449,7 +449,7 @@ fn source_health_tracks_missing_empty_and_ready_transitions_and_prunes_removed_h
 }
 
 #[test]
-fn disabled_and_unsupported_sources_keep_their_health_when_roots_are_missing() {
+fn disabled_and_antigravity_sources_keep_distinct_health_when_roots_are_missing() {
     let h = Harness::new();
     let mut disabled = h.source("disabled", AgentKind::Codex);
     disabled.enabled = false;
@@ -463,7 +463,7 @@ fn disabled_and_unsupported_sources_keep_their_health_when_roots_are_missing() {
         .unwrap();
 
     assert_eq!(status.sources[0].status, "disabled");
-    assert_eq!(status.sources[1].status, "unsupported");
+    assert_eq!(status.sources[1].status, "missing");
     assert_eq!(status.sources[2].status, "disabled");
     assert!(status.sources.iter().all(|source| source.files == 0));
     assert!(status.errors.is_empty());
@@ -1357,5 +1357,58 @@ fn escaped_like_fallback_preserves_wildcards_backslashes_and_embedded_nul() {
         actual.sort();
         assert_eq!(actual, expected, "query: {query}");
         assert_eq!(page.total, expected.len() as u64);
+    }
+}
+
+#[test]
+fn transcript_snapshot_is_stable_and_covers_older_codex_and_claude_pages() {
+    for kind in [AgentKind::Codex, AgentKind::Claude] {
+        let h = Harness::new();
+        let source = h.source("snapshot-source", kind);
+        let records = |middle: &str| {
+            if kind == AgentKind::Codex {
+                format!(
+                    "{}{}{}",
+                    codex("snapshot-id", "Fixed first title"),
+                    user(middle),
+                    user("Fixed newest page")
+                )
+            } else {
+                ["Fixed first title", middle, "Fixed newest page"].into_iter().map(|text| format!("{}\n", json!({"type":"user","sessionId":"snapshot-id","cwd":"/synthetic/shared","timestamp":"2026-02-01T00:00:00Z","message":{"role":"user","content":text}}))).collect::<String>()
+            }
+        };
+        let relative = if kind == AgentKind::Codex {
+            "sessions/snapshot.jsonl"
+        } else {
+            "projects/synthetic/snapshot.jsonl"
+        };
+        let path = h.write(&source, relative, &records("Early original"));
+        h.sync(std::slice::from_ref(&source));
+        let id = h.catalog.query(&SessionQuery::default()).unwrap().items[0]
+            .id
+            .clone();
+        let original = h.catalog.transcript(&id, None, 1).unwrap();
+        assert_eq!(original.messages[0].text, "Fixed newest page");
+        assert!(original.snapshot_id.is_some());
+        assert_eq!(
+            original.snapshot_id,
+            h.catalog
+                .transcript(&id, original.before_line, 1)
+                .unwrap()
+                .snapshot_id
+        );
+        h.sync(std::slice::from_ref(&source));
+        assert_eq!(
+            original.snapshot_id,
+            h.catalog.transcript(&id, None, 1).unwrap().snapshot_id
+        );
+        fs::write(path, records("Early rewritten")).unwrap();
+        let stale = h.catalog.transcript(&id, None, 1).unwrap();
+        assert!(stale.stale);
+        assert!(stale.snapshot_id.is_none());
+        h.sync(std::slice::from_ref(&source));
+        let revised = h.catalog.transcript(&id, None, 1).unwrap();
+        assert_eq!(revised.messages[0].text, original.messages[0].text);
+        assert_ne!(revised.snapshot_id, original.snapshot_id);
     }
 }

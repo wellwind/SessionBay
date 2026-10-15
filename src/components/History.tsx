@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowRight,
   ChevronLeft,
@@ -20,6 +20,12 @@ import { DatePicker, Select } from './controls';
 import { localDayBound } from '../workspace';
 import type { AgentKind, Project, Session, SessionPage, TranscriptPage } from '../types';
 export const agentName = (kind: AgentKind) => agentNames[kind];
+function mergeWarnings(previous: string | null | undefined, next: string | null): string | null {
+  if (!previous) return next;
+  if (!next || previous.includes(next)) return previous;
+  if (next.includes(previous)) return next;
+  return `${previous}\n${next}`;
+}
 export function dateLabel(value: string | null): string {
   if (!value) return '尚無活動';
   const date = new Date(value);
@@ -93,7 +99,9 @@ export function HistoryView({
   const [previewError, setPreviewError] = useState('');
   const [previewRefresh, setPreviewRefresh] = useState(0);
   const previewGeneration = useRef(0);
+  const latestPage = useRef<{ sessionId: string; refresh: number; signature: string } | null>(null);
   const transcriptScroll = useRef<HTMLDivElement>(null);
+  const resumeReasonId = useId();
   useEffect(() => {
     if (disabled) return;
     let cancelled = false;
@@ -154,22 +162,33 @@ export function HistoryView({
   ]);
   useEffect(() => {
     const generation = ++previewGeneration.current;
-    setTranscript(null);
     setPreviewError('');
     if (!selectedSessionId || disabled) {
+      latestPage.current = null;
+      setTranscript(null);
       setPreviewLoading(false);
       return;
     }
+    const previous = latestPage.current;
+    const background = previous?.sessionId === selectedSessionId && previous.refresh === previewRefresh;
+    // Reindex can complete without changing this conversation. Keep loaded older
+    // pages in place until a verified whole-transcript snapshot says otherwise.
+    if (!background) setTranscript(null);
     setPreviewLoading(true);
     void api
       .transcript(selectedSessionId)
       .then((result) => {
         if (generation === previewGeneration.current) {
-          setTranscript(result);
-          requestAnimationFrame(() => {
-            if (transcriptScroll.current)
-              transcriptScroll.current.scrollTop = transcriptScroll.current.scrollHeight;
-          });
+          const signature = JSON.stringify(result);
+          const unchanged = background && !!result.snapshotId && previous.signature === signature;
+          latestPage.current = { sessionId: selectedSessionId, refresh: previewRefresh, signature };
+          if (!unchanged) {
+            setTranscript(result);
+            requestAnimationFrame(() => {
+              if (generation === previewGeneration.current && transcriptScroll.current)
+                transcriptScroll.current.scrollTop = transcriptScroll.current.scrollHeight;
+            });
+          }
         }
       })
       .catch((reason) => {
@@ -181,7 +200,7 @@ export function HistoryView({
     return () => {
       if (previewGeneration.current === generation) previewGeneration.current = generation + 1;
     };
-  }, [selectedSessionId, previewRefresh, disabled]);
+  }, [selectedSessionId, previewRefresh, refreshToken, disabled]);
   const earlier = async () => {
     if (!selected || !transcript?.hasMore || transcript.beforeLine === null || previewLoading)
       return;
@@ -191,12 +210,23 @@ export function HistoryView({
     try {
       const result = await api.transcript(selected.id, transcript.beforeLine);
       if (generation === previewGeneration.current) {
+        if (transcript.snapshotId && result.snapshotId && transcript.snapshotId !== result.snapshotId) {
+          // A reindex may finish between page requests. Never join two snapshots.
+          setPreviewRefresh((value) => value + 1);
+          return;
+        }
+        // A failed verification can contaminate the merged paging state. Even
+        // if the source recovers to the same snapshot, the next refresh must
+        // replace that state rather than preserve its stale warning/cursor.
+        if (result.stale || !result.snapshotId) latestPage.current = null;
         setTranscript((current) => ({
           ...result,
+          stale: result.stale || !!current?.stale,
+          warning: mergeWarnings(current?.warning, result.warning),
           messages: [...result.messages, ...(current?.messages ?? [])],
         }));
         requestAnimationFrame(() => {
-          if (transcriptScroll.current)
+          if (generation === previewGeneration.current && transcriptScroll.current)
             transcriptScroll.current.scrollTop +=
               transcriptScroll.current.scrollHeight - previousHeight;
         });
@@ -307,7 +337,7 @@ export function HistoryView({
               <p>
                 {filtered
                   ? '試試較短關鍵字、放寬日期或顯示封存對話。'
-                  : '這裡會整理 Codex、Claude Code 與 Grok Build 的本機歷史。你也可以直接開始新的工作。'}
+                  : `這裡會整理 ${historyAgentKinds.map((kind) => agentNames[kind]).join('、')} 的本機歷史。你也可以直接開始新的工作。`}
               </p>
               {filtered ? (
                 <button className="secondary" onClick={() => change(initialFilters)}>
@@ -389,13 +419,19 @@ export function HistoryView({
                   </div>
                   <button
                     className="primary"
-                    disabled={disabled}
-                    onClick={() => onResume(selected)}
+                    disabled={disabled || !!selected.resumeDisabledReason}
+                    aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
+                    onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
                   >
                     接續工作
                     <ArrowRight size={15} />
                   </button>
                 </header>
+                {selected.resumeDisabledReason && (
+                  <div className="inline-warning" id={resumeReasonId} role="status">
+                    {selected.resumeDisabledReason}
+                  </div>
+                )}
                 <div className="transcript-meta">
                   <span className={`agent-badge ${selected.kind}`}>{agentName(selected.kind)}</span>
                   <span>
@@ -408,6 +444,12 @@ export function HistoryView({
                   來源 {selected.sourceId} · Session {selected.externalId}
                   <br />
                   {selected.cwd || '未記錄工作目錄'}
+                  {selectedProject?.launchPath && (
+                    <>
+                      <br />
+                      接續目錄（已重新定位）：{selectedProject.launchPath}
+                    </>
+                  )}
                   {selected.parentId && (
                     <>
                       <br />
@@ -425,9 +467,11 @@ export function HistoryView({
                 )}
                 {(transcript?.stale || transcript?.warning || selected.partial) && (
                   <div className="inline-warning">
-                    {transcript?.stale
-                      ? '來源已變更，索引可能尚未更新。'
-                      : transcript?.warning || '部分事件無法解析，可讀內容仍會顯示。'}
+                    <div>
+                      {transcript?.stale && <div>來源已變更，索引可能尚未更新。</div>}
+                      {transcript?.warning && <div>{transcript.warning}</div>}
+                      {selected.partial && !transcript?.warning && <div>部分事件無法解析，可讀內容仍會顯示。</div>}
+                    </div>
                     {transcript?.stale && (
                       <button onClick={() => setPreviewRefresh((value) => value + 1)}>
                         <RefreshCw size={13} />

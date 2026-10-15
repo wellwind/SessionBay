@@ -7,17 +7,17 @@ Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "
 ## Data
 
 - AgentKind: `codex` | `claude` | `grok` | `antigravity`
-- HistorySource: `{ id: string, kind: AgentKind, root: string, enabled: boolean }` (root is CODEX_HOME / CLAUDE_CONFIG_DIR / GROK_HOME; Antigravity history is unsupported)
+- HistorySource: `{ id: string, kind: AgentKind, root: string, enabled: boolean }` (root is CODEX_HOME / CLAUDE_CONFIG_DIR / GROK_HOME, or the Antigravity CLI store directory)
 - HistorySourceCandidate: `{ kind: AgentKind, root: string, status: 'found' | 'missing' | 'permissionDenied' | 'checkFailed', configured: boolean, configuredSourceIds: string[], message: string | null }`; `found` means a readable directory, not that sessions were found. `configuredSourceIds` identifies matching saved sources, including canonical aliases; at most 32 IDs.
 - HistorySourceDiscovery: `{ kind: AgentKind, supported: boolean, candidates: HistorySourceCandidate[], message: string | null }`; unsupported history returns `supported: false`, an empty candidate list, and an explanation.
 - Installation: `{ kind, executable: string | null, version: string | null, available: boolean, status: 'missing' | 'available' | 'versionCheckFailed', loginStatus: 'unknown', error: string | null }`; `available` indicates executable discovery, not login or a successful version probe.
 - SourceHealth: `{ sourceId: string, status: string, message: string | null, files: number }`
 - Project: `{ id, name, path: string | null, launchPath: string | null, exists: boolean, curated: boolean, pinned: boolean, sessionCount: number, updatedAt: string | null, agents: AgentKind[] }`; `curated` is explicit user-selected Projects membership, independent of discovered Session grouping and open workspaces.
-- Session: `{ id, sourceId, kind, externalId, projectId, title, cwd: string | null, updatedAt: string, timeSource: 'event' | 'mtime', archived: boolean, parentId: string | null, partial: boolean, snippet: string | null }`
+- Session: `{ id, sourceId, kind, externalId, projectId, title, cwd: string | null, updatedAt: string, timeSource: 'event' | 'mtime', archived: boolean, parentId: string | null, partial: boolean, snippet: string | null, resumeDisabledReason: string | null }`
 - SessionQuery: `{ projectId?: string, kind?: AgentKind, query?: string, archived?: boolean, includeChildren?: boolean, after?: string, before?: string, offset?: number, limit?: number }`; date filters RFC3339; UI dates converted to local-day ISO bounds.
 - SessionPage: `{ items: Session[], total: number }`
 - TranscriptMessage: `{ role: string, text: string, timestamp: string | null, line: number }`
-- TranscriptPage: `{ messages: TranscriptMessage[], hasMore: boolean, beforeLine: number | null, stale: boolean, warning: string | null }`
+- TranscriptPage: `{ snapshotId: string | null, messages: TranscriptMessage[], hasMore: boolean, beforeLine: number | null, stale: boolean, warning: string | null }`
 - IndexStatus: `{ revision: number, running: boolean, processed: number, total: number, cancelled: boolean, errors: string[], sources: SourceHealth[] }`
 - ShellProfile: `{ id, name, executable, args: string[], env: Record<string,string> }`
 - ShellCandidate: `{ name: string, executable: string }`; executable preserves the first discovered absolute invocation path. Canonical targets are used only for deduplication and saved-profile exclusion, so an invocation alias such as `sh` is not silently replaced by its target.
@@ -66,10 +66,10 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 ## Provider 與 Shell 偵測語意
 
 - `src/agent-manifest.json` 是 TypeScript／Rust 的共同內建 metadata；不是 IPC 注入的外掛設定。parser、危險參數驗證與來源身份仍由型別實作控制。
-- `detect_history_sources` 只讀該 provider 在 manifest 中指定的來源環境變數與 HOME 預設資料根目錄：`CODEX_HOME`／`.codex`、`CLAUDE_CONFIG_DIR`／`.claude`、`GROK_HOME`／`.grok`。最多兩個候選根目錄，環境來源優先、canonical 去重；不搜尋 PATH／整顆磁碟、不遞迴、不讀對話檔案、不執行 CLI 或讀取其他工具的環境變數。僅確認目錄存在、型別與能否開啟讀取；缺少、無權限與其他失敗分開回報。root 必須為絕對 UTF-8 路徑、最多 4096 bytes、無控制字元；無效路徑回 `checkFailed`。
+- `detect_history_sources` 只讀該 provider 在 manifest 中指定的來源環境變數與 HOME 預設資料根目錄：`CODEX_HOME`／`.codex`、`CLAUDE_CONFIG_DIR`／`.claude`、`GROK_HOME`／`.grok`；Antigravity 僅 `.gemini/antigravity-cli`，沒有來源環境變數 override。最多兩個候選根目錄，環境來源優先、canonical 去重；不搜尋 PATH／整顆磁碟、不遞迴、不讀對話檔案、不執行 CLI 或讀取其他工具的環境變數。僅確認目錄存在、型別與能否開啟讀取；缺少、無權限與其他失敗分開回報。root 必須為絕對 UTF-8 路徑、最多 4096 bytes、無控制字元；無效路徑回 `checkFailed`。
 - 存在的候選 `root` 回 canonical 路徑；無效、過長、含控制字元或非 UTF-8 的輸入只回固定且有界的來源說明 placeholder，不把不可信原值完整傳入 IPC。`configured` 只比較同工具的已儲存來源，包含停用來源，以 canonical alias 判斷是否重複；`configuredSourceIds` 提供匹配的保存 ID。UI 以這些 ID 對照草稿中是否仍保留同一個原保存 root，避免使用者已移除／改路徑卻無法重新加入候選；尚未保存的新候選另外以 root 去重。已儲存來源快照最多 32 筆，不改任何 id、root、enabled、名稱或其他設定。UI 明確選擇新增草稿後才由使用者保存；偵測成功不自動啟用、保存或索引。
 - `found` 只代表來源根目錄可讀，空目錄仍是合法候選。Grok 另由 manifest `history.probeDirectory: 'sessions'` 有界檢查 `root/sessions`，但候選 root 始終為 `GROK_HOME`／`.grok`；子目錄缺少、無權限或無法檢查以 `message` 說明，不把來源 root 改成 sessions，也不列出其中內容。根目錄可讀時仍回 `found`，可由使用者明確加入。
-- Antigravity 回 `supported: false` 與空候選，不探查 CLI／App／IDE 資料。Antigravity 自己有歷史瀏覽能力，但 Session Bay 尚無經驗證的持久化 JSONL parser；此能力限制不等同該工具沒有歷史。
+- Antigravity CLI 回 `supported: true`，以 `probeDirectory: brain` 檢查官方 CLI root；不檢查 App／IDE，不用 stdout／最近 ID cache 取代歷史。未知持久化格式與版本驗收邊界見 [CLI 歷史相容性](antigravity-cli-history.md)。
 - `Installation.available` 只表示找到可執行檔。找不到時為 `available: false`、`status: 'missing'`，附上錯誤；bootstrap 只檢查路徑，找到時為 `available: true`、`status: 'available'`、`version: null`、`error: null`，不代表版本已檢查。`detect_installations` 使用共同 manifest 的版本 argv；成功填入 `version`，失敗／逾時則保持 `available: true`，改為 `status: 'versionCheckFailed'` 並附上 `error`。不得把版本失敗誤報為找不到執行檔。
 - 版本探測只傳工具的 `--version`（Grok 為 `version`），不用自訂 argv 或高風險旗標；cwd 為 `/`，不套用選取來源／專案環境。單次期限 2 秒、收集輸出最多 4096 bytes，逾時停止所管理程序。`loginStatus` 固定為 `unknown`，不得把路徑或版本探測成功標成已登入。
 - `detect_shells` 讀取有上限的 OS shell 清單、目前絕對 `$SHELL` 與絕對 PATH／標準 bin 位置中的已知 shell 名稱；只做檔案 metadata 探索、canonical 去重，不執行候選、不讀 rc 或歷史，不寫設定。候選保留首次找到的絕對路徑拼法，canonical 路徑只用於身份比較。
@@ -80,12 +80,12 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 
 ## Agent 選項與啟動計畫
 
-- 設定版本保留 `1`。缺少 `executables.grok`／`antigravity` 時補為 `grok`／`agy`；缺少或部分缺少 `agentOptions` 時逐工具／欄位補為 `extraArgs: []`、`bypassPermissions: false`。原來源清單不覆寫；只有全新預設設定加入 `grok-default`（`GROK_HOME` 或 `~/.grok`）。
+- 設定版本保留 `1`。缺少 `executables.grok`／`antigravity` 時補為 `grok`／`agy`；缺少或部分缺少 `agentOptions` 時逐工具／欄位補為 `extraArgs: []`、`bypassPermissions: false`。原來源清單不覆寫；只有全新預設設定依 registry 加入四工具來源，包含 `grok-default`（`GROK_HOME` 或 `~/.grok`）與 `antigravity-default`（`~/.gemini/antigravity-cli`）。
 - `extraArgs` 是逐項 argv，最多 64 個非空字串，每個最多 8192 bytes 且無 NUL；不做 Shell split、變數展開、去引號或命令替換。帶值選項可用相鄰元素或 `--flag=value`；布林 switch 不接受 `=value`。
 - 儲存設定及啟動計畫都透過 `launch_options.rs` 驗證工具專屬白名單、參數數量與已知權限值。cwd、Session 身份、來源與 config／remote override、任意子命令、位置參數及 `--` 不對自訂參數開放；錯誤包含可接受的選項。
 - `bypassPermissions` 是持久的明確 opt-in，預設 false；需同意的旗標／權限值仍在後端強制檢查。true 且沒有明確權限模式時追加該工具預設；明確 Codex sandbox／approval 模式、Claude permission mode、受限工具 allow／deny／額外目錄政策或工具自己的 bypass 旗標會抑制重複預設。Grok sandbox 與 auto-approve 分開處理。詳見 [整合規格](agent-integrations.md#每個-agent-的自訂參數與危險模式)。
 - `resumeId` 只接受 Grok／Antigravity 的手動外部 ID，不能同時帶 `sessionId`。長度 1–256 個 ASCII 字元，首字元為英數字，其餘只可為英數字、`-`、`_`、`.`；不接受空白、路徑、選項注入或自動選最近一次的快捷寫法。
-- 索引 `sessionId` 保持 catalog 身份與原有來源／歧義檢查；手動 `resumeId` 不建立 catalog 關聯，也不填入公開 `RuntimeInfo.sessionId`；Runtime 另外以工具、canonical 有效來源 root 與外部 ID 的私有 key 去重。同來源 Grok 手動與索引恢復互相去重；Antigravity 以 CLI 的資料 root 區分工具身份。Grok 手動恢復若有多個已啟用 Grok 來源會拒絕歧義。Antigravity 不支援索引恢復，也不虛構來源環境變數。
+- 索引 `sessionId` 保持 catalog 身份與原有來源／歧義檢查；手動 `resumeId` 不建立 catalog 關聯，也不填入公開 `RuntimeInfo.sessionId`；Runtime 另外以工具、canonical 有效來源 root 與外部 ID 的私有 key 去重。同來源 Grok 手動與索引恢復互相去重；Antigravity 以 CLI 的資料 root 區分工具身份。Grok 手動恢復若有多個已啟用 Grok 來源會拒絕歧義。Antigravity 索引恢復只接受目前 HOME 的 canonical 原生 CLI root、可信 UUID 與仍一致的檔案／metadata；備份與缺 transcript 的記錄回 resumeDisabledReason，backend 仍強制拒絕，不虛構來源環境變數或改 HOME。
 - 恢復 argv 依工具為 `resume <id>`（Codex）、`--resume <id>`（Claude／Grok）、`--conversation <id>`（Antigravity）；其後加入已驗證自訂參數及必要預設。Codex 最後加入應用管理的 `--cd <cwd>`，其餘以獨立 cwd 啟動；受支援歷史來源使用各自的來源環境變數。
 - `preview_launch` 與真正啟動共用 `plan_launch`，會檢查工具、目錄、設定與來源，只回傳 executable／args／cwd。預覽不 spawn，真正啟動時重新預檢；CLI 自有設定仍可能影響實際權限，因此 argv 預覽不是有效權限或成功恢復的保證。
 
@@ -104,3 +104,9 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 ## Shell 退出事件的前端行為
 
 `TerminalEvent.exit` 的結構不變。前端只有在普通 Shell pane 原為 `starting`／`running` 且 `exitCode === 0` 時自動移除該 pane；最後一個 pane 移除時同步移除所屬 tab。Agent、非零／null 結束碼與 error 保留診斷；已退出或布局還原占位不重複觸發。移出專案不產生 exit event、不呼叫 `stop_runtime`。
+
+## Antigravity CLI 歷史追加
+
+`Session.resumeDisabledReason` 是 nullable 的逐筆能力原因，適用所有 provider；非空表示可預覽但不可直接索引接續，UI 同時顯示原因與 disabled 狀態。backend preflight 不信任 UI 狀態；手動 ID 沿用不同入口，不虛構 catalog 關聯。
+
+`TranscriptPage.warning` 與 `stale` 可同時存在，UI 不以通用 stale 字樣遮掉來源原因；翻頁保留已有警告。`snapshotId` 是同一已索引來源快照的 opaque token，各頁相同，任何已索引內容變更時改變；stale 回應為 null。不得由 token 推測路徑或內容。索引 revision 改變時，同一 Session ID 也會重新讀取；只有背景刷新且非空 snapshotId 與最新頁內容均未改變，才保留已載入的較早頁和捲動位置。手動刷新、背景刷新缺少 token、快照變更或已知 token 不同的跨快照翻頁皆重新載入；舊分頁回應不能混入新 generation。TypeScript 欄位可省略，以容納舊測試／IPC fixture，缺少時採保守重載。來源格式、metadata 私密快照及 compaction 重建語意見 [CLI 歷史專章](antigravity-cli-history.md)。

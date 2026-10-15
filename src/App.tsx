@@ -452,6 +452,10 @@ export default function App() {
     setMaximizedId(null);
   };
   const resume = (session: Session, override?: Project) => {
+    if (session.resumeDisabledReason) {
+      notify(session.resumeDisabledReason);
+      return;
+    }
     const existing = Object.values(workspace.panes).find((p) => p.sessionId === session.id);
     const project = override ?? visibleProjects.find((p) => p.id === session.projectId);
     const resumeCwd = project?.launchPath || session.cwd || existing?.cwd || project?.path || '';

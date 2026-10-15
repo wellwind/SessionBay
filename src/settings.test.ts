@@ -457,16 +457,16 @@ describe('per-agent launch options', () => {
     expect(screen.getByRole('checkbox', { name: 'Grok Build 略過權限確認' })).not.toBeChecked();
     expect(screen.getByRole('button', { name: '重新偵測' })).toBeEnabled();
   });
-  it('explains Antigravity CLI limitations and never offers it as a history source', async () => {
+  it('offers Antigravity CLI history alongside other providers and distinguishes App data', async () => {
     const config = props({ installations: [{ kind: 'antigravity', executable: '/synthetic/agy', version: 'synthetic', available: true, error: null }] });
     render(createElement(SettingsPanel, config));
-    expect(screen.getByText(/CLI 工具 agy；與 Antigravity 桌面／IDE 歷史分開/)).toBeInTheDocument();
+    expect(screen.getByText(/不包含 App／IDE/)).toBeInTheDocument();
     const sourceKind = screen.getByRole('combobox', { name: 'Agent 類型' });
     fireEvent.click(sourceKind);
     const sourceOptions = within(screen.getByRole('listbox', { name: 'Agent 類型' }));
-    expect(sourceOptions.getAllByRole('option')).toHaveLength(3);
+    expect(sourceOptions.getAllByRole('option')).toHaveLength(4);
     for (const name of ['Codex', 'Claude Code', 'Grok Build']) expect(sourceOptions.getByRole('option', { name })).toBeInTheDocument();
-    expect(sourceOptions.queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
+    expect(sourceOptions.getByRole('option', { name: 'Antigravity CLI' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
     fireEvent.click(screen.getByRole('combobox', { name: '預設 Agent' }));
     expect(screen.getByRole('option', { name: 'Antigravity CLI' })).toBeInTheDocument();
@@ -484,12 +484,12 @@ describe('per-agent launch options', () => {
       sources: [{ id: 'source-a', kind: 'grok', root: '/synthetic/.grok', enabled: true }],
     }));
   });
-  it('rejects Antigravity history sources while allowing it as the default launch agent', () => {
+  it('accepts Antigravity CLI history sources and the default launch agent', () => {
     const settings = validSettings();
     settings.defaultAgent = 'antigravity';
     expect(validateSettings(settings)).toEqual({});
     settings.sources[0].kind = 'antigravity';
-    expect(validateSettings(settings)['sources.0.kind']).toBeTruthy();
+    expect(validateSettings(settings)).toEqual({});
   });
 });
 
@@ -541,7 +541,7 @@ describe('fixed provider history capabilities', () => {
       expect(provider.history.supported).toBe(provider.history.parserId !== null);
       if (provider.history.supported) {
         expect(provider.history.parserId).toBe(provider.id);
-        expect(provider.history.sourceEnv).toMatch(/^[A-Z_]+$/);
+        if (provider.history.sourceEnv !== null) expect(provider.history.sourceEnv).toMatch(/^[A-Z_]+$/);
         expect(provider.history.rootPlaceholder).toMatch(/^\//);
       } else {
         expect(provider.history.sourceEnv).toBeNull();
@@ -553,7 +553,7 @@ describe('fixed provider history capabilities', () => {
 
   it('derives compatible names, executables, history providers and resume semantics from one registry', () => {
     expect(Object.keys(agentCapabilities)).toEqual([...agentKinds]);
-    expect(historyAgentKinds).toEqual(['codex', 'claude', 'grok']);
+    expect(historyAgentKinds).toEqual(['codex', 'claude', 'grok', 'antigravity']);
     for (const kind of agentKinds) {
       expect(agentNames[kind]).toBe(agentCapabilities[kind].name);
       expect(executableDefaults[kind]).toBe(agentCapabilities[kind].executable);
@@ -561,7 +561,7 @@ describe('fixed provider history capabilities', () => {
     }
     expect(agentCapabilities.grok.history).toMatchObject({ supported: true, sourceEnv: 'GROK_HOME' });
     expect(agentCapabilities.grok.resume).toMatchObject({ manualId: true, argument: '--resume' });
-    expect(agentCapabilities.antigravity).toMatchObject({ executable: 'agy', history: { supported: false, sourceEnv: null, rootPlaceholder: null } });
+    expect(agentCapabilities.antigravity).toMatchObject({ executable: 'agy', history: { supported: true, sourceEnv: null, rootPlaceholder: '/Users/you/.gemini/antigravity-cli' } });
     expect(agentCapabilities.antigravity.resume).toMatchObject({ manualId: true, argument: '--conversation' });
   });
   it('always renders four history providers for older two-source settings without mutating or enabling sources', () => {
@@ -576,7 +576,7 @@ describe('fixed provider history capabilities', () => {
     expect(providerHistory('grok').queryByRole('textbox')).not.toBeInTheDocument();
     expect(providerHistory('claude').getByRole('checkbox', { name: '啟用資料來源 2' })).not.toBeChecked();
     expect(providerHistory('codex').getByRole('textbox', { name: 'CODEX_HOME 資料目錄' })).toHaveValue('/synthetic/custom-codex');
-    expect(providerHistory('antigravity').getByText('歷史尚不支援')).toBeInTheDocument();
+    expect(providerHistory('antigravity').getByText('尚未設定來源')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新偵測' })).toBeEnabled();
     expect(config.onSave).not.toHaveBeenCalled();
     expect(config.onScan).not.toHaveBeenCalled();
@@ -632,7 +632,7 @@ describe('fixed provider history capabilities', () => {
     render(createElement(SettingsPanel, config));
     const selector = screen.getByRole('combobox', { name: '新增來源的 Agent' });
     fireEvent.click(selector);
-    expect(screen.getAllByRole('option')).toHaveLength(3);
+    expect(screen.getAllByRole('option')).toHaveLength(4);
     for (const name of ['Codex', 'Claude Code', 'Grok Build']) expect(screen.getByRole('option', { name })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
     await userEvent.click(screen.getByRole('button', { name: '新增來源' }));
@@ -655,17 +655,17 @@ describe('fixed provider history capabilities', () => {
     expect(providerHistory('grok').queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重新掃描' })).toBeEnabled();
   });
-  it('shows Antigravity launch and manual resume separately from unsupported history even when its CLI is installed', () => {
-    render(createElement(SettingsPanel, props({ installations: [{ kind: 'antigravity', executable: '/synthetic/agy', version: 'test', available: true, error: null }] })));
+  it('shows installed Antigravity and unconfigured history as independent states', () => {
+    render(createElement(SettingsPanel, props({ onDetectHistorySources: vi.fn(), installations: [{ kind: 'antigravity', executable: '/synthetic/agy', version: 'test', available: true, error: null }] })));
     const history = providerHistory('antigravity');
     expect(history.getByText('CLI 可啟動')).toBeInTheDocument();
-    expect(history.getByText('歷史尚不支援')).toBeInTheDocument();
-    expect(history.getByText(/agy --conversation/)).toBeInTheDocument();
+    expect(history.getByText('尚未設定來源')).toBeInTheDocument();
+    expect(history.getByText(/不包含 App／IDE/)).toBeInTheDocument();
     expect(history.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(history.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' })).toBeDisabled();
+    expect(history.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' })).toBeEnabled();
     expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('combobox', { name: '新增來源的 Agent' }));
-    expect(screen.queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Antigravity CLI' })).toBeInTheDocument();
   });
   it.each([
     { status: 'ready', files: 3, expected: '可讀取 · 3 個檔案' },
@@ -897,7 +897,7 @@ describe('explicit history source discovery', () => {
     expect(screen.getByRole('button', { name: '加入 Codex 偵測來源 /canonical-existing' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: '加入 Codex 偵測來源 /denied' })).not.toBeInTheDocument();
     expect(config.onSave).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' })).toBeEnabled();
   });
   it('shows detection failure, retries explicitly and permits cancelling without changing settings', async () => {
     const discover = vi.fn().mockRejectedValueOnce(new Error('Synthetic source discovery failure')).mockResolvedValueOnce({ kind: 'grok', supported: true, candidates: [], message: 'No configured home.' });
@@ -929,4 +929,37 @@ it('allows a discovered canonical root to be re-added after its saved alias was 
   expect(screen.getByDisplayValue('/canonical/.codex')).toBeInTheDocument();
   expect(config.onSave).not.toHaveBeenCalled();
   expect(config.settings.sources[0].root).toBe('/home/test/.codex');
+});
+
+it('detects and explicitly saves a CLI-only Antigravity source without installing or launching it', async () => {
+  const settings = olderHistorySettings();
+  const original = structuredClone(settings);
+  const root = '/synthetic/.gemini/antigravity-cli';
+  const discover = vi.fn().mockResolvedValue({ kind: 'antigravity', supported: true, candidates: [
+    { kind: 'antigravity', root, status: 'found', configured: false, configuredSourceIds: [], message: 'CLI brain directory is readable.' },
+  ] });
+  const config = props({ settings, onDetectHistorySources: discover });
+  render(createElement(SettingsPanel, config));
+  const card = providerHistory('antigravity');
+  expect(card.getByText('CLI 尚未偵測')).toBeInTheDocument();
+  expect(card.getByText('尚未設定來源')).toBeInTheDocument();
+  fireEvent.click(card.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' }));
+  const add = await screen.findByRole('button', { name: `加入 Antigravity CLI 偵測來源 ${root}` });
+  expect(discover).toHaveBeenCalledExactlyOnceWith('antigravity');
+  expect(config.onSave).not.toHaveBeenCalled();
+  expect(config.onScan).not.toHaveBeenCalled();
+  expect(config.onDetect).not.toHaveBeenCalled();
+  expect(card.queryByRole('textbox')).not.toBeInTheDocument();
+  fireEvent.click(add);
+  const field = card.getByRole('textbox', { name: 'Antigravity CLI 資料目錄' });
+  expect(field).toHaveValue(root);
+  expect(field).toHaveAttribute('placeholder', '/Users/you/.gemini/antigravity-cli');
+  expect(add).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+  await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+  expect(vi.mocked(config.onSave).mock.calls[0][0].sources).toEqual([
+    ...original.sources, { id: expect.any(String), kind: 'antigravity', root, enabled: true },
+  ]);
+  expect(settings).toEqual(original);
+  expect(config.onScan).not.toHaveBeenCalled();
 });

@@ -146,7 +146,7 @@ Agent 安裝／版本重新偵測與歷史索引分離，Shell 偵測也只回�
 
 ## Agent 啟動計畫與選項邊界
 
-四個 Agent kind 共用 Runtime；`grok` 對應 Grok Build，`antigravity` 對應 `agy` CLI。歷史能力另分開：Codex／Claude／Grok 進 catalog，Antigravity 僅提供啟動與手動 ID，不能因 enum 擴充就假定支援所有 transcript。
+四個 Agent kind 共用 Runtime；`grok` 對應 Grok Build，`antigravity` 對應 `agy` CLI。歷史能力另分開：四者以各自 adapter 進 catalog；Antigravity 只解析 CLI 已觀察的持久化 step 與 metadata，未知格式以警告降級。Session 的 resumeDisabledReason 與 backend preflight 獨立控制可否接續；不能因 enum／history supported 就假定所有記錄都可恢復。
 
 `Settings.agentOptions` 按工具保存 argv 與 opt-in，舊設定透過 serde 預設安全補齊。`launch_options` 集中驗證白名單、值、長度與危險選項；不接受任意 config、cwd、來源、身份或子命令覆寫。明確權限模式優先於危險預設，源頭仍由使用者勾選同意。
 

@@ -11,7 +11,7 @@ Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋�
 | Codex CLI／`codex` | `codex` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
 | Claude Code CLI／`claude` | `claude` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
 | Grok Build／`grok` | `grok` | 本批新增唯讀 summary／updates adapter | 新工作、索引 Session 或手動 ID 恢復 |
-| Antigravity CLI／`antigravity` | `agy` | **尚不支援**，固定顯示能力卡片與限制，不提供可索引來源設定 | 新工作、手動 conversation ID 恢復 |
+| Antigravity CLI／`antigravity` | `agy` | CLI metadata＋持久化 step 防禦 reader；1.3.5 真實樣本待驗證 | 新工作、手動 ID；通過原生來源／身份檢查的索引 Session 接續 |
 | Gemini CLI、OpenCode、Aider 等 | 未整合 | 個別研究 | 後續候選 |
 | 各工具桌面版、IDE 與雲端紀錄 | 分別評估 | 不因 CLI 支援就假定涵蓋 | 不自動附接外部程序 |
 
@@ -21,7 +21,7 @@ Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋�
 
 設定以 TypeScript／Rust 共用的 `src/agent-manifest.json` 內建能力登錄固定列出四工具卡片，不依執行檔偵測、是否曾啟動或來源數量決定可見性。工具是否可執行、是否有歷史 adapter、來源是否已設定／啟用及來源健康各自呈現；多個自訂來源仍按工具管理，不合併來源身份。
 
-全新設定預置 Codex／Claude／Grok 來源；升級則保留原本來源的 ID、root 與 enabled。因此舊設定可能只有前兩者，原因與是否曾開啟 Grok 無關。Grok 卡片在缺來源時提供設定入口，先加入可編輯草稿，使用者填入絕對路徑並保存後才生效；不從前端猜使用者 home，也不在升級或開啟設定時自動開始索引新根目錄。Antigravity 卡片始終明示歷史尚不支援，不能把啟動能力或已知 transcript 位置當成 parser。
+全新設定依 registry 預置四個 CLI 來源；升級則保留原本來源的 ID、root 與 enabled。因此舊設定可能只有前兩者，原因與是否曾開啟 Grok 無關。Grok 卡片在缺來源時提供設定入口，先加入可編輯草稿，使用者填入絕對路徑並保存後才生效；不從前端猜使用者 home，也不在升級或開啟設定時自動開始索引新根目錄。Antigravity CLI 卡片沿用同一偵測／新增／保存流程；來源沒有環境變數 override，不因自訂備份 root 就改 HOME。
 
 ## 內建 provider 登錄與偵測
 
@@ -83,11 +83,11 @@ project 資料夾名稱可能來自路徑編碼，但編碼不保證可逆；優
 
 啟動執行檔為 `agy`，指定對話使用 `agy --conversation <id>`。新增工作可留空 ID；有 ID 時交由原 CLI 載入。手動 ID 與 catalog 的 `sessionId` 不同，不保證本機存在、已登入帳號可讀或成功恢復。[官方 resume 文件](https://antigravity.google/docs/cli/commands/resume/)
 
-官方 hooks 文件提供 `transcriptPath`，也區分 CLI、App 與 IDE 的資料位置；但這不足以確認 transcript 事件 schema、分支與完整恢復語意。本批不據此聲稱已支援 Antigravity 歷史索引、搜尋、預覽或桌面／IDE 整合，亦不讀取其憑證。[官方 hooks 文件](https://antigravity.google/docs/hooks)
+官方 hooks 確認資料位置；本批另以公開持久化 row 觀察與版本化實作證據建立 CLI 防禦 reader，未拿 stdout stream-json 當磁碟格式。CLI／App／IDE 維持不同資料面；本輪只涵蓋使用者確認的 CLI。完整 schema 證據、讀取與接續邊界見[Antigravity CLI 歷史](antigravity-cli-history.md)。1.3.5 真實資料與互動接續仍待驗證，不讀取憑證。[官方 hooks 文件](https://antigravity.google/docs/hooks)
 
 ## 每個 Agent 的自訂參數與危險模式
 
-`Settings.agentOptions` 以四個 kind 分別保存 `{ extraArgs: string[], bypassPermissions: boolean }`。舊設定缺少選項時補為空陣列與 `false`；新增執行檔欄位補成 `grok`／`agy`，不變更使用者既有權限選擇或已保存的來源清單；既有設定需自行新增 Grok 來源，全新設定才預置 `grok-default`。
+`Settings.agentOptions` 以四個 kind 分別保存 `{ extraArgs: string[], bypassPermissions: boolean }`。舊設定缺少選項時補為空陣列與 `false`；新增執行檔欄位補成 `grok`／`agy`，不變更使用者既有權限選擇或已保存的來源清單；既有設定需明確新增缺少的 Grok／Antigravity 來源，全新設定才依 registry 預置。
 
 設定中的參數使用 JSON 字串陣列，例如 `["--model", "your-model-id"]`；每個元素就是一個 argv，含空白的值仍是一個元素，不需要 Shell 引號。最多 64 個非空參數，每項最多 8 KiB，不允許 NUL。模型 ID 需依安裝的 CLI 與帳號能力選擇。
 
@@ -169,4 +169,4 @@ usage 解析保留來源 locator 與 token 包含關係。resume、fork、子代
 
 設定可透過共用 `detect_history_sources(kind)` 檢查 registry 的 `sourceEnv` 與 `defaultDirectory`，最多兩個 root，並用 canonical path 去重已儲存來源。`found` 只表示來源根目錄可讀，不表示已找到任何 Session。Grok 的 `probeDirectory=sessions` 另檢查歷史子目錄；加入值仍是 Grok 資料根。偵測不啟動 CLI、不讀 transcript、不遞迴掃描、不自動保存／索引。環境變數只讀取 registry allowlist。
 
-Antigravity 官方 CLI 的 `/resume` 本身可列表、搜尋與接續歷史；目前缺的是 SessionBay 的可信歷史 adapter。CLI、App、IDE 資料面不同，App 匯入 CLI 是明確 clone。後續需固定產品與版本、權威 metadata／JSONL serializer 或去識別 fixture，以及 fork／rewind／compaction 重寫規則；不能以最近對話 cache 或 stdout stream-json 冒充全歷史格式。
+Antigravity CLI 使用 `defaultDirectory=.gemini/antigravity-cli`、`probeDirectory=brain`，不讀 App／IDE 根目錄。官方 `/resume` 與 Session Bay 的防禦 reader 是不同能力；後者的相容性證據與剩餘 1.3.5 驗收見[專章](antigravity-cli-history.md)。最近對話 cache 或 stdout stream-json 都不能冒充完整持久化歷史。

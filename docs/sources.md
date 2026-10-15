@@ -120,3 +120,7 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - [xterm.js CompositionHelper 原始碼](https://github.com/xtermjs/xterm.js/blob/master/src/browser/input/CompositionHelper.ts)：本輪測試讀取 lockfile 鎖定的 xterm 5.5.0 實作，重現 Caps Lock 提前 finalize 後 compositionend 重送；合成事件不代替真實 macOS 輸入法驗收。
 - [Chrome 鍵盤快捷鍵](https://support.google.com/chrome/answer/157179?co=GENIE.Platform%3DDesktop&hl=en)：使用者指定的工作分頁操作參考；應用保留鍵、組字與模態對話框邊界見 UX 規格，不宣稱攔截所有 OS 全域快捷鍵。
+
+## Antigravity CLI 持久化格式補充（2026-10-15）
+
+本輪後續取得公開持久化 row 與版本化 metadata reader 證據，取代上表當時「本批不建歷史 adapter」的暫定範圍。完整來源、原始 capture 版本／社群實作的證據強度、SQLite 唯讀設計及尚缺的 1.3.5 驗收，見 [Antigravity CLI 歷史相容性](antigravity-cli-history.md)。不把官方路徑文件、stdout stream-json 或社群聲稱的版本範圍當穩定 schema 保證。

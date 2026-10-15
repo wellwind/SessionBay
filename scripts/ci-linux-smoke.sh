@@ -26,10 +26,11 @@ smoke_environment() {
 }
 
 smoke_seed_fixture() {
-  # No real tool executables, credentials, SQLite writes, or PTY launches. Normal adapters
-  # index these JSONL files; the smoke probe curates the two existing fixture directories.
+  # No real tool executables, credentials, or PTY launches. SQLite writes below create
+  # only synthetic metadata inside this temporary HOME, never a real source or catalog.
+  # Normal adapters index these fixtures; the UI curates two existing directories.
   python3 - "$1" <<'PY'
-import json, os, pathlib, sys
+import json, os, pathlib, sqlite3, sys
 assert sys.argv[1] in ('dark', 'light')
 home = pathlib.Path(os.environ['HOME'])
 root = home / 'sessionbay-smoke-fixture'
@@ -51,13 +52,31 @@ for number, (directory, title) in enumerate([
     (root/f'codex/sessions/2026/01/01/smoke-{number}.jsonl').write_text('\n'.join(json.dumps(item, ensure_ascii=False) for item in records)+'\n')
 claude = [{'type': role, 'sessionId': 'smoke-claude-1', 'uuid': f'smoke-message-{index}', 'cwd': str(root/'workspaces/harbor'), 'timestamp': f'2026-01-16T08:0{index}:00Z', 'message': {'role': role, 'content': [{'type': 'text', 'text': text}]}} for index, (role, text) in enumerate([('user', '為專案導覽補上鍵盤測試'), ('assistant', '確認選取、焦點與取消操作；保持已開啟的工作區。')])]
 (root/'claude/projects/smoke/session.jsonl').write_text('\n'.join(json.dumps(item, ensure_ascii=False) for item in claude)+'\n')
+# Observed persisted CLI shape, independently authored data. This is not a captured
+# CLI 1.3.5 compatibility fixture and does not validate actual CLI resume.
+antigravity = home / '.gemini/antigravity-cli'
+conversation_id = '11111111-1111-4111-8111-111111111111'
+logs = antigravity / 'brain' / conversation_id / '.system_generated/logs'
+logs.mkdir(parents=True)
+steps = [
+    {'step_index': 1, 'source': 'USER_EXPLICIT', 'type': 'USER_INPUT', 'status': 'DONE', 'created_at': '2026-01-17T09:00:00Z', 'content': '<USER_REQUEST>SESSIONBAY_SYNTHETIC_AG_USER：檢查唯讀歷史預覽。</USER_REQUEST>'},
+    {'step_index': 2, 'source': 'MODEL', 'type': 'PLANNER_RESPONSE', 'status': 'DONE', 'created_at': '2026-01-17T09:01:00Z', 'content': 'SESSIONBAY_SYNTHETIC_AG_ASSISTANT：合成回覆已顯示，沒有啟動 Agent。'},
+]
+(logs/'transcript.jsonl').write_text('\n'.join(json.dumps(item, ensure_ascii=False) for item in steps)+'\n')
+database = sqlite3.connect(antigravity/'conversation_summaries.db')
+try:
+    database.execute('CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT, preview TEXT, last_modified_time TEXT, workspace_uris TEXT, parent_conversation_id TEXT)')
+    database.execute('INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?, ?)', (conversation_id, '合成 Antigravity CLI 歷史', 'SESSIONBAY_SYNTHETIC_METADATA_NOT_TRANSCRIPT', '2026-01-17T09:01:00Z', json.dumps([(root/'workspaces/harbor').as_uri()]), ''))
+    database.commit()
+finally:
+    database.close()
 kinds = ['codex', 'claude', 'grok', 'antigravity']
 settings = {
     'version': 1, 'theme': sys.argv[1], 'terminalTheme': 'bay',
     'fontFamily': 'ui-monospace, SFMono-Regular, Menlo, monospace', 'fontSize': 14,
     'defaultAgent': 'codex', 'defaultProfileId': 'smoke-shell',
     'profiles': [{'id': 'smoke-shell', 'name': 'POSIX Shell · 預覽專用', 'executable': '/bin/sh', 'args': [], 'env': {}}],
-    'sources': [{'id': f'sessionbay-smoke-{kind}', 'kind': kind, 'root': str(root/kind), 'enabled': True} for kind in ['codex', 'claude']],
+    'sources': [{'id': f'sessionbay-smoke-{kind}', 'kind': kind, 'root': str(root/kind), 'enabled': True} for kind in ['codex', 'claude']] + [{'id': 'sessionbay-smoke-antigravity', 'kind': 'antigravity', 'root': str(antigravity), 'enabled': True}],
     'executables': {kind: str(root/'unavailable-cli'/kind) for kind in kinds},
     'agentOptions': {kind: {'extraArgs': [], 'bypassPermissions': False} for kind in kinds},
     'shortcuts': {}, 'onboardingComplete': False,

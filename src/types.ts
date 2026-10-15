@@ -57,6 +57,7 @@ export interface Session {
   sourceId: string;
   kind: AgentKind;
   externalId: string;
+  resumeDisabledReason?: string | null;
   projectId: string;
   title: string;
   cwd: string | null;
@@ -89,6 +90,7 @@ export interface TranscriptMessage {
   line: number;
 }
 export interface TranscriptPage {
+  snapshotId?: string | null;
   messages: TranscriptMessage[];
   hasMore: boolean;
   beforeLine: number | null;

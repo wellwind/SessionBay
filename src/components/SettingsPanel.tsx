@@ -612,7 +612,7 @@ export function SettingsPanel({
                             <p className="settings-version">
                               {installation?.available
                                 ? installation.version || '已找到執行檔'
-                                : kind === 'antigravity' ? '支援啟動／指定對話 ID 恢復，尚不索引歷史' : '仍可瀏覽已存在的歷史紀錄'}
+                                : agentCapabilities[kind].history.supported ? '仍可瀏覽已存在的歷史紀錄' : '支援啟動／指定對話 ID 恢復，尚不索引歷史'}
                             </p>
                             <label className="settings-field">
                               <span>執行檔路徑</span>
@@ -773,7 +773,7 @@ export function SettingsPanel({
                                             options={historyAgentKinds.map((option) => ({ value: option, label: agentNames[option], icon: <AgentIcon kind={option} /> }))} />
                                         </label>
                                         <label className="settings-field">
-                                          <span>{capability.history.sourceEnv} 資料目錄</span>
+                                          <span>{capability.history.sourceEnv || capability.name} 資料目錄</span>
                                           <input id={`source-root-${source.id}`} value={source.root} placeholder={capability.history.rootPlaceholder!}
                                             onChange={(event) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, root: event.target.value } : item))}
                                             spellCheck={false} aria-invalid={Boolean(errors[`sources.${i}.root`])} aria-describedby={`source-${i}-error`} />

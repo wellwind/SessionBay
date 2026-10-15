@@ -1,6 +1,7 @@
 //! SQLite catalog and cancellable, read-only JSONL reconciliation.
 //! Connections are operation-local; WAL readers never share a scan's connection.
 use crate::adapters::{self, ParsedState, MAX_LINE_BYTES, PARSER_VERSION};
+use crate::antigravity_metadata::{self, MetadataIndex};
 use crate::models::*;
 use crate::providers::{self, ParserId};
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -9,7 +10,7 @@ use rusqlite::{
     TransactionBehavior,
 };
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, Metadata};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
@@ -18,7 +19,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
 const SCHEMA_VERSION: i64 = 3;
-const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial";
+const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial,(SELECT root FROM sources WHERE id=s.source_id),(SELECT identity FROM files WHERE session_id=s.id LIMIT 1)";
 const MAX_ERRORS: usize = 100;
 const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_PREVIEW_PAGE_BYTES: usize = 1024 * 1024;
@@ -603,7 +604,15 @@ impl Catalog {
     ) -> Result<TranscriptPage, String> {
         let conn = self.connect()?;
         let conn = conn.unchecked_transaction().map_err(error)?;
-        let session = self.session(id)?;
+        let session = conn
+            .query_row(
+                &format!("SELECT {SESSION_COLUMNS} FROM sessions s WHERE s.id=?1"),
+                [id],
+                session_row,
+            )
+            .optional()
+            .map_err(error)?
+            .ok_or("Session not found. Refresh the history index.")?;
         let file: Option<(i64,String,String,u64,String,u64)> = conn.query_row(
             "SELECT id,path,identity,size,modified,offset FROM files WHERE session_id=?1 ORDER BY archived ASC,modified DESC,path LIMIT 1", [id],
             |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get::<_,i64>(3)? as u64,r.get(4)?,r.get::<_,i64>(5)? as u64))).optional().map_err(error)?;
@@ -612,6 +621,54 @@ impl Catalog {
                 "The source transcript is no longer indexed. Refresh the index.",
             ));
         };
+        let (state_json, prefix_hash, parser_version): (String, String, i64) = conn
+            .query_row(
+                "SELECT state,prefix_hash,parser_version FROM files WHERE id=?1",
+                [file_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(error)?;
+        let duplicate_files: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE session_id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(error)?;
+        // Opaque stable token for the entire indexed transcript, not just this page.
+        // No filesystem spelling or transcript prose is returned to the frontend.
+        let snapshot_id = Some(format!(
+            "snapshot-{}",
+            hash_id(&[
+                id,
+                &identity,
+                &prefix_hash,
+                &parser_version.to_string(),
+                &state_json,
+                &duplicate_files.to_string(),
+                &session.partial.to_string()
+            ])
+        ));
+        let ag_checkpoint = if session.kind == AgentKind::Antigravity {
+            let state: ParsedState = serde_json::from_str(&state_json).map_err(error)?;
+            let root: String = conn
+                .query_row(
+                    "SELECT root FROM sources WHERE id=?1",
+                    [&session.source_id],
+                    |row| row.get(0),
+                )
+                .map_err(error)?;
+            match antigravity_metadata::read_metadata(Path::new(&root), &AtomicBool::new(false)) {
+                Ok(current) if Some(&current.fingerprint) == state.antigravity_metadata_hash.as_ref() => {},
+                _ => return Ok(stale_page("Antigravity metadata changed or could not be verified. Refresh the index before loading the transcript.")),
+            }
+            Some(prefix_hash)
+        } else {
+            None
+        };
+        if identity == "antigravity-metadata-only" {
+            return Ok(TranscriptPage { messages: vec![], has_more: false, before_line: None, stale: false, snapshot_id, warning: Some("Only conversation metadata or its directory identity is available. The official Antigravity CLI transcript.jsonl is missing; content cannot be previewed or searched. transcript_full.jsonl is never used to restore possibly cleared content.".into()) });
+        }
         let metadata = match fs::metadata(&path) {
             Ok(metadata) => metadata,
             Err(_) => {
@@ -645,14 +702,7 @@ impl Catalog {
             }
             grok_metadata_hash = state.grok_metadata_hash;
         }
-        let duplicate_files: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM files WHERE session_id=?1",
-                [id],
-                |r| r.get(0),
-            )
-            .map_err(error)?;
-        let mut handle = File::open(&path)
+        let mut handle = open_transcript(Path::new(&path), session.kind)
             .map_err(|_| "The transcript is not readable. Check source permissions.".to_owned())?;
         let opened = handle.metadata().map_err(error)?;
         if file_identity(&opened) != identity
@@ -663,9 +713,16 @@ impl Catalog {
                 "The transcript changed while opening it. Refresh the index.",
             ));
         }
+        if ag_checkpoint.as_ref().is_some_and(|expected| {
+            prefix_digest(&mut handle, _offset, &AtomicBool::new(false)).as_ref() != Ok(expected)
+        }) {
+            return Ok(stale_page(
+                "Antigravity transcript contents changed after indexing. Refresh the index.",
+            ));
+        }
         let limit = limit.clamp(1, 200);
-        let before = before_line.unwrap_or(i64::MAX as u64).min(i64::MAX as u64) as i64;
-        let mut stmt = conn.prepare("SELECT line,byte_offset,byte_len,role,timestamp,placeholder FROM messages WHERE file_id=?1 AND line<?2 AND hidden=0 ORDER BY line DESC LIMIT ?3").map_err(error)?;
+        let before = before_line.map(|line| line.min(i64::MAX as u64) as i64);
+        let mut stmt = conn.prepare("SELECT line,byte_offset,byte_len,role,timestamp,placeholder FROM messages WHERE file_id=?1 AND (?2 IS NULL OR line<?2) AND hidden=0 ORDER BY line DESC LIMIT ?3").map_err(error)?;
         let locators = stmt
             .query_map(params![file_id, before, (limit + 1) as i64], |r| {
                 Ok((
@@ -783,13 +840,35 @@ impl Catalog {
                 "Grok metadata changed while reading the transcript. Refresh the index.",
             ));
         }
+        if ag_checkpoint.as_ref().is_some_and(|expected| {
+            prefix_digest(&mut handle, _offset, &AtomicBool::new(false)).as_ref() != Ok(expected)
+        }) {
+            return Ok(stale_page(
+                "Antigravity transcript contents changed while loading. Refresh the index.",
+            ));
+        }
         let mut warning = if duplicate_files > 1 {
             Some("Multiple transcript files have this source/session identity. Showing one file; resume is blocked until the ambiguity is resolved.".into())
+        } else if session.partial && session.kind == AgentKind::Antigravity {
+            Some("This Antigravity transcript or its metadata is incomplete. Unsupported, cleared, truncated, or conflicting records may be omitted; available messages are not guaranteed to be the complete conversation.".into())
         } else if session.partial {
             Some("This transcript is incomplete or contains unsupported records. Placeholders indicate omitted content.".into())
         } else {
             None
         };
+        if session.kind == AgentKind::Antigravity {
+            let state_json: String = conn
+                .query_row("SELECT state FROM files WHERE id=?1", [file_id], |row| {
+                    row.get(0)
+                })
+                .map_err(error)?;
+            let state: ParsedState = serde_json::from_str(&state_json).map_err(error)?;
+            if let Some(note) = state.history_warning {
+                warning = Some(
+                    warning.map_or_else(|| note.clone(), |existing| format!("{existing} {note}")),
+                );
+            }
+        }
         if shortened {
             let note = "Some messages were shortened to 64 KiB for preview; complete text within supported records remains searchable.";
             warning = Some(
@@ -802,11 +881,15 @@ impl Catalog {
             before_line,
             stale: false,
             warning,
+            snapshot_id,
         })
     }
 
     pub fn resume_source(&self, session_id: &str) -> Result<(Session, HistorySource), String> {
         let session = self.session(session_id)?;
+        if let Some(reason) = &session.resume_disabled_reason {
+            return Err(reason.clone());
+        }
         let conn = self.connect()?;
         let conn = conn.unchecked_transaction().map_err(error)?;
         let source = conn
@@ -840,7 +923,7 @@ impl Catalog {
                 |r| r.get(0),
             )
             .map_err(error)?;
-        if copies != 1 {
+        if copies != 1 && session.kind != AgentKind::Antigravity {
             return Err("This session ID exists in multiple history sources. Disable the other source and refresh before resuming; Session Bay will not guess.".into());
         }
         let mut stmt = conn
@@ -873,6 +956,20 @@ impl Catalog {
             return Err("This file contains conflicting session identities. Resume is blocked until the source is corrected.".into());
         }
         let (path, identity, size, modified) = &paths[0];
+        if source.kind == AgentKind::Antigravity {
+            if let Some(reason) =
+                antigravity_resume_disabled_reason(&source.root, &session.external_id)
+            {
+                return Err(reason);
+            }
+            let current = antigravity_metadata::read_metadata(
+                Path::new(&source.root),
+                &AtomicBool::new(false),
+            )?;
+            if Some(current.fingerprint) != parsed_state.antigravity_metadata_hash {
+                return Err("Antigravity metadata changed after indexing. Refresh the index before resuming.".into());
+            }
+        }
         if source.kind == AgentKind::Grok {
             if grok_metadata(Path::new(path))?.grok_metadata_hash != parsed_state.grok_metadata_hash
             {
@@ -890,7 +987,7 @@ impl Catalog {
                 );
             }
         }
-        let file = File::open(path).map_err(|_| {
+        let mut file = open_transcript(Path::new(path), session.kind).map_err(|_| {
             "The source transcript is missing or unreadable. Refresh the index.".to_owned()
         })?;
         let metadata = file.metadata().map_err(error)?;
@@ -901,6 +998,20 @@ impl Catalog {
             return Err(
                 "The transcript changed after indexing. Refresh the index before resuming.".into(),
             );
+        }
+        if source.kind == AgentKind::Antigravity {
+            let (offset, expected): (i64, String) = conn
+                .query_row(
+                    "SELECT offset,prefix_hash FROM files WHERE session_id=?1 LIMIT 1",
+                    [session_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(error)?;
+            if !antigravity_path_is_safe(Path::new(&source.root), Path::new(path))
+                || prefix_digest(&mut file, offset as u64, &AtomicBool::new(false))? != expected
+            {
+                return Err("Antigravity transcript contents or path changed. Refresh the index before resuming.".into());
+            }
         }
         if session.external_id.trim().is_empty()
             || session.external_id.starts_with('-')
@@ -989,7 +1100,7 @@ impl Catalog {
             discoveries.push((source, files, complete));
         }
         progress(status.clone());
-        for (source, files, complete) in discoveries {
+        for (source, mut files, complete) in discoveries {
             if cancel.load(Ordering::Relaxed) {
                 status.cancelled = true;
                 break;
@@ -997,6 +1108,78 @@ impl Catalog {
             if !source.enabled {
                 continue;
             }
+            let ag_metadata = if source.kind == AgentKind::Antigravity
+                && Path::new(&source.root).is_dir()
+            {
+                match antigravity_metadata::read_metadata(Path::new(&source.root), cancel) {
+                    Ok(metadata) => {
+                        // Full logs can retain content cleared from the official log.
+                        // Their existence identifies a conversation, never authoritative prose.
+                        for path in &mut files {
+                            if path
+                                .file_name()
+                                .is_some_and(|name| name == "transcript_full.jsonl")
+                            {
+                                *path = path.with_file_name("transcript.jsonl");
+                            }
+                        }
+                        let present: HashSet<_> = files
+                            .iter()
+                            .filter_map(|path| {
+                                antigravity_transcript_id(Path::new(&source.root), path)
+                            })
+                            .collect();
+                        for id in metadata.records.keys() {
+                            if !present.contains(id) {
+                                files
+                                    .push(antigravity_transcript_path(Path::new(&source.root), id));
+                                status.total += 1;
+                            }
+                        }
+                        if let Some(health) = status
+                            .sources
+                            .iter_mut()
+                            .find(|health| health.source_id == source.id)
+                        {
+                            health.files = files.len();
+                            if !files.is_empty() && health.status == "empty" {
+                                health.status = "ready".into();
+                                health.message = None;
+                            }
+                        }
+                        if !metadata.warnings.is_empty() && !files.is_empty() {
+                            if let Some(health) = status.sources.iter_mut().find(|health| {
+                                health.source_id == source.id && health.status != "error"
+                            }) {
+                                health.status = "partial".into();
+                                health.message = Some(metadata.warnings.join(" "));
+                            }
+                        }
+                        Some(metadata)
+                    }
+                    Err(message) => {
+                        if cancel.load(Ordering::Relaxed) {
+                            status.cancelled = true;
+                            break;
+                        }
+                        if status.errors.len() < MAX_ERRORS {
+                            status.errors.push(format!("{}: {message}", source.id));
+                        }
+                        if let Some(health) = status
+                            .sources
+                            .iter_mut()
+                            .find(|health| health.source_id == source.id)
+                        {
+                            health.status = "error".into();
+                            health.message = Some(format!("Antigravity metadata could not be verified; cached entries are retained. {message}"));
+                        }
+                        progress(status.clone());
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
             let mut seen = HashSet::new();
             let mut partial = 0usize;
             let mut failed = false;
@@ -1006,7 +1189,7 @@ impl Catalog {
                     break;
                 }
                 seen.insert(path.to_string_lossy().into_owned());
-                match index_file(&mut conn, source, &path, cancel) {
+                match index_file(&mut conn, source, &path, cancel, ag_metadata.as_ref()) {
                     Ok(is_partial) => {
                         if is_partial {
                             partial += 1;
@@ -1178,6 +1361,20 @@ fn session_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             )),
         )
     })?;
+    let external_id: String = row.get(3)?;
+    let resume_disabled_reason = if kind == AgentKind::Antigravity {
+        let root: String = row.get(12)?;
+        let identity: Option<String> = row.get(13)?;
+        if row.get::<_, Option<String>>(10)?.is_some() {
+            Some("Indexed resume of Antigravity subagent conversations is not verified. Open the parent conversation.".into())
+        } else if identity.as_deref() == Some("antigravity-metadata-only") {
+            Some("The persisted transcript is missing. Only metadata is available; use an explicit CLI conversation ID to resume.".into())
+        } else {
+            antigravity_resume_disabled_reason(&root, &external_id)
+        }
+    } else {
+        None
+    };
     Ok(Session {
         id: row.get(0)?,
         source_id: row.get(1)?,
@@ -1192,6 +1389,7 @@ fn session_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         parent_id: row.get(10)?,
         partial: row.get(11)?,
         snippet: None,
+        resume_disabled_reason,
     })
 }
 
@@ -1295,6 +1493,7 @@ fn stale_page(message: &str) -> TranscriptPage {
         before_line: None,
         stale: true,
         warning: Some(message.into()),
+        snapshot_id: None,
     }
 }
 
@@ -1327,6 +1526,157 @@ fn mtime_rfc3339(metadata: &Metadata) -> String {
         .modified()
         .map(|time| DateTime::<Utc>::from(time).to_rfc3339_opts(SecondsFormat::Millis, true))
         .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".into())
+}
+
+/// Only the native CLI store has a documented `agy --conversation` launch path.
+/// A configured backup is still useful for read-only history, but must never
+/// redirect HOME (which also changes credentials/configuration).
+pub fn antigravity_resume_disabled_reason(root: &str, id: &str) -> Option<String> {
+    if !valid_antigravity_id(id) {
+        return Some("The Antigravity conversation ID is not a supported UUID.".into());
+    }
+    let native = dirs::home_dir()
+        .map(|home| providers::definition(AgentKind::Antigravity).state_root(&home));
+    let matches = native
+        .and_then(|path| fs::canonicalize(path).ok())
+        .zip(fs::canonicalize(root).ok())
+        .is_some_and(|(native, source)| native == source);
+    (!matches).then(|| "This Antigravity source is a read-only backup. Indexed resume requires the current HOME's native ~/.gemini/antigravity-cli store.".into())
+}
+
+fn valid_antigravity_id(id: &str) -> bool {
+    id.len() == 36
+        && uuid::Uuid::parse_str(id)
+            .is_ok_and(|value| value.hyphenated().to_string().eq_ignore_ascii_case(id))
+}
+
+fn open_transcript(path: &Path, kind: AgentKind) -> std::io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    if kind == AgentKind::Antigravity {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(not(unix))]
+    let _ = kind;
+    options.open(path)
+}
+
+fn antigravity_path_is_safe(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root)
+        .ok()
+        .zip(fs::canonicalize(root).ok())
+        .is_some_and(|(relative, canonical_root)| {
+            fs::canonicalize(path).is_ok_and(|canonical| canonical == canonical_root.join(relative))
+                && fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
+        })
+}
+
+fn antigravity_transcript_path(root: &Path, id: &str) -> PathBuf {
+    root.join("brain")
+        .join(id)
+        .join(".system_generated/logs/transcript.jsonl")
+}
+
+fn antigravity_transcript_id(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    let parts = relative
+        .iter()
+        .map(|part| part.to_str())
+        .collect::<Option<Vec<_>>>()?;
+    if parts.len() != 5
+        || parts[0] != "brain"
+        || !valid_antigravity_id(parts[1])
+        || parts[2] != ".system_generated"
+        || parts[3] != "logs"
+        || !matches!(parts[4], "transcript.jsonl" | "transcript_full.jsonl")
+    {
+        return None;
+    }
+    Some(parts[1].to_owned())
+}
+
+fn antigravity_seed(
+    source: &HistorySource,
+    path: &Path,
+    metadata: &MetadataIndex,
+) -> Result<ParsedState, String> {
+    let id = antigravity_transcript_id(Path::new(&source.root), path)
+        .ok_or("Unsupported Antigravity transcript path or conversation identity.")?;
+    let record = metadata.records.get(&id);
+    let mut state = ParsedState {
+        external_id: Some(id),
+        recognized: true,
+        antigravity_metadata_hash: Some(metadata.fingerprint.clone()),
+        ..ParsedState::default()
+    };
+    if let Some(record) = record {
+        state.title = record.title.clone();
+        state.cwd = record.cwd.clone();
+        state.authoritative_cwd = state.cwd.is_some();
+        state.antigravity_updated_at = record
+            .updated_at
+            .as_deref()
+            .and_then(adapters::normalized_time);
+        state.parent_external = record.parent_id.clone();
+        state.child = state.parent_external.is_some();
+    } else {
+        state.unknown_events += 1;
+        state.history_warning = Some("Conversation metadata is unavailable; the directory is unknown and the title may be inferred from visible user text.".into());
+    }
+    if !metadata.warnings.is_empty() {
+        state.unknown_events += 1;
+    }
+    Ok(state)
+}
+
+fn index_antigravity_metadata_only(
+    conn: &mut Connection,
+    source: &HistorySource,
+    path: &str,
+    mut state: ParsedState,
+    cancel: &AtomicBool,
+) -> Result<bool, String> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Indexing cancelled.".into());
+    }
+    state.unknown_events += 1;
+    state.history_warning =
+        Some("Only metadata is available; the persisted CLI transcript is missing.".into());
+    let session_id = session_identity(
+        source,
+        state
+            .external_id
+            .as_deref()
+            .ok_or("Missing conversation ID.")?,
+    );
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    let old = load_record(&tx, source, path)?;
+    if let Some(old) = &old {
+        tx.execute("DELETE FROM messages WHERE file_id=?1", [old.id])
+            .map_err(error)?;
+    }
+    tx.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived,trailing_partial) VALUES(?1,?2,?3,'antigravity-metadata-only',0,'',0,0,'',?4,?5,0,1) ON CONFLICT(source_id,path) DO UPDATE SET session_id=excluded.session_id,identity=excluded.identity,size=0,modified='',offset=0,lines=0,prefix_hash='',parser_version=excluded.parser_version,state=excluded.state,archived=0,trailing_partial=1", params![source.id,path,session_id,PARSER_VERSION,serde_json::to_string(&state).map_err(error)?]).map_err(error)?;
+    tx.execute(
+        "DELETE FROM files WHERE source_id=?1 AND session_id=?2 AND path<>?3",
+        params![source.id, session_id, path],
+    )
+    .map_err(error)?;
+    rebuild_session(&tx, source, &session_id)?;
+    if let Some(previous) = old
+        .and_then(|old| old.session_id)
+        .filter(|id| id != &session_id)
+    {
+        rebuild_session(&tx, source, &previous)?;
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Indexing cancelled.".into());
+    }
+    tx.commit().map_err(error)?;
+    Ok(true)
 }
 
 fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, SourceHealth, bool) {
@@ -1376,6 +1726,7 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
         Some(ParserId::Codex) => vec!["sessions", "archived_sessions"],
         Some(ParserId::Claude) => vec!["projects"],
         Some(ParserId::Grok) => vec!["sessions"],
+        Some(ParserId::Antigravity) => vec!["brain"],
         None => vec![],
     };
     let mut files = Vec::new();
@@ -1394,16 +1745,24 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
             }
             _ => {}
         }
-        let max_depth = if provider.history.parser_id == Some(ParserId::Grok) {
+        let max_depth = if provider.history.parser_id == Some(ParserId::Antigravity) {
+            4
+        } else if provider.history.parser_id == Some(ParserId::Grok) {
             3
         } else {
             usize::MAX
         };
-        for entry in WalkDir::new(&base)
+        for (entry_number, entry) in WalkDir::new(&base)
             .follow_links(false)
             .max_open(16)
             .max_depth(max_depth)
+            .into_iter()
+            .enumerate()
         {
+            if source.kind == AgentKind::Antigravity && entry_number >= 100_000 {
+                complete = false;
+                break;
+            }
             if cancel.load(Ordering::Relaxed) {
                 complete = false;
                 break;
@@ -1416,11 +1775,31 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
                                 && (entry.file_name() == "updates.jsonl"
                                     || (entry.file_name() == "summary.json"
                                         && !entry.path().with_file_name("updates.jsonl").exists()))
+                        } else if provider.history.parser_id == Some(ParserId::Antigravity) {
+                            antigravity_transcript_id(root, entry.path()).is_some()
+                                && (entry.file_name() == "transcript.jsonl"
+                                    || (entry.file_name() == "transcript_full.jsonl"
+                                        && !entry
+                                            .path()
+                                            .with_file_name("transcript.jsonl")
+                                            .exists()))
                         } else {
                             entry.path().extension().and_then(|s| s.to_str()) == Some("jsonl")
                         } =>
                 {
                     files.push(entry.into_path())
+                }
+                Ok(entry)
+                    if source.kind == AgentKind::Antigravity
+                        && matches!(
+                            entry.file_name().to_str(),
+                            Some("transcript.jsonl" | "transcript_full.jsonl")
+                        )
+                        && antigravity_transcript_id(root, entry.path()).is_none() =>
+                {
+                    // A transcript-looking file in an unknown layout is not
+                    // evidence of an empty supported history source.
+                    complete = false;
                 }
                 Ok(_) => {}
                 Err(_) => complete = false,
@@ -1463,8 +1842,8 @@ fn prefix_digest(file: &mut File, len: u64, cancel: &AtomicBool) -> Result<Strin
 }
 
 // Read a complete physical line with a strict memory cap, even for malformed logs.
-fn bounded_line(
-    reader: &mut BufReader<File>,
+fn bounded_line<R: Read>(
+    reader: &mut BufReader<R>,
     buffer: &mut Vec<u8>,
     cancel: &AtomicBool,
 ) -> Result<(u64, bool, bool), String> {
@@ -1661,30 +2040,65 @@ fn index_file(
     source: &HistorySource,
     path: &Path,
     cancel: &AtomicBool,
+    ag_metadata: Option<&MetadataIndex>,
 ) -> Result<bool, String> {
     let path_string = path
         .to_str()
         .ok_or("Transcript paths must be valid UTF-8.")?;
-    let mut file =
-        File::open(path).map_err(|_| format!("Cannot read transcript {}.", path.display()))?;
+    let ag_seed = if source.kind == AgentKind::Antigravity {
+        Some(antigravity_seed(
+            source,
+            path,
+            ag_metadata.ok_or("Antigravity metadata was not checked.")?,
+        )?)
+    } else {
+        None
+    };
+    let old = load_record(conn, source, path_string)?;
+    let mut file = match open_transcript(path, source.kind) {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound && ag_seed.is_some() => {
+            return index_antigravity_metadata_only(
+                conn,
+                source,
+                path_string,
+                ag_seed.unwrap(),
+                cancel,
+            );
+        }
+        Err(_) => return Err(format!("Cannot read transcript {}.", path.display())),
+    };
     let metadata = file.metadata().map_err(error)?;
     if !metadata.is_file() {
         return Err("Transcript is not a regular file.".into());
     }
+    if source.kind == AgentKind::Antigravity
+        && !antigravity_path_is_safe(Path::new(&source.root), path)
+    {
+        return Err(
+            "Antigravity transcript must remain in its exact non-symlink brain layout.".into(),
+        );
+    }
     let identity = file_identity(&metadata);
     let modified = modification(&metadata);
     let size = metadata.len();
-    let old = load_record(conn, source, path_string)?;
+    if source.kind == AgentKind::Antigravity && size > 128 * 1024 * 1024 {
+        return Err("Antigravity transcript exceeds the 128 MiB read limit.".into());
+    }
     let grok = if source.kind == AgentKind::Grok {
         Some(grok_metadata(path)?)
     } else {
         None
     };
     let metadata_matches = old.as_ref().is_none_or(|old| {
-        old.state.grok_metadata_hash
-            == grok
+        old.state.antigravity_metadata_hash
+            == ag_seed
                 .as_ref()
-                .and_then(|state| state.grok_metadata_hash.clone())
+                .and_then(|state| state.antigravity_metadata_hash.clone())
+            && old.state.grok_metadata_hash
+                == grok
+                    .as_ref()
+                    .and_then(|state| state.grok_metadata_hash.clone())
     });
     let summary_only = source.kind == AgentKind::Grok
         && path.file_name().is_some_and(|name| name == "summary.json");
@@ -1694,14 +2108,23 @@ fn index_file(
             && old.size == size
             && old.modified == modified
             && old.parser_version == PARSER_VERSION
+            && (source.kind != AgentKind::Antigravity
+                || (old.offset == size
+                    && prefix_digest(&mut file, old.offset, cancel)? == old.prefix_hash))
         {
             return Ok(old.state.bad_lines > 0
                 || old.state.unknown_events > 0
                 || old.offset < size);
         }
     }
+    let ag_initial_hash = if source.kind == AgentKind::Antigravity {
+        Some(prefix_digest(&mut file, size, cancel)?)
+    } else {
+        None
+    };
     let incremental = if let Some(old) = &old {
         metadata_matches
+            && source.kind != AgentKind::Antigravity
             && !summary_only
             && old.identity == identity
             && old.offset <= size
@@ -1713,7 +2136,7 @@ fn index_file(
     let mut state = if incremental {
         old.as_ref().unwrap().state.clone()
     } else {
-        grok.unwrap_or_default()
+        ag_seed.or(grok).unwrap_or_default()
     };
     let mut offset = if incremental {
         old.as_ref().unwrap().offset
@@ -1750,9 +2173,16 @@ fn index_file(
         tx.last_insert_rowid()
     };
     file.seek(SeekFrom::Start(offset)).map_err(error)?;
-    let mut reader = BufReader::with_capacity(64 * 1024, file);
+    let read_limit = if source.kind == AgentKind::Antigravity {
+        size.saturating_sub(offset)
+    } else {
+        u64::MAX
+    };
+    let mut reader = BufReader::with_capacity(64 * 1024, file.take(read_limit));
     let mut buffer = Vec::new();
     let mut grok_append: Option<GrokAppend> = None;
+    let mut ag_steps: HashMap<u64, String> = HashMap::new();
+    let mut ag_conflicts = HashSet::new();
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err("Indexing cancelled.".into());
@@ -1764,6 +2194,7 @@ fn index_file(
         lines += 1;
         let line_offset = offset;
         offset += length;
+        let mut stored_line = lines;
         let mut placeholder = None;
         let mut role = "system".to_owned();
         let mut timestamp = None;
@@ -1782,6 +2213,55 @@ fn index_file(
         } else {
             match serde_json::from_slice::<serde_json::Value>(&buffer) {
                 Ok(value) => {
+                    if source.kind == AgentKind::Antigravity {
+                        match crate::antigravity::parse_step(&value) {
+                            Ok(step) => {
+                                stored_line = step.index + 1;
+                                let digest = hash_id(&[&value.to_string()]);
+                                if step.cleared || ag_conflicts.contains(&stored_line) {
+                                    ag_conflicts.insert(stored_line);
+                                    tx.execute(
+                                        "DELETE FROM messages WHERE file_id=?1 AND line=?2",
+                                        params![file_id, stored_line as i64],
+                                    )
+                                    .map_err(error)?;
+                                    if step.cleared {
+                                        state.unknown_events += 1;
+                                    }
+                                    continue;
+                                }
+                                if let Some(previous) = ag_steps.get(&stored_line) {
+                                    if previous != &digest {
+                                        ag_conflicts.insert(stored_line);
+                                        state.unknown_events += 1;
+                                        tx.execute(
+                                            "DELETE FROM messages WHERE file_id=?1 AND line=?2",
+                                            params![file_id, stored_line as i64],
+                                        )
+                                        .map_err(error)?;
+                                    }
+                                    continue;
+                                }
+                                ag_steps.insert(stored_line, digest);
+                            }
+                            Err(_) => {
+                                state.unknown_events += 1;
+                                if let Some(index) = value
+                                    .get("step_index")
+                                    .and_then(serde_json::Value::as_u64)
+                                    .filter(|index| *index < i64::MAX as u64)
+                                {
+                                    ag_conflicts.insert(index + 1);
+                                    tx.execute(
+                                        "DELETE FROM messages WHERE file_id=?1 AND line=?2",
+                                        params![file_id, (index + 1) as i64],
+                                    )
+                                    .map_err(error)?;
+                                }
+                                continue;
+                            }
+                        }
+                    }
                     if let Some(message) =
                         adapters::parse_value(source.kind, &value, &mut state, path)
                     {
@@ -1888,18 +2368,28 @@ fn index_file(
                 state.grok_message_run = None;
             }
         }
+        if source.kind == AgentKind::Antigravity && placeholder.is_some() {
+            store = false;
+        }
         if store {
-            tx.execute("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text,fallback,hidden,placeholder) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9) ON CONFLICT(file_id,line) DO UPDATE SET byte_offset=excluded.byte_offset,byte_len=excluded.byte_len,role=excluded.role,timestamp=excluded.timestamp,search_text=excluded.search_text,fallback=excluded.fallback,hidden=0,placeholder=excluded.placeholder",params![file_id,lines as i64,line_offset as i64,length as i64,role,timestamp,search,fallback,placeholder]).map_err(error)?;
+            tx.execute("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text,fallback,hidden,placeholder) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9) ON CONFLICT(file_id,line) DO UPDATE SET byte_offset=excluded.byte_offset,byte_len=excluded.byte_len,role=excluded.role,timestamp=excluded.timestamp,search_text=excluded.search_text,fallback=excluded.fallback,hidden=0,placeholder=excluded.placeholder",params![file_id,stored_line as i64,line_offset as i64,length as i64,role,timestamp,search,fallback,placeholder]).map_err(error)?;
         }
     }
     flush_grok_append(&tx, file_id, &mut grok_append)?;
-    let mut file = reader.into_inner();
+    let mut file = reader.into_inner().into_inner();
     let after = file.metadata().map_err(error)?;
     // Writers may append during a scan. Retry instead of committing inconsistent locators.
     if after.len() != size || modification(&after) != modified {
         return Err("Transcript changed during indexing; refresh to retry.".into());
     }
     let prefix_hash = prefix_digest(&mut file, offset, cancel)?;
+    if let Some(expected) = ag_initial_hash {
+        if prefix_digest(&mut file, size, cancel)? != expected {
+            return Err(
+                "Antigravity transcript contents changed during indexing; refresh to retry.".into(),
+            );
+        }
+    }
     let verified = file.metadata().map_err(error)?;
     let path_still_matches = fs::metadata(path)
         .map(|m| file_identity(&m) == identity && m.len() == size && modification(&m) == modified)
@@ -1910,6 +2400,16 @@ fn index_file(
     if source.kind == AgentKind::Grok {
         if grok_metadata(path)?.grok_metadata_hash != state.grok_metadata_hash {
             return Err("Grok metadata changed during indexing; refresh to retry.".into());
+        }
+        state.first_user = tx.query_row("SELECT search_text FROM messages WHERE file_id=?1 AND role='user' AND search_text<>'' ORDER BY line LIMIT 1", [file_id], |row| row.get::<_,String>(0)).optional().map_err(error)?.map(|text| adapters::short_text(&text, 100));
+    }
+    if source.kind == AgentKind::Antigravity {
+        if lines == 0 {
+            state.unknown_events += 1;
+            state.history_warning = Some(
+                "The persisted Antigravity transcript is empty or has no complete records yet."
+                    .into(),
+            );
         }
         state.first_user = tx.query_row("SELECT search_text FROM messages WHERE file_id=?1 AND role='user' AND search_text<>'' ORDER BY line LIMIT 1", [file_id], |row| row.get::<_,String>(0)).optional().map_err(error)?.map(|text| adapters::short_text(&text, 100));
     }
@@ -1929,6 +2429,15 @@ fn index_file(
     // Some Codex versions repeat messages in event_msg and response_item records.
     tx.execute("UPDATE messages SET hidden=CASE WHEN fallback=1 AND EXISTS(SELECT 1 FROM messages canonical WHERE canonical.file_id=messages.file_id AND canonical.fallback=0 AND canonical.role=messages.role AND canonical.search_text=messages.search_text AND canonical.search_text<>'') THEN 1 ELSE 0 END WHERE file_id=?1",[file_id]).map_err(error)?;
     if let Some(id) = &session_id {
+        if source.kind == AgentKind::Antigravity {
+            // Transcript/metadata-only transitions are one atomic replacement, so concurrent
+            // previews cannot select the stale sibling before source reconciliation.
+            tx.execute(
+                "DELETE FROM files WHERE source_id=?1 AND session_id=?2 AND id<>?3",
+                params![source.id, id, file_id],
+            )
+            .map_err(error)?;
+        }
         rebuild_session(&tx, source, id)?;
     }
     if let Some(old_id) = old
@@ -2027,7 +2536,13 @@ fn rebuild_session(conn: &Connection, source: &HistorySource, id: &str) -> Resul
     let project_id = ensure_project(conn, cwd, false)?;
     let event_at = states
         .iter()
-        .filter_map(|(_, state, _, _)| state.grok_summary_at.as_ref().or(state.event_at.as_ref()))
+        .filter_map(|(_, state, _, _)| {
+            state
+                .antigravity_updated_at
+                .as_ref()
+                .or(state.grok_summary_at.as_ref())
+                .or(state.event_at.as_ref())
+        })
         .max()
         .cloned();
     let (updated_at, time_source) = match event_at {

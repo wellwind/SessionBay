@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { api } from './api';
@@ -54,6 +55,7 @@ function transcript(text: string, patch: Partial<TranscriptPage> = {}): Transcri
     beforeLine: null,
     stale: false,
     warning: null,
+    snapshotId: 'synthetic-stable-snapshot',
     ...patch,
   };
 }
@@ -124,6 +126,33 @@ describe('HistoryView read-only rendering', () => {
     expect(props.onResume).toHaveBeenCalledExactlyOnceWith(session('alpha'));
     expect(invoke).not.toHaveBeenCalled();
   });
+  it.each([
+    ['read-only backup', '此來源為唯讀備份，無法透過目前 CLI 接續。'],
+    ['missing transcript', '找不到對話的完整 transcript，僅可預覽索引。'],
+  ])('keeps %s history readable and blocks mouse or keyboard resume with its reason', async (_scenario, reason) => {
+    vi.mocked(api.sessions).mockResolvedValue({ items: [session('alpha', {
+      kind: 'antigravity', resumeDisabledReason: reason,
+    })], total: 1 });
+    const { props } = setup();
+    await tick();
+    expect(screen.getByText('Synthetic transcript')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(reason);
+    const resume = screen.getByRole('button', { name: '接續工作' });
+    expect(resume).toBeDisabled();
+    expect(resume).toHaveAccessibleDescription(reason);
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    await user.click(resume);
+    resume.focus();
+    expect(resume).not.toHaveFocus();
+    await user.keyboard('{Enter} ');
+    fireEvent.keyDown(resume, { key: 'Enter' });
+    fireEvent.keyUp(resume, { key: 'Enter' });
+    fireEvent.click(resume);
+    expect(props.onResume).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    vi.useFakeTimers();
+  });
   it('shows backend errors without presenting fabricated rows', async () => {
     vi.mocked(api.sessions).mockRejectedValue(new Error('索引尚未建立'));
     setup();
@@ -149,6 +178,7 @@ describe('HistoryView project selection', () => {
     const { props, rerender } = setup({ projects: [{ ...project, curated: false, launchPath: '/synthetic/relocated' }], onCurate });
     await tick();
     expect(screen.getByRole('region', { name: '對話預覽' })).toHaveTextContent(cwd);
+    expect(screen.getByRole('region', { name: '對話預覽' })).toHaveTextContent('接續目錄（已重新定位）：/synthetic/relocated');
     expect(onCurate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '將此目錄加入專案' }));
     expect(onCurate).toHaveBeenCalledExactlyOnceWith(selected);
@@ -176,6 +206,14 @@ describe('HistoryView project selection', () => {
     expect(button).toBeDisabled();
     fireEvent.click(button);
     expect(onCurate).not.toHaveBeenCalled();
+  });
+  it('keeps the missing original cwd explicit after choosing a resume directory', async () => {
+    vi.mocked(api.sessions).mockResolvedValue({ items: [session('alpha', { cwd: null })], total: 1 });
+    setup({ projects: [{ ...project, path: null, launchPath: '/synthetic/chosen-directory' }] });
+    await tick();
+    const preview = screen.getByRole('region', { name: '對話預覽' });
+    expect(preview).toHaveTextContent('未記錄工作目錄');
+    expect(preview).toHaveTextContent('接續目錄（已重新定位）：/synthetic/chosen-directory');
   });
 });
 
@@ -266,6 +304,193 @@ describe('HistoryView asynchronous race protection', () => {
 });
 
 describe('HistoryView transcript paging and reload', () => {
+  it('preserves loaded earlier pages and scroll on an unchanged verified background refresh', async () => {
+    const recent = transcript('Recent', { hasMore: true, beforeLine: 90 });
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(recent)
+      .mockResolvedValueOnce(transcript('Earlier'))
+      .mockResolvedValueOnce(recent);
+    const { props, rerender, container } = setup();
+    await tick(20);
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    await tick(20);
+    const scroll = container.querySelector<HTMLElement>('.transcript-scroll')!;
+    scroll.scrollTop = 37;
+    rerender(<HistoryView {...props} refreshToken={1} />);
+    await tick(20);
+    expect(vi.mocked(api.transcript).mock.calls).toEqual([['alpha'], ['alpha', 90], ['alpha']]);
+    expect([...container.querySelectorAll('.message-text')].map((element) => element.textContent)).toEqual(['Earlier', 'Recent']);
+    expect(scroll.scrollTop).toBe(37);
+    expect(screen.queryByRole('button', { name: '載入更早的對話' })).not.toBeInTheDocument();
+  });
+  it.each(['changed snapshot', 'missing snapshot'] as const)('drops old earlier pages when a background refresh has a %s even if the latest text is identical', async (scenario) => {
+    const recent = transcript('Unchanged latest', { hasMore: true, beforeLine: 90 });
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(recent)
+      .mockResolvedValueOnce(transcript('Rewritten earlier content'))
+      .mockResolvedValueOnce({ ...recent, snapshotId: scenario === 'changed snapshot' ? 'compacted-snapshot' : null });
+    const { props, rerender } = setup();
+    await tick(20);
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    await tick(20);
+    rerender(<HistoryView {...props} refreshToken={1} />);
+    await tick(20);
+    expect(screen.getByText('Unchanged latest')).toBeInTheDocument();
+    expect(screen.queryByText('Rewritten earlier content')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '載入更早的對話' })).toBeInTheDocument();
+  });
+  it.each(['stale page', 'missing snapshot'] as const)('recovers after an earlier %s when the latest snapshot becomes available unchanged', async (scenario) => {
+    const recent = transcript('Recent', { hasMore: true, beforeLine: 90 });
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(recent)
+      .mockResolvedValueOnce(transcript('', {
+        messages: [], stale: scenario === 'stale page', snapshotId: null,
+        warning: 'The earlier page could not be verified.',
+      }))
+      .mockResolvedValueOnce(recent)
+      .mockResolvedValueOnce(transcript('Recovered earlier'));
+    const { props, rerender } = setup();
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    await tick();
+    expect(screen.getByText('Recent')).toBeInTheDocument();
+    expect(screen.getByText('The earlier page could not be verified.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '載入更早的對話' })).not.toBeInTheDocument();
+    rerender(<HistoryView {...props} refreshToken={1} />);
+    await tick();
+    expect(screen.getByText('Recent')).toBeInTheDocument();
+    expect(screen.queryByText('The earlier page could not be verified.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/來源已變更，索引可能尚未更新/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    await tick();
+    expect(screen.getByText('Recovered earlier')).toBeInTheDocument();
+    expect(vi.mocked(api.transcript).mock.calls).toEqual([['alpha'], ['alpha', 90], ['alpha'], ['alpha', 90]]);
+  });
+  it('keeps explicit reload behavior even when the latest verified page is unchanged', async () => {
+    const recent = transcript('Recent', { stale: true, hasMore: true, beforeLine: 90 });
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(recent)
+      .mockResolvedValueOnce(transcript('Earlier'))
+      .mockResolvedValueOnce(recent);
+    setup();
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '重新讀取' }));
+    await tick();
+    expect(screen.getByText('Recent')).toBeInTheDocument();
+    expect(screen.queryByText('Earlier')).not.toBeInTheDocument();
+    expect(api.transcript).toHaveBeenCalledTimes(3);
+  });
+  it('reloads instead of joining an earlier page from a different indexed snapshot', async () => {
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(transcript('Previous latest', { hasMore: true, beforeLine: 90 }))
+      .mockResolvedValueOnce(transcript('Incompatible earlier', { snapshotId: 'new-snapshot' }))
+      .mockResolvedValueOnce(transcript('Current latest', { snapshotId: 'new-snapshot' }));
+    setup();
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    await tick();
+    expect(vi.mocked(api.transcript).mock.calls).toEqual([['alpha'], ['alpha', 90], ['alpha']]);
+    expect(screen.getByText('Current latest')).toBeInTheDocument();
+    expect(screen.queryByText('Previous latest')).not.toBeInTheDocument();
+    expect(screen.queryByText('Incompatible earlier')).not.toBeInTheDocument();
+  });
+  it('reloads a compacted transcript after reindex even when its selected catalog ID is unchanged', async () => {
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(transcript('Before compaction', { stale: true, warning: 'Original snapshot changed.' }))
+      .mockResolvedValueOnce(transcript('After compaction'));
+    const { props, rerender } = setup();
+    await tick();
+    expect(screen.getByText('Before compaction')).toBeInTheDocument();
+    expect(screen.getByText('Original snapshot changed.')).toBeInTheDocument();
+    vi.mocked(api.sessions).mockResolvedValue({ items: [session('alpha', { title: 'Updated metadata' })], total: 1 });
+    rerender(<HistoryView {...props} refreshToken={1} />);
+    await tick();
+    expect(api.transcript).toHaveBeenCalledTimes(2);
+    expect(api.transcript).toHaveBeenLastCalledWith('alpha');
+    expect(screen.getByText('After compaction')).toBeInTheDocument();
+    expect(screen.getAllByText('Updated metadata')).toHaveLength(2);
+    expect(screen.queryByText('Before compaction')).not.toBeInTheDocument();
+    expect(screen.queryByText('Original snapshot changed.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/來源已變更，索引可能尚未更新/)).not.toBeInTheDocument();
+    expect(props.onResume).not.toHaveBeenCalled();
+  });
+  it('ignores a pending old latest-page response after the same ID is reindexed', async () => {
+    const old = deferred<TranscriptPage>();
+    vi.mocked(api.transcript).mockReturnValueOnce(old.promise).mockResolvedValueOnce(transcript('Current snapshot'));
+    const { props, rerender } = setup();
+    await tick();
+    rerender(<HistoryView {...props} refreshToken={1} />);
+    await tick();
+    await act(async () => old.resolve(transcript('Outdated snapshot', { warning: 'Outdated warning' })));
+    expect(screen.getByText('Current snapshot')).toBeInTheDocument();
+    expect(screen.queryByText('Outdated snapshot')).not.toBeInTheDocument();
+    expect(screen.queryByText('Outdated warning')).not.toBeInTheDocument();
+  });
+  it.each(['before', 'after'] as const)('ignores an old earlier-page response that resolves %s the same-ID reload', async (order) => {
+    const earlier = deferred<TranscriptPage>();
+    const reload = deferred<TranscriptPage>();
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(transcript('Previous recent', { hasMore: true, beforeLine: 90 }))
+      .mockReturnValueOnce(earlier.promise)
+      .mockReturnValueOnce(reload.promise);
+    const { props, rerender } = setup();
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    rerender(<HistoryView {...props} refreshToken={1} />);
+    await tick();
+    const resolveEarlier = () => act(async () => earlier.resolve(transcript('Outdated earlier', {
+      stale: true, warning: 'Outdated page warning', hasMore: true, beforeLine: 10,
+    })));
+    if (order === 'before') {
+      await resolveEarlier();
+      expect(screen.getByText('Previous recent')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '讀取中…' })).toBeDisabled();
+      expect(screen.queryByText('Outdated earlier')).not.toBeInTheDocument();
+    }
+    await act(async () => reload.resolve(transcript('Reindexed snapshot', { warning: 'Current source warning' })));
+    if (order === 'after') await resolveEarlier();
+    expect(vi.mocked(api.transcript).mock.calls).toEqual([['alpha'], ['alpha', 90], ['alpha']]);
+    expect(screen.getByText('Reindexed snapshot')).toBeInTheDocument();
+    expect(screen.getByText('Current source warning')).toBeInTheDocument();
+    expect(screen.queryByText('Previous recent')).not.toBeInTheDocument();
+    expect(screen.queryByText('Outdated earlier')).not.toBeInTheDocument();
+    expect(screen.queryByText('Outdated page warning')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '載入更早的對話' })).not.toBeInTheDocument();
+  });
+  it('shows the precise backend warning together with the stale notice', async () => {
+    vi.mocked(api.transcript).mockResolvedValue(transcript('', {
+      messages: [], stale: true, warning: 'Compacted source: refresh the index before loading it.',
+    }));
+    setup();
+    await tick();
+    expect(screen.getByText(/來源已變更，索引可能尚未更新/)).toBeInTheDocument();
+    expect(screen.getByText('Compacted source: refresh the index before loading it.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新讀取' })).toBeInTheDocument();
+  });
+  it('retains source warnings and stale state across earlier pages without repeating identical warnings', async () => {
+    vi.mocked(api.transcript)
+      .mockResolvedValueOnce(transcript('Recent', { warning: 'Truncated snapshot.', stale: true, hasMore: true, beforeLine: 90 }))
+      .mockResolvedValueOnce(transcript('Earlier', { warning: null, hasMore: true, beforeLine: 60 }))
+      .mockResolvedValueOnce(transcript('Older', { warning: 'Unsupported event.', hasMore: true, beforeLine: 30 }))
+      .mockResolvedValueOnce(transcript('Oldest', { warning: 'Truncated snapshot.' }));
+    const { container } = setup();
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+    await tick();
+    expect(screen.getByText('Truncated snapshot.')).toBeInTheDocument();
+    for (let page = 0; page < 2; page++) {
+      fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
+      await tick();
+    }
+    const warning = container.querySelector('.inline-warning')!.textContent!;
+    expect(warning).toContain('來源已變更，索引可能尚未更新');
+    expect(warning.match(/Truncated snapshot\./g)).toHaveLength(1);
+    expect(warning.match(/Unsupported event\./g)).toHaveLength(1);
+    expect([...container.querySelectorAll('.message-text')].map((element) => element.textContent))
+      .toEqual(['Oldest', 'Older', 'Earlier', 'Recent']);
+  });
   it('loads earlier messages using the cursor and prepends them in chronological order', async () => {
     vi.mocked(api.transcript)
       .mockResolvedValueOnce(transcript('Recent message', { hasMore: true, beforeLine: 90 }))
@@ -447,7 +672,7 @@ describe('browser-only safety', () => {
 
 
 describe('additional agent history capabilities', () => {
-  it('labels all four tools without implying Antigravity has an indexed history filter', async () => {
+  it('labels all four tools and includes the supported Antigravity CLI history filter', async () => {
     expect(agentName('grok')).toBe('Grok Build');
     expect(agentName('antigravity')).toBe('Antigravity CLI');
     setup();
@@ -455,8 +680,10 @@ describe('additional agent history capabilities', () => {
     const filter = screen.getByRole('combobox', { name: '篩選 Agent' });
     fireEvent.click(filter);
     expect(screen.getAllByRole('option').map((option) => option.textContent))
-      .toEqual(['所有 Agent', 'CCodex', '✳Claude Code', 'GGrok Build']);
-    expect(screen.queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
+      .toEqual(['所有 Agent', 'CCodex', '✳Claude Code', 'GGrok Build', 'AAntigravity CLI']);
+    fireEvent.click(screen.getByRole('option', { name: 'Antigravity CLI' }));
+    await tick();
+    expect(api.sessions).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'antigravity' }));
   });
   it('queries Grok history and forwards its catalog session only on explicit resume', async () => {
     const grokSession = session('grok-session', { kind: 'grok', externalId: 'grok-external', title: 'Synthetic Grok conversation' });

@@ -366,7 +366,7 @@ fn grok_cwd_conflicts_never_reassign_or_resume() {
 }
 
 #[test]
-fn antigravity_reports_unsupported_without_guessing_a_parser() {
+fn antigravity_does_not_import_grok_history_as_cli_transcripts() {
     let h = Harness::new("%2Fsynthetic%2Fproject");
     h.write_summary(summary());
     h.write_updates(&[chunk("user", "No fake import")]);
@@ -376,7 +376,7 @@ fn antigravity_reports_unsupported_without_guessing_a_parser() {
         .catalog
         .sync(&[source], &AtomicBool::new(false), |_| {})
         .unwrap();
-    assert_eq!(status.sources[0].status, "unsupported");
+    assert_eq!(status.sources[0].status, "empty");
     assert_eq!(status.sources[0].files, 0);
     assert!(h.sessions().is_empty());
 }

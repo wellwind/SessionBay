@@ -7,7 +7,9 @@
 
 ## 2026-10-15 最新需求補充紀錄
 
-最新追加的統一「偵測歷史來源」、分頁／面板快捷鍵、特定 CapsLock 組字修正、Antigravity 完整歷史與 breadcrumb 修正，另列 ADD-16–ADD-20；本批完整回歸與 exact-commit CI 尚待完成，Antigravity 歷史仍待取得可靠持久化 schema。下方 324／157 個測試與 `bcd3bcc` 提交不包含這些追加變更，不能據此提前勾選新增驗收。
+09:34 UTC 已將獨立修正推至 `a1fecb63`，包含 main `e5b85ddb` 的 17 項待辦 ancestry。該 SHA 的 [CI run 38713887778](https://github.com/wellwind/SessionBay/actions/runs/38713887778) 兩次皆在任何 step 開始前失敗，沒有程式執行 logs；原因待 GitHub annotations 確認，不算程式測試失敗或通過。Antigravity 最終本機檢查點為 398 個前端、241 個 core／245 個 desktop、typecheck／lint／build、兩種 features strict Clippy／fmt 全部通過；真實版本與全平台原生驗證另待確認。
+
+最新追加的統一「偵測歷史來源」、分頁／面板快捷鍵、特定 CapsLock 組字修正、Antigravity 完整歷史與 breadcrumb 修正，另列 ADD-16–ADD-20；本批完整回歸與 exact-commit CI 尚待完成，Antigravity 已確認為 CLI 1.3.5，已實作已觀察格式的防禦 reader；真實 1.3.5 磁碟樣本與原生驗收仍待確認。下方 324／157 個測試與 `bcd3bcc` 提交不包含這些追加變更，不能據此提前勾選新增驗收。
 
 最新使用者澄清由[雙頁導覽、來源入口與圖示紀錄](mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)單獨驗證，不沿用下方前一批 230 個前端／134 個 desktop 測試或 `f6a9e1d` CI 作為本批通過證據。
 
@@ -15,13 +17,13 @@
 | --- | --- | --- |
 | 專案與所有目錄 | 專案是預設首頁且僅 curated；所有目錄為獨立頁且包含所有有 Session 的分組；兩頁有卡片／側欄，選組後才顯示歷史 | App／History 導覽與過期結果回歸通過；未知／失效／未加入分組保留。最終 native smoke 與 exact-commit CI 待確認 |
 | 工作區可到達 | 兩頁保留已開啟工作區入口；加入狀態／遷移、原始 cwd 與 Runtime 不變 | App／workspace／service 回歸已覆蓋跨頁、移出、背景面板保留及所選目錄查詢 |
-| 四 Agent 來源設定 | 固定四張能力卡片；啟動與歷史能力分開；舊設定可新增 Grok 草稿、輸入絕對路徑並保存，Antigravity 明示不支援 | 不猜 home、不自動變更既有來源或索引新根目錄；新舊設定／多來源／取消回歸通過 |
+| 四 Agent 來源設定 | 固定四張能力卡片；啟動與歷史能力分開；舊設定可新增 Grok 草稿、輸入絕對路徑並保存，Antigravity CLI 同樣有明確來源流程，版本驗收另列 | 不猜 home、不自動變更既有來源或索引新根目錄；新舊設定／多來源／取消回歸通過 |
 | 工具登錄與安裝 | 前後端共用 manifest、內建 typed parser／安全驗證；安裝／版本重新偵測與索引分離 | 共同 manifest、typed parser 與安全驗證回歸通過；版本失敗／缺失／未知登入分開，未知格式不自動獲得 adapter |
 | 操作一致性 | 搜尋快捷鍵維持所選目錄、焦點外框與可及性控制項、Shell／Agent 兩段式啟動器與標誌下拉 | 前端最終 324／324、typecheck／lint／build 及 controls 33 個焦點／鍵盤回歸通過；native smoke 待 exact-commit CI 確認 |
 | Shell 候選 | 唯讀重新偵測、明確加入／保存，保留自訂 Profiles 與預設；全新 `$SHELL`／平台 fallback＋`[-l]`，不匯入 rc | Shell 14 個 focused 回歸及新舊設定測試通過；包含已存 aliases 排除與設定 bytes 不變 |
 | macOS 圖示 | 原圖 412／512 置中、外緣透明；可重複產生 macOS ICNS，不覆寫其他平台圖示 | 10 個 representations validator 通過、舊版被拒絕、兩次產生 byte-identical、7 個既有資產雜湊不變；原生 Cmd+Tab／Dock 視覺驗收待完成 |
 
-此批未實作 [15 項後續待辦](future-backlog.md)。原先凍結勾選狀態的限制已由使用者要求「把已完成的 check list 都勾選」取代，最新逐項稽核見下節。圖示比例是專案視覺選擇，不宣稱 Apple 官方規定。文件 diff 與 64 個相對連結／章節錨點檢查通過；此文件檢查屬更新勾選前的歷史檢查點，不代表最新稽核數。
+此批未實作 [17 項後續待辦](future-backlog.md)。原先凍結勾選狀態的限制已由使用者要求「把已完成的 check list 都勾選」取代，最新逐項稽核見下節。圖示比例是專案視覺選擇，不宣稱 Apple 官方規定。文件 diff 與 64 個相對連結／章節錨點檢查通過；此文件檢查屬更新勾選前的歷史檢查點，不代表最新稽核數。
 
 ## 2026-10-15 本次需求工作紀錄
 
@@ -41,7 +43,7 @@
 | --- | --- | --- |
 | 四 Agent 設定 | 加入 Grok Build／Antigravity CLI，執行檔預設與既有設定遷移 | 納入整合後前端 230／Rust desktop 134 個測試 |
 | Grok 歷史 | 官方 summary＋updates、cwd／身份核對、rewind、唯讀、stale 降級及相鄰文字 chunk 合併 | 19 個 Grok 測試通過，已含於 134 個 Rust 測試；真實格式版本待驗收 |
-| Antigravity CLI | 新工作與手動 conversation ID；歷史不支援明示，無桌面／IDE 整合宣稱 | 啟動替身及 UI 回歸通過；真實已登入 CLI 待驗收 |
+| Antigravity CLI | 新工作／手動 ID、唯讀 CLI 歷史與受限制索引接續；無 App／IDE 宣稱 | 合成 reader／metadata／啟動替身及 UI 回歸；真實 CLI 1.3.5 磁碟樣本與已登入接續待驗收 |
 | 每工具參數 | JSON argv、白名單、受管身份／來源／cwd 防覆寫、危險 opt-in 及明確受限權限優先 | 安全拒絕、遷移及精確 argv 回歸通過；CLI 實際權限政策仍由工具決定 |
 | 精確啟動預覽 | 共用後端計畫、預覽不 spawn、變更後重新預檢、手動／索引 ID 分離及恢復去重 | 預覽、實際 argv、失敗／競態與來源去重回歸通過 |
 | 使用者遠端變更保留 | 原生 Session 名稱、`npm run dev` 桌面啟動／`dev:web` 分離、13 項後續待辦文件 | 來源標題回歸已納入；後續待辦未實作，遠端 ancestry 與新提交 CI 尚待確認 |
@@ -60,7 +62,7 @@
 - 追加需求另列 ADD-01–ADD-20，與原始 ID 分開計數；與原始功能有交集，不加總為獨立功能數。
 - 來源偵測／快捷鍵／breadcrumb 最新檢查點 frontend 13 檔 380／380、typecheck／lint／build 通過；Rust bounds／saved-ID 修正後通過 176 個 headless／180 個 desktop 測試、雙 features all-target strict Clippy／fmt，breadcrumb 前的 Linux release `.deb` 重建成功（約 3.86 MiB）；追加 breadcrumb 後前端全套也通過，完整原生 bundle 以新 exact-commit CI 為準。上一個 174 core／178 desktop 檢查點不含最後兩個 edge regressions。最新 exact-commit 三 runner CI 以 [驗收紀錄](mvp-validation.md) 為準，不沿用舊提交。
 - 明確未完成：CLI 發行版本矩陣、filesystem watcher、renderer fallback、直接 Session Palette 快切、OS／Shell 快捷鍵保留組合檢查、終端控制序列專門安全案例、原生 IME／螢幕閱讀器／完整效能及長時間壓力。這些不阻止記錄已完成的局部實作，也不能被隱藏。
-- [15 項後續待辦](future-backlog.md)保持未完成；持續執行／重連僅升級下一階段優先級，本輪沒有 daemon 或重開後繼續執行的實作。
+- [17 項後續待辦](future-backlog.md)保持未完成；持續執行／重連僅升級下一階段優先級，本輪沒有 daemon 或重開後繼續執行的實作。
 
 | 狀態 | 追加 ID | 本輪交付 | 證據／限制 |
 | --- | --- | --- | --- |
@@ -69,10 +71,10 @@
 | [x] | ADD-03 | 普通 Shell 正常退出移除 pane／最後 tab | App／Terminal／workspace 退出、重複事件、Agent／異常保留回歸 |
 | [x] | ADD-04 | 四 Agent 設定與安全升級 | additional_agents 8 與 Settings 回歸；舊 sources／args／opt-in 不重設 |
 | [x] | ADD-05 | Grok 唯讀歷史與相鄰 chunks／rewind | Grok 19 個回歸，跨 chunk 搜尋／預覽、增量追加、身份衝突／缺檔；真實 CLI 版本另待驗收 |
-| [x] | ADD-06 | Antigravity 新工作／手動 ID 與歷史限制 | 精確 argv／manual ID 測試；歷史始終明示不支援，不虛構 parser |
+| [x] | ADD-06 | Antigravity 新工作／手動 ID 與歷史限制 | 精確 argv／manual ID 測試；後續追加的 CLI 歷史另列 ADD-19，不以原啟動測試代替 |
 | [x] | ADD-07 | 自訂 argv、持久風險 opt-in、明確權限優先 | launch_options 6 與 additional_agents／Settings 回歸；不重複額外確認、不擴大 scoped permission |
 | [x] | ADD-08 | 精確啟動預覽與來源 qualified 恢復去重 | preview 不 spawn；manual／indexed、來源 root／inode 變更與並行去重回歸 |
-| [x] | ADD-09 | 四張來源能力卡片與舊設定 Grok 新增入口 | Settings 新舊來源、多來源、取消、未設定／缺失／停用與 Antigravity 限制回歸 |
+| [x] | ADD-09 | 四張來源能力卡片與舊設定 Grok 新增入口 | Settings 新舊來源、多來源、取消、未設定／缺失／停用與逐工具能力回歸 |
 | [x] | ADD-10 | 前後端共同 provider registry 與真實偵測語意 | providers 3、config／additional_agents 探測回歸；版本失敗不等同 missing，登入固定 unknown |
 | [x] | ADD-11 | 唯讀 Shell 候選與已存 Profile canonical 排除 | shells 14 個回歸；不執行／不讀 rc／不覆寫 settings，候選與 saved-resolution 均有界 |
 | [x] | ADD-12 | macOS 專用 ICNS 留白與可重現腳本 | 10 representations 透明邊界、兩次 byte-identical、7 個原資產雜湊保護；非 Cmd+Tab 人工驗收 |
@@ -82,7 +84,7 @@
 | [ ] | ADD-16 | CapsLock 切換輸入法的特定重複組字修正 | 已加入 xterm key handler 與合成組字回歸；真實 macOS 輸入法／CapsLock 操作仍待驗收，不能由合成事件宣稱已完成 |
 | [ ] | ADD-17 | Chrome-style 工作區分頁快捷鍵 | 目前目錄的數字選頁／雙向循環、IME 與對話框保護、保留鍵攔截及舊 pane 預設遷移已實作；包含於 377 個前端回歸，本批 exact-commit CI 尚待確認 |
 | [ ] | ADD-18 | 官方已知歷史來源候選偵測 | 共用 provider metadata、有界唯讀檢查、canonical alias 與保存 ID 比對、明確加入草稿；22 個 Rust 整合測試與 377 個前端全套通過，含輸出上限／saved-ID 草稿去重；180 個 desktop 全套也通過；本批 exact-commit CI 待完成 |
-| [ ] | ADD-19 | Antigravity CLI／App 歷史列表、內容預覽與正確接續 | 使用者明確納入 PR #1；仍待可靠持久化 schema／版本化樣本，必須區分 CLI／App／IDE 與 rewind／fork／compaction。現有 unsupported 明示不能算此需求完成 |
+| [ ] | ADD-19 | Antigravity CLI 歷史列表、內容預覽與正確接續 | 使用者確認 CLI 1.3.5；防禦 step／metadata reader、私密 DB 快照、唯讀備份與重寫保護正在驗證。App／IDE 不在必要範圍；實際 1.3.5 磁碟樣本及互動接續仍待驗收，不能以 unsupported 卡片或社群版本宣稱代替 |
 | [ ] | ADD-20 | Breadcrumb 反映實際導覽與專案名稱 | leaf 使用實際 current.name，首頁只顯示一次分類，全域搜尋有明確 leaf；真專案名稱恰為「專案」仍允許合法同名。3 個 App 回歸已納入 380／380 前端全套，typecheck／lint／build 通過；原生新 CI 待確認 |
 
 追加需求目前 **20 項，12 已完成、8 未完成**。原始 9 項原生驗收另列於 [試用前清單](mvp-validation.md#試用前的原生驗收清單)，不與本表重複累計。
@@ -91,7 +93,7 @@
 
 | 功能 | 優先級 | 交付內容 | 對應任務群組 |
 | --- | --- | --- | --- |
-| F01 工具與來源 | P0 | 四 Agent 偵測與固定能力卡片；前三者歷史來源、舊設定明確新增 Grok、Antigravity 歷史不支援 | PRE、ADP、SET |
+| F01 工具與來源 | P0 | 四 Agent 偵測與固定能力卡片；四者有各自歷史 adapter；舊設定明確新增缺少的 Grok／Antigravity CLI 來源，格式及可接續狀態分開 | PRE、ADP、SET |
 | F02 專案管理 | P0 | 專案首頁／所有目錄雙頁分組總覽、搜尋、置頂、加入既有目錄、建立新資料夾、非破壞性移出、未知／失效路徑處理 | CAT |
 | F03 Session 清單 | P0 | 所選目錄的跨 Agent 歷史、排序、分頁、篩選、封存與分支標示 | ADP、CAT |
 | F04 搜尋與預覽 | P0 | 所選目錄／明確全域搜尋、中文與識別字、命中片段、分段對話預覽 | FIND、SEC |

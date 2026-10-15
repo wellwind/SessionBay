@@ -104,6 +104,8 @@ pub struct Session {
     pub parent_id: Option<String>,
     pub partial: bool,
     pub snippet: Option<String>,
+    #[serde(default)]
+    pub resume_disabled_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -144,6 +146,8 @@ pub struct TranscriptPage {
     pub before_line: Option<u64>,
     pub stale: bool,
     pub warning: Option<String>,
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

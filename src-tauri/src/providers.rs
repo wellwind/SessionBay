@@ -16,6 +16,7 @@ pub enum ParserId {
     Codex,
     Claude,
     Grok,
+    Antigravity,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,7 +113,7 @@ impl Manifest {
             }
             let history = &provider.history;
             if history.supported != history.parser_id.is_some()
-                || history.supported != history.source_env.is_some()
+                || (!history.supported && history.source_env.is_some())
                 || history.supported != history.root_placeholder.is_some()
                 || history.default_directory.is_empty()
                 || !Path::new(&history.default_directory)
@@ -120,6 +121,25 @@ impl Manifest {
                     .all(|part| matches!(part, Component::Normal(_)))
             {
                 return Err("Inconsistent provider history capability".into());
+            }
+            let expected_parser = match provider.id {
+                AgentKind::Codex => ParserId::Codex,
+                AgentKind::Claude => ParserId::Claude,
+                AgentKind::Grok => ParserId::Grok,
+                AgentKind::Antigravity => ParserId::Antigravity,
+            };
+            if history
+                .parser_id
+                .is_some_and(|parser| parser != expected_parser)
+                || (history.supported
+                    && history.source_env.is_none()
+                    && provider.id != AgentKind::Antigravity)
+                || (provider.id == AgentKind::Antigravity && history.source_env.is_some())
+            {
+                return Err(
+                    "Provider parser or source environment does not match its reviewed integration"
+                        .into(),
+                );
             }
             if history.source_env.as_ref().is_some_and(|key| {
                 key.is_empty()
@@ -248,7 +268,11 @@ mod tests {
                 .as_deref(),
             Some("sessions")
         );
-        assert!(!definition(AgentKind::Antigravity).history.supported);
+        assert!(definition(AgentKind::Antigravity).history.supported);
+        assert!(definition(AgentKind::Antigravity)
+            .history
+            .source_env
+            .is_none());
     }
 
     #[test]
@@ -283,8 +307,16 @@ mod tests {
             value["providers"][2]["history"]["probeDirectory"] = serde_json::json!(invalid);
             assert!(Manifest::parse(&value.to_string()).is_err());
         }
+        for invalid in [serde_json::json!("AGY_HOME"), serde_json::json!("HOME")] {
+            let mut value = original.clone();
+            value["providers"][3]["history"]["sourceEnv"] = invalid;
+            assert!(Manifest::parse(&value.to_string()).is_err());
+        }
+        let mut value = original.clone();
+        value["providers"][3]["history"]["parserId"] = serde_json::json!("grok");
+        assert!(Manifest::parse(&value.to_string()).is_err());
         let mut value = original;
-        value["providers"][3]["history"]["probeDirectory"] = serde_json::json!("brain");
+        value["providers"][3]["history"]["supported"] = serde_json::json!(false);
         assert!(Manifest::parse(&value.to_string()).is_err());
     }
 

@@ -1,7 +1,7 @@
 import type { AgentKind, AgentOptions, Installation, Settings } from './types';
 import manifest from './agent-manifest.json';
 
-export type HistoryAgentKind = Exclude<AgentKind, 'antigravity'>;
+export type HistoryAgentKind = AgentKind;
 
 export interface AgentCapability {
   id: AgentKind;
@@ -13,7 +13,7 @@ export interface AgentCapability {
     supported: true;
     parserId: HistoryAgentKind;
     defaultDirectory: string;
-    sourceEnv: string;
+    sourceEnv: string | null;
     rootPlaceholder: string;
     description: string;
   } | {

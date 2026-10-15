@@ -17,3 +17,9 @@
 預覽額外限制：每則訊息最多 64 KiB UTF-8 文字，超過會加上明確截短標示與 warning，仍可搜尋完整的受支援紀錄文字。每頁文字總量最多 1 MiB，超出以 beforeLine 分頁繼續；不會切斷 UTF-8 字元。超過 8 MiB 的單筆 JSONL 紀錄只顯示占位且不納入搜尋。
 
 FTS5 技術依據：SQLite 官方 https://sqlite.org/fts5.html 的 trigram tokenizer、external-content triggers、rebuild 與 integrity-check（2026-10-15 查閱）。FTS5 使用 detail=none、columnsize=0；MATCH 候選查詢只由程式產生最多 32 個均勻抽樣、不重複、雙引號轉義的三字元項目 AND 組合，再對完整原查詢精確比對。使用者輸入保持參數化字面文字，不是 FTS 運算式。
+
+## Antigravity CLI 合成案例
+
+`src-tauri/src/antigravity.rs`、`antigravity_metadata.rs` 的 unit tests 與 `src-tauri/tests/antigravity.rs`／`antigravity_service.rs` 在隔離暫存 HOME 產生持久化 step、SQLite DB／WAL、資料變動及 stub executable。沒有提交原始公開 capture 或讀取使用者歷史；合成欄位的來源與版本限制見 [Antigravity CLI 相容性](../docs/antigravity-cli-history.md)。
+
+正文只讀官方 `transcript.jsonl`，不從 `transcript_full.jsonl` 回填撤銷內容；Antigravity 每次內容變更完整重建，例外於上方一般 JSONL 的純增量解析。測試覆蓋 row順序、重複／衝突、CLEARED、未知／半行、同 inode 改寫、metadata-only、原始 DB／sidecars bytes 不變、取消與來源身份、native／backup 接續及 manual/indexed 去重。原生 smoke 另使用無敏感內容的合成 CLI DB／對話，不是 1.3.5 真實 fixture。

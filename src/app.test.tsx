@@ -13,6 +13,7 @@ const native = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload?: unknown }) => void>(),
   patch: undefined as ((id: string, patch: Partial<Pane>) => void) | undefined,
   sessionCwd: undefined as string | null | undefined,
+  resumeDisabledReason: undefined as string | undefined,
   historyRender: vi.fn(),
   canvasMounted: vi.fn(),
   canvasUnmounted: vi.fn(),
@@ -66,7 +67,7 @@ vi.mock('./components/History', () => ({
       projectId: project.id, title: 'Synthetic session',
       cwd: native.sessionCwd === undefined ? project.path : native.sessionCwd,
       updatedAt: '2026-10-15T01:00:00Z', timeSource: 'event', archived: false,
-      parentId: null, partial: false, snippet: null,
+      parentId: null, partial: false, snippet: null, resumeDisabledReason: native.resumeDisabledReason,
     } : undefined;
     return <div data-testid="history-view">
       <input id="session-search" aria-label="搜尋 Session" />
@@ -202,6 +203,7 @@ beforeEach(() => {
   native.handlers.clear();
   native.patch = undefined;
   native.sessionCwd = undefined;
+  native.resumeDisabledReason = undefined;
   native.alreadyOpen = undefined;
   vi.mocked(isDesktop).mockReturnValue(false);
   vi.mocked(api.updateProject).mockReset();
@@ -951,7 +953,7 @@ describe('exact agent launch preview and manual resume', () => {
     expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind, resumeId: 'synthetic-conversation' }));
     expect(vi.mocked(api.preview).mock.calls.at(-1)![0].sessionId).toBeUndefined();
     expect(dialog.querySelector('pre')?.textContent).toContain('synthetic-conversation');
-    if (kind === 'antigravity') expect(within(dialog).getByText(/尚不支援自動索引／預覽其歷史/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/尚不支援自動索引／預覽其歷史/)).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: '開始工作' }));
     const pane = Object.values(workspaceSnapshot().panes).find((item) => item.id !== 'pane-a')!;
     expect(pane).toMatchObject({ kind, resumeId: 'synthetic-conversation', startToken: 1 });
@@ -1668,4 +1670,19 @@ describe('semantic location breadcrumbs', () => {
     expect(crumb.querySelector('[aria-current="page"]')).toHaveTextContent('搜尋所有工作階段');
     expect(within(crumb).getByRole('button', { name: '所有目錄' })).toBeInTheDocument();
   });
+});
+
+it('refuses a preview-only session even when a stale history callback attempts resume', async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  native.resumeDisabledReason = '備份來源僅供預覽，不能接續。';
+  render(<App />);
+  await tick();
+  selectGroup();
+  const original = workspaceSnapshot();
+  fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
+  expect(screen.getByText('備份來源僅供預覽，不能接續。')).toBeInTheDocument();
+  expect(workspaceSnapshot()).toEqual(original);
+  expect(api.launch).not.toHaveBeenCalled();
+  expect(api.preview).not.toHaveBeenCalled();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });

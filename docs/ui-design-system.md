@@ -211,7 +211,7 @@ hover／focus 色彩轉換約 120ms，popover 約 160ms。不要動畫化終端�
 
 ## 9. 本次明確不納入
 
-本次是既有功能的整體 UI／UX 改版，不將 [13 項後續待辦](future-backlog.md) 偷渡為完成：文字縮放熱鍵、分頁改名、面板改名、分頁拖曳、專案改名、Agent 忙碌／等待與專案 Agent 數、其他 IME 問題、Shift＋Enter 多行、重開應用程序重新附接、索引效能優化、Herdr／Orca 比較研究、OpenCode、檔案瀏覽／預覽。新專案的初始可選名稱不等於既有專案重新命名。使用者之後明確追加的 CapsLock 特定組字重複路徑、Chrome 式工作分頁快捷鍵及來源候選偵測已納入本 PR；CapsLock 僅有合成事件回歸，真實 macOS IME 驗收仍待完成。
+本次是既有功能的整體 UI／UX 改版，不將 [17 項後續待辦](future-backlog.md) 偷渡為完成：文字縮放熱鍵、分頁改名、面板改名、分頁拖曳、專案改名、Agent 忙碌／等待與專案 Agent 數、其他 IME 問題、Shift＋Enter 多行、重開應用程序重新附接、索引效能優化、Herdr／Orca 比較研究、OpenCode、檔案瀏覽／預覽，以及後續追加的獨立 UI／Terminal 主題、臨時家目錄 Terminal、遠端管理與 Web 客戶端。新專案的初始可選名稱不等於既有專案重新命名。使用者之後明確追加的 CapsLock 特定組字重複路徑、Chrome 式工作分頁快捷鍵及來源候選偵測已納入本 PR；CapsLock 僅有合成事件回歸，真實 macOS IME 驗收仍待完成。
 
 ## 10. 官方參考與限制
 

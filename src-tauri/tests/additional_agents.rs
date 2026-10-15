@@ -59,7 +59,7 @@ fn old_settings_migrate_missing_agent_fields_without_resetting_preferences() {
     assert!(!settings
         .sources
         .iter()
-        .any(|source| source.kind == AgentKind::Grok));
+        .any(|source| matches!(source.kind, AgentKind::Grok | AgentKind::Antigravity)));
     for kind in [
         AgentKind::Codex,
         AgentKind::Claude,

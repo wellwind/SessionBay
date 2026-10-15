@@ -107,13 +107,13 @@
       "logo": "A",
       "bypassFlag": "--dangerously-skip-permissions",
       "history": {
-        "supported": false,
+        "supported": true,
         "sourceEnv": null,
-        "rootPlaceholder": null,
-        "description": "CLI 工具 agy；與 Antigravity 桌面／IDE 歷史分開。尚不提供歷史搜尋、索引或預覽。",
-        "parserId": null,
+        "rootPlaceholder": "/Users/you/.gemini/antigravity-cli",
+        "description": "CLI 歷史讀取（相容性驗證中）：本機 metadata 與持久化 transcript；1.3.5 真實磁碟樣本尚待驗證。不包含 App／IDE，未知或截斷格式會顯示警告。",
+        "parserId": "antigravity",
         "defaultDirectory": ".gemini/antigravity-cli",
-        "probeDirectory": null
+        "probeDirectory": "brain"
       },
       "resume": {
         "manualId": true,

@@ -105,6 +105,7 @@ pub fn discover_history_sources(
     for (origin, root) in inputs
         .source_env
         .iter()
+        .filter(|_| provider.history.source_env.is_some())
         .map(|root| ("provider environment", root))
         .chain(default_root.iter().map(|root| ("home default", root)))
     {

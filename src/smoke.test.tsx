@@ -28,7 +28,8 @@ function seed(theme: 'dark' | 'light'): Bootstrap {
       version: 1, theme, terminalTheme: 'bay', fontFamily: 'monospace', fontSize: 14,
       defaultAgent: 'codex', defaultProfileId: 'smoke-shell',
       profiles: [{ id: 'smoke-shell', name: 'POSIX Shell', executable: '/bin/sh', args: [], env: {} }],
-      sources: [{ id: 'sessionbay-smoke-codex', kind: 'codex', root: `${root}/codex`, enabled: true }],
+      sources: [{ id: 'sessionbay-smoke-codex', kind: 'codex', root: `${root}/codex`, enabled: true },
+        { id: 'sessionbay-smoke-antigravity', kind: 'antigravity', root: '/synthetic/isolated-home/.gemini/antigravity-cli', enabled: true }],
       executables: { codex: '/missing/codex', claude: '/missing/claude', grok: '/missing/grok', antigravity: '/missing/agy' },
       agentOptions: defaultAgentOptions(), shortcuts: {}, onboardingComplete: false,
     },
@@ -91,15 +92,24 @@ describe('native visual smoke scenario against real React UI', () => {
     });
     vi.mocked(api.index).mockImplementation(async () => indexed
       ? { ...boot.index, revision: 1, processed: 4, total: 4 } : boot.index);
-    vi.mocked(api.sessions).mockImplementation(async ({ projectId }) => ({ total: 1, items: [{
-      id: 'smoke-session', externalId: 'smoke-native-session', sourceId: 'sessionbay-smoke-codex', kind: 'codex',
+    vi.mocked(api.sessions).mockImplementation(async ({ projectId, kind }) => ({ total: 1, items: [{
+      id: kind === 'antigravity' ? 'smoke-antigravity-session' : 'smoke-session', externalId: 'smoke-native-session',
+      sourceId: kind === 'antigravity' ? 'sessionbay-smoke-antigravity' : 'sessionbay-smoke-codex', kind: kind ?? 'codex',
       projectId: projectId ?? 'harbor', cwd: `${root}/workspaces/harbor`, title: '合成歷史預覽',
       updatedAt: '2026-01-15T09:00:00Z', timeSource: 'event', archived: false, parentId: null, partial: false, snippet: '合成內容',
     } satisfies Session] }));
-    vi.mocked(api.transcript).mockResolvedValue({ messages: [{ role: 'user', text: '合成對話內容', timestamp: null, line: 1 }],
-      hasMore: false, beforeLine: null, stale: false, warning: null });
+    vi.mocked(api.transcript).mockImplementation(async (id) => ({ messages: id === 'smoke-antigravity-session' ? [
+      { role: 'user', text: 'SESSIONBAY_SYNTHETIC_AG_USER：檢查唯讀歷史預覽。', timestamp: null, line: 1 },
+      { role: 'assistant', text: 'SESSIONBAY_SYNTHETIC_AG_ASSISTANT：合成回覆已顯示，沒有啟動 Agent。', timestamp: null, line: 2 },
+    ] : [{ role: 'user', text: '合成對話內容', timestamp: null, line: 1 }],
+    hasMore: false, beforeLine: null, stale: false, warning: null }));
     vi.mocked(api.preview).mockResolvedValue({ executable: '/bin/sh', args: [], cwd: `${root}/workspaces/harbor` });
-    vi.mocked(api.detectHistorySources).mockResolvedValue({ kind: 'grok', supported: true, message: null, candidates: [
+    vi.mocked(api.detectHistorySources).mockImplementation(async (kind) => kind === 'antigravity' ? {
+      kind, supported: true, message: null, candidates: [
+        { kind, root: '/synthetic/isolated-home/.gemini/antigravity-cli', status: 'found', configured: true,
+          configuredSourceIds: ['sessionbay-smoke-antigravity'], message: null },
+      ],
+    } : { kind: 'grok', supported: true, message: null, candidates: [
       { kind: 'grok', root: '/synthetic/isolated-grok', status: 'found', configured: false, configuredSourceIds: [],
         message: 'The root is readable, but the sessions history directory does not exist yet. You can still add this root.' },
       { kind: 'grok', root: '/synthetic/isolated-home/.grok', status: 'missing', configured: false, configuredSourceIds: [], message: 'The history root does not exist.' },
@@ -125,7 +135,10 @@ describe('native visual smoke scenario against real React UI', () => {
     );
     expect(api.addProject).toHaveBeenCalledTimes(2);
     expect(api.scan).toHaveBeenCalledOnce();
-    expect(api.detectHistorySources).toHaveBeenCalledExactlyOnceWith('grok');
+    expect(vi.mocked(api.detectHistorySources).mock.calls).toEqual([['grok'], ['antigravity']]);
+    expect(api.sessions).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'antigravity', projectId: 'harbor' }));
+    expect(api.transcript).toHaveBeenLastCalledWith('smoke-antigravity-session');
+    expect(screen.getByText(/SESSIONBAY_SYNTHETIC_AG_ASSISTANT/)).toBeInTheDocument();
     expect(api.createProject).not.toHaveBeenCalled();
     expect(api.saveSettings).not.toHaveBeenCalled();
     expect(api.saveWorkspace).not.toHaveBeenCalled();

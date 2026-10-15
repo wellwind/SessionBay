@@ -4,7 +4,7 @@
 
 ## 2026-10-15 工具登錄、啟動器與輸入操作一致性
 
-本批剩餘範圍固定為雙頁導覽、統一工具／來源入口、輸入操作與 macOS 圖示，不擴充未來待辦。
+本節記錄原功能批次；後續使用者追加的 Antigravity CLI 歷史、IME／快捷鍵與來源偵測依本文件後段決策執行，未來待辦仍不納入實作。
 
 - `src/agent-manifest.json` 是內建 provider metadata 的共同來源，由 TypeScript 與 Rust 使用，統一名稱、標誌、預設執行檔、版本探測、來源能力及啟動參數模板。Rust parser 與工具專屬參數驗證仍為明確的型別實作；新增 manifest 條目不會自動產生 adapter，也不是動態外掛載入。
 - 工具重新偵測更新執行檔／版本資訊，與歷史索引掃描分開。設定草稿需先保存再偵測，不把可執行檔存在等同歷史可讀或登入成功。
@@ -19,7 +19,7 @@
 
 四個 Agent 的歷史能力卡片固定顯示，不依是否已啟動、是否找到執行檔或目前有無來源而隱藏。執行檔、歷史 adapter、來源設定與索引健康是不同能力／狀態。
 
-- Codex、Claude Code、Grok Build 提供受支援來源設定；Antigravity 明示「歷史尚不支援」，保留 CLI 新工作與手動 ID 接續能力。
+- 四工具提供各自來源設定；Antigravity 後續依使用者要求加入 CLI 防禦 reader，明示 1.3.5 真實樣本尚待驗證。新工作、手動 ID 與索引接續的能力分別回報。
 - 舊設定只有 Codex／Claude 來源是保留使用者設定的升級結果，與是否曾開啟 Grok 無關。缺少 Grok 來源時提供設定入口，先建立可編輯草稿，由使用者填入絕對路徑並明確保存；不猜測使用者 home，不在升級時自動新增或索引新根目錄。
 - 保留既有來源 ID、根目錄與 enabled 狀態，允許同一工具的多個不同來源；新增草稿不等於已保存或開始掃描。
 - 前後端以共用 manifest 集中工具資訊；後端仍是內建、具型別的 Agent 分派與 adapter，並非動態外掛。未知工具／未驗證格式不因有啟動器就自動取得歷史能力。
@@ -45,7 +45,7 @@
 | --- | --- | --- |
 | Agent 種類 | `codex`、`claude`、`grok`、`antigravity`；預設執行檔分別為 `codex`、`claude`、`grok`、`agy` | 可自訂執行檔；不代管登入或儲存 API key |
 | Grok Build | 新工作、指定 ID 接續，並加入唯讀本機歷史 adapter | 以官方原始碼的 `summary.json`＋`updates.jsonl` 為依據；實際 CLI 版本仍待驗收 |
-| Antigravity CLI | 新工作及手動輸入 conversation ID 接續 | 目前不索引／搜尋／預覽 Antigravity 歷史；不宣稱支援同品牌桌面 App 或 IDE 歷史 |
+| Antigravity CLI | 新工作、手動 ID；後續追加 CLI 唯讀歷史與受限制索引接續 | 已觀察持久化格式的防禦 reader；CLI 1.3.5 真實樣本／實機接續待驗證，不包含同品牌 App／IDE |
 | 自訂參數 | 每個 Agent 保存獨立 `extraArgs: string[]` | 參數逐項傳入，不執行 Shell 字串；後端白名單與參數值驗證不可略過 |
 | 危險選項 | 每個 Agent 的 `bypassPermissions` 預設 `false`，使用者閱讀警告後明確勾選並保存 | 此同意持久保存；後續啟動不重複彈出 Session Bay 確認，但 CLI 自身登入、信任、企業政策仍可能要求操作 |
 | 權限預設與覆寫 | 勾選後使用工具專屬危險預設；明確自訂的權限模式優先，不再追加衝突的預設 | Grok 自動核准不等於停用沙箱；各工具語意分別說明，不能統一宣稱完全取消隔離 |
@@ -223,3 +223,11 @@
 使用者明確要求將 Web 版加入未來需求規劃：提供獨立 browser client，可由一般瀏覽器查看與操作 Agents／Sessions，不以 Tauri 桌面內的 WebView 代替此需求。列入後續待辦第 17 項，維持待規劃與實作。
 
 認證與授權、遠端機器及背景 Runtime 整合、斷線重連與重新附接需另行設計；尚未選定架構、協定或部署方式。本輪不實作或部署 Web 服務，也不建立存取權限或持久憑證。第 09 項持續執行與重新附接仍為下一階段最高優先。
+
+## 2026-10-15 Antigravity CLI 歷史明確納入本輪
+
+使用者要求 Antigravity 歷史在 PR #1 處理，並確認版本 1.3.5 是 CLI；本決定取代先前只支援新工作／手動 ID、歷史 unsupported 的範圍。App／IDE 與 App 匯入不在本次必要範圍。
+
+採持久化 step 與 metadata 防禦 reader，來源／schema 證據與未完成的 1.3.5 實機驗收見 [Antigravity CLI 歷史](antigravity-cli-history.md)。備份只預覽；原生 CLI root 的索引接續仍需身份與 cwd 預檢。SQLite 僅讀應用私密暫存副本，不觸碰原始資料 sidecars。未知格式要顯示原因，不以空清單冒充成功。
+
+新增的主題、臨時 Terminal、遠端管理與 Web 客戶端仍是未來待辦，合計 17 項；第 09 項持續 Runtime／重新附接維持下一階段最高優先。

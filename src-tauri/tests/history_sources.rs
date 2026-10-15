@@ -345,7 +345,7 @@ fn configured_ids_identify_matching_saved_sources_without_changing_them() {
 }
 
 #[test]
-fn unsupported_provider_has_no_candidates_even_with_invalid_inputs_and_saved_source() {
+fn antigravity_discovers_only_official_home_root_and_ignores_unregistered_environment() {
     let temp = tempfile::tempdir().unwrap();
     let nonexistent_home = temp.path().join("never-create-this-home");
     let saved = vec![saved_source(AgentKind::Antigravity, temp.path(), true)];
@@ -359,9 +359,16 @@ fn unsupported_provider_has_no_candidates_even_with_invalid_inputs_and_saved_sou
         &saved,
     );
     assert_eq!(result.kind, AgentKind::Antigravity);
-    assert!(!result.supported);
-    assert!(result.candidates.is_empty());
-    assert!(result.message.is_some());
+    assert!(result.supported);
+    assert_eq!(result.candidates.len(), 1);
+    assert_eq!(
+        Path::new(&result.candidates[0].root),
+        nonexistent_home.join(".gemini/antigravity-cli")
+    );
+    assert_eq!(
+        result.candidates[0].status,
+        HistorySourceCandidateStatus::Missing
+    );
     assert!(!nonexistent_home.exists());
     assert_eq!(serde_json::to_vec(&saved).unwrap(), before);
 }
@@ -759,4 +766,32 @@ fn statuses_and_candidate_fields_serialize_for_camel_case_ipc() {
     assert_eq!(json["candidates"][0]["status"], "found");
     assert_eq!(json["candidates"][0]["configured"], false);
     assert!(json["candidates"][0]["root"].is_string());
+}
+
+#[test]
+fn antigravity_cli_default_probe_is_brain_and_existing_source_is_preserved() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join(".gemini/antigravity-cli");
+    fs::create_dir_all(&root).unwrap();
+    let saved = vec![saved_source(AgentKind::Antigravity, &root, false)];
+    let before = serde_json::to_vec(&saved).unwrap();
+    let inputs = HistorySourceDiscoveryInputs {
+        home: Some(temp.path().to_owned()),
+        source_env: Some(temp.path().join("must-ignore-unregistered-env")),
+    };
+    let result = discover_history_sources(AgentKind::Antigravity, &inputs, &saved);
+    assert!(result.supported);
+    assert_eq!(result.candidates.len(), 1);
+    let candidate = &result.candidates[0];
+    assert_eq!(
+        candidate.root,
+        root.canonicalize().unwrap().to_string_lossy()
+    );
+    assert_eq!(candidate.status, HistorySourceCandidateStatus::Found);
+    assert!(candidate.configured);
+    assert!(candidate.message.as_deref().unwrap().contains("brain"));
+    fs::create_dir(root.join("brain")).unwrap();
+    let result = discover_history_sources(AgentKind::Antigravity, &inputs, &saved);
+    assert!(result.candidates[0].message.is_none());
+    assert_eq!(serde_json::to_vec(&saved).unwrap(), before);
 }
