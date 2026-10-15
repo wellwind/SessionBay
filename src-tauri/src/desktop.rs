@@ -163,7 +163,10 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let state = window.state::<Arc<Service>>();
+                // Native events can arrive before the Ready/setup callback.
+                let Some(state) = window.try_state::<Arc<Service>>() else {
+                    return;
+                };
                 if !state.is_shutdown() {
                     api.prevent_close();
                     let _ = window.emit("app-close-requested", ());
@@ -198,7 +201,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("無法啟動 Session Bay");
     app.run(|app, event| {
-        let state = app.state::<Arc<Service>>();
+        let Some(state) = service_for_event(&event, || {
+            app.try_state::<Arc<Service>>()
+                .map(|state| state.inner().clone())
+        }) else {
+            return;
+        };
         match event {
             tauri::RunEvent::ExitRequested { api, .. } if !state.is_shutdown() => {
                 api.prevent_exit();
@@ -210,4 +218,33 @@ pub fn run() {
             _ => {}
         }
     });
+}
+
+// The runtime emits some native events before setup manages Service. Only exit
+// events need it; missing state during startup/failed setup must never panic.
+fn service_for_event(
+    event: &tauri::RunEvent,
+    state: impl FnOnce() -> Option<Arc<Service>>,
+) -> Option<Arc<Service>> {
+    match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => state(),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn early_native_events_never_read_unmanaged_service() {
+        for event in [tauri::RunEvent::Ready, tauri::RunEvent::Resumed] {
+            assert!(service_for_event(&event, || panic!("state accessed before setup")).is_none());
+        }
+    }
+
+    #[test]
+    fn exit_before_service_setup_is_safe() {
+        assert!(service_for_event(&tauri::RunEvent::Exit, || None).is_none());
+    }
 }

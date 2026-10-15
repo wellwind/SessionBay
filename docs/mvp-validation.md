@@ -11,11 +11,11 @@
 | Linux 桌面依賴 | 官方 Debian 套件，GTK 3.24.49／WebKitGTK 2.54.0；解壓至工作區，未修改使用者電腦 |
 | 前端 | TypeScript、ESLint、Vite production build 通過；5 組共 98 測試通過；完整 npm audit（含 dev dependencies）0 vulnerabilities |
 | Rust 核心 | 24 unit＋34 catalog＋17 PTY＋1 service 整合，共 76 測試通過（Darwin 修正的 Linux 回歸） |
-| 完整 Linux crate | 預設 desktop features 的 cargo test 76 測試通過；all-target Clippy `-D warnings` 與 native cargo build 通過 |
+| 完整 Linux crate | 預設 desktop features 的 cargo test 78 測試通過（含 2 個桌面生命週期測試）；all-target Clippy `-D warnings` 與 native cargo build 通過 |
 | Linux executable | 真正 x86_64 ELF debug executable 已成功連結；未視為可跨 distro 發布的安裝包 |
 | macOS | 首輪 macOS 15 ARM64／Intel 原生編譯成功；CI 找出 Darwin zombie leader 的 session 查詢差異，已加入修正與回歸測試；最新平台結果請查下方 PR Checks |
 | Native GUI／截圖 | 未驗證；此環境 Chromium／圖形沙箱受限，未停用沙箱繞過，也未提供假截圖 |
-| CI | 已啟動 Ubuntu 24.04 x64、macOS 15 ARM64／Intel 工作流程；首輪 Linux tests／Clippy 通過。Linux 包含 Xvfb 原生視窗／截圖 smoke；建置與後續修正結果以 PR Checks 的 exact commit 為準 |
+| CI | 已啟動 Ubuntu 24.04 x64、macOS 15 ARM64／Intel 工作流程；首輪 Linux tests／Clippy／.deb bundle 通過，但 window smoke 找出 setup 前的 state 存取 panic，已加入防護與兩項回歸；macOS 另增隔離 HOME 的 20 秒啟動存活檢查。Linux 包含 Xvfb 原生視窗／截圖 smoke；建置與後續修正結果以 PR Checks 的 exact commit 為準 |
 | 獨立程式審查 | 已通過修正後的資料唯讀、IPC、注入防護、程序所有權、關閉競態與布局恢復檢查；不等同平台驗收 |
 
 遠端驗證：[Draft PR #1 與 Checks](https://github.com/wellwind/SessionBay/pull/1)、[首輪 native run](https://github.com/wellwind/SessionBay/actions/runs/38677233976)。本表記錄 Darwin 修正提交前已觀察的結果，不預先宣稱修正後 macOS 或 bundle 通過。

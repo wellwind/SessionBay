@@ -96,7 +96,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 第一個參數為 Session 數，第二個為每個 Session 的近似 KiB。結果含實際來源 bytes、索引耗時、未變更補掃、20 次查詢 p50／p95；不是 WebView 互動或整體記憶體量測。
 
-`.github/workflows/ci.yml` 會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。Linux job 額外在空白暫存 HOME 的 Xvfb 啟動原生視窗並擷取 PNG，沒有停用 WebKit sandbox；這是視窗 smoke，不取代互動式驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
+`.github/workflows/ci.yml` 會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。Linux job 額外在空白暫存 HOME 的 Xvfb 啟動原生視窗並擷取 PNG，沒有停用 WebKit sandbox；這是視窗 smoke，不取代互動式驗收。macOS job 以隔離 HOME 啟動打包後的 executable 並觀察 20 秒存活；不申請螢幕錄製／Accessibility 權限，不宣稱已驗證畫面。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
 
 Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](https://github.com/actions/upload-artifact/blob/v4/README.md#permission-loss)。
 
