@@ -1,0 +1,58 @@
+import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
+import type {
+  AgentKind,
+  HistorySourceDiscovery,
+  Bootstrap,
+  IndexStatus,
+  Installation,
+  LaunchRequest,
+  LaunchPreview,
+  Project,
+  RuntimeInfo,
+  SessionPage,
+  SessionQuery,
+  ShellCandidate,
+  Settings,
+  TerminalEvent,
+  TranscriptPage,
+} from './types';
+export const isDesktop = () => isTauri();
+export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  if (!isDesktop()) throw new Error('桌面執行環境未連線。請以 Session Bay 桌面應用程式開啟。');
+  return invoke<T>(command, args);
+}
+export const api = {
+  bootstrap: () => call<Bootstrap>('bootstrap'),
+  detect: () => call<Installation[]>('detect_installations'),
+  detectShells: () => call<ShellCandidate[]>('detect_shells'),
+  detectHistorySources: (kind: AgentKind) => call<HistorySourceDiscovery>('detect_history_sources', { kind }),
+  saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
+  projects: () => call<Project[]>('list_projects'),
+  addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
+  createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),
+  updateProject: (projectId: string, values: { pinned?: boolean; launchPath?: string; curated?: boolean; name?: string }) =>
+    call<Project>('update_project', { projectId, ...values }),
+  sessions: (query: SessionQuery) => call<SessionPage>('query_sessions', { query }),
+  transcript: (sessionId: string, beforeLine?: number) =>
+    call<TranscriptPage>('read_transcript', { sessionId, beforeLine, limit: 40 }),
+  scan: (rebuild = false) => call<IndexStatus>('start_index', { rebuild }),
+  index: () => call<IndexStatus>('index_status'),
+  cancelScan: () => call<void>('cancel_index'),
+  clearIndex: () => call<void>('clear_index'),
+  saveWorkspace: (workspace: unknown) => call<void>('save_workspace', { workspace }),
+  preview: (request: LaunchRequest) => call<LaunchPreview>('preview_launch', { request }),
+  launch: (request: LaunchRequest, onMessage: (event: TerminalEvent) => void) => {
+    const onEvent = new Channel<TerminalEvent>();
+    onEvent.onmessage = onMessage;
+    return call<RuntimeInfo>('launch_runtime', { request, onEvent });
+  },
+  write: (runtimeId: string, data: string) => call<void>('write_runtime', { runtimeId, data }),
+  resize: (runtimeId: string, cols: number, rows: number) =>
+    call<void>('resize_runtime', { runtimeId, cols, rows }),
+  ack: (runtimeId: string, sequence: number) => call<void>('ack_runtime', { runtimeId, sequence }),
+  stop: (runtimeId: string) => call<void>('stop_runtime', { runtimeId }),
+  runtimes: () => call<RuntimeInfo[]>('list_runtimes'),
+  close: () => call<void>('close_application'),
+};
+export const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);

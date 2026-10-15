@@ -1,0 +1,83 @@
+.select-control { position: relative; min-width: 0; width: 100%; }
+.select-trigger, .date-field, .search-field {
+  border: 1px solid var(--border, #343a42);
+  border-radius: 7px;
+  background: var(--bg, #15191e);
+  color: var(--text, #e5e9ec);
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.select-trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px;
+  padding: 8px 10px; text-align: left; font: inherit; cursor: pointer;
+}
+.select-trigger:hover:not(:disabled) { background: var(--surface-hover, #252c34); }
+.select-trigger:focus-visible, .date-field:focus-within, .search-field:focus-within {
+  border-color: var(--accent, #a8dfc4);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #a8dfc4) 14%, transparent);
+  outline: none;
+}
+.select-trigger[aria-invalid='true'], .date-control.is-invalid .date-field { border-color: var(--danger, #ed9e9e); }
+.select-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-icon { display: inline-flex; flex: 0 0 auto; align-items: center; color: var(--muted, #8a949e); }
+.select-chevron { color: var(--muted, #8a949e); transition: transform .15s; }
+.select-chevron.is-open { transform: rotate(180deg); }
+.control-popover {
+  position: fixed; z-index: 1000; overflow: auto; overscroll-behavior: contain;
+  border: 1px solid var(--border, #343a42); border-radius: 9px;
+  background: var(--panel, #1b2026); color: var(--text, #e5e9ec);
+  box-shadow: 0 12px 40px #0005; box-sizing: border-box; font: inherit;
+}
+.select-options { padding: 5px; }
+.select-option {
+  display: flex; align-items: center; gap: 9px; padding: 9px 10px;
+  border-radius: 5px; cursor: pointer; min-height: 36px;
+}
+.select-option[data-active='true'] { background: var(--surface-hover, #252c34); }
+.select-option[aria-selected='true'] { color: var(--accent, #a8dfc4); }
+.select-option[aria-disabled='true'] { color: var(--muted, #8a949e); cursor: not-allowed; }
+.select-option-copy { display: flex; flex-direction: column; flex: 1; gap: 3px; min-width: 0; }
+.select-option-copy > small { font-size: 11px; color: var(--muted, #8a949e); line-height: 1.4; }
+.select-trigger:disabled, .date-field:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+.date-control { min-width: 0; }
+.date-field { display: flex; align-items: center; width: 100%; min-height: 36px; }
+.date-field > input { flex: 1; width: 100%; min-width: 0; padding: 8px 10px; }
+.date-field > input, .search-field > input {
+  border: 0; outline: none; background: transparent; color: inherit; font: inherit;
+  box-shadow: none; border-radius: inherit;
+}
+.date-field > input:focus-visible, .search-field > input:focus-visible { outline: none; }
+.date-field > button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--muted, #8a949e); width: 34px; height: 32px; border-radius: 5px; margin-right: 2px; flex-shrink: 0; }
+.date-field > button:hover:not(:disabled) { color: var(--accent, #a8dfc4); background: var(--surface-hover, #252c34); }
+.control-error { display: block; margin-top: 5px; color: var(--danger, #ed9e9e); font-size: 11px; }
+.date-popover { padding: 12px; }
+.calendar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.calendar-heading > span { font-weight: 600; font-size: 13px; }
+.calendar-heading > button { width: 30px; height: 30px; border-radius: 5px; }
+.calendar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; margin-bottom: 3px; }
+.calendar-week > [role='columnheader'] { text-align: center; color: var(--muted, #8a949e); padding: 4px 0 7px; font-size: 10px; }
+.calendar-day { display: flex; align-items: center; justify-content: center; width: 100%; height: 32px; padding: 0; border-radius: 6px; font-size: 12px; border: 1px solid transparent; }
+.calendar-day.outside-month { color: var(--subtle, #606c77); }
+.calendar-day[aria-current='date'] { border-color: var(--accent, #a8dfc4); }
+.calendar-day.is-selected, .calendar-day.is-selected:hover { background: var(--accent, #a8dfc4); color: var(--bg, #15191e); font-weight: 650; }
+.calendar-day:focus-visible { outline: 2px solid var(--accent, #a8dfc4); outline-offset: 1px; }
+.calendar-footer { display: flex; justify-content: space-between; gap: 8px; padding-top: 10px; margin-top: 7px; border-top: 1px solid var(--border, #343a42); }
+.calendar-footer > button { border-radius: 5px; padding: 6px 8px; font-size: 12px; color: var(--muted, #8a949e); }
+.calendar-footer > button:last-child { color: var(--accent, #a8dfc4); }
+input.checkbox {
+  appearance: none; -webkit-appearance: none; width: 16px; height: 16px; padding: 0; margin: 0;
+  border: 1px solid var(--border, #343a42); border-radius: 4px; background: var(--bg, #15191e);
+  display: inline-grid; place-content: center; vertical-align: middle; cursor: pointer; flex: 0 0 auto;
+}
+input.checkbox::before { content: ''; width: 7px; height: 4px; border-left: 2px solid var(--bg, #15191e); border-bottom: 2px solid var(--bg, #15191e); transform: rotate(-45deg) scale(0); margin-top: -2px; }
+input.checkbox:checked { background: var(--accent, #a8dfc4); border-color: var(--accent, #a8dfc4); }
+input.checkbox:checked::before { transform: rotate(-45deg) scale(1); }
+input.checkbox:indeterminate { background: var(--accent, #a8dfc4); border-color: var(--accent, #a8dfc4); }
+input.checkbox:indeterminate::before { border-left: 0; height: 0; transform: none; margin-top: 0; }
+input.checkbox:focus-visible { outline: 2px solid var(--accent, #a8dfc4); outline-offset: 3px; }
+input.checkbox:disabled { opacity: .4; cursor: not-allowed; }
+.search-field { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0 10px; }
+.search-field > svg { color: var(--muted, #8a949e); flex-shrink: 0; }
+.search-field > input { min-width: 0; width: 100%; padding: 8px 0; }
+@media (prefers-reduced-motion: reduce) {
+  .select-trigger, .date-field, .search-field, .select-chevron { transition: none; }
+}

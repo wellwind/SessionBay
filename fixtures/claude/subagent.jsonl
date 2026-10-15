@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"claude-synthetic-001","agentId":"synthetic-child","isSidechain":true,"cwd":"/synthetic/shared","timestamp":"2026-01-02T00:03:00Z","message":{"content":"子代理檢查"}}
+{"type":"assistant","sessionId":"claude-synthetic-001","agentId":"synthetic-child","isSidechain":true,"cwd":"/synthetic/shared","timestamp":"2026-01-02T00:04:00Z","message":{"content":"子代理完成檢查"}}

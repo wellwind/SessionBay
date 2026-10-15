@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- macOS optical padding: preserve the original artwork at 412/512 scale. -->
+  <g transform="translate(50 50) scale(0.8046875)">
+    <rect x="0" y="0" width="512" height="512" rx="110" fill="#141d23"/>
+    <circle cx="256" cy="139" r="32" fill="none" stroke="#9bd9bd" stroke-width="24"/>
+    <path d="M256 171V378M176 232H336M116 293C116 371 181 411 256 411C331 411 396 371 396 293M116 293L90 323M116 293L145 322M396 293L366 322M396 293L423 323" fill="none" stroke="#9bd9bd" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

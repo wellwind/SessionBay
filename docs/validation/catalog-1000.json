@@ -1,0 +1,44 @@
+{
+  "indexErrors": [],
+  "indexingMs": 2199.469544,
+  "search": [
+    {
+      "matches": 1000,
+      "p50Ms": 26.976177,
+      "p95Ms": 29.27718,
+      "query": "中文",
+      "samples": 20
+    },
+    {
+      "matches": 1000,
+      "p50Ms": 47.596940999999994,
+      "p95Ms": 51.032791,
+      "query": "session_bay_identifier",
+      "samples": 20
+    },
+    {
+      "matches": 1000,
+      "p50Ms": 55.130459,
+      "p95Ms": 64.366359,
+      "query": "SESSION_BAY_IDENTIFIER",
+      "samples": 20
+    },
+    {
+      "matches": 1,
+      "p50Ms": 1.941794,
+      "p95Ms": 2.447111,
+      "query": "unique_needle_999",
+      "samples": 20
+    },
+    {
+      "matches": 0,
+      "p50Ms": 1.040238,
+      "p95Ms": 1.1366880000000001,
+      "query": "no_match_exists",
+      "samples": 20
+    }
+  ],
+  "sessions": 1000,
+  "sourceBytes": 109242670,
+  "unchangedReconcileMs": 15.375243000000001
+}

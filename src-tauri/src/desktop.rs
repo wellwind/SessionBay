@@ -1,0 +1,407 @@
+use crate::{
+    config::{self, Installation, Settings},
+    history_sources::{self, HistorySourceDiscovery},
+    models::{AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
+    runtime::{RuntimeInfo, TerminalEvent},
+    service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
+    shells::{self, ShellCandidate},
+};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+use tauri::{ipc::Channel, Emitter, Manager, State};
+
+type AppState<'a> = State<'a, Arc<Service>>;
+
+// Opt-in smoke diagnostics only. No file paths, file writes, or remote transport.
+// Keep the command bounded even if a malfunctioning WebView repeatedly reports errors.
+static FRONTEND_DIAGNOSTICS: AtomicUsize = AtomicUsize::new(0);
+
+fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
+    if !matches!(
+        phase,
+        "observer" | "module-loaded" | "mounted" | "ready" | "interaction" | "error" | "snapshot"
+    ) {
+        return Err("Unknown frontend diagnostic phase".into());
+    }
+    if phase == "snapshot"
+        && !matches!(
+            message,
+            "projects-dark"
+                | "directories-dark"
+                | "providers-dark"
+                | "launcher-dark"
+                | "calendar-dark"
+                | "projects-light"
+                | "directories-light"
+                | "providers-light"
+                | "launcher-light"
+                | "calendar-light"
+        )
+    {
+        return Err("Unknown frontend snapshot identifier".into());
+    }
+    let message: String = message.chars().take(2048).collect();
+    Ok(format!(
+        "SESSIONBAY_FRONTEND {}",
+        serde_json::json!({ "phase": phase, "message": message })
+    ))
+}
+
+#[tauri::command]
+fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
+    if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
+        return Ok(false);
+    }
+    let line = diagnostic_line(&phase, &message)?;
+    if FRONTEND_DIAGNOSTICS.fetch_add(1, Ordering::Relaxed) < 32 {
+        eprintln!("{line}");
+    }
+    Ok(true)
+}
+
+async fn blocking<T: Send + 'static>(
+    task: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| format!("背景工作失敗：{e}"))?
+}
+
+#[tauri::command]
+async fn bootstrap(state: AppState<'_>) -> Result<Bootstrap, String> {
+    let s = state.inner().clone();
+    blocking(move || s.bootstrap()).await
+}
+#[tauri::command]
+async fn detect_installations(state: AppState<'_>) -> Result<Vec<Installation>, String> {
+    let s = state.inner().clone();
+    blocking(move || Ok(config::detect(&s.settings()?))).await
+}
+#[tauri::command]
+async fn detect_history_sources(
+    state: AppState<'_>,
+    kind: AgentKind,
+) -> Result<HistorySourceDiscovery, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        Ok(history_sources::detect_history_sources(
+            kind,
+            &s.settings()?.sources,
+        ))
+    })
+    .await
+}
+#[tauri::command]
+async fn detect_shells(state: AppState<'_>) -> Result<Vec<ShellCandidate>, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        let saved_executables = s
+            .settings()?
+            .profiles
+            .into_iter()
+            .map(|profile| profile.executable)
+            .collect::<Vec<_>>();
+        Ok(shells::detect_shells(&saved_executables))
+    })
+    .await
+}
+#[tauri::command]
+async fn save_settings(state: AppState<'_>, settings: Settings) -> Result<Settings, String> {
+    let s = state.inner().clone();
+    blocking(move || s.save_settings(settings)).await
+}
+#[tauri::command]
+async fn list_projects(state: AppState<'_>) -> Result<Vec<Project>, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.projects()).await
+}
+#[tauri::command]
+async fn add_project(
+    state: AppState<'_>,
+    path: String,
+    name: Option<String>,
+) -> Result<Project, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.add_project(&path, name.as_deref())).await
+}
+#[tauri::command]
+async fn create_project(
+    state: AppState<'_>,
+    parent_path: String,
+    name: String,
+) -> Result<Project, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.create_project(&parent_path, &name)).await
+}
+#[tauri::command]
+async fn update_project(
+    state: AppState<'_>,
+    project_id: String,
+    pinned: Option<bool>,
+    launch_path: Option<String>,
+    curated: Option<bool>,
+    name: Option<String>,
+) -> Result<Project, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.catalog.update_project(
+            &project_id,
+            pinned,
+            launch_path.as_deref(),
+            curated,
+            name.as_deref(),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn query_sessions(state: AppState<'_>, query: SessionQuery) -> Result<SessionPage, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.query(&query)).await
+}
+#[tauri::command]
+async fn read_transcript(
+    state: AppState<'_>,
+    session_id: String,
+    before_line: Option<u64>,
+    limit: Option<usize>,
+) -> Result<TranscriptPage, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.catalog
+            .transcript(&session_id, before_line, limit.unwrap_or(40).clamp(1, 200))
+    })
+    .await
+}
+#[tauri::command]
+fn start_index(state: AppState<'_>, rebuild: bool) -> Result<IndexStatus, String> {
+    state.inner().start_index(rebuild)
+}
+#[tauri::command]
+fn index_status(state: AppState<'_>) -> Result<IndexStatus, String> {
+    state.index_status()
+}
+#[tauri::command]
+fn cancel_index(state: AppState<'_>) {
+    state.cancel_index();
+}
+#[tauri::command]
+async fn clear_index(state: AppState<'_>) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.clear_index()).await
+}
+#[tauri::command]
+async fn save_workspace(state: AppState<'_>, workspace: serde_json::Value) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.config.save_workspace(&workspace)).await
+}
+#[tauri::command]
+async fn preview_launch(
+    state: AppState<'_>,
+    request: LaunchRequest,
+) -> Result<LaunchPreview, String> {
+    let s = state.inner().clone();
+    blocking(move || s.preview_launch(&request)).await
+}
+#[tauri::command]
+async fn launch_runtime(
+    state: AppState<'_>,
+    request: LaunchRequest,
+    on_event: Channel<TerminalEvent>,
+) -> Result<RuntimeInfo, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.launch(
+            &request,
+            Arc::new(move |event| on_event.send(event).map_err(|e| e.to_string())),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn write_runtime(
+    state: AppState<'_>,
+    runtime_id: String,
+    data: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.runtime.write(&runtime_id, &data)).await
+}
+#[tauri::command]
+async fn resize_runtime(
+    state: AppState<'_>,
+    runtime_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.runtime.resize(&runtime_id, cols, rows)).await
+}
+#[tauri::command]
+fn ack_runtime(state: AppState<'_>, runtime_id: String, sequence: u64) -> Result<(), String> {
+    state.runtime.ack(&runtime_id, sequence)
+}
+#[tauri::command]
+async fn stop_runtime(state: AppState<'_>, runtime_id: String) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.runtime.stop(&runtime_id)).await
+}
+#[tauri::command]
+fn list_runtimes(state: AppState<'_>) -> Vec<RuntimeInfo> {
+    state.runtime.list()
+}
+#[tauri::command]
+async fn close_application(app: tauri::AppHandle, state: AppState<'_>) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.shutdown()).await?;
+    app.exit(0);
+    Ok(())
+}
+
+pub fn run() {
+    let app = tauri::Builder::default()
+        .setup(|app| {
+            let directory = app.path().app_data_dir()?;
+            let service = Service::open(directory).map_err(std::io::Error::other)?;
+            app.manage(service.clone());
+            service.begin_reconcile();
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Native events can arrive before the Ready/setup callback.
+                let Some(state) = window.try_state::<Arc<Service>>() else {
+                    return;
+                };
+                if !state.is_shutdown() {
+                    api.prevent_close();
+                    let _ = window.emit("app-close-requested", ());
+                } else if let Err(error) = state.shutdown() {
+                    api.prevent_close();
+                    let _ = window.emit("app-close-error", error);
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            frontend_diagnostic,
+            bootstrap,
+            detect_installations,
+            detect_history_sources,
+            detect_shells,
+            save_settings,
+            list_projects,
+            add_project,
+            create_project,
+            update_project,
+            query_sessions,
+            read_transcript,
+            start_index,
+            index_status,
+            cancel_index,
+            clear_index,
+            save_workspace,
+            preview_launch,
+            launch_runtime,
+            write_runtime,
+            resize_runtime,
+            ack_runtime,
+            stop_runtime,
+            list_runtimes,
+            close_application
+        ])
+        .build(tauri::generate_context!())
+        .expect("無法啟動 Session Bay");
+    app.run(|app, event| {
+        let Some(state) = service_for_event(&event, || {
+            app.try_state::<Arc<Service>>()
+                .map(|state| state.inner().clone())
+        }) else {
+            return;
+        };
+        match event {
+            tauri::RunEvent::ExitRequested { api, .. } if !state.is_shutdown() => {
+                api.prevent_exit();
+                let _ = app.emit_to("main", "app-close-requested", ());
+            }
+            tauri::RunEvent::Exit => {
+                let _ = state.shutdown();
+            }
+            _ => {}
+        }
+    });
+}
+
+// The runtime emits some native events before setup manages Service. Only exit
+// events need it; missing state during startup/failed setup must never panic.
+fn service_for_event(
+    event: &tauri::RunEvent,
+    state: impl FnOnce() -> Option<Arc<Service>>,
+) -> Option<Arc<Service>> {
+    match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => state(),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frontend_diagnostics_are_bounded_json_without_log_injection() {
+        let line = diagnostic_line("error", &format!("failure\n{}", "界".repeat(3000))).unwrap();
+        assert_eq!(line.lines().count(), 1);
+        let value: serde_json::Value =
+            serde_json::from_str(line.strip_prefix("SESSIONBAY_FRONTEND ").unwrap()).unwrap();
+        assert_eq!(value["message"].as_str().unwrap().chars().count(), 2048);
+        assert!(diagnostic_line("arbitrary", "ignored").is_err());
+    }
+
+    #[test]
+    fn frontend_snapshots_accept_only_known_screens_and_themes() {
+        for screen in [
+            "projects",
+            "directories",
+            "providers",
+            "launcher",
+            "calendar",
+        ] {
+            for theme in ["dark", "light"] {
+                let message = format!("{screen}-{theme}");
+                let line = diagnostic_line("snapshot", &message).unwrap();
+                let value: serde_json::Value =
+                    serde_json::from_str(line.strip_prefix("SESSIONBAY_FRONTEND ").unwrap())
+                        .unwrap();
+                assert_eq!(
+                    value,
+                    serde_json::json!({ "phase": "snapshot", "message": message })
+                );
+                assert_eq!(line.lines().count(), 1);
+            }
+        }
+        for message in [
+            "",
+            "projects",
+            "projects-auto",
+            "unknown-dark",
+            "projects-dark\n",
+            "../projects-dark",
+        ] {
+            assert!(diagnostic_line("snapshot", message).is_err());
+        }
+    }
+
+    #[test]
+    fn early_native_events_never_read_unmanaged_service() {
+        for event in [tauri::RunEvent::Ready, tauri::RunEvent::Resumed] {
+            assert!(service_for_event(&event, || panic!("state accessed before setup")).is_none());
+        }
+    }
+
+    #[test]
+    fn exit_before_service_setup_is_safe() {
+        assert!(service_for_event(&tauri::RunEvent::Exit, || None).is_none());
+    }
+}
