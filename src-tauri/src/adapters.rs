@@ -4,16 +4,22 @@ use crate::models::AgentKind;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 
-pub const PARSER_VERSION: i64 = 1;
+pub const PARSER_VERSION: i64 = 2;
 pub const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_TITLE_INDEX_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ParsedState {
     pub external_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    #[serde(default)]
+    pub custom_title: Option<String>,
     pub first_user: Option<String>,
     pub event_at: Option<String>,
     pub parent_external: Option<String>,
@@ -60,6 +66,97 @@ pub fn short_text(text: &str, max: usize) -> String {
         result.push('…');
     }
     result
+}
+
+// Only skip known leading harness context; keep transcript and search text intact.
+fn task_title(text: &str) -> Option<String> {
+    let mut remaining = text.trim();
+    loop {
+        if remaining.starts_with("# AGENTS.md instructions") {
+            let (_, after) = remaining.split_once("</INSTRUCTIONS>")?;
+            remaining = after.trim_start();
+            continue;
+        }
+        let context = [
+            ("<INSTRUCTIONS>", "</INSTRUCTIONS>"),
+            ("<environment_context>", "</environment_context>"),
+            ("<user_instructions>", "</user_instructions>"),
+            ("<turn_aborted>", "</turn_aborted>"),
+            ("<local-command-caveat>", "</local-command-caveat>"),
+            ("<local-command-stdout>", "</local-command-stdout>"),
+        ]
+        .into_iter()
+        .find(|(open, _)| remaining.starts_with(open));
+        let Some((_, close)) = context else { break };
+        let (_, after) = remaining.split_once(close)?;
+        remaining = after.trim_start();
+    }
+    if remaining.is_empty() || remaining.starts_with("<command-name>") {
+        return None;
+    }
+    Some(short_text(remaining, 100))
+}
+
+pub fn display_title(state: &ParsedState, kind: AgentKind, external_id: &str) -> String {
+    state
+        .custom_title
+        .as_deref()
+        .or(state.title.as_deref())
+        .or(state.first_user.as_deref())
+        .map(|text| short_text(text, 120))
+        .unwrap_or_else(|| {
+            format!(
+                "{} {}",
+                kind.as_str(),
+                external_id.chars().take(12).collect::<String>()
+            )
+        })
+}
+
+// Codex names live outside rollouts. Read only the selected source's sidecar.
+pub fn source_titles(kind: AgentKind, root: &Path) -> Result<HashMap<String, String>, String> {
+    if kind != AgentKind::Codex {
+        return Ok(HashMap::new());
+    }
+    let path = root.join("session_index.jsonl");
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+        Err(_) => return Err("Cannot read the Codex session name index.".into()),
+    };
+    let mut bytes = Vec::new();
+    file.take(MAX_TITLE_INDEX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Cannot read the Codex session name index.")?;
+    if bytes.len() as u64 > MAX_TITLE_INDEX_BYTES {
+        return Err("Codex session name index exceeds the 16 MiB read limit.".into());
+    }
+    let mut titles: HashMap<String, (Option<String>, String)> = HashMap::new();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        let (Some(id), Some(title)) = (string(&value, "id"), string(&value, "thread_name")) else {
+            continue;
+        };
+        if id.len() > 256 {
+            continue;
+        }
+        let updated = string(&value, "updated_at").and_then(|time| normalized_time(&time));
+        if titles.get(&id).is_some_and(|(previous, _)| {
+            previous
+                .as_ref()
+                .zip(updated.as_ref())
+                .is_some_and(|(previous, updated)| previous > updated)
+        }) {
+            continue;
+        }
+        titles.insert(id, (updated, short_text(&title, 120)));
+    }
+    Ok(titles
+        .into_iter()
+        .map(|(id, (_, title))| (id, title))
+        .collect())
 }
 
 pub fn fallback_id(path: &Path, kind: AgentKind) -> String {
@@ -167,8 +264,8 @@ fn message(
         return None;
     }
     let prose = search_content(content);
-    if role == "user" && state.first_user.is_none() && !prose.trim().is_empty() {
-        state.first_user = Some(short_text(&prose, 100));
+    if role == "user" && state.first_user.is_none() {
+        state.first_user = task_title(&prose);
     }
     Some(ParsedMessage {
         role: role.into(),
@@ -421,7 +518,14 @@ fn parse_claude(
                 .unwrap_or(&Value::Null);
             message(record_type, content, timestamp, false, state)
         }
-        "summary" | "custom-title" => {
+        "custom-title" => {
+            state.recognized = true;
+            if let Some(title) = string(value, "customTitle") {
+                state.custom_title = Some(title);
+            }
+            None
+        }
+        "summary" => {
             state.recognized = true;
             if let Some(title) = string(value, "customTitle").or_else(|| string(value, "summary")) {
                 state.title = Some(title);
@@ -516,5 +620,81 @@ mod tests {
             );
         }
         assert_eq!(state.cwd.as_deref(), Some("/first"));
+    }
+
+    #[test]
+    fn title_skips_leading_context_without_changing_searchable_content() {
+        let mut state = ParsedState::default();
+        let path = Path::new("s.jsonl");
+        for text in [
+            "# AGENTS.md instructions for /synthetic\n<INSTRUCTIONS>Use tests.</INSTRUCTIONS>",
+            "<environment_context><cwd>/synthetic</cwd></environment_context>",
+            "<turn_aborted>Previous turn interrupted.</turn_aborted>",
+        ] {
+            let value = json!({"type":"response_item","payload":{"type":"message","role":"user","content":text}});
+            let parsed = parse_value(AgentKind::Codex, &value, &mut state, path).unwrap();
+            assert_eq!(search_text(&value, AgentKind::Codex, &parsed), text);
+            assert!(state.first_user.is_none());
+        }
+        let text = "<environment_context>Context</environment_context>\n修正登入流程與中文搜尋";
+        let value = json!({"type":"response_item","payload":{"type":"message","role":"user","content":text}});
+        parse_value(AgentKind::Codex, &value, &mut state, path);
+        assert_eq!(state.first_user.as_deref(), Some("修正登入流程與中文搜尋"));
+        assert_eq!(
+            task_title("Please edit AGENTS.md to document testing."),
+            Some("Please edit AGENTS.md to document testing.".into())
+        );
+        assert!(task_title("<environment_context>incomplete context").is_none());
+    }
+
+    #[test]
+    fn claude_custom_name_survives_later_summaries_and_can_be_renamed() {
+        let mut state = ParsedState::default();
+        let path = Path::new("s.jsonl");
+        for value in [
+            json!({"type":"custom-title","sessionId":"s","customTitle":"登入修正"}),
+            json!({"type":"summary","summary":"Later compaction summary"}),
+        ] {
+            parse_value(AgentKind::Claude, &value, &mut state, path);
+        }
+        assert_eq!(display_title(&state, AgentKind::Claude, "s"), "登入修正");
+        parse_value(
+            AgentKind::Claude,
+            &json!({"type":"custom-title","sessionId":"s","customTitle":"驗證登入"}),
+            &mut state,
+            path,
+        );
+        assert_eq!(display_title(&state, AgentKind::Claude, "s"), "驗證登入");
+    }
+
+    #[test]
+    fn codex_name_index_is_optional_bounded_and_tolerates_partial_records() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(source_titles(AgentKind::Codex, temp.path())
+            .unwrap()
+            .is_empty());
+        let path = temp.path().join("session_index.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"id\":\"s\",\"thread_name\":\"Newest\",\"updated_at\":\"2026-10-15T12:00:00Z\"}\n",
+                "malformed\n",
+                "{\"id\":\"s\",\"thread_name\":\"Older\",\"updated_at\":\"2026-10-14T12:00:00Z\"}\n",
+                "{\"id\":\"pending\",\"thread_name\":\"unfinished"
+            ),
+        ).unwrap();
+        let titles = source_titles(AgentKind::Codex, temp.path()).unwrap();
+        assert_eq!(titles.get("s").map(String::as_str), Some("Newest"));
+        assert_eq!(titles.len(), 1);
+        assert!(source_titles(AgentKind::Claude, temp.path())
+            .unwrap()
+            .is_empty());
+        File::create(path)
+            .unwrap()
+            .set_len(MAX_TITLE_INDEX_BYTES + 1)
+            .unwrap();
+        assert!(source_titles(AgentKind::Codex, temp.path())
+            .unwrap_err()
+            .contains("read limit"));
     }
 }

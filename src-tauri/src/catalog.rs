@@ -825,6 +825,18 @@ impl Catalog {
                 }
                 tx.commit().map_err(error)?;
             }
+            if !status.cancelled {
+                if let Err(message) = refresh_source_titles(&mut conn, source, cancel) {
+                    if cancel.load(Ordering::Relaxed) {
+                        status.cancelled = true;
+                    } else {
+                        failed = true;
+                        if status.errors.len() < MAX_ERRORS {
+                            status.errors.push(format!("{}: {message}", source.id));
+                        }
+                    }
+                }
+            }
             if let Some(health) = status.sources.iter_mut().find(|h| h.source_id == source.id) {
                 if status.cancelled {
                     health.status = "cancelled".into();
@@ -1379,6 +1391,56 @@ fn index_file(
     Ok(state.bad_lines > 0 || state.unknown_events > 0 || offset < size)
 }
 
+fn refresh_source_titles(
+    conn: &mut Connection,
+    source: &HistorySource,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    if source.kind != AgentKind::Codex {
+        return Ok(());
+    }
+    let names = adapters::source_titles(source.kind, Path::new(&source.root))?;
+    // Cached parser state restores the fallback when a source name is removed.
+    // This also observes renames when every transcript is otherwise unchanged.
+    let sessions = conn
+        .prepare(
+            "SELECT s.id,s.external_id,s.title,f.state FROM sessions s JOIN files f ON f.id=(
+                SELECT id FROM files WHERE session_id=s.id ORDER BY archived ASC,modified DESC,path LIMIT 1
+            ) WHERE s.source_id=?1",
+        )
+        .map_err(error)?
+        .query_map([&source.id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(error)?;
+    let tx = conn.transaction().map_err(error)?;
+    for (id, external_id, previous, json) in sessions {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Indexing cancelled.".into());
+        }
+        let state = serde_json::from_str::<ParsedState>(&json).map_err(error)?;
+        let title = names
+            .get(&external_id)
+            .cloned()
+            .unwrap_or_else(|| adapters::display_title(&state, source.kind, &external_id));
+        if title != previous {
+            tx.execute(
+                "UPDATE sessions SET title=?1 WHERE id=?2",
+                params![title, id],
+            )
+            .map_err(error)?;
+        }
+    }
+    tx.commit().map_err(error)
+}
+
 fn rebuild_session(conn: &Connection, source: &HistorySource, id: &str) -> Result<(), String> {
     let files=conn.prepare("SELECT path,state,archived,trailing_partial FROM files WHERE session_id=?1 ORDER BY archived ASC,modified DESC,path").map_err(error)?.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,bool>(2)?,r.get::<_,bool>(3)?))).map_err(error)?.collect::<Result<Vec<_>,_>>().map_err(error)?;
     if files.is_empty() {
@@ -1421,18 +1483,7 @@ fn rebuild_session(conn: &Connection, source: &HistorySource, id: &str) -> Resul
             (fallback, "mtime")
         }
     };
-    let title = primary
-        .title
-        .as_deref()
-        .or(primary.first_user.as_deref())
-        .map(|text| adapters::short_text(text, 120))
-        .unwrap_or_else(|| {
-            format!(
-                "{} {}",
-                source.kind.as_str(),
-                external_id.chars().take(12).collect::<String>()
-            )
-        });
+    let title = adapters::display_title(primary, source.kind, external_id);
     let parent = primary
         .parent_external
         .as_ref()

@@ -58,6 +58,16 @@ project 資料夾名稱可能來自路徑編碼，但編碼不保證可逆；優
 
 ## 統一 metadata
 
+### Session 顯示名稱
+
+名稱與唯一 ID 分開。Codex 額外唯讀解析所選資料 root 的 `session_index.jsonl`，以 `id` 對應 `thread_name`，有可比較的 `updated_at` 時採較新名稱；這些欄位是版本相關格式，需用 fixtures 驗證。名稱檔變更會獨立同步，即使 transcript 沒變也能更新，移除名稱後回退至 transcript 的標題或工作需求。
+
+Claude 的 `custom-title`／`customTitle` 優先於 `summary`。兩工具均在無來源名稱時尋找首則實際工作需求：略過已知開頭的 AGENTS.md 指令、環境上下文與中斷通知。此規則只影響備援標題，不刪改對話或搜尋內容，也不透過模型產生名稱。parser 版本升級後，既有索引會在掃描時重新解析。
+
+每個來源的名稱獨立對應，不跨 root 合併同 ID。恢復流程仍傳入 Session ID；同名對話不因名稱而被誤認為同一工作。工具命名能力見 [Codex 官方命令](https://learn.chatgpt.com/docs/developer-commands)與 [Claude Code Session 文件](https://code.claude.com/docs/en/sessions)。
+
+### 一般欄位
+
 每個 Session 保存外部 ID、agent kind、來源 ID、原始 cwd、分組目錄、標題、開始與最後活動時間、封存狀態、父 Session 關係與來源 locator。
 
 欄位缺失時保留 null 與明確 fallback。來源缺失不等於空對話；metadata 可讀、正文部分可讀與完整可讀應分開表示。壓縮後 transcript 不保證保留所有原始上下文。

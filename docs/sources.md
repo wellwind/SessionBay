@@ -18,6 +18,12 @@
 | Codex 額度說明 | [Pricing](https://learn.chatgpt.com/docs/pricing) | 官方 usage dashboard 與 CLI `/status` 的人工查看入口 |
 | Claude Code metrics | [Monitoring](https://code.claude.com/docs/en/monitoring-usage) | token／cost 與 Session 屬性；cost 為近似值，不等於實際帳務 |
 
+## Session 命名來源
+
+2026-10-15 查閱 [Codex 官方命令](https://learn.chatgpt.com/docs/developer-commands)與 [Claude Code Session 命名](https://code.claude.com/docs/en/sessions#name-your-sessions)，確認兩工具均提供 `/rename`。Codex [App Server](https://learn.chatgpt.com/docs/app-server)另提供 thread 名稱欄位與名稱更新能力。
+
+本機 Codex 名稱 sidecar 的欄位觀察為 `id`、`thread_name`、`updated_at`；沒有將實際名稱或對話複製進 repo。此為版本相關格式，不視為穩定公開 API；本次支援以合成 fixtures 驗證。Claude 自訂標題與摘要的優先順序亦有合成回歸案例。
+
 ## 用量工具的一手實作參考
 
 查閱日期：2026-10-15。此處的 OpenUsage 指 `robinebers/openusage`，各工具實作不能代替供應商穩定 API 承諾。

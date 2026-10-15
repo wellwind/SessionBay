@@ -50,6 +50,12 @@ npm run tauri -- build --bundles app
 6. 新增 Terminal 或左右／上下分割，兩邊各自有 PTY。切換分頁不結束程序；關閉面板／退出應用需確認結束受管程序。
 7. 重開只恢復布局占位，點「重新開啟」才執行。普通 Terminal 中手動啟動 Agent 不自動與歷史關聯。
 
+## Session 名稱
+
+已命名的 Session 優先顯示原工具名稱；Codex 從設定來源 root 的 `session_index.jsonl` 讀取名稱，Claude 從 transcript 的自訂標題或摘要讀取。沒有名稱時，使用首則實際工作需求，略過已知的初始化指令與環境區塊；原始對話仍可完整預覽與搜尋。
+
+在支援版本的 Codex／Claude Code 內可用 `/rename 修正登入流程` 命名。回到 Session Bay 按「更新索引」即可反映，不需重新建立整份索引。更新 parser 後第一次掃描會重新解析舊 checkpoint，可能比一般增量更新久；後續恢復增量處理。Session Bay 只讀取名稱，不修改原工具的歷史或名稱檔。詳見 [Codex 命令](https://learn.chatgpt.com/docs/developer-commands)與 [Claude Code 命名說明](https://code.claude.com/docs/en/sessions#name-your-sessions)。
+
 ## 來源與相容性
 
 - Codex：解析 `session_meta`、`response_item` 與支援的 `event_msg` JSONL，啟動使用 `codex resume <id> --cd <cwd>`；資料 root 透過 `CODEX_HOME` 傳入。

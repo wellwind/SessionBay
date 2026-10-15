@@ -15,6 +15,7 @@
 | 來源恢復 | source ID 命名空間；CODEX_HOME／CLAUDE_CONFIG_DIR 指向選中來源；來源內／跨來源同 ID 的 CLI 恢復歧義阻擋 | 不複製／改寫 transcript，不聲稱可以附接外部程序 |
 | 搜尋 | SQLite FTS5 compact trigram 候選＋參數化 literal substring 精確驗證；不足 3 字元回退掃描，英文 ASCII 不分大小寫 | 無詞幹或向量語意；效能須分資料規模量測 |
 | 來源更新 | 完整行 byte offset，變更檔案前綴驗證；每 10 秒 reconcile | 定期補掃是 MVP 的監控方式，未宣稱逐事件 filesystem watcher |
+| Session 顯示名稱 | 優先讀取來源名稱；Codex 使用所選 root 的 session_index.jsonl，Claude 自訂名稱優先於摘要；無名稱時略過已知初始化區塊尋找工作需求 | 名稱僅用於顯示／搜尋，恢復仍使用來源身份與 Session ID；不呼叫模型產生標題 |
 | 終端生命週期 | 每面板獨立 PTY；切換僅隱藏；關閉需確認並清理自有 Unix session 程序群 | 刻意 setsid 脫離 session 的 daemon 不屬於可驗證的清理範圍 |
 | 串流／安全 | raw bytes、有序序號、xterm callback ACK、有界輸出；OSC52 封鎖 | 慢消費超時會明確停止，不能無限緩衝 |
 | 發行 | 先交付原始碼與未簽章開發建置；CI workflow 不自動公開 release | 簽章、公證、自動更新、授權／品牌決策仍獨立處理 |

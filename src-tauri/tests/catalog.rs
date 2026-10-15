@@ -150,6 +150,132 @@ fn append_partial_line_checkpoint_and_idempotence() {
 }
 
 #[test]
+fn codex_names_refresh_without_transcript_changes_and_stay_source_scoped() {
+    let h = Harness::new();
+    let a = h.source("first", AgentKind::Codex);
+    let b = h.source("second", AgentKind::Codex);
+    let transcript = codex("shared-id", "Actual task prompt");
+    let path = h.write(&a, "sessions/a.jsonl", &transcript);
+    h.write(&b, "sessions/b.jsonl", &transcript);
+    let name_index = h.write(
+        &a,
+        "session_index.jsonl",
+        "{\"id\":\"shared-id\",\"thread_name\":\"登入功能修正\"}\n",
+    );
+    h.write(
+        &b,
+        "session_index.jsonl",
+        "{\"id\":\"shared-id\",\"thread_name\":\"付款流程驗證\"}\n",
+    );
+    h.sync(&[a.clone(), b.clone()]);
+    assert_eq!(h.total("登入功能修正"), 1);
+    assert_eq!(h.total("付款流程驗證"), 1);
+    let original = h
+        .catalog
+        .query(&SessionQuery {
+            query: Some("登入功能修正".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .remove(0);
+    fs::write(
+        &name_index,
+        "{\"id\":\"shared-id\",\"thread_name\":\"登入回歸測試\"}\n",
+    )
+    .unwrap();
+    h.sync(&[a.clone(), b.clone()]);
+    let renamed = h.catalog.session(&original.id).unwrap();
+    assert_eq!(renamed.title, "登入回歸測試");
+    assert_eq!(renamed.updated_at, original.updated_at);
+    assert_eq!(h.total("登入功能修正"), 0);
+    assert_eq!(h.total("登入回歸測試"), 1);
+    assert_eq!(h.total("付款流程驗證"), 1);
+    assert_eq!(fs::read_to_string(&path).unwrap(), transcript);
+    assert_eq!(
+        fs::read_to_string(&name_index).unwrap(),
+        "{\"id\":\"shared-id\",\"thread_name\":\"登入回歸測試\"}\n"
+    );
+    fs::remove_file(name_index).unwrap();
+    h.sync(&[a, b]);
+    assert_eq!(
+        h.catalog.session(&original.id).unwrap().title,
+        "Actual task prompt"
+    );
+    assert_eq!(h.total("登入回歸測試"), 0);
+    assert_eq!(h.total("付款流程驗證"), 1);
+}
+
+#[test]
+fn meaningful_task_title_replaces_old_parser_context_titles_on_refresh() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let context =
+        "# AGENTS.md instructions for /synthetic\n<INSTRUCTIONS>Follow tests.</INSTRUCTIONS>";
+    let transcript = format!(
+        "{}{}{}",
+        codex("s", context),
+        user("<environment_context>settings</environment_context>"),
+        user("修正資料來源設定視窗")
+    );
+    let path = h.write(&source, "sessions/a.jsonl", &transcript);
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert_eq!(session.title, "修正資料來源設定視窗");
+    assert_eq!(h.total("AGENTS.md"), 1);
+    let db = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    db.execute("UPDATE files SET parser_version=1,state=json_set(state,'$.first_user','old boilerplate title')", []).unwrap();
+    db.execute("UPDATE sessions SET title='old boilerplate title'", [])
+        .unwrap();
+    drop(db);
+    h.sync(&[source]);
+    assert_eq!(
+        h.catalog.session(&session.id).unwrap().title,
+        "修正資料來源設定視窗"
+    );
+    assert_eq!(h.total("old boilerplate title"), 0);
+    assert_eq!(fs::read_to_string(path).unwrap(), transcript);
+}
+
+#[test]
+fn claude_name_remains_authoritative_after_summary_and_append() {
+    let h = Harness::new();
+    let source = h.source("claude", AgentKind::Claude);
+    let path = h.write(&source, "projects/test/s.jsonl", &format!("{CLAUDE}{}\n{}\n",
+        json!({"type":"custom-title","sessionId":"claude-synthetic-001","customTitle":"中文搜尋修正"}),
+        json!({"type":"summary","summary":"Compaction summary"})
+    ));
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert_eq!(session.title, "中文搜尋修正");
+    append(
+        &path,
+        &format!(
+            "{}\n{}\n",
+            json!({"type":"custom-title","sessionId":"claude-synthetic-001","customTitle":"中文搜尋驗收"}),
+            json!({"type":"summary","summary":"New compaction summary"})
+        ),
+    );
+    h.sync(&[source]);
+    assert_eq!(
+        h.catalog.session(&session.id).unwrap().title,
+        "中文搜尋驗收"
+    );
+    assert_eq!(h.total("中文搜尋驗收"), 1);
+    assert_eq!(h.total("中文搜尋修正"), 0);
+}
+
+#[test]
 fn truncation_replaces_old_identity_and_search_content() {
     let h = Harness::new();
     let source = h.source("a", AgentKind::Codex);
