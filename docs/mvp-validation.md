@@ -35,6 +35,14 @@
 - `preview_launch` 與真正啟動共用計畫；手動 `resumeId`／索引 `sessionId` 互斥、Grok 多來源手動恢復歧義阻擋；預覽不執行程序。
 - 風險警告與持久設定；保存一次後不重複增加 Session Bay 確認視窗，但不承諾略過 CLI 登入、信任或企業政策。
 
+### 原生 CI 首輪修正
+
+`ded2d69` 的 [run 38695015862](https://github.com/wellwind/SessionBay/actions/runs/38695015862) 在 macOS ARM64／Intel 通過前端與 Rust unit 檢查後，找出兩個新整合測試硬編碼 `/bin/true`，但 macOS 沒有該檔案。測試改用暫存目錄內自建的 `/bin/sh`＋`exit` no-op fixture，維持可執行檔驗證，不跳過 macOS 測試，也不更動產品啟動邏輯。
+
+另以符號連結 TMPDIR 檢查路徑別名，發現既有 Runtime 測試直接比較未 canonicalize 的 cwd；斷言改與子程序的實際 canonical cwd 比較，保留 argv／env／退出碼的全部檢查。符號連結 TMPDIR 下完整 131 個 core 測試與獨立審查通過；一般 Linux 完整 134 個 desktop 測試、strict Clippy 亦通過。這些跨平台測試修正仍須由後續 exact-commit 三平台 CI 驗證，不能把 Linux 通過當成 macOS 已完成。
+
+同一首輪的 Ubuntu 24.04 x64 已通過 230 前端／134 Rust、strict Clippy、`.deb` 與原生 DOM／IPC／設定及專案對話框 smoke；PNG 已複核繁中與新導覽正常。此證據只屬 `ded2d69`，不是後續修正提交的最終結果。
+
 ### 本批整合後驗證
 
 下表為 2026-10-15 完成來源標題與開發指令整合後的工作樹檢查；不將舊 CI 或較早的 focused 數字加進總數，也不等同最終遠端提交已通過。

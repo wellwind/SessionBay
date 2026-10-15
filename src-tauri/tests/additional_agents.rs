@@ -1,4 +1,6 @@
 #![cfg(unix)]
+mod common;
+
 use sessionbay_lib::{
     config::{AgentLaunchOptions, ConfigStore, Settings},
     models::{AgentKind, HistorySource},
@@ -76,10 +78,11 @@ fn all_agent_plans_and_previews_use_exact_arguments_without_starting_processes()
     fs::create_dir(&cwd).unwrap();
     let service = Service::open(temp.path().join("app")).unwrap();
     let mut settings = service.settings().unwrap();
-    settings.executables.codex = "/bin/true".into();
-    settings.executables.claude = "/bin/true".into();
-    settings.executables.grok = "/bin/true".into();
-    settings.executables.antigravity = "/bin/true".into();
+    let executable = common::noop_executable(temp.path());
+    settings.executables.codex = executable.clone();
+    settings.executables.claude = executable.clone();
+    settings.executables.grok = executable.clone();
+    settings.executables.antigravity = executable;
     settings.sources = vec![HistorySource {
         id: "grok-test".into(),
         kind: AgentKind::Grok,
@@ -139,8 +142,9 @@ fn manual_resume_rejects_unsafe_ids_wrong_agents_and_ambiguous_sources() {
     let temp = tempfile::tempdir().unwrap();
     let service = Service::open(temp.path().join("app")).unwrap();
     let mut settings = service.settings().unwrap();
-    settings.executables.grok = "/bin/true".into();
-    settings.executables.antigravity = "/bin/true".into();
+    let executable = common::noop_executable(temp.path());
+    settings.executables.grok = executable.clone();
+    settings.executables.antigravity = executable;
     settings.sources.clear();
     service.save_settings(settings.clone()).unwrap();
     for kind in ["grok", "antigravity"] {
@@ -187,9 +191,11 @@ fn manual_resume_rejects_unsafe_ids_wrong_agents_and_ambiguous_sources() {
 
 #[test]
 fn detecting_installation_paths_ignores_dangerous_launch_options() {
+    let temp = tempfile::tempdir().unwrap();
+    let executable = common::noop_executable(temp.path());
     let mut settings = Settings::default();
-    settings.executables.grok = "/bin/true".into();
-    settings.executables.antigravity = "/bin/true".into();
+    settings.executables.grok = executable.clone();
+    settings.executables.antigravity = executable;
     settings.agent_options.grok.bypass_permissions = true;
     let installations = sessionbay_lib::config::detect_paths(&settings);
     assert_eq!(installations.len(), 4);

@@ -120,7 +120,7 @@ fn exec_args_cwd_and_env_remain_separate_and_exit_code_is_preserved() {
     let (info, rx) = launch(&manager, spec);
     let (output, code) = collect(&manager, &rx);
     let text = String::from_utf8(output).unwrap();
-    assert!(text.contains(cwd.to_str().unwrap()));
+    assert!(text.contains(cwd.canonicalize().unwrap().to_str().unwrap()));
     assert!(text.contains("value with ; $() \"quotes\""));
     assert!(text.contains("$(printf should-not-run); 中文"));
     assert_eq!(code, Some(7));

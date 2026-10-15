@@ -1,4 +1,6 @@
 #![cfg(unix)]
+mod common;
+
 use sessionbay_lib::{
     models::{AgentKind, HistorySource, SessionQuery},
     runtime::TerminalEvent,
@@ -211,7 +213,7 @@ fn uncurated_sessions_keep_their_own_cwd_and_relocation_and_live_runtimes() {
         root: history.to_string_lossy().into_owned(),
         enabled: true,
     }];
-    settings.executables.codex = "/bin/true".into();
+    settings.executables.codex = common::noop_executable(root);
     settings.profiles[0].executable = "/bin/sh".into();
     settings.profiles[0].args = vec!["-c".into(), "exec /bin/sleep 30".into()];
     service.save_settings(settings.clone()).unwrap();
