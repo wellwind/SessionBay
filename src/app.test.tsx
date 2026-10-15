@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api, isDesktop } from './api';
 import type { Bootstrap, Pane, Workspace } from './types';
+import { startup } from './startup';
+import { runSmokeInteraction } from './smoke';
 
 const native = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload?: unknown }) => void>(),
@@ -203,6 +205,42 @@ describe('App browser preview', () => {
 });
 
 describe('App desktop lifecycle', () => {
+  it('keeps bootstrap failure observable and allows a successful retry', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.bootstrap).mockRejectedValueOnce(new Error('Temporary database failure'));
+    const failed = vi.spyOn(startup, 'backendError');
+    const ready = vi.spyOn(startup, 'ready');
+    render(<App />);
+    await tick();
+    expect(screen.getByRole('alert')).toHaveTextContent('Temporary database failure');
+    expect(failed).toHaveBeenCalledWith('Temporary database failure');
+    expect(ready).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '重新嘗試' }));
+    await tick();
+    expect(api.bootstrap).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('無法開啟本機工作台')).not.toBeInTheDocument();
+    expect(ready).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  });
+
+  it('runs the smoke settings open/close/reopen flow against real React controls without writes', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.settings.onboardingComplete = false;
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100, height: 40 } as DOMRect);
+    render(<App />);
+    await tick();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    const interaction = runSmokeInteraction();
+    for (let i = 0; i < 12; i++) await tick(20);
+    await interaction;
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.scan).not.toHaveBeenCalled();
+  });
+
   it('exposes restored workspace-only projects even when the catalog is initially empty', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();

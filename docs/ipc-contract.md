@@ -25,6 +25,8 @@ Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "
 
 ## Commands
 
+- frontend_diagnostic({phase,message}) -> boolean: startup observer only; strict phases, 2,048-character messages, at most 32 single-line JSON stderr records. Returns false without logging unless the native process explicitly has SESSIONBAY_SMOKE=1. No filesystem paths, file writes, remote transport, or Agent launch; only an opt-in CI process can enable the safe DOM interaction probe.
+
 - bootstrap() -> Bootstrap
 - detect_installations() -> Installation[]
 - save_settings({settings}) -> Settings (validate before write)

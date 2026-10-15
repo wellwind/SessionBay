@@ -907,10 +907,71 @@ fn verify_spawned_session(
 }
 
 fn owned_session_members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
-    Ok(process_ids()?
-        .into_iter()
-        .filter(|pid| *pid > 1 && unsafe { libc::getsid(*pid) } == session)
-        .collect())
+    let mut members = Vec::new();
+    for pid in process_ids()?.into_iter().filter(|pid| *pid > 1) {
+        match session_id(pid) {
+            Ok(observed) if observed == session => members.push(pid),
+            Ok(_) => {}
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(members)
+}
+
+fn process_group_id(pid: libc::pid_t) -> io::Result<libc::pid_t> {
+    let group = unsafe { libc::getpgid(pid) };
+    if group < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(group)
+    }
+}
+
+fn owned_group_has_live_members(owned: &OwnedChild, group: libc::pid_t) -> io::Result<bool> {
+    let session = owned.verified_session()?;
+    for pid in owned_session_members(session)? {
+        let membership = || -> io::Result<bool> {
+            // Recheck identity after the process status lookup: the observed
+            // member may have exited, changed groups, or detached its session.
+            Ok(process_group_id(pid)? == group
+                && process_is_live(pid)?
+                && session_id(pid)? == session
+                && process_group_id(pid)? == group)
+        };
+        match membership() {
+            Ok(true) => return Ok(true),
+            Ok(false) => {}
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(false)
+}
+
+fn signal_group_if_live(
+    mut has_live_members: impl FnMut() -> io::Result<bool>,
+    signal: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    if !has_live_members()? {
+        return Ok(());
+    }
+    match signal() {
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
+        // Darwin killpg1 excludes SZOMB, then returns POSIX EPERM if no
+        // eligible member remains (XNU bsd/kern/kern_sig.c). Close the race
+        // where the last live member exits after our check. Never hide a
+        // genuine permission failure: a fresh, complete scan must prove no
+        // live owned member remains; lookup/ownership errors also propagate.
+        Err(error) if error.raw_os_error() == Some(libc::EPERM) => {
+            if has_live_members()? {
+                Err(error)
+            } else {
+                Ok(())
+            }
+        }
+        result => result,
+    }
 }
 
 fn owned_session_has_live_descendants(owned: &OwnedChild) -> io::Result<bool> {
@@ -987,37 +1048,36 @@ fn signal_owned_session(owned: &OwnedChild, signal: libc::c_int) -> io::Result<(
     let own_group = unsafe { libc::getpgrp() };
     let members = owned_session_members(session);
     let mut groups = HashSet::from([session]);
+    let mut first_error = None;
     if let Ok(members) = &members {
         for pid in members {
-            // Re-check the session before deriving group authority.
-            if unsafe { libc::getsid(*pid) } == session {
-                let group = unsafe { libc::getpgid(*pid) };
-                if group > 1 && group != own_group {
+            match process_group_id(*pid) {
+                Ok(group) if group > 1 && group != own_group => {
                     groups.insert(group);
                 }
+                Ok(_) => {}
+                Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
+                Err(error) if first_error.is_none() => first_error = Some(error),
+                Err(_) => {}
             }
         }
     }
-    let mut first_error = None;
     for group in groups {
         if group <= 1 || group == own_group {
             continue;
         }
-        if group != session
-            && !members.as_ref().is_ok_and(|members| {
-                members.iter().any(|pid| {
-                    (unsafe { libc::getsid(*pid) }) == session
-                        && (unsafe { libc::getpgid(*pid) }) == group
-                })
-            })
-        {
-            // The observed group exited or changed before we could signal it.
-            // Do not act on a cached process-group number without a witness.
-            continue;
-        }
-        if unsafe { libc::kill(-group, signal) } < 0 {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) && first_error.is_none() {
+        let result = signal_group_if_live(
+            || owned_group_has_live_members(owned, group),
+            || {
+                if unsafe { libc::kill(-group, signal) } < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        if let Err(error) = result {
+            if first_error.is_none() {
                 first_error = Some(error);
             }
         }
@@ -1030,15 +1090,15 @@ fn signal_owned_session(owned: &OwnedChild, signal: libc::c_int) -> io::Result<(
 
 #[cfg(target_os = "linux")]
 fn process_ids() -> io::Result<Vec<libc::pid_t>> {
-    Ok(std::fs::read_dir("/proc")?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .and_then(|name| name.parse().ok())
-        })
-        .collect())
+    let mut pids = Vec::new();
+    for entry in std::fs::read_dir("/proc")? {
+        // An incomplete process table cannot prove that a group is empty.
+        let name = entry?.file_name();
+        if let Some(pid) = name.to_str().and_then(|name| name.parse().ok()) {
+            pids.push(pid);
+        }
+    }
+    Ok(pids)
 }
 
 #[cfg(target_os = "macos")]
@@ -1174,6 +1234,78 @@ mod tests {
             assert_eq!(observations, 2);
             assert_eq!(pauses, 1);
         }
+    }
+
+    #[test]
+    fn empty_or_zombie_only_group_is_not_signalled() {
+        signal_group_if_live(|| Ok(false), || panic!("must not signal an empty group")).unwrap();
+    }
+
+    #[test]
+    fn group_signal_permission_error_requires_fresh_proof_of_no_live_members() {
+        for still_live in [false, true] {
+            let mut checks = 0;
+            let result = signal_group_if_live(
+                || {
+                    checks += 1;
+                    Ok(checks == 1 || still_live)
+                },
+                || Err(io::Error::from_raw_os_error(libc::EPERM)),
+            );
+            assert_eq!(checks, 2);
+            if still_live {
+                assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EPERM));
+            } else {
+                result.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn group_signal_never_treats_unknown_membership_as_empty() {
+        for errno in [libc::EPERM, libc::EIO, libc::ECHILD] {
+            let error = signal_group_if_live(
+                || Err(io::Error::from_raw_os_error(errno)),
+                || panic!("must not signal without a live owned member"),
+            )
+            .unwrap_err();
+            assert_eq!(error.raw_os_error(), Some(errno));
+            let mut checks = 0;
+            let error = signal_group_if_live(
+                || {
+                    checks += 1;
+                    if checks == 1 {
+                        Ok(true)
+                    } else {
+                        Err(io::Error::from_raw_os_error(errno))
+                    }
+                },
+                || Err(io::Error::from_raw_os_error(libc::EPERM)),
+            )
+            .unwrap_err();
+            assert_eq!(checks, 2);
+            assert_eq!(error.raw_os_error(), Some(errno));
+        }
+    }
+
+    #[test]
+    fn group_signal_only_normalizes_disappearance_or_proven_empty_eperm() {
+        signal_group_if_live(
+            || Ok(true),
+            || Err(io::Error::from_raw_os_error(libc::ESRCH)),
+        )
+        .unwrap();
+        let mut checks = 0;
+        let error = signal_group_if_live(
+            || {
+                checks += 1;
+                Ok(true)
+            },
+            || Err(io::Error::from_raw_os_error(libc::EIO)),
+        )
+        .unwrap_err();
+        assert_eq!(checks, 1);
+        assert_eq!(error.raw_os_error(), Some(libc::EIO));
     }
 
     fn exited_pty_child() -> (OwnedChild, Box<dyn MasterPty + Send>) {

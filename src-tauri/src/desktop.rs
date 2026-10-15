@@ -4,10 +4,43 @@ use crate::{
     runtime::{RuntimeInfo, TerminalEvent},
     service::{Bootstrap, LaunchRequest, Service},
 };
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use tauri::{ipc::Channel, Emitter, Manager, State};
 
 type AppState<'a> = State<'a, Arc<Service>>;
+
+// Opt-in smoke diagnostics only. No file paths, file writes, or remote transport.
+// Keep the command bounded even if a malfunctioning WebView repeatedly reports errors.
+static FRONTEND_DIAGNOSTICS: AtomicUsize = AtomicUsize::new(0);
+
+fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
+    if !matches!(
+        phase,
+        "observer" | "module-loaded" | "mounted" | "ready" | "interaction" | "error"
+    ) {
+        return Err("Unknown frontend diagnostic phase".into());
+    }
+    let message: String = message.chars().take(2048).collect();
+    Ok(format!(
+        "SESSIONBAY_FRONTEND {}",
+        serde_json::json!({ "phase": phase, "message": message })
+    ))
+}
+
+#[tauri::command]
+fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
+    if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
+        return Ok(false);
+    }
+    let line = diagnostic_line(&phase, &message)?;
+    if FRONTEND_DIAGNOSTICS.fetch_add(1, Ordering::Relaxed) < 32 {
+        eprintln!("{line}");
+    }
+    Ok(true)
+}
 
 async fn blocking<T: Send + 'static>(
     task: impl FnOnce() -> Result<T, String> + Send + 'static,
@@ -177,6 +210,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            frontend_diagnostic,
             bootstrap,
             detect_installations,
             save_settings,
@@ -235,6 +269,16 @@ fn service_for_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frontend_diagnostics_are_bounded_json_without_log_injection() {
+        let line = diagnostic_line("error", &format!("failure\n{}", "界".repeat(3000))).unwrap();
+        assert_eq!(line.lines().count(), 1);
+        let value: serde_json::Value =
+            serde_json::from_str(line.strip_prefix("SESSIONBAY_FRONTEND ").unwrap()).unwrap();
+        assert_eq!(value["message"].as_str().unwrap().chars().count(), 2048);
+        assert!(diagnostic_line("arbitrary", "ignored").is_err());
+    }
 
     #[test]
     fn early_native_events_never_read_unmanaged_service() {

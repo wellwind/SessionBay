@@ -26,6 +26,7 @@ import {
   Compass,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
+import { startup } from './startup';
 import type {
   AgentKind,
   Bootstrap,
@@ -99,6 +100,10 @@ export default function App() {
   const [palette, setPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const ready = boot !== null;
+  useEffect(() => startup.mounted(), []);
+  useEffect(() => {
+    if (ready && desktop) startup.ready();
+  }, [ready, desktop]);
   const settings = boot?.settings;
   const theme = settings?.theme;
   const knownProjects = useRef<Record<string, Project>>({});
@@ -154,6 +159,7 @@ export default function App() {
         void api.scan(false).then(setIndex).catch(notify);
     } catch (error) {
       setBootError(errorMessage(error));
+      startup.backendError(errorMessage(error));
     }
   }, [notify]);
   useEffect(() => {
@@ -570,7 +576,7 @@ export default function App() {
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-app-shell data-backend-ready={ready && desktop}>
       <header className="app-topbar">
         <div className="brand">
           <div className="brand-mark">

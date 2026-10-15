@@ -60,3 +60,15 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 | GitHub runner | [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) | Ubuntu 24.04、macOS 15 ARM64／Intel matrix；workflow 存在不等於執行成功 |
 
 本次開發僅使用合成 fixtures／暫存資料，沒有存取或複製使用者原始對話。舊節的本機整合觀察屬原規劃文件背景，不是本次已執行的原生驗證。
+
+## 原生 CI 差異調查
+
+查閱日期：2026-10-15。以下用於解釋 CI 實測差異；不能取代最終 commit 的平台測試。
+
+| 主題 | 一手來源 | 適用內容與限制 |
+| --- | --- | --- |
+| Darwin 退出與 waitid | [Apple XNU 11215.1.10 kern_exit.c](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.1.10/bsd/kern/kern_exit.c) | proc ref drain 到 SZOMB 間有過渡狀態；以 owned child 的 WNOWAIT 保留 ownership，不依賴 zombie 的 getsid |
+| Darwin group signal | [Apple XNU 11215.1.10 kern_sig.c](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.1.10/bsd/kern/kern_sig.c) | killpg1 忽略 zombie，沒有可投遞成員時可能回 EPERM；不能因此忽略真正存活群組的權限錯誤 |
+| Tauri setup 次序 | Cargo.lock 固定的官方 tauri 2.12.4 套件，src/app.rs 的 run callback／setup | Ready 才執行 setup；其他 native events 不得假設 managed Service 已存在 |
+| CI artifact 權限 | [actions/upload-artifact v4](https://github.com/actions/upload-artifact/blob/v4/README.md#permission-loss) | 直接上傳目錄會失去 executable modes；macOS .app 先 tar，未簽章／未公證 |
+| Headless WebKit graphics | [WebKit environment variables](https://trac.webkit.org/wiki/EnvironmentVariables)、[Tauri Xvfb blank-window report](https://github.com/tauri-apps/tauri/issues/15936) | CI-only accelerated compositing 關閉，用於無 GPU 的 Xvfb；不關閉 sandbox。第三輪純色 PNG 不能作 UI 可用證據，需 DOM／IPC／操作訊號加畫面複核 |

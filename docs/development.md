@@ -96,7 +96,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 第一個參數為 Session 數，第二個為每個 Session 的近似 KiB。結果含實際來源 bytes、索引耗時、未變更補掃、20 次查詢 p50／p95；不是 WebView 互動或整體記憶體量測。
 
-`.github/workflows/ci.yml` 會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。Linux job 額外在空白暫存 HOME 的 Xvfb 啟動原生視窗並擷取 PNG，沒有停用 WebKit sandbox；這是視窗 smoke，不取代互動式驗收。macOS job 以隔離 HOME 啟動打包後的 executable 並觀察 20 秒存活；不申請螢幕錄製／Accessibility 權限，不宣稱已驗證畫面。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
+`.github/workflows/ci.yml` 會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。兩 OS 的 smoke 使用空白暫存 HOME、明確的 SESSIONBAY_SMOKE=1，等待 React DOM、backend bootstrap 與實際設定對話框開關／重開的訊號；啟動前模組錯誤、CSP 違規與未處理例外會使測試失敗。Linux Xvfb 無 GPU，僅在 CI 設 WEBKIT_DISABLE_COMPOSITING_MODE=1 使用軟體合成，沒有停用 WebKit sandbox 或放寬 CSP。Linux 再擷取 PNG 並拒絕純色畫面，仍需人工檢視截圖。macOS 不申請螢幕錄製／Accessibility 權限，DOM 操作通過也不宣稱已驗證畫面像素。這些 smoke 不取代 IME／真實 CLI／完整終端互動驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
 
 Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](https://github.com/actions/upload-artifact/blob/v4/README.md#permission-loss)。
 
