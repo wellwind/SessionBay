@@ -14,6 +14,20 @@
 | Claude Code Session | [Manage sessions](https://code.claude.com/docs/en/sessions) | transcript 位置、Session 恢復與不同介面範圍 |
 | Claude Code 目錄 | [Explore the .claude directory](https://code.claude.com/docs/en/claude-directory) | 本機紀錄與輸入歷史的用途 |
 | SQLite 全文搜尋 | [FTS5 Extension](https://sqlite.org/fts5.html) | 全文索引與 tokenizer 選項 |
+| Codex 用量介面 | [Codex App Server](https://learn.chatgpt.com/docs/app-server) | 帳號 rate limits、帳號摘要與 thread token 通知；需核對 CLI 版本及 auth mode |
+| Codex 額度說明 | [Pricing](https://learn.chatgpt.com/docs/pricing) | 官方 usage dashboard 與 CLI `/status` 的人工查看入口 |
+| Claude Code metrics | [Monitoring](https://code.claude.com/docs/en/monitoring-usage) | token／cost 與 Session 屬性；cost 為近似值，不等於實際帳務 |
+
+## 用量工具的一手實作參考
+
+查閱日期：2026-10-15。此處的 OpenUsage 指 `robinebers/openusage`，各工具實作不能代替供應商穩定 API 承諾。
+
+| 主題 | 來源 | 適用內容 |
+| --- | --- | --- |
+| OpenUsage 功能 | [README](https://github.com/robinebers/openusage) | 額度窗口、credits、重置時間與本機花費估算的功能參考 |
+| Claude 額度來源 | [Claude provider](https://github.com/robinebers/openusage/blob/main/docs/providers/claude.md) | 訂閱額度取得的實作參考；需另驗證授權與穩定性 |
+| 本機額度互通 | [Local HTTP API](https://github.com/robinebers/openusage/blob/main/docs/local-http-api.md) | 可選的本機快照來源與 schema，不代表 Session 計量事件 |
+| 費用估算 | [Model Pricing](https://github.com/robinebers/openusage/blob/main/docs/pricing.md) | token 與版本化價格推算金額的參考；不是 Session Bay 的已選價格來源 |
 
 ## 本機整合觀察
 
@@ -24,5 +38,7 @@ Codex 的 sessions、archived_sessions 與 payload.cwd，以及 Claude Code 的 
 ## 尚未形成實測結果的項目
 
 Tauri 與 Electron 的資源差異、PTY 串流最大吞吐、中文搜尋策略、跨平台終端相容性，以及支援 agy 等其他工具的可行性，均需以對應原型或整合研究確認。
+
+Session Bay 尚未實測用量來源的版本支援、歷史完整性、帳號歸屬、去重、價格規則或用量刷新效能；[用量規格](usage-spec.md)中的能力需以 fixtures 與受支援環境驗證。
 
 Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同名結果，不能據此保證商標、網域或所有套件名稱可用；本目錄不包含品牌權利查核結論。

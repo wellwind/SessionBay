@@ -129,6 +129,18 @@ MVP 的切換分頁保留程序；關閉面板則明確結束其受管程序。�
 
 跨應用退出後仍能存活需要獨立 daemon 或外部 multiplexer。這會帶來認證、重新附接、輸出保留與版本管理，列為 P2，不能透過單純記住 PID 達成。
 
+## MVP 後的用量資料流
+
+P1 新增獨立的 usage 模組，分成「帳號額度 collector → QuotaSnapshot」與「歷史／即時 usage adapter → 正規化及去重 → UsageEvent → 可重建聚合」兩條資料路徑。額度百分比及帳號摘要不混入 Project／Session 事件加總。
+
+Agent、provider、模型與帳號分開保存。事件以可靠來源 ID、request／Session 身份連到 catalog；帳號或專案未知時保持未歸屬。累計與 delta 明列語意，保留 cache／reasoning 包含關係，跨來源重疊無法核實時分開呈現。
+
+新增 UsageAccount、QuotaSnapshot、UsageEvent、UsageMeasurement、PricingRule 與 UsageAggregate 的版本化 schema。自有資料可重建與刪除，原 CLI 歷史及登入資料維持唯讀；帳號憑證僅保存 OS 安全儲存區引用。
+
+來源依支援版本評估官方介面、本機紀錄及選用的本機 OTel／OpenUsage 輸出。受控 worker 處理快取、刷新、退避與取消，不阻擋 PTY 或搜尋；去重 checkpoint 與寫入交易維持一致。價格規則保存生效區間與版本，計價失敗仍保留 token。
+
+用量來源的資料生命週期與 indexer 協調：追加更新，截斷／替換重算，刪除來源清理事件與聚合；重新分組不複製事件。完整模型、時間規則及安全要求見[用量規格](usage-spec.md)。此模組不加入 P0 原型或 MVP 門檻。
+
 ## 本機資料與權限
 
 - 原 Agent 歷史唯讀，Session Bay 的索引、設定與筆記存於自己的應用資料目錄。
@@ -149,6 +161,7 @@ MVP 的切換分頁保留程序；關閉面板則明確結束其受管程序。�
 - runtime：PTY、輸入、resize、串流與程序清理。
 - workspace：分頁、布局、命令與設定。
 - storage：SQLite、migration、全文索引與索引重建。
+- usage（P1）：額度 collector、usage 事件、去重、計價與多維度彙總。
 
 ## 驗證入口
 

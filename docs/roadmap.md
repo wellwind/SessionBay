@@ -32,6 +32,10 @@
 
 ## 階段 4 工作脈絡加強
 
+使用者已指定整組 Agent 用量功能在 MVP 後交付。P1 新增 F15 額度總覽與 F16 Project／Agent／Session 用量分析，先驗證來源、帳號身份及計量語意，再交付帳號額度與多維度分析；詳細任務為 USG-01–USG-20，見[任務清單](development-tasks.md#p1-agent-用量與分析)與[用量規格](usage-spec.md)。
+
+用量退出條件：支援來源的額度、重置與資料時間可辨識；Project／Agent／Session 下鑽與去重結果一致；估算、實際帳務及未知資料分開。背景收集不能影響既有終端與搜尋。整組功能不阻擋階段 3 的 P0 驗收。
+
 依試用結果選擇 Session 別名與手動標記、接續筆記、Repo 與 worktree 分組、可核對摘要、跨 Agent 交接，以及額外 Agent adapters。
 
 摘要需有來源與修改能力；交接需預覽傳送內容。新增 Agent 前先確認資料與恢復能力，不只加入啟動按鈕。

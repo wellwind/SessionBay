@@ -19,6 +19,7 @@ Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它�
 | [介面與操作規格](docs/ux-spec.md) | 專案、分頁、面板、搜尋與工作恢復流程 |
 | [技術架構](docs/architecture.md) | Tauri、Rust、PTY、資料流、索引與效能設計 |
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
+| [Agent 用量與分析規格](docs/usage-spec.md) | MVP 後的帳號額度總覽、Project／Agent／Session 用量與費用語意 |
 | [開發路線圖](docs/roadmap.md) | 分階段交付、相依性與效能原型驗證 |
 | [完整功能與開發任務](docs/development-tasks.md) | P0／P1／P2 功能清單、任務相依、完成條件與開工順序 |
 | [決策與待確認事項](docs/decisions.md) | 使用者已確定方向、建議方案與未定事項 |
@@ -29,6 +30,7 @@ Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它�
 - 首批 Agent 整合以 Codex CLI、Claude Code CLI 為建議範圍。
 - 支援依工作目錄分組、跨工具搜尋、對話預覽與恢復 Session。
 - 支援普通 Terminal 分頁，以及至少兩個可同時執行、可見的分割面板。
+- MVP 後加入各 AI Agent 用量與帳號額度總覽，並依來源能力提供 Project／Agent／Session 用量分析。
 - 技術建議為 Tauri 2＋Rust＋TypeScript 前端＋xterm.js＋SQLite；正式選型以原型驗證結果為準。
 - 歷史索引與基本操作在本機完成；既有 Agent 執行時仍依各工具的帳號、網路與權限設定運作。
 
