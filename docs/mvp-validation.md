@@ -2,15 +2,15 @@
 
 日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
-## 2026-10-15 最新提交與 Antigravity CLI 驗證中
+## 2026-10-15 最新提交與 Antigravity CLI 驗證限制
 
-獨立修正已推至 **a1fecb63f884ea2bba7a922c026a69658bfaa240**（本機 e2bdeff，tree `1a35f94f16f5def26026c00a6c73628ff6febbef` 相同），並保留 main `e5b85ddb` 的 17 項未來待辦 ancestry。前端 380、core 176、desktop 180 的既有檢查點適用這批修正。
+程式已於 10:16 UTC 推至 **1475f19d83f4d5218fcaae1be71bb9109a7bd71a**（本機 e8d7a0d，受測 tree `1f34c8a6c9357951b22be5182aa863cb96b634fa` 完全相同），保留父提交 a1fecb63 與 main `e5b85ddb` 的 17 項未來待辦 ancestry。後續驗證紀錄提交僅變更 Markdown，不更動此程式 tree 的產品／測試／設定內容。
 
-[三平台 CI run 38713887778](https://github.com/wellwind/SessionBay/actions/runs/38713887778) 原 attempt 與一次正常重跑皆在任何 step 前失敗，無程式執行 log；尚待取得 GitHub annotations 的真實原因，不推測額度，也不把它算成程式測試結果。新 native screenshots 尚未產生。雲端 Xvfb 本機 display socket 與標準執行權限路徑也受執行器限制，沒有繞過 sandbox。
+[最新三平台 CI run 38719056271](https://github.com/wellwind/SessionBay/actions/runs/38719056271) 由 1475f19 正常推送觸發，macOS Intel（job 116368795519）、ARM（116368795873）、Linux（116368795924）皆立即 failure；逐一讀回 steps 為空，尚無程式執行 log 或新 native screenshots，未重跑此 run。先前 a1fecb63 的 [run 38713887778](https://github.com/wellwind/SessionBay/actions/runs/38713887778) 原 attempt 與一次正常重跑亦同。仍待 GitHub annotations 的真實原因，不推測額度，不把啟動前失敗算成程式測試結果。雲端 Xvfb 本機 display socket 與標準執行權限路徑也受執行器限制，沒有繞過 sandbox。
 
 使用者確認 Antigravity 1.3.5 是 CLI，App／IDE 不是本輪必要條件。CLI 防禦 reader、唯讀 DB／WAL metadata、明確來源偵測、列表／搜尋／預覽與受限制的索引接續已實作。只讀官方 transcript.jsonl 正文，full-only 僅列 metadata，清除衍生索引也不復活可能已撤銷的 full 文字。全來源新增整份索引快照 token，背景掃描沒有變更時保留較早頁與捲動位置，改寫與跨快照分頁不混接。
 
-2026-10-15 10:07 UTC 本機最終檢查：**前端 13 檔 398／398、Rust core 241／241、desktop 245／245** 通過；typecheck／lint／production build、兩種 features 的 all-target strict Clippy、fmt、44 組語意對比及 10 個 ICNS representations 全過。Rust 有 1 個標為 ignored 的隔離 HOME helper，由正常 wrapper 必定以子程序呼叫並斷言成功，不是略過接續測試。獨立 reviewer 已實跑 23 個 Antigravity catalog、27 個 metadata 與隔離 HOME service 測試，對 full／WAL／原檔不變／競態／接續限制的阻擋點已閉環。
+2026-10-15 10:08 UTC 本機最終檢查：**前端 13 檔 398／398、Rust core 241／241、desktop 245／245** 通過；typecheck／lint／production build、兩種 features 的 all-target strict Clippy、fmt、44 組語意對比及 10 個 ICNS representations 全過。10:10 UTC 最後 Linux unsigned `.deb` 重建成功（3.92 MiB），包含最終 stale 恢復與 empty-source 修正；這不等於安裝／原生畫面驗收。Rust 有 1 個標為 ignored 的隔離 HOME helper，由正常 wrapper 必定以子程序呼叫並斷言成功，不是略過接續測試。獨立 reviewer 已實跑 23 個 Antigravity catalog、27 個 metadata 與隔離 HOME service 測試，對 full／WAL／原檔不變／競態／接續限制的阻擋點已閉環。
 
 原生 smoke 已加入自行編寫的 Antigravity SQLite＋transcript 合成資料；先以真 Rust catalog 讀取，確認 6 sessions／4 目錄、原生 title／cwd、user／assistant 正文與 snapshotId，DB preview 不冒充正文。兩平台 smoke 使用相同 fixture，再由真正 WebView／IPC 驗證來源偵測與預覽；**尚待新 CI 實際執行，fixture 通過不能冒充原生畫面通過**。前端 source／resume-disabled／warning／compaction／背景刷新回歸已通過。107 個相對連結及錨點有效，原始 143 項仍 77／66、ADD 20 項仍 12／8、未來 17 項均未勾選。
 

@@ -7,7 +7,7 @@
 
 ## 2026-10-15 最新需求補充紀錄
 
-09:34 UTC 已將獨立修正推至 `a1fecb63`，包含 main `e5b85ddb` 的 17 項待辦 ancestry。該 SHA 的 [CI run 38713887778](https://github.com/wellwind/SessionBay/actions/runs/38713887778) 兩次皆在任何 step 開始前失敗，沒有程式執行 logs；原因待 GitHub annotations 確認，不算程式測試失敗或通過。Antigravity 最終本機檢查點為 398 個前端、241 個 core／245 個 desktop、typecheck／lint／build、兩種 features strict Clippy／fmt 全部通過；真實版本與全平台原生驗證另待確認。
+10:16 UTC 已推程式提交 `1475f19d83f4d5218fcaae1be71bb9109a7bd71a`，保留 main `e5b85ddb` 的 17 項待辦 ancestry。本機 398 個前端、241 個 core／245 個 desktop、typecheck／lint／build、兩種 features strict Clippy／fmt 與最後 3.92 MiB Linux bundle 全部通過。該 SHA 的 [CI run 38719056271](https://github.com/wellwind/SessionBay/actions/runs/38719056271) 三平台均在任何 step 開始前 failure，逐一確認 steps 為空，未重跑；原因待 GitHub annotations，不算程式測試結果。真實 CLI 1.3.5 樣本、原生畫面與人工操作仍待驗收。
 
 最新追加的統一「偵測歷史來源」、分頁／面板快捷鍵、特定 CapsLock 組字修正、Antigravity 完整歷史與 breadcrumb 修正，另列 ADD-16–ADD-20；本批完整回歸與 exact-commit CI 尚待完成，Antigravity 已確認為 CLI 1.3.5，已實作已觀察格式的防禦 reader；真實 1.3.5 磁碟樣本與原生驗收仍待確認。下方 324／157 個測試與 `bcd3bcc` 提交不包含這些追加變更，不能據此提前勾選新增驗收。
 
