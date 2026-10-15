@@ -5,11 +5,17 @@
 
 功能與驗收依據為[產品規格](product-spec.md)、[介面規格](ux-spec.md)、[架構](architecture.md)、[Agent 整合規格](agent-integrations.md)、[用量規格](usage-spec.md)及[路線圖](roadmap.md)。技術組合與未定選項沿用[決策文件](decisions.md)的狀態，任務拆解不代表已核定選型或新增產品承諾。
 
+## 2026-10-15 使用者驗收後的勾選更新
+
+使用者確認「驗收完成」並要求合併前「把完成的都勾起來」。此為本次已交付功能／介面的使用者接受紀錄，不是每個 OS、CLI 版本或 CI job 的逐項測試報告。依本機回歸與本次驗收，新增勾選 **ADD-13、ADD-17、ADD-18、ADD-20**，追加清單由 **12／20** 更新為 **16／20**。
+
+原始 **143 項仍為 77 完成／66 未完成**：逐項核對後，原先未勾的項目仍要求尚未提供的版本化 fixtures、明確測量／跨平台操作證據，或包含未實作功能，不能以一般驗收取代完整條件。原始 P0 96 項為 75／21；QA-08 補記使用者接受本 PR，但完整 P0 評審條件仍未全部達成。ADD-14／15／16／19、原生 9 項及未來 17 項維持未勾。最新證據見 [使用者驗收紀錄](mvp-validation.md#2026-10-15-使用者驗收與合併前紀錄)。
+
 ## 2026-10-15 最新需求補充紀錄
 
-10:16 UTC 已推程式提交 `1475f19d83f4d5218fcaae1be71bb9109a7bd71a`，保留 main `e5b85ddb` 的 17 項待辦 ancestry。本機 398 個前端、241 個 core／245 個 desktop、typecheck／lint／build、兩種 features strict Clippy／fmt 與最後 3.92 MiB Linux bundle 全部通過。該 SHA 的 [CI run 38719056271](https://github.com/wellwind/SessionBay/actions/runs/38719056271) 三平台均在任何 step 開始前 failure，逐一確認 steps 為空，未重跑；原因待 GitHub annotations，不算程式測試結果。真實 CLI 1.3.5 樣本、原生畫面與人工操作仍待驗收。
+10:16 UTC 已推程式提交 `1475f19d83f4d5218fcaae1be71bb9109a7bd71a`，保留 main `e5b85ddb` 的 17 項待辦 ancestry。本機 398 個前端、241 個 core／245 個 desktop、typecheck／lint／build、兩種 features strict Clippy／fmt 與最後 3.92 MiB Linux bundle 全部通過。該 SHA 的 [CI run 38719056271](https://github.com/wellwind/SessionBay/actions/runs/38719056271) 三平台均在任何 step 開始前 failure，逐一確認 steps 為空，未重跑；使用者其後提供 annotations 確認 Billing & plans 帳務／spending limit 阻擋，不算程式測試結果。真實 CLI 1.3.5 樣本、原生畫面與人工操作仍待驗收。
 
-最新追加的統一「偵測歷史來源」、分頁／面板快捷鍵、特定 CapsLock 組字修正、Antigravity 完整歷史與 breadcrumb 修正，另列 ADD-16–ADD-20；本批完整回歸與 exact-commit CI 尚待完成，Antigravity 已確認為 CLI 1.3.5，已實作已觀察格式的防禦 reader；真實 1.3.5 磁碟樣本與原生驗收仍待確認。下方 324／157 個測試與 `bcd3bcc` 提交不包含這些追加變更，不能據此提前勾選新增驗收。
+最新追加的統一「偵測歷史來源」、分頁／面板快捷鍵、特定 CapsLock 組字修正、Antigravity 完整歷史與 breadcrumb 修正，另列 ADD-16–ADD-20；本批本機完整回歸已通過，exact-commit CI 仍受阻；Antigravity 已確認為 CLI 1.3.5，已實作已觀察格式的防禦 reader；真實 1.3.5 磁碟樣本與原生驗收仍待確認。下方 324／157 個測試與 `bcd3bcc` 提交不包含這些追加變更，不能據此提前勾選新增驗收。
 
 最新使用者澄清由[雙頁導覽、來源入口與圖示紀錄](mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)單獨驗證，不沿用下方前一批 230 個前端／134 個 desktop 測試或 `f6a9e1d` CI 作為本批通過證據。
 
@@ -78,16 +84,16 @@
 | [x] | ADD-10 | 前後端共同 provider registry 與真實偵測語意 | providers 3、config／additional_agents 探測回歸；版本失敗不等同 missing，登入固定 unknown |
 | [x] | ADD-11 | 唯讀 Shell 候選與已存 Profile canonical 排除 | shells 14 個回歸；不執行／不讀 rc／不覆寫 settings，候選與 saved-resolution 均有界 |
 | [x] | ADD-12 | macOS 專用 ICNS 留白與可重現腳本 | 10 representations 透明邊界、兩次 byte-identical、7 個原資產雜湊保護；非 Cmd+Tab 人工驗收 |
-| [ ] | ADD-13 | 完整 UI／UX 重設與新控制項 | tokens／卡片與清單／設定 details／兩段啟動器已實作，最終 frontend 324／324 與 build 通過；等 native 畫面複核後再勾選 |
+| [x] | ADD-13 | 完整 UI／UX 重設與新控制項 | tokens／卡片與清單／設定 details／兩段啟動器與控制項已實作；最終 frontend 398／398、build 與 44 組對比通過。2026-10-15 使用者接受本 PR 功能／介面；完整原生畫面與讀屏矩陣仍另列待驗，不由一般接受推論。 |
 | [ ] | ADD-14 | 最新提交手動三 runner checks／unsigned bundle／native smoke | 省額度模式保留手動完整驗收；帳務限制尚未解除、最新 exact commit 尚未通過，Linux 輕量或舊提交成功不能代替 |
 | [ ] | ADD-15 | macOS Cmd+Tab／Dock 實際視覺比較 | 檔案 alpha／預覽與 build 已驗證；尚無使用者 Mac 原生畫面證據 |
 | [ ] | ADD-16 | CapsLock 切換輸入法的特定重複組字修正 | 已加入 xterm key handler 與合成組字回歸；真實 macOS 輸入法／CapsLock 操作仍待驗收，不能由合成事件宣稱已完成 |
-| [ ] | ADD-17 | Chrome-style 工作區分頁快捷鍵 | 目前目錄的數字選頁／雙向循環、IME 與對話框保護、保留鍵攔截及舊 pane 預設遷移已實作；包含於 377 個前端回歸，本批 exact-commit CI 尚待確認 |
-| [ ] | ADD-18 | 官方已知歷史來源候選偵測 | 共用 provider metadata、有界唯讀檢查、canonical alias 與保存 ID 比對、明確加入草稿；22 個 Rust 整合測試與 377 個前端全套通過，含輸出上限／saved-ID 草稿去重；180 個 desktop 全套也通過；本批 exact-commit CI 待完成 |
-| [ ] | ADD-19 | Antigravity CLI 歷史列表、內容預覽與正確接續 | 使用者確認 CLI 1.3.5；防禦 step／metadata reader、私密 DB 快照、唯讀備份與重寫保護正在驗證。App／IDE 不在必要範圍；實際 1.3.5 磁碟樣本及互動接續仍待驗收，不能以 unsupported 卡片或社群版本宣稱代替 |
-| [ ] | ADD-20 | Breadcrumb 反映實際導覽與專案名稱 | leaf 使用實際 current.name，首頁只顯示一次分類，全域搜尋有明確 leaf；真專案名稱恰為「專案」仍允許合法同名。3 個 App 回歸已納入 380／380 前端全套，typecheck／lint／build 通過；原生新 CI 待確認 |
+| [x] | ADD-17 | Chrome-style 工作區分頁快捷鍵 | 目前目錄的數字選頁／雙向循環、IME 與對話框保護、保留鍵攔截及舊 pane 遷移已實作；納入 398 個前端回歸。2026-10-15 使用者接受本 PR；跨 OS／Shell 保留鍵完整矩陣與原生 CI 仍另列待驗。 |
+| [x] | ADD-18 | 官方已知歷史來源候選偵測 | 共用 provider metadata、有界唯讀檢查、canonical alias／保存 ID 比對及明確加入草稿已實作；來源偵測整合回歸，最終 398 前端／241 core／245 desktop 通過。2026-10-15 使用者接受本 PR；不宣稱偵測即有歷史或已登入。 |
+| [ ] | ADD-19 | Antigravity CLI 歷史列表、內容預覽與正確接續 | 使用者確認 CLI 1.3.5；防禦 step／metadata reader、私密 DB 快照、唯讀備份與重寫保護已實作，本機 398 前端／241 core／245 desktop 通過。2026-10-15 一般 PR 驗收未提供實際 1.3.5 磁碟樣本／已登入互動接續的逐項證據，故完整版本驗收仍未勾；App／IDE 不在必要範圍。 |
+| [x] | ADD-20 | Breadcrumb 反映實際導覽與專案名稱 | leaf 使用實際 current.name，首頁分類一次，全域搜尋有明確 leaf；真專案名為「專案」允許合法同名。3 個 App 回歸納入 398／398；2026-10-15 使用者接受本 PR 功能／介面。 |
 
-追加需求目前 **20 項，12 已完成、8 未完成**。原始 9 項原生驗收另列於 [試用前清單](mvp-validation.md#試用前的原生驗收清單)，不與本表重複累計。
+追加需求目前 **20 項，16 已完成、4 未完成**。原始 9 項原生驗收另列於 [試用前清單](mvp-validation.md#試用前的原生驗收清單)，不與本表重複累計。
 
 ## 完整功能範圍
 
@@ -301,7 +307,7 @@ P0 的來源與索引在本機運作；Agent 自身仍沿用原工具的帳號�
 | [ ] | QA-05 | 完成目標平台人工終端相容測試 | Shell、兩 CLI、互動提示、中文輸入、Vim 與適用平台 tmux 有版本化結果 | TERM-04、TERM-05、SET-04 | 尚無兩 OS 的真實 CLI、互動提示、中文輸入、Vim／tmux 版本化人工結果。 |
 | [ ] | QA-06 | 執行啟動、索引與搜尋基準 | 分測既有索引啟動、完整索引、1,000／10,000 Session；報告召回、p50／p95、CPU 與峰值記憶體 | IDX-09、FIND-06、SPIKE-04 | [1,000](validation/catalog-1000.json)／[10,000](validation/catalog-10000.json) 合成索引搜尋 p50／p95 已有結果；缺啟動、CPU／峰值記憶體與 WebView 全鏈量測。 |
 | [ ] | QA-07 | 執行串流壓力與長時間測試 | 兩可見＋四背景面板、背景索引、反覆開關；無輸出亂序、丟棄或無界資源成長 | RUN-09、WS-05、QA-06 | 有背壓／中斷／大量輸入的有界回歸；缺兩可見＋四背景、背景索引與長時間 soak 的完整實測。 |
-| [ ] | QA-08 | 完成 MVP 評審與試用驗證 | P0 驗收可重複，安全與相容性阻礙已解決；觀察恢復成功率與使用者能否辨識狀態 | QA-01、QA-03、QA-04、QA-05、QA-07、SEC-05、PRE-06 | 原生／真實 CLI／完整效能與使用者恢復成功率尚未完成，不宣稱完整 P0 驗收。 |
+| [ ] | QA-08 | 完成 MVP 評審與試用驗證 | P0 驗收可重複，安全與相容性阻礙已解決；觀察恢復成功率與使用者能否辨識狀態 | QA-01、QA-03、QA-04、QA-05、QA-07、SEC-05、PRE-06 | 2026-10-15 使用者已接受本 PR 並授權合併；原生／真實 CLI／完整效能及恢復成功率的完整 P0 條件尚缺，不將本次一般驗收當成這些測量已完成。 |
 
 效能先沿用路線圖的暫定目標：既有索引啟動 2 秒內、一般搜尋 p95 300 ms 內、壓力搜尋 p95 1 秒內、合成 echo 輸入 p95 50 ms 內。正式門檻依固定環境實測校正，不以丟棄輸出達標；量測需涵蓋 WebView／GPU，並將 Agent 子程序獨立列出。
 

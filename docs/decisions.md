@@ -186,7 +186,7 @@
 - 使用者要求以 UI/UX Pro Max 指南重新設計現有功能，作為同一 PR 的最終版本；[介面設計系統](ui-design-system.md)記錄選擇、流程、主題與驗證方式。這不擴大為 13 項後續功能的實作。
 - 使用者明確要求逐項勾選已完成的任務。清單改為依程式碼、自動化及實機證據審核；只有實作、仍缺指定人工／原工具驗證的項目保持未完成並記錄缺口，不整批勾選。
 - **下一階段最高優先：介面退出後持續執行與重新附接**。關閉／退出 UI 後，已開啟的 Shell／Agent 繼續運行，回到 UI 可看到每個工作的真實狀態與累積輸出。使用者理解 OS 重新開機後程序不能繼續；此情況顯示中斷，不假裝存活。
-- 此輪 PR 仍只恢復布局占位。背景程序架構（獨立 daemon、tmux 或其他方案）、本機 IPC 邊界、輸出保存與資源策略於下一階段評估；本次不啟動實作，不合併 PR 或公開發布。
+- 此輪 PR 仍只恢復布局占位。背景程序架構（獨立 daemon、tmux 或其他方案）、本機 IPC 邊界、輸出保存與資源策略於下一階段評估；當時決定不啟動實作、不合併 PR 或公開發布。後續使用者驗收與合併授權見本文件最新紀錄，持續 Runtime 仍未實作。
 
 上方「程序持續執行是否需要」與「所有試用回饋尚無優先順序」的歷史提案，由此決定取代；其他 12 項待辦仍未排定。
 
@@ -234,11 +234,17 @@
 
 ## 2026-10-15 CI 省額度模式
 
-使用者在 GitHub Annotations 確認帳務／支出限制後，同意本 PR 改為日常 Linux 輕量檢查，完整 macOS ARM64／Intel 與 Linux 打包、原生 smoke 改為手動驗收。本決定取代先前每次 PR 更新自動跑三平台的策略；未授權變更帳務、提高上限、合併或代為手動觸發。
+使用者在 GitHub Annotations 確認帳務／支出限制後，同意本 PR 改為日常 Linux 輕量檢查，完整 macOS ARM64／Intel 與 Linux 打包、原生 smoke 改為手動驗收。本決定取代先前每次 PR 更新自動跑三平台的策略；當時未授權變更帳務、提高上限、合併或代為手動觸發。後續合併授權見下節，帳務與手動觸發限制不變。
 
 - 自動 `light-checks.yml` 僅監聽本 repo 的 branch push，不另監聽 pull_request，避免同一提交重複執行；同 branch 新程式提交取消舊自動 run。
 - 僅忽略根目錄 README.md 與 docs/ 直屬 Markdown。push 的兩點 diff 可在排程前略過一般純文件更新；程式、fixtures、scripts、skills、設定與 workflow 變更仍檢查。GitHub 大型 diff／逾時等例外不能承諾永遠零 run。
 - Linux 輕量包含前端品質與 build、靜態視覺資產驗證、Rust fmt／無 desktop features 的核心 tests／Clippy；不安裝 GUI 套件、不 release 打包、不跑原生 smoke。
 - 原 `ci.yml` 保留完整三平台流程，只接受 workflow_dispatch；不設會被日常 push 或另一個 pending run 取代的共用 concurrency group。
 - push 檢查的是 branch head，不是 GitHub 合成的 PR merge commit；fork PR、只有 base branch 更新的相容性不由此自動覆蓋。被略過／尚未手動跑的驗收不是 passed，required-check 設定未改。
-- 手動 workflow 的 UI 入口依 GitHub default-branch 規則；目前 main 尚無 workflow，不保證未合併 PR 可以派送。保留配置不等於已執行，不能為了讓按鈕出現自行合併或觸發。操作與來源見 [開發與試用](development.md#ci-省額度模式)。
+- 手動 workflow 的 UI 入口依 GitHub default-branch 規則；當時 main 尚無 workflow，不保證未合併 PR 可以派送。保留配置不等於已執行；後續使用者可另行授權合併，但不能只為了讓按鈕出現自行合併或觸發。操作與來源見 [開發與試用](development.md#ci-省額度模式)。
+
+## 2026-10-15 使用者驗收與合併決定
+
+使用者明確表示「ok, 驗收完成, 確保 PR 標題內容描述等都正確後就可以 merge 了」，並補充「噢，還要把完成的都勾起來」。本次接受已交付 PR 的功能與介面，授權校正描述、勾選實際完成項目後合併；不新增功能或將未完成的規劃改為完成。
+
+已實作並有本機回歸的 UI／UX、工作分頁快捷鍵、來源候選偵測與 breadcrumb，依這次使用者驗收更新 ADD-13／17／18／20。完整三平台 CI、精確 macOS 圖示／IME 情境及 Antigravity CLI 1.3.5 磁碟樣本／互動接續沒有新增逐項證據，仍未勾選；原始任務完整條件與 17 項未來待辦不因合併自動完成。退出 UI 後持續執行／重新附接仍是下一階段最高優先。

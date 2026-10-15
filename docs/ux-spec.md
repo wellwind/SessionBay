@@ -13,7 +13,8 @@ Session Bay
 │  ├─ 歷史 Session
 │  │  ├─ Codex
 │  │  ├─ Claude Code
-│  │  └─ Grok Build
+│  │  ├─ Grok Build
+│  │  └─ Antigravity CLI（已辨識格式；版本驗收另列）
 │  └─ 工作區分頁
 │     └─ 分割面板
 │        ├─ Agent Terminal

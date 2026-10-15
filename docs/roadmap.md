@@ -15,7 +15,7 @@
 
 ## 階段 1 唯讀歷史瀏覽
 
-交付 Codex、Claude Code adapters，並依 2026-10-15 追加 Grok Build adapter、工具與來源設定、目錄分組、SQLite migration、增量索引、分組後的 Session 清單、搜尋與預覽。依 2026-10-15 最新決策，專案為預設首頁，所有目錄為獨立頁；兩頁均以總覽卡片與側欄先選組，前者僅 curated，後者保留全部有 Session 的目錄（含未知／失效）。總覽不是平面混合 Session 清單。設定固定呈現四工具歷史能力卡片，舊設定可明確新增 Grok 來源，不自動改寫既有來源。
+交付 Codex、Claude Code adapters，並依 2026-10-15 追加 Grok Build 與 Antigravity CLI 防禦 adapter、工具與來源設定、目錄分組、SQLite migration、增量索引、分組後的 Session 清單、搜尋與預覽。依 2026-10-15 最新決策，專案為預設首頁，所有目錄為獨立頁；兩頁均以總覽卡片與側欄先選組，前者僅 curated，後者保留全部有 Session 的目錄（含未知／失效）。總覽不是平面混合 Session 清單。設定固定呈現四工具歷史能力卡片，舊設定可明確新增 Grok／Antigravity CLI 來源，不自動改寫既有來源；真實 CLI 發行版本驗收另列。
 
 退出條件：跨工具找到正確對話；未知或損壞事件不造成整批失敗；取消、重掃、刪除來源與封存移動可正確處理。自選專案狀態跨重開及重建保留，舊版手動加入／釘選能正確遷移，未加入及移出專案的目錄仍在所有目錄頁，選組後可搜尋歷史。此階段可以獨立試用，但不稱為完整 MVP。
 
@@ -85,7 +85,8 @@
 - 專案導覽：掃描不自動加入、舊版手動／釘選遷移、加入／更名／移出持久化、重建後保留；專案預設首頁與所有目錄頁均有分組總覽，未知／失效分組保留，選組後查詢不受加入狀態影響。
 - 專案建立：合成絕對路徑、單層名稱、既有目標／不存在父目錄／無效名稱拒絕，取消與失敗不誤建資料夾。
 - Agent 擴充：四工具能力卡片固定可見、舊 Grok 缺來源的草稿／明確保存、來源狀態分離、四工具設定隔離與舊設定遷移、白名單／危險參數 opt-in、精確 argv 預覽與啟動一致、手動 ID／索引 ID 互斥與來源歧義阻擋。
-- Grok 歷史：summary／stream 配對、cwd 身份核對、rewind、跨檔變更、缺檔／部分寫入、來源唯讀；Antigravity 未支援歷史須明示。
+- Grok 歷史：summary／stream 配對、cwd 身份核對、rewind、跨檔變更、缺檔／部分寫入、來源唯讀。
+- Antigravity CLI 歷史：官方 transcript.jsonl 的防禦 reader、metadata 唯讀快照、rewind／compaction 重寫保護、未知格式警告及受限制接續；full-only 不復活正文。真實 CLI 1.3.5 樣本／互動接續與 App／IDE 能力不得由合成 fixtures 推論。
 - Runtime 整合：啟動、輸入、resize、退出、關閉與子程序清理。
 - UI 端到端：雙頁選目錄、目前目錄搜尋快捷鍵、預覽、兩段式 Shell／Agent 啟動器、接續、分割普通 Terminal；統一控制項與焦點可用。
 - 工具登錄：共用 manifest 的前後端契約、安裝／版本重新偵測；內建 parser 與 argv 安全邊界不因 metadata 改動而放寬。

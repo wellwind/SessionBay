@@ -91,7 +91,7 @@ MVP 提供標題、使用者訊息與 agent 回覆的關鍵字搜尋。工具輸
 
 驗收條件：
 
-- 在所選目錄跨 Codex、Claude Code、Grok Build 的可索引歷史搜尋，另可明確開啟跨目錄全域搜尋；不把 Antigravity 的可啟動狀態當作歷史搜尋支援。
+- 在所選目錄跨 Codex、Claude Code、Grok Build、Antigravity CLI 的可索引歷史搜尋，另可明確開啟跨目錄全域搜尋。Antigravity 只索引防禦 reader 可辨識的官方 transcript.jsonl 正文，metadata-only／full-only 不假造正文；CLI 1.3.5 的真實格式與接續驗收仍見 [相容性限制](antigravity-cli-history.md)，不把可啟動狀態當作版本驗證。
 - 所有目錄保留未加入、已移出及 cwd 缺失分組；選組後可搜尋其可索引歷史。釘選與加入只改變導覽，不刪除或隱藏這些分組。
 - 中文、英文與程式碼識別字具有可說明的匹配規則；中文搜尋是 MVP 驗證項目。
 - 若結果來自尚未更新的索引，能顯示來源已變更並重新載入。

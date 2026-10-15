@@ -169,7 +169,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；手動觸發會使用三個 runner，請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
 
-GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026-10-15 唯讀確認 main 尚無 `.github/workflows`；本 PR 尚未合併，因此不保證目前已有手動按鈕或 API／CLI 可派送。待之後正常採納到 default branch 且帳務限制處理好，才可選擇目標 branch/ref 執行完整驗收；此 CI 修改不會合併 PR、代為觸發、調整帳務或提高額度。
+GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026-10-15 本次合併授權前的唯讀檢查確認 main 尚無 `.github/workflows`，當時不能保證未合併 PR 已有手動按鈕或 API／CLI 可派送。流程檔正常納入 default branch 後，仍須帳務可用並明確選擇目標 branch/ref，才執行完整驗收。使用者後續已接受 PR 並授權合併；不會因此代為觸發完整流程、調整帳務或提高額度。
 
 目前 Annotations 已確認 Billing & plans 的帳務／spending limit 限制。這表示工作未開始，並非測試通過或程式測試失敗；新的 Linux workflow 仍可能因同一限制無法啟動。未跑的三平台打包／原生 smoke 維持待驗收，不能用 Linux 核心通過替代。
 
