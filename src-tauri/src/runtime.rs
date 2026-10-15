@@ -473,6 +473,27 @@ fn make_nonblocking(fd: libc::c_int) -> io::Result<()> {
     }
 }
 
+fn resume_pty_output_for_stop(_fd: libc::c_int) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    loop {
+        // Darwin master reads cannot drain TS_TTSTOP output after Ctrl-S.
+        // TIOCSTART clears TTSTOP/FLUSHO on this owned PTY without injecting
+        // input into the child (XNU tty.c, ttioctl_locked).
+        if unsafe { libc::ioctl(_fd, libc::TIOCSTART as _) } == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        match error.raw_os_error() {
+            Some(libc::EINTR) => continue,
+            // ptyioctl reports ENXIO when its tty has already disappeared.
+            Some(libc::ENXIO) => return Ok(()),
+            _ => return Err(error),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
 struct OwnedChild {
     child: Box<dyn Child + Send + Sync>,
     pid: libc::pid_t,
@@ -572,6 +593,7 @@ fn run_worker(
     let mut blocked_since = None;
     let mut failed = false;
     let mut wait_failed = false;
+    let mut stop_output_resumed = false;
     loop {
         let stopping = lock(&runtime.control).stop_requested;
         if !exited && !wait_failed {
@@ -601,6 +623,17 @@ fn run_worker(
                     wait_failed = true;
                     report_error(&emit, &id, &format!("Cannot observe child exit: {error}"));
                     runtime.request_stop();
+                }
+            }
+        }
+        if stopping && !stop_output_resumed {
+            stop_output_resumed = true;
+            if !exited {
+                if let Err(error) = resume_pty_output_for_stop(fd) {
+                    let message = format!("Could not resume terminal output for shutdown: {error}");
+                    report_error(&emit, &id, &message);
+                    lock(&runtime.control).cleanup_error = Some(message);
+                    failed = true;
                 }
             }
         }
@@ -672,29 +705,49 @@ fn run_worker(
             }
         }
 
-        let capacity = lock(&runtime.control).flow.capacity();
+        // Darwin session-leader exit waits for its tty output to drain before
+        // becoming waitable (XNU kern_exit.c ttywait; tty.c ttywait). Stopping
+        // must keep draining even when ACK credit is exhausted, otherwise the
+        // dying child can never finish exit. Discard only after stop is observed,
+        // using one fixed-size nonblocking read per supervision iteration.
+        let capacity = if stopping {
+            OUTPUT_CHUNK_BYTES
+        } else {
+            lock(&runtime.control).flow.capacity()
+        };
         let mut progressed = false;
-        if !eof && !stopping && capacity > 0 {
+        if !eof && capacity > 0 {
             blocked_since = None;
             match reader.read(&mut buffer[..capacity]) {
                 Ok(0) => eof = true,
                 Ok(count) => {
-                    let sequence = lock(&runtime.control).flow.reserve(count);
-                    if let Err(error) = send(
-                        &emit,
-                        TerminalEvent::Output {
-                            runtime_id: id.clone(),
-                            sequence,
-                            data: buffer[..count].to_vec(),
-                        },
-                    ) {
-                        failed = true;
-                        report_error(
+                    let sequence = {
+                        let mut control = lock(&runtime.control);
+                        // Stop may arrive during this nonblocking read. Only
+                        // bytes accepted before Stop can become Output events.
+                        if stopping || control.stop_requested {
+                            None
+                        } else {
+                            Some(control.flow.reserve(count))
+                        }
+                    };
+                    if let Some(sequence) = sequence {
+                        if let Err(error) = send(
                             &emit,
-                            &id,
-                            &format!("Terminal output channel disconnected: {error}"),
-                        );
-                        runtime.request_stop();
+                            TerminalEvent::Output {
+                                runtime_id: id.clone(),
+                                sequence,
+                                data: buffer[..count].to_vec(),
+                            },
+                        ) {
+                            failed = true;
+                            report_error(
+                                &emit,
+                                &id,
+                                &format!("Terminal output channel disconnected: {error}"),
+                            );
+                            runtime.request_stop();
+                        }
                     }
                     progressed = true;
                 }
@@ -771,9 +824,10 @@ fn run_worker(
         }
         if !progressed {
             // Timed waits also observe child exit without a blocking wait thread.
-            // Never poll readable bytes while output is backpressured.
+            // Backpressured running output waits for ACK; stopping drains and
+            // discards buffered output so Darwin can complete tty teardown.
             let control = lock(&runtime.control);
-            let events = if !eof && control.flow.capacity() > 0 && !control.stop_requested {
+            let events = if !eof && (control.stop_requested || control.flow.capacity() > 0) {
                 libc::POLLIN
             } else {
                 0

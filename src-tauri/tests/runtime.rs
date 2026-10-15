@@ -376,20 +376,83 @@ fn stop_escalates_to_kill_for_owned_job_groups_and_leaves_external_processes_alo
     manager.stop(&info.id).unwrap();
 }
 
-#[test]
-fn stopping_a_backpressured_runtime_does_not_wait_for_ack() {
+fn assert_backpressured_writer_stops(ignore_termination: bool, pause_output: bool) {
     let cwd = tempfile::tempdir().unwrap();
     let manager = RuntimeManager::new();
-    let (info, _rx) = launch(
-        &manager,
-        shell(
-            cwd.path(),
-            "while :; do printf '0123456789012345678901234567890123456789'; done",
-        ),
+    let script = format!(
+        "stty ixon -ixany start '^Q' stop '^S'; {} printf 'LEADER:%s\\n' \"$$\"; while :; do printf '0123456789012345678901234567890123456789'; done",
+        if ignore_termination { "trap '' HUP TERM;" } else { "" }
     );
-    thread::sleep(Duration::from_millis(200));
-    manager.stop(&info.id).unwrap();
+    let (info, rx) = launch(&manager, shell(cwd.path(), &script));
+    // Do not ACK any output. Wait for actual byte/frame credit exhaustion,
+    // rather than assuming that an arbitrary sleep filled the PTY on this OS.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut bytes = Vec::new();
+    let mut frames = 0;
+    while bytes.len() < MAX_IN_FLIGHT_BYTES && frames < MAX_IN_FLIGHT_CHUNKS {
+        match rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap()
+        {
+            TerminalEvent::Output { sequence, data, .. } => {
+                frames += 1;
+                assert_eq!(sequence, frames as u64);
+                bytes.extend(data);
+            }
+            event => panic!("unexpected backpressure event: {event:?}"),
+        }
+    }
+    let leader = String::from_utf8_lossy(&bytes)
+        .split("LEADER:")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse::<i32>()
+        .unwrap();
+    assert!(bytes.len() <= MAX_IN_FLIGHT_BYTES);
+    assert!(process_is_running(leader));
+    if pause_output {
+        // Exercise the tty driver's real IXON stop, not a stopped child process.
+        // The supervisor must resume output on its own master during teardown.
+        manager.write(&info.id, "\x13").unwrap();
+    }
+    // The child keeps writing while the frontend supplies no more credit.
+    // Darwin ttywait must be able to drain this output during signal teardown.
+    thread::sleep(Duration::from_millis(100));
+    let started = Instant::now();
+    let stopped = manager.stop(&info.id);
+    let remaining: Vec<_> = rx.try_iter().collect();
+    assert!(
+        stopped.is_ok(),
+        "stop failed: {stopped:?}; events: {remaining:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(3));
     assert_eq!(manager.list()[0].state, "exited");
+    assert!(manager.write(&info.id, "late input").is_err());
+    assert!(!process_is_running(leader));
+    assert_eq!(
+        remaining.len(),
+        1,
+        "stopping must not emit or credit discarded bytes"
+    );
+    assert!(matches!(remaining[0], TerminalEvent::Exit { .. }));
+}
+
+#[test]
+fn stopping_a_backpressured_runtime_does_not_wait_for_ack() {
+    assert_backpressured_writer_stops(false, false);
+}
+
+#[test]
+fn stopping_a_backpressured_signal_resistant_runtime_drains_while_escalating() {
+    assert_backpressured_writer_stops(true, false);
+}
+
+#[test]
+fn stopping_a_backpressured_xoff_paused_runtime_does_not_deadlock() {
+    assert_backpressured_writer_stops(true, true);
 }
 
 #[test]

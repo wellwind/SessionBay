@@ -10,8 +10,8 @@
 | 工具鏈 | Node 24.19.0、npm 11.9.0、Rust 1.99.0；套件版本由兩個 lockfile 固定 |
 | Linux 桌面依賴 | 官方 Debian 套件，GTK 3.24.49／WebKitGTK 2.54.0；解壓至工作區，未修改使用者電腦 |
 | 前端 | TypeScript、ESLint、Vite production build 通過；6 組共 109 測試通過；完整 npm audit（含 dev dependencies）0 vulnerabilities |
-| Rust 核心 | 28 unit＋34 catalog＋17 PTY＋1 service 整合，共 80 測試通過（Darwin 修正的 Linux 回歸） |
-| 完整 Linux crate | 預設 desktop features 的 cargo test 83 測試通過（含 3 個桌面生命週期／診斷測試）；all-target Clippy `-D warnings` 與 native cargo build 通過 |
+| Rust 核心 | 28 unit＋34 catalog＋19 PTY＋1 service 整合，共 82 測試通過（Darwin 修正的 Linux 回歸） |
+| 完整 Linux crate | 預設 desktop features 的 cargo test 85 測試通過（含 3 個桌面生命週期／診斷測試）；all-target Clippy `-D warnings` 與 native cargo build 通過 |
 | Linux executable | debug executable 成功連結；Ubuntu 24.04 CI 已產出 release .deb 並啟動原生視窗；安裝流程未測，不宣稱跨 distro 通用 |
 | macOS | 首輪 macOS 15 ARM64／Intel 原生編譯成功；CI 找出 Darwin zombie leader 的 session 查詢差異，已加入修正與回歸測試；最新平台結果請查下方 PR Checks |
 | Native GUI／截圖 | 第三輪 Linux 程序／視窗 smoke 通過，但人工檢視 PNG 為純色，不能當作 UI 可用證據。已加入 pre-module 錯誤觀測、DOM＋IPC readiness、設定對話框操作、純色防護及 Xvfb graphics-only 修正；後續結果以 PR Checks／artifact 複核為準 |
@@ -49,6 +49,7 @@ Service 整合測試涵蓋：同專案 Codex＋Claude 合成歷史 → 中文搜
 - Darwin zombie leader：以私有 OwnedChild 與 fresh waitid(WNOWAIT) 證明未回收的子程序所有權，不依賴 Darwin 對 zombie 失效的 getsid；ECHILD、live session mismatch 仍拒絕，對仍持有 child 但尚在退出中的短暫 ESRCH 只做有界重試，後代 process group 持續驗證成員。
 - WebView 驗證：載入主模組前觀測 JS／CSP／資產錯誤，React 與 backend bootstrap 就緒後才跑 CI-only 設定對話框開關；正常啟動不自動操作。Bootstrap 可恢復失敗不鎖死 Retry。
 - Darwin 空群組：發訊號前確認 live member；若最後成員退出造成 EPERM，必須 fresh 完整掃描證明已無 live member 才視為完成。真正權限、ownership 或列舉錯誤仍回報。
+- Darwin PTY 背壓關閉：session leader 退出時的 ttywait 仍需 master 排空；明確停止後保留每輪最多 16 KiB 非阻塞讀取並丟棄，不等待 ACK、不產生新 Output／credit，維持 3 秒期限。新增達到實際 credit exhaustion、忽略 HUP／TERM、Ctrl-S／XOFF 暫停的回歸；Darwin 停止時對自有 master 一次 TIOCSTART 恢復排空，不注入鍵盤輸入。
 - 跨平台測試：預期 cwd 與產品同樣 canonicalize，避免 macOS /var → /private/var symlink 造成假失敗。
 
 ## 效能
