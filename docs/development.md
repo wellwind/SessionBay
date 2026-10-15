@@ -7,6 +7,7 @@
 - macOS 最低建置目標設定為 12+（尚待原生驗收）；Apple Silicon 與 Intel 分開建置。安裝 Xcode Command Line Tools：`xcode-select --install`。
 - Linux 以 Ubuntu 24.04 x64 作 CI／打包基準；開發驗證環境另見驗收紀錄。需要圖形工作階段（X11 或 Wayland）及 WebKitGTK 4.1。
 - Node.js 24／npm；Rust 使用根目錄 `rust-toolchain.toml` 固定版本。第一次 Cargo 執行會由 rustup 取得工具鏈。
+- `npm run tauri` 會在目前支援的 macOS／Linux 上，將 `${CARGO_HOME:-$HOME/.cargo}/bin` 放到子程序 PATH 前端，使用 rustup 的專案工具鏈；此設定僅作用於該次指令。
 - Git clone 後在 repo 根目錄執行，不需要修改 Agent 的資料庫或登入設定。
 
 Ubuntu 24.04 桌面相依套件：
@@ -26,7 +27,7 @@ sudo apt-get install --no-install-recommends \
 
 ```bash
 npm ci
-npm run tauri -- dev
+npm run dev
 
 # 當前平台的開發產物
 npm run tauri -- build
@@ -38,7 +39,9 @@ npm run tauri -- build --bundles app
 
 產物在 `src-tauri/target/release/bundle/`。未簽章／未公證開發產物不等同公開發行，勿停用系統安全檢查來安裝來源不明的檔案。自行從可信原始碼建置適合這一階段試用。
 
-`npm run dev` 只啟動前端網頁預覽；畫面會明確提示沒有桌面 Runtime，不生成假 Sessions 或假 Terminal。
+`npm run dev` 會執行 `npm run tauri -- dev`，並由 Tauri 呼叫 `npm run dev:web` 啟動前端。
+
+`npm run dev:web` 只啟動前端網頁預覽；畫面會明確提示沒有桌面 Runtime，不生成假 Sessions 或假 Terminal。
 
 ## 第一次使用
 
@@ -110,6 +113,7 @@ Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](
 
 ## 疑難排解
 
+- Tauri CLI 在 `interface/rust.rs` 出現 `Option::unwrap()` panic：先檢查 `rustc -vV` 是否正常輸出 `host:`。本機曾遇到 PATH 選到缺少 LLVM 動態函式庫的 Homebrew Rust，導致 Tauri 取得空輸出；專案 npm 指令已優先選取 rustup。若仍失敗，檢查 `CARGO_HOME` 與 rustup 安裝，確認可取得 `rust-toolchain.toml` 指定版本。Rust 安裝方式見 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#rust)。
 - 找不到 CLI：在設定填可執行檔絕對路徑。桌面 GUI 的 PATH 可能和 terminal 不同；本應用另搜尋 Homebrew、`~/.local/bin`、`~/.cargo/bin` 等常見位置。
 - 有歷史沒工具：仍可搜尋預覽，指定工具後才能接續。
 - 工具有但無歷史：加入專案並開新工作即可；不存在的預設來源不會當成整批失敗。

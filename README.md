@@ -10,10 +10,10 @@ Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它�
 
 ```bash
 npm ci
-npm run tauri -- dev
+npm run dev
 ```
 
-前端單獨 `npm run dev` 只顯示網頁預覽，不能操作本機歷史或 Terminal。完整安裝、測試、建置與疑難排解見[開發與試用](docs/development.md)。
+`npm run dev` 啟動完整桌面應用；`npm run dev:web` 僅顯示前端網頁預覽，不能操作本機歷史或 Terminal。完整安裝、測試、建置與疑難排解見[開發與試用](docs/development.md)。
 
 ```bash
 npm run typecheck && npm run lint && npm test && npm run build
