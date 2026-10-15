@@ -7,6 +7,8 @@
 
 ## 2026-10-15 最新需求補充紀錄
 
+最新追加的統一「偵測歷史來源」、分頁／面板快捷鍵、特定 CapsLock 組字修正、Antigravity 完整歷史與 breadcrumb 修正，另列 ADD-16–ADD-20；本批完整回歸與 exact-commit CI 尚待完成，Antigravity 歷史仍待取得可靠持久化 schema。下方 324／157 個測試與 `bcd3bcc` 提交不包含這些追加變更，不能據此提前勾選新增驗收。
+
 最新使用者澄清由[雙頁導覽、來源入口與圖示紀錄](mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)單獨驗證，不沿用下方前一批 230 個前端／134 個 desktop 測試或 `f6a9e1d` CI 作為本批通過證據。
 
 | 範圍 | 本次要求 | 目前證據與待辦 |
@@ -19,7 +21,7 @@
 | Shell 候選 | 唯讀重新偵測、明確加入／保存，保留自訂 Profiles 與預設；全新 `$SHELL`／平台 fallback＋`[-l]`，不匯入 rc | Shell 14 個 focused 回歸及新舊設定測試通過；包含已存 aliases 排除與設定 bytes 不變 |
 | macOS 圖示 | 原圖 412／512 置中、外緣透明；可重複產生 macOS ICNS，不覆寫其他平台圖示 | 10 個 representations validator 通過、舊版被拒絕、兩次產生 byte-identical、7 個既有資產雜湊不變；原生 Cmd+Tab／Dock 視覺驗收待完成 |
 
-此批未實作 [13 項後續待辦](future-backlog.md)。原先凍結勾選狀態的限制已由使用者要求「把已完成的 check list 都勾選」取代，最新逐項稽核見下節。圖示比例是專案視覺選擇，不宣稱 Apple 官方規定。文件 diff 與 64 個相對連結／章節錨點檢查通過；此文件檢查屬更新勾選前的歷史檢查點，不代表最新稽核數。
+此批未實作 [15 項後續待辦](future-backlog.md)。原先凍結勾選狀態的限制已由使用者要求「把已完成的 check list 都勾選」取代，最新逐項稽核見下節。圖示比例是專案視覺選擇，不宣稱 Apple 官方規定。文件 diff 與 64 個相對連結／章節錨點檢查通過；此文件檢查屬更新勾選前的歷史檢查點，不代表最新稽核數。
 
 ## 2026-10-15 本次需求工作紀錄
 
@@ -55,10 +57,10 @@
 依使用者最新要求，只有滿足本列完成條件且有程式／文件／測試證據的項目才勾選；前置任務未驗收不會被下游局部實作倒推為完成。原生、真實 CLI、效能及正式發行要求不以合成測試替代。
 
 - 原始任務：**143 項，77 已完成、66 未完成**；各列最後一欄提供證據或未完成原因。範本中的 3 個 checkbox 不是實際任務，不計數。
-- 追加需求另列 ADD-01–ADD-15，與原始 ID 分開計數；與原始功能有交集，不加總為獨立功能數。
-- 本輪 frontend 最終 11 檔 324／324、typecheck／lint／build 通過；Rust 已通過 153 個 headless／157 個 desktop 測試及兩種 features 的 strict Clippy／fmt。最新 exact-commit 三 runner CI 以 [驗收紀錄](mvp-validation.md) 為準，不沿用舊提交。
+- 追加需求另列 ADD-01–ADD-20，與原始 ID 分開計數；與原始功能有交集，不加總為獨立功能數。
+- 來源偵測／快捷鍵／breadcrumb 最新檢查點 frontend 13 檔 380／380、typecheck／lint／build 通過；Rust bounds／saved-ID 修正後通過 176 個 headless／180 個 desktop 測試、雙 features all-target strict Clippy／fmt，breadcrumb 前的 Linux release `.deb` 重建成功（約 3.86 MiB）；追加 breadcrumb 後前端全套也通過，完整原生 bundle 以新 exact-commit CI 為準。上一個 174 core／178 desktop 檢查點不含最後兩個 edge regressions。最新 exact-commit 三 runner CI 以 [驗收紀錄](mvp-validation.md) 為準，不沿用舊提交。
 - 明確未完成：CLI 發行版本矩陣、filesystem watcher、renderer fallback、直接 Session Palette 快切、OS／Shell 快捷鍵保留組合檢查、終端控制序列專門安全案例、原生 IME／螢幕閱讀器／完整效能及長時間壓力。這些不阻止記錄已完成的局部實作，也不能被隱藏。
-- [13 項後續待辦](future-backlog.md)保持未完成；持續執行／重連僅升級下一階段優先級，本輪沒有 daemon 或重開後繼續執行的實作。
+- [15 項後續待辦](future-backlog.md)保持未完成；持續執行／重連僅升級下一階段優先級，本輪沒有 daemon 或重開後繼續執行的實作。
 
 | 狀態 | 追加 ID | 本輪交付 | 證據／限制 |
 | --- | --- | --- | --- |
@@ -77,8 +79,13 @@
 | [ ] | ADD-13 | 完整 UI／UX 重設與新控制項 | tokens／卡片與清單／設定 details／兩段啟動器已實作，最終 frontend 324／324 與 build 通過；等 native 畫面複核後再勾選 |
 | [ ] | ADD-14 | 最新提交三 runner checks／unsigned bundle／native smoke | 等 exact commit CI 完成；先前提交的成功不能代替 |
 | [ ] | ADD-15 | macOS Cmd+Tab／Dock 實際視覺比較 | 檔案 alpha／預覽與 build 已驗證；尚無使用者 Mac 原生畫面證據 |
+| [ ] | ADD-16 | CapsLock 切換輸入法的特定重複組字修正 | 已加入 xterm key handler 與合成組字回歸；真實 macOS 輸入法／CapsLock 操作仍待驗收，不能由合成事件宣稱已完成 |
+| [ ] | ADD-17 | Chrome-style 工作區分頁快捷鍵 | 目前目錄的數字選頁／雙向循環、IME 與對話框保護、保留鍵攔截及舊 pane 預設遷移已實作；包含於 377 個前端回歸，本批 exact-commit CI 尚待確認 |
+| [ ] | ADD-18 | 官方已知歷史來源候選偵測 | 共用 provider metadata、有界唯讀檢查、canonical alias 與保存 ID 比對、明確加入草稿；22 個 Rust 整合測試與 377 個前端全套通過，含輸出上限／saved-ID 草稿去重；180 個 desktop 全套也通過；本批 exact-commit CI 待完成 |
+| [ ] | ADD-19 | Antigravity CLI／App 歷史列表、內容預覽與正確接續 | 使用者明確納入 PR #1；仍待可靠持久化 schema／版本化樣本，必須區分 CLI／App／IDE 與 rewind／fork／compaction。現有 unsupported 明示不能算此需求完成 |
+| [ ] | ADD-20 | Breadcrumb 反映實際導覽與專案名稱 | leaf 使用實際 current.name，首頁只顯示一次分類，全域搜尋有明確 leaf；真專案名稱恰為「專案」仍允許合法同名。3 個 App 回歸已納入 380／380 前端全套，typecheck／lint／build 通過；原生新 CI 待確認 |
 
-追加需求目前 **15 項，12 已完成、3 未完成**。原始 9 項原生驗收另列於 [試用前清單](mvp-validation.md#試用前的原生驗收清單)，不與本表重複累計。
+追加需求目前 **20 項，12 已完成、8 未完成**。原始 9 項原生驗收另列於 [試用前清單](mvp-validation.md#試用前的原生驗收清單)，不與本表重複累計。
 
 ## 完整功能範圍
 

@@ -51,7 +51,7 @@ import {
   splitNode,
   uid,
 } from './workspace';
-import { matchesShortcut, shortcutConflicts, shortcutDefaults } from './commands';
+import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex, workspaceTabShortcutHelp } from './commands';
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
@@ -163,6 +163,37 @@ export default function App() {
   }, [view, activeTab, workspace.panes, maximizedId]);
   const stateRef = useRef({ workspace, selectedId, boot, view, navigation, projects: visibleProjects });
   stateRef.current = { workspace, selectedId, boot, view, navigation, projects: visibleProjects };
+  const composing = useRef(false);
+  useEffect(() => {
+    const start = () => { composing.current = true; };
+    const end = () => { composing.current = false; };
+    const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || composing.current || event.keyCode === 229 || document.querySelector('[role="dialog"]')) return;
+      const current = stateRef.current;
+      const tabs = current.workspace.tabs.filter((tab) => tab.projectId === current.selectedId);
+      const active = current.view === 'workspace' ? tabs.findIndex((tab) => tab.id === current.workspace.activeTabByProject[current.selectedId ?? '']) : -1;
+      const index = workspaceTabIndex(event, tabs.length, active);
+      const reserved = index !== null || (tabs.length > 0 && workspaceTabIndex(event, 9, 0) !== null);
+      if (!reserved) return;
+      // Capture before xterm's textarea keydown so reserved tab keys never reach PTY.
+      event.preventDefault();
+      event.stopPropagation();
+      if (index === null) return; // A reserved number beyond the open tabs is a no-op, never PTY input.
+      setWorkspace((workspace) => ({ ...workspace, activeTabByProject: { ...workspace.activeTabByProject, [tabs[index].projectId]: tabs[index].id } }));
+      setView('workspace');
+      setMaximizedId(null);
+    };
+    document.addEventListener('compositionstart', start, true);
+    document.addEventListener('compositionend', end, true);
+    window.addEventListener('blur', end);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      document.removeEventListener('compositionstart', start, true);
+      document.removeEventListener('compositionend', end, true);
+      window.removeEventListener('blur', end);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, []);
   const indexRef = useRef(index);
   indexRef.current = index;
   const saveQueue = useRef(Promise.resolve());
@@ -500,7 +531,7 @@ export default function App() {
     else void action().catch(notify);
   };
   const effectiveShortcuts = useMemo(
-    () => ({ ...shortcutDefaults, ...settings?.shortcuts }),
+    () => normalizeLegacyShortcuts(settings?.shortcuts ?? {}),
     [settings?.shortcuts],
   );
   const conflicts = useMemo(() => shortcutConflicts(effectiveShortcuts), [effectiveShortcuts]);
@@ -586,7 +617,7 @@ export default function App() {
   commandRef.current = commands;
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || document.querySelector('[role="dialog"]'))
+      if (event.defaultPrevented || event.isComposing || composing.current || event.keyCode === 229 || document.querySelector('[role="dialog"]'))
         return;
       const command = commandRef.current.find(
         (c) =>
@@ -858,7 +889,7 @@ export default function App() {
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
             <div>
-              <div className="breadcrumb">
+              <nav className="breadcrumb" aria-label="目前位置">
                 {!sidebarOpen && (
                   <button
                     className="icon-button"
@@ -870,9 +901,10 @@ export default function App() {
                 )}
                 Session Bay
                 <ChevronRight size={12} />
-                {current || allSessionsSearch ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : navigationName}
-                {current && <><ChevronRight size={12} />{current.curated ? '專案' : '工作目錄'}</>}
-              </div>
+                {current || allSessionsSearch ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {current && <><ChevronRight size={12} /><span aria-current="page">{current.name}</span></>}
+                {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
+              </nav>
               <h1>
                 {current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
                 {current?.pinned && <Pin size={16} />}
@@ -986,7 +1018,7 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {(current || allSessionsSearch) && <div className="workspace-tabs">
+              {(current || allSessionsSearch) && <div className="workspace-tabs" title={workspaceTabShortcutHelp}>
                 <button
                   className={view === 'history' ? 'active history-tab' : 'history-tab'}
                   onClick={() => setView('history')}
@@ -1179,6 +1211,7 @@ export default function App() {
             setIndex(await api.index());
           }}
           onDetectShells={api.detectShells}
+          onDetectHistorySources={api.detectHistorySources}
           onDetect={detectAgents}
         />
       )}

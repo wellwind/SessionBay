@@ -34,7 +34,7 @@
 }
 .select-option[data-active='true'] { background: var(--surface-hover, #252c34); }
 .select-option[aria-selected='true'] { color: var(--accent, #a8dfc4); }
-.select-option[aria-disabled='true'] { opacity: .4; cursor: not-allowed; }
+.select-option[aria-disabled='true'] { color: var(--muted, #8a949e); cursor: not-allowed; }
 .select-option-copy { display: flex; flex-direction: column; flex: 1; gap: 3px; min-width: 0; }
 .select-option-copy > small { font-size: 11px; color: var(--muted, #8a949e); line-height: 1.4; }
 .select-trigger:disabled, .date-field:has(input:disabled) { opacity: .45; cursor: not-allowed; }

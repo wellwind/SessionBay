@@ -10,13 +10,14 @@ import {
   Palette,
   Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
   Terminal,
   Trash2,
   X,
 } from 'lucide-react';
-import type { AgentKind, IndexStatus, Installation, Settings, ShellCandidate, ShellProfile } from '../types';
-import { normalizedShortcut, shortcutDefaults } from '../commands';
+import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Settings, ShellCandidate, ShellProfile } from '../types';
+import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions } from '../agents';
 import type { HistoryAgentKind } from '../agents';
 import { Select } from './controls';
@@ -36,6 +37,7 @@ export interface SettingsPanelProps {
   onClearIndex: () => Promise<void>;
   onDetect: () => Promise<void>;
   onDetectShells?: () => Promise<ShellCandidate[]>;
+  onDetectHistorySources?: (kind: AgentKind) => Promise<HistorySourceDiscovery>;
 }
 
 type Section = 'sources' | 'profiles' | 'appearance' | 'shortcuts';
@@ -71,7 +73,7 @@ function cloneSettings(settings: Settings): Settings {
     sources: settings.sources.map((source) => ({ ...source })),
     executables: { ...executableDefaults, ...settings.executables },
     agentOptions: normalizedAgentOptions(settings),
-    shortcuts: { ...shortcutDefaults, ...settings.shortcuts },
+    shortcuts: normalizeLegacyShortcuts(settings.shortcuts),
   };
 }
 function profileFields(settings: Settings): JsonFields {
@@ -244,6 +246,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
       continue;
     }
     if (!binding.trim()) continue;
+    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換，請選擇其他快捷鍵。';
     const parts = binding
       .trim()
       .split('+')
@@ -311,6 +314,7 @@ export function SettingsPanel({
   onClearIndex,
   onDetect,
   onDetectShells,
+  onDetectHistorySources,
 }: SettingsPanelProps) {
   const [draft, setDraft] = useState(() => cloneSettings(settings));
   const [jsonFields, setJsonFields] = useState(() => profileFields(settings));
@@ -321,6 +325,7 @@ export function SettingsPanel({
   const [focusSourceId, setFocusSourceId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [shellCandidates, setShellCandidates] = useState<ShellCandidate[] | null>(null);
+  const [sourceDiscoveries, setSourceDiscoveries] = useState<Partial<Record<AgentKind, HistorySourceDiscovery>>>({});
   const [operationError, setOperationError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [confirmation, setConfirmation] = useState<'clear' | 'discard' | null>(null);
@@ -333,6 +338,7 @@ export function SettingsPanel({
     setJsonFields(profileFields(settings));
     setAgentJson(Object.fromEntries(agentKinds.map((kind) => [kind, JSON.stringify(normalizedAgentOptions(settings)[kind].extraArgs)])));
     setShowErrors(false);
+    setSourceDiscoveries({});
   }, [settings]);
 
   useEffect(() => {
@@ -465,10 +471,11 @@ export function SettingsPanel({
       first.focus();
     }
   };
-  const addSource = (kind: HistoryAgentKind) => {
+  const addSource = (kind: HistoryAgentKind, root = '') => {
     if (draft.sources.length >= 32) return;
+    if (root && draft.sources.some((source) => source.kind === kind && source.root.trim().replace(/\/+$/, '') === root.replace(/\/+$/, ''))) return;
     const id = newId('source');
-    update('sources', [...draft.sources, { id, kind, root: '', enabled: true }]);
+    update('sources', [...draft.sources, { id, kind, root, enabled: true }]);
     setFocusSourceId(id);
   };
   const sourceStatus = (sourceId: string, enabled: boolean, changed: boolean) => {
@@ -705,6 +712,33 @@ export function SettingsPanel({
                               <span className={`settings-status ${binary.className}`}>CLI {binary.text}</span>
                             </div>
                             <p className="settings-help">{capability.history.description}</p>
+                            <button type="button" className="settings-button secondary compact"
+                              disabled={!capability.history.supported || !onDetectHistorySources}
+                              aria-label={`偵測 ${capability.name} 歷史來源`}
+                              onClick={() => void run(async () => {
+                                const result = await onDetectHistorySources!(kind);
+                                setSourceDiscoveries((previous) => ({ ...previous, [kind]: result }));
+                              })}><Search size={14} />偵測歷史來源</button>
+                            {sourceDiscoveries[kind] && <div className="settings-source-discovery" aria-live="polite">
+                              <p className="settings-help">只檢查官方已知位置，不會啟動 Agent。找到目錄不代表已有歷史；加入後仍需儲存與掃描。</p>
+                              {sourceDiscoveries[kind]!.message && <p className="settings-help">{sourceDiscoveries[kind]!.message}</p>}
+                              {sourceDiscoveries[kind]!.candidates.map((candidate) => {
+                                const configured = (candidate.configuredSourceIds ?? []).some((id) => {
+                                  const saved = settings.sources.find((source) => source.id === id);
+                                  return saved && draft.sources.some((source) => source.id === id && source.kind === kind && source.root === saved.root);
+                                }) || draft.sources.some((source) => source.kind === kind && source.root.trim().replace(/\/+$/, '') === candidate.root.replace(/\/+$/, ''));
+                                const status = { found: '找到可讀目錄', missing: '目錄不存在', permissionDenied: '無權限讀取', checkFailed: '檢查失敗' }[candidate.status];
+                                return <div className="settings-source-candidate" key={candidate.root}>
+                                  <span className={`settings-status ${candidate.status === 'found' ? 'neutral' : 'warning'}`}>{status}</span>
+                                  <code>{candidate.root}</code>
+                                  {candidate.message && <p className="settings-help">{candidate.message}</p>}
+                                  {candidate.status === 'found' && <button type="button" className="settings-button secondary compact"
+                                    disabled={configured || draft.sources.length >= 32}
+                                    aria-label={`加入 ${capability.name} 偵測來源 ${candidate.root}`}
+                                    onClick={() => addSource(kind as HistoryAgentKind, candidate.root)}><Plus size={14} />{configured ? '已加入設定' : '加入此來源'}</button>}
+                                </div>;
+                              })}
+                            </div>}
                             {!capability.history.supported ? <>
                               <span className="settings-status neutral">歷史尚不支援</span>
                               <p className="settings-help">{capability.resume.description}</p>
@@ -1170,6 +1204,7 @@ export function SettingsPanel({
                         Mod+Shift+T。留空可停用快捷鍵。衝突會顯示在下方；請避開終端程式與作業系統常用組合。
                       </p>
                     </div>
+                    <p className="settings-help">{workspaceTabShortcutHelp} 這些應用保留組合不會傳送至終端；組字期間或對話框內不攔截。舊版「下一個面板」預設改為 Mod+Alt+ArrowDown。</p>
                     {!Object.keys(draft.shortcuts).length && (
                       <div className="settings-empty">
                         <Keyboard size={24} />

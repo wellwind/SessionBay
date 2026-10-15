@@ -164,3 +164,9 @@ usage 解析保留來源 locator 與 token 包含關係。resume、fork、子代
 ## 支援限制
 
 只能顯示存在、可讀且格式受支援的本機紀錄。雲端限定、其他帳號、其他裝置、已清除或未保存的歷史不自動涵蓋。工具更新若改變格式，個別 adapter 可降級顯示 metadata，不影響其他 Agent 與普通 Terminal。
+
+### 明確偵測來源候選
+
+設定可透過共用 `detect_history_sources(kind)` 檢查 registry 的 `sourceEnv` 與 `defaultDirectory`，最多兩個 root，並用 canonical path 去重已儲存來源。`found` 只表示來源根目錄可讀，不表示已找到任何 Session。Grok 的 `probeDirectory=sessions` 另檢查歷史子目錄；加入值仍是 Grok 資料根。偵測不啟動 CLI、不讀 transcript、不遞迴掃描、不自動保存／索引。環境變數只讀取 registry allowlist。
+
+Antigravity 官方 CLI 的 `/resume` 本身可列表、搜尋與接續歷史；目前缺的是 SessionBay 的可信歷史 adapter。CLI、App、IDE 資料面不同，App 匯入 CLI 是明確 clone。後續需固定產品與版本、權威 metadata／JSONL serializer 或去識別 fixture，以及 fork／rewind／compaction 重寫規則；不能以最近對話 cache 或 stdout stream-json 冒充全歷史格式。

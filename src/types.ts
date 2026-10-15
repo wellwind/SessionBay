@@ -6,6 +6,20 @@ export interface HistorySource {
   root: string;
   enabled: boolean;
 }
+export interface HistorySourceCandidate {
+  kind: AgentKind;
+  root: string;
+  status: 'found' | 'missing' | 'permissionDenied' | 'checkFailed';
+  message?: string | null;
+  configured: boolean;
+  configuredSourceIds: string[];
+}
+export interface HistorySourceDiscovery {
+  kind: AgentKind;
+  supported: boolean;
+  candidates: HistorySourceCandidate[];
+  message?: string | null;
+}
 export interface ShellCandidate {
   name: string;
   executable: string;

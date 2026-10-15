@@ -907,3 +907,7 @@
   font-family: ui-monospace, monospace;
   overflow-wrap: anywhere;
 }
+
+.settings-source-discovery { margin-top: 12px; display: grid; gap: 10px; }
+.settings-source-candidate { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: grid; gap: 8px; justify-items: start; }
+.settings-source-candidate code { font-size: 12px; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }

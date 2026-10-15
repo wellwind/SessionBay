@@ -1,5 +1,7 @@
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
+  AgentKind,
+  HistorySourceDiscovery,
   Bootstrap,
   IndexStatus,
   Installation,
@@ -23,6 +25,7 @@ export const api = {
   bootstrap: () => call<Bootstrap>('bootstrap'),
   detect: () => call<Installation[]>('detect_installations'),
   detectShells: () => call<ShellCandidate[]>('detect_shells'),
+  detectHistorySources: (kind: AgentKind) => call<HistorySourceDiscovery>('detect_history_sources', { kind }),
   saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),

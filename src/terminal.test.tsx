@@ -1,4 +1,5 @@
 import { defaultAgentOptions } from './agents';
+import { shouldHandleTerminalKey } from './terminal-ime';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPane } from './components/TerminalPane';
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
   termWrite: vi.fn(),
   disposed: vi.fn(),
+  keyHandler: vi.fn(),
   input: undefined as undefined | ((value: string) => void),
 }));
 vi.mock('./api', () => ({ errorMessage: (e: unknown) => String(e), api: mocks }));
@@ -21,6 +23,7 @@ vi.mock('@xterm/xterm', () => ({
     options = {};
     parser = { registerOscHandler: () => ({ dispose() {} }) };
     loadAddon() {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { mocks.keyHandler(handler); }
     open() {}
     reset() {}
     focus() {}
@@ -114,6 +117,11 @@ beforeEach(() => {
   mocks.stop.mockResolvedValue(undefined);
 });
 describe('terminal lifetime and flow control', () => {
+  it('installs the semantic CapsLock guard through the public xterm hook', () => {
+    render(<TerminalPane {...props()} />);
+    expect(mocks.keyHandler).toHaveBeenCalledExactlyOnceWith(shouldHandleTerminalKey);
+  });
+
   it('can reopen a workspace-only shell without a deleted catalog project reference', async () => {
     render(<TerminalPane {...props(makePane({ startToken: 1 }))} projectAvailable={false} />);
     await waitFor(() => expect(mocks.launch).toHaveBeenCalled());

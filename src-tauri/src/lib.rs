@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod catalog;
 pub mod config;
+pub mod history_sources;
 pub mod launch_options;
 pub mod models;
 pub mod providers;

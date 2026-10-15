@@ -662,7 +662,7 @@ describe('fixed provider history capabilities', () => {
     expect(history.getByText('歷史尚不支援')).toBeInTheDocument();
     expect(history.getByText(/agy --conversation/)).toBeInTheDocument();
     expect(history.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(history.queryByRole('button')).not.toBeInTheDocument();
+    expect(history.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' })).toBeDisabled();
     expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('combobox', { name: '新增來源的 Agent' }));
     expect(screen.queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
@@ -854,4 +854,79 @@ describe('progressive provider configuration', () => {
     expect(screen.getByRole('checkbox', { name: 'Grok Build 略過權限確認' })).toBeChecked();
     expect(screen.getByLabelText('Grok Build 參數與權限設定')).toHaveTextContent('高風險模式已開啟');
   });
+});
+
+describe('explicit history source discovery', () => {
+  it('adds a found Grok root only to the draft, preserves custom sources, and saves only explicitly', async () => {
+    const settings = validSettings();
+    settings.sources.push({ id: 'custom-grok', kind: 'grok', root: '/custom/grok', enabled: false });
+    const discover = vi.fn().mockResolvedValue({ kind: 'grok', supported: true, candidates: [
+      { kind: 'grok', root: '/synthetic/.grok', status: 'found', configured: false, message: 'The root is readable.' },
+    ] });
+    const config = props({ settings, onDetectHistorySources: discover });
+    render(createElement(SettingsPanel, config));
+    expect(discover).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '偵測 Grok Build 歷史來源' }));
+    const add = await screen.findByRole('button', { name: '加入 Grok Build 偵測來源 /synthetic/.grok' });
+    expect(discover).toHaveBeenCalledExactlyOnceWith('grok');
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(config.onScan).not.toHaveBeenCalled();
+    fireEvent.click(add);
+    expect(add).toBeDisabled();
+    expect(screen.getByDisplayValue('/synthetic/.grok')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('/custom/grok')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    const saved = vi.mocked(config.onSave).mock.calls[0][0];
+    expect(saved.sources).toEqual(expect.arrayContaining(settings.sources));
+    expect(saved.sources.filter((source) => source.root === '/synthetic/.grok')).toHaveLength(1);
+    expect(settings.sources).toHaveLength(2);
+  });
+  it('distinguishes missing, permission, check errors and canonical configured roots without auto-adding', async () => {
+    const config = props({ onDetectHistorySources: vi.fn().mockResolvedValue({ kind: 'codex', supported: true, candidates: [
+      { kind: 'codex', root: '/missing', status: 'missing', configured: false },
+      { kind: 'codex', root: '/denied', status: 'permissionDenied', configured: false },
+      { kind: 'codex', root: '/failed', status: 'checkFailed', configured: false },
+      { kind: 'codex', root: '/canonical-existing', status: 'found', configured: true, configuredSourceIds: ['source-a'] },
+    ] }) });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '偵測 Codex 歷史來源' }));
+    expect(await screen.findByText('目錄不存在')).toBeInTheDocument();
+    expect(screen.getByText('無權限讀取')).toBeInTheDocument();
+    expect(screen.getByText('檢查失敗')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '加入 Codex 偵測來源 /canonical-existing' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '加入 Codex 偵測來源 /denied' })).not.toBeInTheDocument();
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' })).toBeDisabled();
+  });
+  it('shows detection failure, retries explicitly and permits cancelling without changing settings', async () => {
+    const discover = vi.fn().mockRejectedValueOnce(new Error('Synthetic source discovery failure')).mockResolvedValueOnce({ kind: 'grok', supported: true, candidates: [], message: 'No configured home.' });
+    const config = props({ onDetectHistorySources: discover });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '偵測 Grok Build 歷史來源' }));
+    expect(await screen.findByText('Synthetic source discovery failure')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '偵測 Grok Build 歷史來源' }));
+    expect(await screen.findByText('No configured home.')).toBeInTheDocument();
+    expect(discover).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole('button', { name: '關閉設定' }));
+    expect(config.onClose).toHaveBeenCalledOnce();
+    expect(config.onSave).not.toHaveBeenCalled();
+  });
+});
+
+it('allows a discovered canonical root to be re-added after its saved alias was removed from the draft', async () => {
+  const config = props({ onDetectHistorySources: vi.fn().mockResolvedValue({ kind: 'codex', supported: true, candidates: [
+    { kind: 'codex', root: '/canonical/.codex', status: 'found', configured: true, configuredSourceIds: ['source-a'] },
+  ] }) });
+  render(createElement(SettingsPanel, config));
+  fireEvent.click(screen.getByRole('button', { name: '偵測 Codex 歷史來源' }));
+  const add = await screen.findByRole('button', { name: '加入 Codex 偵測來源 /canonical/.codex' });
+  expect(add).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '移除資料來源 1' }));
+  expect(add).toBeEnabled();
+  fireEvent.click(add);
+  expect(add).toBeDisabled();
+  expect(screen.getByDisplayValue('/canonical/.codex')).toBeInTheDocument();
+  expect(config.onSave).not.toHaveBeenCalled();
+  expect(config.settings.sources[0].root).toBe('/home/test/.codex');
 });

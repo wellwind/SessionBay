@@ -131,7 +131,7 @@ impl Default for Settings {
             ("new-agent", "Mod+Shift+A"),
             ("split-right", "Mod+Shift+D"),
             ("split-down", "Mod+Shift+E"),
-            ("next-pane", "Mod+Shift+]"),
+            ("next-pane", "Mod+Alt+ArrowDown"),
             ("maximize-pane", "Mod+Shift+M"),
             ("close-pane", "Mod+Shift+W"),
             ("toggle-sidebar", "Mod+Shift+B"),
@@ -543,7 +543,9 @@ mod tests {
     use super::*;
     #[test]
     fn defaults_validate() {
-        Settings::default().validate().unwrap();
+        let settings = Settings::default();
+        settings.validate().unwrap();
+        assert_eq!(settings.shortcuts["next-pane"], "Mod+Alt+ArrowDown");
     }
     #[test]
     fn reject_duplicate_shortcuts_and_profiles() {

@@ -2,6 +2,14 @@
 
 日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
+## 2026-10-15 歷史來源偵測、快捷鍵與 Antigravity 歷史追加
+
+本批新增統一 `detect_history_sources`，以共用 provider metadata 唯讀檢查已知來源根目錄，候選必須由使用者明確加入／保存；不啟動 CLI、不讀取對話內容、不自動改變既有來源。Antigravity 仍明示尚無歷史 parser。Grok 來源根目錄維持 `GROK_HOME`／`.grok`，另外有界檢查 sessions 子目錄並回報狀態說明。
+
+同批追加分頁切換快捷鍵及舊 next-pane 預設衝突修正。2026-10-15 09:09 UTC 本機 Rust 全套 **174 個 core／178 個 desktop** 測試通過，包含新增 20 個來源偵測整合測試及 1 個錯誤分類 unit；兩種 features 的 all-target strict Clippy 與 rustfmt 通過。09:16 UTC 輸出上限／configuredSourceIds 修正後，**176 個 core**、strict Clippy／fmt 通過；22 個來源偵測整合測試包含 1 MiB 非法環境值的有界 IPC 回應。前端追加 breadcrumb 前的檢查點 **13 檔 377／377**、typecheck／lint／build、44 組色彩及 10 個 ICNS representations 驗證通過。09:19 UTC 最後完整 **180 個 desktop** 與 default all-target strict Clippy 通過（49 unit、8 additional_agents、39 catalog、9 curated、19 Grok、22 history_sources、21 runtime、2 service、11 shells）。09:20 UTC 最新 Linux release `.deb` 重建成功（約 3.86 MiB）。**原生 smoke 與 exact-commit 三平台 CI 仍待完成**。下方 frontend 324／Rust desktop 157 與 `bcd3bcc` 證據只適用於追加前的工作樹；不拿較早提交的成功提前勾選本批驗收。
+
+使用者另明確要求 Antigravity 完整歷史納入 PR #1；目前正在核對官方持久化 serializer／schema 與有版本的公開樣本，**尚未實作或驗收**。CLI／App／IDE 的根目錄與匯入語意必須分開，不能把官方 stdout stream-json 或 latest-ID cache 當完整歷史 parser；compaction、rewind 與 fork 的重寫／分支語意仍須有證據。特定 CapsLock 重複組字已有合成修正，真實 macOS 輸入法仍待驗收。另新增 breadcrumb 修正與 3 個 App 回歸，09:24 UTC 最後前端全套 **13 檔 380／380**、typecheck／lint／build 通過；3.86 MiB `.deb` 是追加 breadcrumb 前的檢查點，最新原生 bundle 以新 exact-commit CI 為準。五項追加以 ADD-16–ADD-20 另列，不更動原始 143 個 ID。
+
 ## 2026-10-15 雙頁導覽、來源入口與 macOS 圖示修正
 
 本節是最新需求批次，取代先前以「所有工作階段」平面清單為主的導覽。下方 230 個前端／131 個 core／134 個 desktop 測試與先前 `f6a9e1d` CI 均屬本次澄清前的程式碼，不能當成本次凍結範圍通過的證據。本批另包括共用 provider 登錄、安裝／版本重新偵測、目前目錄搜尋快捷鍵、統一表單焦點／控制項、兩段式 Shell／Agent 啟動器及唯讀 Shell 候選偵測。
@@ -29,7 +37,7 @@ ICNS 的 16／32／64／128／256／512／1024 px 圖形，量測透明邊距分
 | 檢查 | 可核對結果與邊界 |
 | --- | --- |
 | 原始開發任務 | [143 個穩定 ID](development-tasks.md#2026-10-15-完成狀態逐項稽核)：**77 完成、66 未完成**；每列附證據或尚缺條件。3 個 issue 範本 checkbox 不列入 |
-| 追加需求 | ADD-01–ADD-15：**12 完成、3 未完成**；UI／UX 最終驗證、最新三 runner CI、macOS Cmd+Tab／Dock 人工比較分開追蹤，不與原始任務重複計算 |
+| 追加需求 | ADD-01–ADD-20：**12 完成、8 未完成**；含新追加 CapsLock IME、工作分頁快捷鍵、來源偵測、Antigravity 完整歷史與 breadcrumb。功能回歸、最新三 runner CI 及人工驗收分開追蹤，不與原始任務重複計算 |
 | 原生驗收 | 下方原始 9 項目前 **0 完成、9 未完成**；最新 CI 完成後，只能依結果更新相符的 CI 項，不能連帶勾選人工終端／CLI／效能項 |
 | 前端最終工作樹 | 2026-10-15 08:15 UTC：11 檔、324／324 通過，包含新增 progressive Settings 案例；typecheck／lint／production build 全部通過。08:08 的獨立 322／322 是前一檢查點，不累加 |
 | Rust 核心／桌面 | `cargo test --no-default-features --locked`：153 通過；完整 `cargo test --locked`：157 通過（48 unit、8 additional_agents、39 catalog、9 curated、19 Grok、21 runtime、2 service、11 shells）。headless／desktop all-target Clippy `-D warnings` 與 fmt 通過 |
@@ -40,7 +48,7 @@ ICNS 的 16／32／64／128／256／512／1024 px 圖形，量測透明邊距分
 
 仍缺的實作或證據包括：CLI 發行版本矩陣與對應 fixtures、filesystem watcher（已有每 10 秒 reconcile）、renderer fallback、Palette 直接 Session 快切、OS／Shell 保留快捷鍵檢查、控制序列專門安全回歸，以及 IME／真實 CLI／螢幕閱讀器／完整資源與長時間壓力測量。詳見原任務每列原因。
 
-[13 項後續待辦](future-backlog.md)維持未完成。UI 離開後持續執行與重新連線是下一階段最高優先計畫，本輪沒有 daemon／重新附接實作；重新啟動電腦後持續執行也不是本輪要求。
+[15 項後續待辦](future-backlog.md)維持未完成。UI 離開後持續執行與重新連線是下一階段最高優先計畫，本輪沒有 daemon／重新附接實作；重新啟動電腦後持續執行也不是本輪要求。
 
 ## 2026-10-15 自選專案導覽變更紀錄
 

@@ -187,6 +187,25 @@ describe('accessible Select', () => {
 });
 
 describe('local-date DatePicker', () => {
+  it.each(['C', 'POSIX', 'C.UTF-8', 'en_US.UTF-8', '', 'not_a_locale'])('survives a non-BCP47 native locale %s with the app-language fallback', (locale) => {
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue(locale);
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue([locale]);
+    const onChange = vi.fn();
+    render(<DateHarness onChange={onChange} />);
+    expect(screen.getByRole('textbox', { name: '開始日期' })).toHaveValue('2026/10/15');
+    expect(within(openCalendar()).getByRole('grid')).toHaveAccessibleName('2026年10月');
+    fireEvent.click(day('2026-10-16'));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith('2026-10-16');
+  });
+  it('uses the next supported browser language when the primary preference is invalid', () => {
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('C');
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['C', 'en-GB']);
+    render(<DateHarness />);
+    expect(screen.getByRole('textbox', { name: '開始日期' })).toHaveValue('15/10/2026');
+    openCalendar();
+    fireEvent.keyDown(day('2026-10-15'), { key: 'Home' });
+    expect(day('2026-10-12')).toHaveFocus();
+  });
   it('renders a locale-formatted date and an accessible calendar grid', () => {
     vi.spyOn(navigator, 'language', 'get').mockReturnValue('en-US');
     render(<DateHarness />);

@@ -1,6 +1,7 @@
 use crate::{
     config::{self, Installation, Settings},
-    models::{IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
+    history_sources::{self, HistorySourceDiscovery},
+    models::{AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
     runtime::{RuntimeInfo, TerminalEvent},
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
     shells::{self, ShellCandidate},
@@ -77,6 +78,20 @@ async fn bootstrap(state: AppState<'_>) -> Result<Bootstrap, String> {
 async fn detect_installations(state: AppState<'_>) -> Result<Vec<Installation>, String> {
     let s = state.inner().clone();
     blocking(move || Ok(config::detect(&s.settings()?))).await
+}
+#[tauri::command]
+async fn detect_history_sources(
+    state: AppState<'_>,
+    kind: AgentKind,
+) -> Result<HistorySourceDiscovery, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        Ok(history_sources::detect_history_sources(
+            kind,
+            &s.settings()?.sources,
+        ))
+    })
+    .await
 }
 #[tauri::command]
 async fn detect_shells(state: AppState<'_>) -> Result<Vec<ShellCandidate>, String> {
@@ -273,6 +288,7 @@ pub fn run() {
             frontend_diagnostic,
             bootstrap,
             detect_installations,
+            detect_history_sources,
             detect_shells,
             save_settings,
             list_projects,

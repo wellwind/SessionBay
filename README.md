@@ -55,7 +55,7 @@ npm run tauri -- build
 
 - Agent 啟動涵蓋 Codex CLI、Claude Code CLI、Grok Build 與 Antigravity CLI（`agy`）；歷史搜尋／預覽涵蓋前三者，Antigravity 目前只支援新工作與手動 conversation ID 接續。
 - 預設專案首頁與獨立所有目錄頁保留分組總覽；選目錄後可跨工具搜尋該組歷史、預覽與恢復，掃描不自動加入專案。
-- 設定固定顯示四個 Agent 的歷史能力與來源入口，不因是否啟動過而隱藏；舊設定可明確新增 Grok 來源，Antigravity 顯示歷史尚不支援。
+- 設定固定顯示四個 Agent 的歷史能力與來源入口，不因是否啟動過而隱藏；可明確偵測官方已知來源位置並加入草稿，舊設定可新增 Grok 來源，Antigravity 顯示歷史尚不支援。
 - 支援自選專案、顯示名稱、加入既有目錄與安全建立單一新資料夾；本次變更的驗證狀態見[驗證紀錄](docs/mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)。
 - 每工具可保存獨立啟動參數與明確勾選的高風險權限模式，預設關閉；保存後不逐次重複確認，啟動前可看後端產生的精確 argv。各工具 bypass／沙箱差異與本批驗證狀態見 [Agent 整合規格](docs/agent-integrations.md)及[變更紀錄](docs/mvp-validation.md#2026-10-15-agent-擴充與自訂參數變更紀錄)。
 - 新增工作先選 Shell／Agent，再從統一工具清單選 Agent；安裝／版本可重新偵測，Shell 候選需明確加入且保留自訂 Profiles。
@@ -76,4 +76,4 @@ npm run tauri -- build
 
 ## 試用後續待辦
 
-2026-10-15 新增的 13 項未來需求集中在 [後續待辦](docs/future-backlog.md)，均尚未完成；第 09 項「介面退出後持續執行與重新附接」已列為下一階段最高優先，其餘待安排。此清單不代表已實作。
+2026-10-15 新增的 17 項未來需求集中在 [後續待辦](docs/future-backlog.md)，均尚待安排與驗收；此清單不代表已實作。

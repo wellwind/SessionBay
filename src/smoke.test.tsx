@@ -18,7 +18,7 @@ vi.mock('./api', () => ({
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
   api: Object.fromEntries(['bootstrap', 'scan', 'index', 'projects', 'saveWorkspace', 'close', 'stop', 'runtimes',
     'launch', 'detect', 'detectShells', 'cancelScan', 'clearIndex', 'saveSettings', 'updateProject', 'addProject',
-    'createProject', 'preview', 'sessions', 'transcript'].map((name) => [name, vi.fn()])),
+    'createProject', 'preview', 'sessions', 'transcript', 'detectHistorySources'].map((name) => [name, vi.fn()])),
 }));
 
 const root = '/synthetic/isolated-home/sessionbay-smoke-fixture';
@@ -99,10 +99,18 @@ describe('native visual smoke scenario against real React UI', () => {
     vi.mocked(api.transcript).mockResolvedValue({ messages: [{ role: 'user', text: '合成對話內容', timestamp: null, line: 1 }],
       hasMore: false, beforeLine: null, stale: false, warning: null });
     vi.mocked(api.preview).mockResolvedValue({ executable: '/bin/sh', args: [], cwd: `${root}/workspaces/harbor` });
+    vi.mocked(api.detectHistorySources).mockResolvedValue({ kind: 'grok', supported: true, message: null, candidates: [
+      { kind: 'grok', root: '/synthetic/isolated-grok', status: 'found', configured: false, configuredSourceIds: [],
+        message: 'The root is readable, but the sessions history directory does not exist yet. You can still add this root.' },
+      { kind: 'grok', root: '/synthetic/isolated-home/.grok', status: 'missing', configured: false, configuredSourceIds: [], message: 'The history root does not exist.' },
+    ] });
     vi.mocked(smokeSnapshot).mockImplementation(async (name) => {
       if (name.startsWith('projects')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('專案');
       if (name.startsWith('directories')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('所有目錄');
-      if (name.startsWith('providers')) expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(4);
+      if (name.startsWith('providers')) {
+        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(4);
+        expect(api.detectHistorySources).not.toHaveBeenCalled();
+      }
       if (name.startsWith('launcher')) {
         expect(screen.getByRole('dialog', { name: '開始新的工作' })).toContainElement(screen.getByRole('listbox'));
         expect(screen.getAllByRole('option')).toHaveLength(4);
@@ -117,6 +125,7 @@ describe('native visual smoke scenario against real React UI', () => {
     );
     expect(api.addProject).toHaveBeenCalledTimes(2);
     expect(api.scan).toHaveBeenCalledOnce();
+    expect(api.detectHistorySources).toHaveBeenCalledExactlyOnceWith('grok');
     expect(api.createProject).not.toHaveBeenCalled();
     expect(api.saveSettings).not.toHaveBeenCalled();
     expect(api.saveWorkspace).not.toHaveBeenCalled();

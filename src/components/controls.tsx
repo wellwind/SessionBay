@@ -199,6 +199,19 @@ function addMonths(date: Date, months: number): Date {
   const last = localDate(first.getFullYear(), first.getMonth() + 1, 0).getDate();
   return localDate(first.getFullYear(), first.getMonth(), Math.min(date.getDate(), last));
 }
+function dateLocale(): string {
+  // Linux WebKit may expose POSIX values such as "C" instead of a BCP 47 tag.
+  // Validate each preference separately so one malformed value cannot crash History.
+  const preferences = typeof navigator === 'undefined' ? [] : [navigator.language, ...navigator.languages];
+  for (const candidate of preferences) {
+    if (!candidate) continue;
+    try {
+      const supported = Intl.DateTimeFormat.supportedLocalesOf([candidate]);
+      if (supported.length) return supported[0];
+    } catch { /* Try the next browser preference, then the app's language. */ }
+  }
+  return 'zh-TW';
+}
 function localeWeekStart(locale: string): number {
   const information = new Intl.Locale(locale) as Intl.Locale & { weekInfo?: { firstDay: number }; getWeekInfo?: () => { firstDay: number } };
   return (information.getWeekInfo?.().firstDay ?? information.weekInfo?.firstDay ?? 7) % 7;
@@ -235,7 +248,7 @@ export function DatePicker({ value, onChange, id, disabled = false, resetKey, 'a
   const initial = parseDate(value) ?? new Date();
   const [focused, setFocused] = useState(initial);
   const [month, setMonth] = useState(initial);
-  const locale = typeof navigator === 'undefined' ? 'zh-TW' : navigator.language || 'zh-TW';
+  const locale = dateLocale();
   const format = new Intl.DateTimeFormat(locale, { calendar: 'gregory', numberingSystem: 'latn', year: 'numeric', month: '2-digit', day: '2-digit' });
   const monthFormat = new Intl.DateTimeFormat(locale, { calendar: 'gregory', year: 'numeric', month: 'long' });
   const fullFormat = new Intl.DateTimeFormat(locale, { calendar: 'gregory', dateStyle: 'full' });

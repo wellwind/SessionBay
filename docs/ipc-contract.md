@@ -2,12 +2,14 @@
 
 Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "camelCase")]`; commands use snake_case, argument keys camelCase. Errors are user-readable strings. React + Vite + TypeScript; Tauri 2. xterm output bypasses React state.
 
-2026-10-15 自選專案變更：以下加入 `curated`、專案名稱及建立資料夾契約。本次變更的驗證仍待記錄；舊版本通過的 CI 不代表此契約已驗收。
+2026-10-15 最新追加：以下加入統一歷史來源候選偵測；本批三平台 exact-commit CI 仍待執行／確認。較早提交的成功不代表新增 IPC 已通過原生驗證。本機 09:24 UTC 最新檢查點：frontend 380／380、core 176、desktop 180 與 strict checks 通過；最新原生 CI 尚待確認。
 
 ## Data
 
 - AgentKind: `codex` | `claude` | `grok` | `antigravity`
 - HistorySource: `{ id: string, kind: AgentKind, root: string, enabled: boolean }` (root is CODEX_HOME / CLAUDE_CONFIG_DIR / GROK_HOME; Antigravity history is unsupported)
+- HistorySourceCandidate: `{ kind: AgentKind, root: string, status: 'found' | 'missing' | 'permissionDenied' | 'checkFailed', configured: boolean, configuredSourceIds: string[], message: string | null }`; `found` means a readable directory, not that sessions were found. `configuredSourceIds` identifies matching saved sources, including canonical aliases; at most 32 IDs.
+- HistorySourceDiscovery: `{ kind: AgentKind, supported: boolean, candidates: HistorySourceCandidate[], message: string | null }`; unsupported history returns `supported: false`, an empty candidate list, and an explanation.
 - Installation: `{ kind, executable: string | null, version: string | null, available: boolean, status: 'missing' | 'available' | 'versionCheckFailed', loginStatus: 'unknown', error: string | null }`; `available` indicates executable discovery, not login or a successful version probe.
 - SourceHealth: `{ sourceId: string, status: string, message: string | null, files: number }`
 - Project: `{ id, name, path: string | null, launchPath: string | null, exists: boolean, curated: boolean, pinned: boolean, sessionCount: number, updatedAt: string | null, agents: AgentKind[] }`; `curated` is explicit user-selected Projects membership, independent of discovered Session grouping and open workspaces.
@@ -34,6 +36,7 @@ Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "
 
 - bootstrap() -> Bootstrap
 - detect_installations() -> Installation[] (uses saved settings and provider-specific version argv; not a history scan or login check)
+- detect_history_sources({kind: AgentKind}) -> HistorySourceDiscovery (read-only, bounded known-root checks; never adds sources or starts indexing)
 - detect_shells() -> ShellCandidate[] (read-only discovery; no arguments, process launch or settings write)
 - save_settings({settings}) -> Settings (validate before write)
 - list_projects() -> Project[] (complete catalog groups; frontend Projects filters `curated`, not Session queries)
@@ -63,6 +66,10 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 ## Provider 與 Shell 偵測語意
 
 - `src/agent-manifest.json` 是 TypeScript／Rust 的共同內建 metadata；不是 IPC 注入的外掛設定。parser、危險參數驗證與來源身份仍由型別實作控制。
+- `detect_history_sources` 只讀該 provider 在 manifest 中指定的來源環境變數與 HOME 預設資料根目錄：`CODEX_HOME`／`.codex`、`CLAUDE_CONFIG_DIR`／`.claude`、`GROK_HOME`／`.grok`。最多兩個候選根目錄，環境來源優先、canonical 去重；不搜尋 PATH／整顆磁碟、不遞迴、不讀對話檔案、不執行 CLI 或讀取其他工具的環境變數。僅確認目錄存在、型別與能否開啟讀取；缺少、無權限與其他失敗分開回報。root 必須為絕對 UTF-8 路徑、最多 4096 bytes、無控制字元；無效路徑回 `checkFailed`。
+- 存在的候選 `root` 回 canonical 路徑；無效、過長、含控制字元或非 UTF-8 的輸入只回固定且有界的來源說明 placeholder，不把不可信原值完整傳入 IPC。`configured` 只比較同工具的已儲存來源，包含停用來源，以 canonical alias 判斷是否重複；`configuredSourceIds` 提供匹配的保存 ID。UI 以這些 ID 對照草稿中是否仍保留同一個原保存 root，避免使用者已移除／改路徑卻無法重新加入候選；尚未保存的新候選另外以 root 去重。已儲存來源快照最多 32 筆，不改任何 id、root、enabled、名稱或其他設定。UI 明確選擇新增草稿後才由使用者保存；偵測成功不自動啟用、保存或索引。
+- `found` 只代表來源根目錄可讀，空目錄仍是合法候選。Grok 另由 manifest `history.probeDirectory: 'sessions'` 有界檢查 `root/sessions`，但候選 root 始終為 `GROK_HOME`／`.grok`；子目錄缺少、無權限或無法檢查以 `message` 說明，不把來源 root 改成 sessions，也不列出其中內容。根目錄可讀時仍回 `found`，可由使用者明確加入。
+- Antigravity 回 `supported: false` 與空候選，不探查 CLI／App／IDE 資料。Antigravity 自己有歷史瀏覽能力，但 Session Bay 尚無經驗證的持久化 JSONL parser；此能力限制不等同該工具沒有歷史。
 - `Installation.available` 只表示找到可執行檔。找不到時為 `available: false`、`status: 'missing'`，附上錯誤；bootstrap 只檢查路徑，找到時為 `available: true`、`status: 'available'`、`version: null`、`error: null`，不代表版本已檢查。`detect_installations` 使用共同 manifest 的版本 argv；成功填入 `version`，失敗／逾時則保持 `available: true`，改為 `status: 'versionCheckFailed'` 並附上 `error`。不得把版本失敗誤報為找不到執行檔。
 - 版本探測只傳工具的 `--version`（Grok 為 `version`），不用自訂 argv 或高風險旗標；cwd 為 `/`，不套用選取來源／專案環境。單次期限 2 秒、收集輸出最多 4096 bytes，逾時停止所管理程序。`loginStatus` 固定為 `unknown`，不得把路徑或版本探測成功標成已登入。
 - `detect_shells` 讀取有上限的 OS shell 清單、目前絕對 `$SHELL` 與絕對 PATH／標準 bin 位置中的已知 shell 名稱；只做檔案 metadata 探索、canonical 去重，不執行候選、不讀 rc 或歷史，不寫設定。候選保留首次找到的絕對路徑拼法，canonical 路徑只用於身份比較。

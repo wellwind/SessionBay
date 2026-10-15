@@ -17,6 +17,7 @@ export async function runSmokeInteraction(): Promise<void> {
   const click = (button: HTMLButtonElement | null) => {
     if (!button || button.disabled || button.getBoundingClientRect().width <= 0)
       throw new Error('UI smoke: expected a visible, enabled control');
+    button.focus({ preventScroll: true });
     button.click();
   };
   const close = () =>
@@ -115,6 +116,23 @@ export async function runSmokeInteraction(): Promise<void> {
       throw new Error('UI smoke: expected four permanent history provider sections');
     dialog()!.querySelector('.settings-history-providers')?.scrollIntoView({ block: 'start' });
     await smokeSnapshot(`providers-${theme}`);
+    // Exercise the native read-only discovery IPC against CI's isolated, empty GROK_HOME.
+    // Merely finding a candidate must not add a draft source or launch a runtime.
+    const sourceRoots = () => Array.from(dialog()!.querySelectorAll<HTMLInputElement>('input[id^="source-root-"]'))
+      .map((input) => input.value);
+    const rootsBeforeDetection = sourceRoots();
+    click(dialog()!.querySelector<HTMLButtonElement>('button[aria-label="偵測 Grok Build 歷史來源"]'));
+    const grokHistory = () => dialog()?.querySelector<HTMLElement>('[aria-label="Grok Build 歷史來源"]');
+    await waitFor(() => !!grokHistory()?.querySelector('.settings-source-candidate') &&
+      !grokHistory()?.querySelector<HTMLButtonElement>('button[aria-label="偵測 Grok Build 歷史來源"]')?.matches(':disabled'),
+    'Grok history discovery did not resolve');
+    const readableGrokCandidate = Array.from(grokHistory()!.querySelectorAll<HTMLElement>('.settings-source-candidate'))
+      .find((candidate) => candidate.querySelector('.settings-status')?.textContent === '找到可讀目錄');
+    if (!readableGrokCandidate?.querySelector<HTMLButtonElement>('button[aria-label^="加入 Grok Build 偵測來源 "]') ||
+      readableGrokCandidate.querySelector<HTMLButtonElement>('button')?.disabled ||
+      JSON.stringify(sourceRoots()) !== JSON.stringify(rootsBeforeDetection) ||
+      grokHistory()!.querySelector('.settings-source') || document.querySelector('.workspace-tab, .xterm-host'))
+      throw new Error('UI smoke: history discovery must offer the empty Grok root without adding a source or launching work');
     close();
     await waitFor(() => !dialog(), 'provider settings did not close');
     click(document.querySelector<HTMLButtonElement>('button[aria-label="瀏覽目錄 Harbor Console"]'));

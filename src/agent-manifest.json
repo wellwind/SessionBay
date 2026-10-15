@@ -13,7 +13,8 @@
         "rootPlaceholder": "/Users/you/.codex",
         "description": "唯讀索引 Codex 本機歷史，支援搜尋、預覽與接續工作。",
         "parserId": "codex",
-        "defaultDirectory": ".codex"
+        "defaultDirectory": ".codex",
+        "probeDirectory": null
       },
       "resume": {
         "manualId": false,
@@ -47,7 +48,8 @@
         "rootPlaceholder": "/Users/you/.claude",
         "description": "唯讀索引 Claude Code 本機歷史，支援搜尋、預覽與接續工作。",
         "parserId": "claude",
-        "defaultDirectory": ".claude"
+        "defaultDirectory": ".claude",
+        "probeDirectory": null
       },
       "resume": {
         "manualId": false,
@@ -78,7 +80,8 @@
         "rootPlaceholder": "/Users/you/.grok",
         "description": "唯讀索引 Grok Build 本機歷史，支援搜尋、預覽與接續工作。",
         "parserId": "grok",
-        "defaultDirectory": ".grok"
+        "defaultDirectory": ".grok",
+        "probeDirectory": "sessions"
       },
       "resume": {
         "manualId": true,
@@ -109,7 +112,8 @@
         "rootPlaceholder": null,
         "description": "CLI 工具 agy；與 Antigravity 桌面／IDE 歷史分開。尚不提供歷史搜尋、索引或預覽。",
         "parserId": null,
-        "defaultDirectory": ".gemini/antigravity-cli"
+        "defaultDirectory": ".gemini/antigravity-cli",
+        "probeDirectory": null
       },
       "resume": {
         "manualId": true,

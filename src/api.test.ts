@@ -58,3 +58,18 @@ describe('shell discovery IPC contract', () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 });
+
+describe('history source discovery IPC contract', () => {
+  it.each(['codex', 'claude', 'grok', 'antigravity'] as const)('passes only the %s registry ID without launching or mutating settings', async (kind) => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const result = { kind, supported: kind !== 'antigravity', candidates: [], message: null };
+    vi.mocked(invoke).mockResolvedValue(result);
+    await expect(api.detectHistorySources(kind)).resolves.toEqual(result);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('detect_history_sources', { kind });
+    expect(native.channels).not.toHaveBeenCalled();
+  });
+  it('does not call native discovery in browser preview', async () => {
+    await expect(api.detectHistorySources('grok')).rejects.toThrow('桌面執行環境未連線');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});

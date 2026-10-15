@@ -18,6 +18,7 @@ import {
 import '@xterm/xterm/css/xterm.css';
 import { api, errorMessage } from '../api';
 import { TerminalInputQueue } from '../terminal-queue';
+import { shouldHandleTerminalKey } from '../terminal-ime';
 import type { Pane, RuntimeInfo, Settings } from '../types';
 const themes = {
   bay: {
@@ -161,6 +162,7 @@ export function TerminalPane({
     const searchAddon = new SearchAddon();
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(searchAddon);
+    terminal.attachCustomKeyEventHandler(shouldHandleTerminalKey);
     terminal.open(host.current);
     term.current = terminal;
     fit.current = fitAddon;

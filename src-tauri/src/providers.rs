@@ -25,6 +25,7 @@ pub struct HistoryCapability {
     pub parser_id: Option<ParserId>,
     pub source_env: Option<String>,
     pub default_directory: String,
+    pub probe_directory: Option<String>,
     pub root_placeholder: Option<String>,
     pub description: String,
 }
@@ -127,6 +128,15 @@ impl Manifest {
                         .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
             }) {
                 return Err("Invalid provider source environment key".into());
+            }
+            if history.probe_directory.as_ref().is_some_and(|directory| {
+                !history.supported
+                    || directory.is_empty()
+                    || !Path::new(directory)
+                        .components()
+                        .all(|part| matches!(part, Component::Normal(_)))
+            }) {
+                return Err("Invalid provider history probe directory".into());
             }
             if provider.name.is_empty()
                 || provider.logo.is_empty()
@@ -231,6 +241,13 @@ mod tests {
         }
         assert!(lookup("opencode").is_none());
         assert_eq!(definition(AgentKind::Grok).launch.version_args, ["version"]);
+        assert_eq!(
+            definition(AgentKind::Grok)
+                .history
+                .probe_directory
+                .as_deref(),
+            Some("sessions")
+        );
         assert!(!definition(AgentKind::Antigravity).history.supported);
     }
 
@@ -261,6 +278,14 @@ mod tests {
             value["providers"][0][field] = invalid;
             assert!(Manifest::parse(&value.to_string()).is_err());
         }
+        for invalid in ["", "../outside", "/absolute"] {
+            let mut value = original.clone();
+            value["providers"][2]["history"]["probeDirectory"] = serde_json::json!(invalid);
+            assert!(Manifest::parse(&value.to_string()).is_err());
+        }
+        let mut value = original;
+        value["providers"][3]["history"]["probeDirectory"] = serde_json::json!("brain");
+        assert!(Manifest::parse(&value.to_string()).is_err());
     }
 
     #[test]

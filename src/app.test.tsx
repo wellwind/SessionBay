@@ -39,6 +39,7 @@ vi.mock('./api', () => ({
     launch: vi.fn(),
     detect: vi.fn(),
     detectShells: vi.fn(),
+    detectHistorySources: vi.fn(),
     cancelScan: vi.fn(),
     clearIndex: vi.fn(),
     saveSettings: vi.fn(),
@@ -1534,4 +1535,137 @@ it('ignores an older agent detection result after newer executable settings are 
   expect(screen.getByRole('textbox', { name: 'Codex 執行檔路徑' })).toHaveValue('/synthetic/new-codex');
   expect(screen.getByText('new-version')).toBeInTheDocument();
   expect(screen.queryByText('outdated missing result')).not.toBeInTheDocument();
+});
+
+describe('Chrome-style work tab shortcuts', () => {
+  async function tabs(count = 10) {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    const workspace = data.workspace as Workspace;
+    const pane = workspace.panes['pane-a'];
+    workspace.tabs = Array.from({ length: count }, (_, i) => ({ id: `tab-${i}`, projectId: 'project-a', name: `Work ${i + 1}`, focusedPaneId: `pane-${i}`, layout: { kind: 'pane' as const, paneId: `pane-${i}` } }));
+    workspace.panes = Object.fromEntries(workspace.tabs.map((tab, i) => [tab.focusedPaneId, { ...pane, id: tab.focusedPaneId, runtimeId: `runtime-${i}` }]));
+    workspace.activeTabByProject['project-a'] = 'tab-0';
+    workspace.tabs.push({ id: 'other-project', projectId: 'project-b', name: 'Other project', focusedPaneId: 'other-pane', layout: { kind: 'pane', paneId: 'other-pane' } });
+    workspace.panes['other-pane'] = { ...pane, id: 'other-pane', projectId: 'project-b' };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Work 1' }));
+  }
+  it('switches only current-project tabs, wraps, selects last, and consumes before a terminal target', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
+    await tabs();
+    const target = document.createElement('textarea');
+    screen.getByTestId('workspace-canvas').append(target);
+    const pty = vi.fn();
+    target.addEventListener('keydown', pty, true);
+    fireEvent.keyDown(target, { key: '2', code: 'Digit2', ctrlKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-1');
+    fireEvent.keyDown(target, { key: '9', code: 'Digit9', ctrlKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-9');
+    fireEvent.keyDown(target, { key: 'Tab', ctrlKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-0');
+    fireEvent.keyDown(target, { key: 'Tab', ctrlKey: true, shiftKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-9');
+    expect(pty).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+  });
+  it('supports macOS shifted brackets and arrow aliases while preserving IME and modal input', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    await tabs();
+    const target = document.createElement('textarea');
+    screen.getByTestId('workspace-canvas').append(target);
+    fireEvent.keyDown(target, { key: '}', code: 'BracketRight', metaKey: true, shiftKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-1');
+    fireEvent.keyDown(target, { key: 'ArrowLeft', metaKey: true, altKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-0');
+    fireEvent.compositionStart(target);
+    fireEvent.keyDown(target, { key: '}', code: 'BracketRight', metaKey: true, shiftKey: true, isComposing: false });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-0');
+    fireEvent.compositionEnd(target);
+    fireEvent.keyDown(target, { key: '2', metaKey: true, isComposing: true });
+    fireEvent.keyDown(target, { key: '2', metaKey: true, keyCode: 229 });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-0');
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.keyDown(document.activeElement!, { key: '2', metaKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-0');
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('consumes a reserved out-of-range tab number without changing selection or sending terminal input', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
+    await tabs(3);
+    const target = document.createElement('textarea');
+    screen.getByTestId('workspace-canvas').append(target);
+    const pty = vi.fn();
+    target.addEventListener('keydown', pty, true);
+    fireEvent.keyDown(target, { key: '8', code: 'Digit8', ctrlKey: true });
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-0');
+    expect(pty).not.toHaveBeenCalled();
+  });
+  it('does not intercept ordinary editing or tab navigation when no work tab is visible', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
+    await tabs();
+    const target = document.createElement('textarea');
+    document.body.append(target);
+    const listener = vi.fn();
+    target.addEventListener('keydown', listener);
+    fireEvent.keyDown(target, { key: 'a' });
+    fireEvent.keyDown(target, { key: 'Tab' });
+    changePage('所有目錄');
+    fireEvent.keyDown(target, { key: 'Tab', ctrlKey: true });
+    expect(listener).toHaveBeenCalledTimes(3);
+    target.remove();
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-0');
+  });
+});
+
+describe('semantic location breadcrumbs', () => {
+  it('renders each overview once and uses the actual project name inside its history', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.projects[0].sessionCount = 1;
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    let crumb = screen.getByRole('navigation', { name: '目前位置' });
+    expect(crumb).toHaveTextContent('Session Bay專案');
+    expect(crumb.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(within(crumb).queryByRole('button', { name: '專案' })).not.toBeInTheDocument();
+    selectGroup();
+    crumb = screen.getByRole('navigation', { name: '目前位置' });
+    expect(crumb.querySelector('[aria-current="page"]')).toHaveTextContent('Synthetic project');
+    expect(within(crumb).getByRole('button', { name: '專案' })).toBeInTheDocument();
+    fireEvent.click(within(crumb).getByRole('button', { name: '專案' }));
+    expect(screen.getByRole('heading', { name: '專案', level: 1 })).toBeInTheDocument();
+    changePage('所有目錄');
+    expect(screen.getByRole('navigation', { name: '目前位置' })).toHaveTextContent('Session Bay所有目錄');
+    selectGroup('Synthetic project', '所有目錄');
+    expect(screen.getByRole('navigation', { name: '目前位置' })).toHaveTextContent('Session Bay所有目錄Synthetic project');
+  });
+  it('retains a real project named 專案 instead of deleting repeated words', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.projects[0].name = '專案';
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    selectGroup('專案');
+    const crumb = screen.getByRole('navigation', { name: '目前位置' });
+    expect(within(crumb).getByRole('button', { name: '專案' })).toBeInTheDocument();
+    expect(crumb.querySelector('[aria-current="page"]')).toHaveTextContent('專案');
+    expect(crumb).toHaveTextContent('Session Bay專案專案');
+  });
+  it('names explicit global search as its leaf rather than adding a generic directory category', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    changePage('所有目錄');
+    fireEvent.click(screen.getByRole('button', { name: '搜尋所有工作階段' }));
+    const crumb = screen.getByRole('navigation', { name: '目前位置' });
+    expect(crumb.querySelector('[aria-current="page"]')).toHaveTextContent('搜尋所有工作階段');
+    expect(within(crumb).getByRole('button', { name: '所有目錄' })).toBeInTheDocument();
+  });
 });
