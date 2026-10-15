@@ -101,12 +101,12 @@ Runtime handle 不寫成可在重開後直接附接的 PID。PID 可以重用；
 
 `Project` 同時承載 cwd 的穩定分組身份與 Session Bay 自有專案設定。新增 `curated: boolean` 明確表示使用者是否將此目錄加入左側專案；`pinned` 僅表示清單內的排序偏好，不能用是否有歷史推導加入狀態。
 
-- `list_projects`／bootstrap 保留完整 catalog 分組，前端以 `curated` 篩出專案清單，保留未加入項的名稱、路徑與 Session 關聯。
-- 所有工作階段使用不帶 `projectId` 的既有查詢；不以 `curated` join 或側欄清單限縮全域搜尋。既有 Agent、日期、封存與子代理篩選不變。
+- `list_projects`／bootstrap 保留完整 catalog 分組。前端「專案」預設頁以 `curated` 篩選，「所有目錄」頁以 `sessionCount > 0` 篩選；後者包含已加入、未加入、未知及失效目錄。兩頁皆呈現總覽卡片與對應側欄。
+- 總覽未選組時不發起混合 Session 清單查詢；選組後以該 `projectId` 查歷史，保留文字、Agent、日期、封存與子代理篩選。使用者明確進入全域搜尋後才省略 `projectId` 查詢跨目錄結果，此能力不作為兩頁總覽。`curated` 不是隱含搜尋條件。
 - 初始掃描與新增 cwd 分組預設 `curated = false`。加入既有目錄、明確建立專案或預覽中的「加入專案」才改為 `true`；重新掃描／重建保留已保存狀態。
 - schema migration 僅在升級時將舊版手動加入或 `pinned = true` 的項目設為自選，保留其名稱及 launch override；其他既有掃描項不自動加入。完成遷移後，不得在每次開庫或補掃時再次提升項目。
 - 移出只設定 `curated = false` 並清除 `pinned`，不刪 Project 身份、Session／FTS 資料或工作區，不呼叫 Runtime 停止。後續掃描不得重建加入狀態。
-- 已開啟工作區以其 project ID 保留獨立導覽入口；即使對應目錄未加入、已移出或來源失效，也不能因側欄篩選而無法切回。來源失效仍按原有恢復預檢阻擋新啟動。
+- 已開啟工作區以其 project ID 在兩頁保留獨立導覽入口；即使對應目錄未加入、已移出或來源失效，也不能因側欄篩選而無法切回。來源失效仍按原有恢復預檢阻擋新啟動。
 
 新增 `add_project` 的可選顯示名稱、`create_project` 與 `update_project` 的 `curated`／`name` 欄位。Rust 端驗證絕對目錄與單一新名稱，建立只對已存在的父目錄執行單層 `create_dir`；不得 `create_dir_all`、覆寫既有檔案／目錄或把名稱當 Shell 指令。加入既有 canonical 目錄沿用原 Project ID。顯示名稱變更只寫 Session Bay 的自有資料，不由 indexer 覆寫。
 
@@ -137,6 +137,12 @@ type LayoutNode =
 SQLite 保存 metadata 與可重建的全文索引。FTS5 是候選能力，但其 tokenizer 必須配合中文與程式碼驗證。[SQLite FTS5 文件](https://sqlite.org/fts5.html)
 
 MVP 至少支援中文子字串搜尋與常見程式碼識別字。評估 trigram 或其他 tokenizer；過短查詢可用受限範圍的參數化匹配 fallback。先量測召回率與延遲，再決定是否需要更複雜的搜尋引擎。第一版不依賴向量資料庫或模型 API。
+
+## 共用工具登錄與偵測邊界
+
+`src/agent-manifest.json` 是 TypeScript／Rust 共用的內建 provider metadata。UI 的工具名稱、標誌、能力卡片、選項及偵測資訊以此為來源；Rust 對照固定型別的 parser 與啟動驗證，不從設定載入未知程式碼。manifest 不能取代歷史 adapter、危險參數白名單或來源身份檢查。
+
+Agent 安裝／版本重新偵測與歷史索引分離，Shell 偵測也只回傳候選。候選須由使用者加入 Profile 並保存；偵測不替換自訂 Profiles 或預設項。全新設定採有效絕對 `$SHELL` 或平台 fallback，參數 `[-l]`；不解析／匯入 Terminal 設定與 Shell rc，啟動檔由實際 Shell 載入。
 
 ## Agent 啟動計畫與選項邊界
 

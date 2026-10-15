@@ -1,8 +1,50 @@
 # MVP 實作與驗收紀錄
 
-日期：2026-10-15。狀態：**P0 範圍的開發版本已實作；完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
+日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
+
+## 2026-10-15 雙頁導覽、來源入口與 macOS 圖示修正
+
+本節是最新需求批次，取代先前以「所有工作階段」平面清單為主的導覽。下方 230 個前端／131 個 core／134 個 desktop 測試與先前 `f6a9e1d` CI 均屬本次澄清前的程式碼，不能當成本次凍結範圍通過的證據。本批另包括共用 provider 登錄、安裝／版本重新偵測、目前目錄搜尋快捷鍵、統一表單焦點／控制項、兩段式 Shell／Agent 啟動器及唯讀 Shell 候選偵測。
+
+| 範圍 | 本次契約 | 驗證狀態 |
+| --- | --- | --- |
+| 雙頁目錄導覽 | 預設「專案」只列 curated；「所有目錄」列全部 `sessionCount > 0` 分組，含已加入／未加入、未知／失效目錄；兩頁皆有卡片與側欄，選組後才查歷史 | 本批 App／History 自動回歸及最終 324 個前端測試、typecheck／lint／build 通過；native smoke 待 exact-commit CI 確認 |
+| 工作區與資料保留 | 兩頁皆可切回已開啟工作區；專案資格與遷移不變，加入／移出不改原始歷史或 Runtime | App 已回歸跨頁／移出／未知與失效分組、總覽無混合查詢及工作區持續掛載；native smoke 待本次 CI |
+| 四 Agent 來源入口 | 固定四張歷史能力卡片；舊設定缺 Grok 時提供絕對路徑草稿與明確保存；來源 ID／root／enabled 保留；Antigravity 明示歷史不支援 | Settings／additional_agents 新舊設定、缺失／停用／未設定、多來源及取消草稿回歸通過；不自動索引新 root |
+| macOS 圖示檔案 | macOS 向量 412×412 置中於 512×512 透明畫布；暫存 Tauri 輸出僅更新 ICNS，原 SVG／Linux PNG／ICO 不變 | 產生器及獨立 validator 通過；10 個 ICNS representations 外緣全透明、置中 alpha 邊界符合比例；舊版無留白 ICNS 被 validator 拒絕 |
+| 圖示可重複性 | ICNS entry 排序穩定化，不改 image／mask payload；其他資產 SHA-256 保護 | 連續兩次產生得到相同位元組；7 個原 SVG／PNG／ICO 資產仍與 Git 基線相同 |
+| 共用 provider 登錄 | TypeScript／Rust 使用同一 manifest，歷史 parser 與安全白名單仍為內建型別實作；安裝／版本重新偵測與索引分離 | providers 3 個契約案例及版本探測回歸通過；缺失／失敗／逾時／可用與登入 unknown 分開 |
+| 輸入與啟動器 | 搜尋快捷鍵維持所選目錄；未選組時明確進入全域搜尋；焦點外框、下拉／勾選／日期控制項一致且可鍵盤操作；先選 Shell／Agent 再選登錄工具 | App 77、History 25、controls 33 個 focused 案例已通過，含 scoped search／過期請求／巢狀 portal／完整日曆 Tab／草稿 reset；非螢幕閱讀器驗收 |
+| Shell 預設與候選 | 有效絕對 `$SHELL` 或平台 fallback，預設 `[-l]`；唯讀偵測、明確加入／保存、保留自訂 Profiles 與預設；不匯入 rc | Shell 14 個 focused 案例通過，含 saved alias canonical 排除、bare PATH 順序、獨立上限及設定 bytes 不變 |
+| 最新提交平台結果 | Ubuntu 24.04 x64、macOS 15 ARM64／Intel exact-commit build／smoke | **本批尚待執行／確認**；舊提交 CI 不可代替新批次，macOS Cmd+Tab／Dock 視覺比較另待原生驗收 |
+
+ICNS 的 16／32／64／128／256／512／1024 px 圖形，量測透明邊距分別為 1／3／6／12／25／50／100 px；小尺寸因取樣有像素取整。824／1024 是本專案視覺校正選擇，不是 Apple 官方強制比例。PNG 前後比較與 alpha 檢查不等於實際 Cmd+Tab 畫面驗收。
+
+仍只使用隔離環境與合成資料，不接觸使用者真實歷史。先前 64 個文件連結／章節錨點及勾選凍結檢查屬歷史檢查點；使用者最新要求已改為逐項勾選完成工作，以下是新的獨立稽核。文件檢查不等於完整 P0 或原生 UI 通過。
+
+## 2026-10-15 最新工作樹與完成清單稽核
+
+使用者要求先完成 UI／UX，逐項勾選實際完成工作並交付最終 PR。先前「不改勾選」只保留為歷史紀錄，不再約束目前狀態。以完整完成條件為準，部分實作、缺少人工結果或僅舊提交 CI 的項目不勾選。
+
+| 檢查 | 可核對結果與邊界 |
+| --- | --- |
+| 原始開發任務 | [143 個穩定 ID](development-tasks.md#2026-10-15-完成狀態逐項稽核)：**77 完成、66 未完成**；每列附證據或尚缺條件。3 個 issue 範本 checkbox 不列入 |
+| 追加需求 | ADD-01–ADD-15：**12 完成、3 未完成**；UI／UX 最終驗證、最新三 runner CI、macOS Cmd+Tab／Dock 人工比較分開追蹤，不與原始任務重複計算 |
+| 原生驗收 | 下方原始 9 項目前 **0 完成、9 未完成**；最新 CI 完成後，只能依結果更新相符的 CI 項，不能連帶勾選人工終端／CLI／效能項 |
+| 前端最終工作樹 | 2026-10-15 08:15 UTC：11 檔、324／324 通過，包含新增 progressive Settings 案例；typecheck／lint／production build 全部通過。08:08 的獨立 322／322 是前一檢查點，不累加 |
+| Rust 核心／桌面 | `cargo test --no-default-features --locked`：153 通過；完整 `cargo test --locked`：157 通過（48 unit、8 additional_agents、39 catalog、9 curated、19 Grok、21 runtime、2 service、11 shells）。headless／desktop all-target Clippy `-D warnings` 與 fmt 通過 |
+| UI 審查回歸 | 已補 agent detection generation／保存後清除舊安裝狀態；History resultKey 阻擋換組舊結果可接續；popover 位於所屬 dialog；日曆 Tab 可到所有動作；外部日期／resetKey 清除錯誤草稿 |
+| 本地建置 | `npm run tauri -- build --bundles deb` 已完成 production frontend 與 Linux release `.deb`（3.84 MiB）；不代表安裝／移除或原生畫面驗收 |
+| 視覺資產／對比 | ICNS 10 representations 透明邊界通過；`scripts/validate-ui-design.py` 44 組宣告的語意 token 對比通過。未覆蓋所有實際像素／螢幕閱讀器，不宣稱完整 WCAG 驗收 |
+| 最新 native CI | Ubuntu 24.04 x64、macOS 15 ARM64／Intel 的目前提交尚待結果；新版 smoke 預備使用隔離 HOME、合成歷史、正常 UI curate／index，暗亮各 5 個 snapshot 狀態。未得到 run／artifact 前不宣稱通過 |
+
+仍缺的實作或證據包括：CLI 發行版本矩陣與對應 fixtures、filesystem watcher（已有每 10 秒 reconcile）、renderer fallback、Palette 直接 Session 快切、OS／Shell 保留快捷鍵檢查、控制序列專門安全回歸，以及 IME／真實 CLI／螢幕閱讀器／完整資源與長時間壓力測量。詳見原任務每列原因。
+
+[13 項後續待辦](future-backlog.md)維持未完成。UI 離開後持續執行與重新連線是下一階段最高優先計畫，本輪沒有 daemon／重新附接實作；重新啟動電腦後持續執行也不是本輪要求。
 
 ## 2026-10-15 自選專案導覽變更紀錄
+
+以下為雙頁導覽澄清前的歷史紀錄；其中「所有工作階段」入口已由上方新契約取代，測試數字僅屬當時版本。
 
 本次需求將所有工作階段與左側自選專案分開，新增 curated 遷移與持久化、既有目錄加入、單層新資料夾建立、預覽加入及非破壞性移出；置頂保留為自選清單內的排序，未加入或移出專案的開啟工作區仍可到達。另修正普通 Shell 正常退出後移除面板／最後分頁，Agent 或異常退出仍保留診斷。
 
@@ -24,6 +66,8 @@
 資料與環境邊界：隔離雲端的合成來源及暫存路徑；未存取使用者真實電腦或歷史。前端目前以絕對路徑欄位輸入，尚未提供原生目錄選擇器。本紀錄不代表新 Agent 種類／自訂參數或全部 P0 已完成。
 
 ## 2026-10-15 Agent 擴充與自訂參數變更紀錄
+
+以下保留前一批整合與測試紀錄；新增的固定四 Agent 來源卡片及雙頁導覽／圖示，以上方最新批次為準。
 
 使用者追加 Grok Build、Antigravity CLI、每 Agent 自訂參數，以及明確啟用後不逐次重複確認的高風險權限模式。本批在既有導覽／Shell 修正上整合，與下方舊版測試數字及 `21f6cf0` 的成功 CI 分開記錄。
 
@@ -138,15 +182,24 @@ Service 整合測試涵蓋：同專案 Codex＋Claude 合成歷史 → 中文搜
 
 以下需在乾淨、可操作圖形桌面的 macOS／Ubuntu 執行，記錄 OS、架構、WebView、CLI 版本；沒有執行的項目維持未勾選。
 
-- [ ] 三個 CI runner 的 tests／Clippy／unsigned bundle 都成功
-- [ ] 兩個 OS 啟動 app，來源預設與手動覆寫正確，取消掃描後仍能操作
-- [ ] 實際 Codex／Claude 搜尋、預覽、恢復正確對話，工具缺失有修正入口
-- [ ] 中文輸入、複製貼上、快捷鍵、Shell、Vim、tmux、互動式 CLI 正常
-- [ ] 兩個可見面板與四個背景面板，resize／切換／最大化不重啟或丟輸出
-- [ ] 關閉啟動中／執行中 pane、tab、window、Quit，程序樹無受管殘留
-- [ ] 重開只有占位，明確操作才啟動；新版本／損壞布局不被無意覆寫
-- [ ] 檔案追加、封存移動、來源消失在補掃後更新，既有 Terminal 不受影響
-- [ ] 原生效能、資源使用與長時間壓力符合 roadmap 的校正後門檻
+- [ ] 三個 CI runner 的 tests／Clippy／unsigned bundle 都成功。
+  - 未勾選原因：本批 exact-commit 三 runner CI 結果待確認；舊 run 只作基線。
+- [ ] 兩個 OS 啟動 app，來源預設與手動覆寫正確，取消掃描後仍能操作。
+  - 未勾選原因：合成來源／取消自動回歸通過；缺兩 OS 完整人工操作紀錄。
+- [ ] 實際 Codex／Claude 搜尋、預覽、恢復正確對話，工具缺失有修正入口。
+  - 未勾選原因：合成 parser／PTY argv 替身通過；沒有實際登入工具載入正確對話的證據。
+- [ ] 中文輸入、複製貼上、快捷鍵、Shell、Vim、tmux、互動式 CLI 正常。
+  - 未勾選原因：沒有兩 OS 的 IME、剪貼簿、Vim／tmux／互動 CLI 人工版本矩陣。
+- [ ] 兩個可見面板與四個背景面板，resize／切換／最大化不重啟或丟輸出。
+  - 未勾選原因：雙 PTY、隱藏 ACK、分割模型回歸通過；未跑完整原生 2＋4 面板情境。
+- [ ] 關閉啟動中／執行中 pane、tab、window、Quit，程序樹無受管殘留。
+  - 未勾選原因：Runtime／App 關閉競態與子程序清理回歸通過；完整原生關閉矩陣待人工驗收。
+- [ ] 重開只有占位，明確操作才啟動；新版本／損壞布局不被無意覆寫。
+  - 未勾選原因：workspace／App／config 自動回歸通過；沒有兩 OS 真實關閉與重開完整紀錄。
+- [ ] 檔案追加、封存移動、來源消失在補掃後更新，既有 Terminal 不受影響。
+  - 未勾選原因：catalog／service 合成生命週期測試通過；原生檔案事件與同時運作 Terminal 的情境待驗收。
+- [ ] 原生效能、資源使用與長時間壓力符合 roadmap 的校正後門檻。
+  - 未勾選原因：已有合成 catalog 搜尋 p50／p95；缺 UI／輸入延遲、CPU／GPU／峰值記憶體與 soak 結果。
 
 ## 交付與邊界
 

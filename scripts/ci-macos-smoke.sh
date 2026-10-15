@@ -1,54 +1,29 @@
 #!/usr/bin/env bash
-# Native WebView DOM/IPC/interaction smoke; no OS automation permissions or Agent CLI launch.
+# Native WebView DOM/IPC/interaction smoke. No OS automation permissions or runtime launch.
 set -euo pipefail
+source "$(dirname "$0")/ci-linux-smoke.sh"
 binary="$PWD/src-tauri/target/release/bundle/macos/Session Bay.app/Contents/MacOS/sessionbay"
 output="$PWD/artifacts/macos-smoke"
 mkdir -p "$output"
 temporary="$(mktemp -d)"
 pid=''
-cleanup() {
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-    kill -TERM "$pid" 2>/dev/null || true
-    for _ in $(seq 1 30); do
-      kill -0 "$pid" 2>/dev/null || break
-      sleep 0.1
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -KILL "$pid" 2>/dev/null || true
-    fi
-    wait "$pid" 2>/dev/null || true
-  fi
-  rm -rf "$temporary"
-}
+cleanup() { smoke_stop; rm -rf "$temporary"; }
 trap cleanup EXIT
-export HOME="$temporary/home" XDG_CONFIG_HOME="$temporary/config" XDG_DATA_HOME="$temporary/data" XDG_CACHE_HOME="$temporary/cache"
-export SESSIONBAY_SMOKE=1
-export CODEX_HOME="$temporary/codex" CLAUDE_CONFIG_DIR="$temporary/claude" GROK_HOME="$temporary/grok"
-mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$CODEX_HOME" "$CLAUDE_CONFIG_DIR"
-"$binary" > "$output/app.log" 2>&1 &
-pid=$!
-ready=''
-for _ in $(seq 1 120); do
-  if ! kill -0 "$pid" 2>/dev/null; then
-    cat "$output/app.log"
-    echo 'Native macOS process exited during startup.' >&2
-    exit 1
+for scenario in empty dark light; do
+  smoke_environment "$temporary/$scenario"
+  [[ "$scenario" == empty ]] || smoke_seed_fixture "$scenario"
+  log="$output/$scenario-app.log"
+  "$binary" > "$log" 2>&1 &
+  pid=$!
+  smoke_wait_marker ready
+  if [[ "$scenario" != empty ]]; then
+    for state in projects directories providers launcher calendar; do
+      smoke_wait_marker snapshot "$state-$scenario"
+    done
   fi
-  if grep -q '^SESSIONBAY_FRONTEND .*"phase":"error"' "$output/app.log"; then
-    cat "$output/app.log"
-    echo 'Frontend startup or interaction failed.' >&2
-    exit 1
-  fi
-  if grep -q '^SESSIONBAY_FRONTEND .*"phase":"ready"' "$output/app.log" &&
-     grep -q '^SESSIONBAY_FRONTEND .*"phase":"interaction"' "$output/app.log"; then
-    ready=1
-    break
-  fi
-  sleep 0.5
+  smoke_wait_marker interaction
+  smoke_alive
+  smoke_stop
 done
-if [[ -z "$ready" ]]; then
-  cat "$output/app.log"
-  echo 'Timed out waiting for React DOM, backend bootstrap, and settings and project interaction.' >&2
-  exit 1
-fi
-printf 'Native macOS WebView DOM + backend bootstrap + settings and project open/close/reopen smoke passed with isolated HOME.\nThis does not verify window pixels, IME, actual CLI resume, or terminal interaction.\n' | tee "$output/result.txt"
+cp "$output/dark-app.log" "$output/app.log"
+printf 'Native macOS WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nVerified Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar interactions.\nNo pixels were captured or verified on macOS; this is DOM/IPC evidence only.\nThis does not verify IME, real CLI resume, or terminal interaction.\n' | tee "$output/result.txt"

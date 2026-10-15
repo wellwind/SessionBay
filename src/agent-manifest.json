@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "executable": "codex",
+      "logo": "C",
+      "bypassFlag": "--dangerously-bypass-approvals-and-sandbox",
+      "history": {
+        "supported": true,
+        "sourceEnv": "CODEX_HOME",
+        "rootPlaceholder": "/Users/you/.codex",
+        "description": "唯讀索引 Codex 本機歷史，支援搜尋、預覽與接續工作。",
+        "parserId": "codex",
+        "defaultDirectory": ".codex"
+      },
+      "resume": {
+        "manualId": false,
+        "argument": "resume",
+        "description": "從已索引的歷史接續，使用 codex resume。"
+      },
+      "launch": {
+        "versionArgs": [
+          "--version"
+        ],
+        "newArgs": [],
+        "resumeArgs": [
+          "resume",
+          "{resumeId}"
+        ],
+        "cwdArgs": [
+          "--cd",
+          "{cwd}"
+        ]
+      }
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "executable": "claude",
+      "logo": "✳",
+      "bypassFlag": "--dangerously-skip-permissions",
+      "history": {
+        "supported": true,
+        "sourceEnv": "CLAUDE_CONFIG_DIR",
+        "rootPlaceholder": "/Users/you/.claude",
+        "description": "唯讀索引 Claude Code 本機歷史，支援搜尋、預覽與接續工作。",
+        "parserId": "claude",
+        "defaultDirectory": ".claude"
+      },
+      "resume": {
+        "manualId": false,
+        "argument": "--resume",
+        "description": "從已索引的歷史接續，使用 claude --resume。"
+      },
+      "launch": {
+        "versionArgs": [
+          "--version"
+        ],
+        "newArgs": [],
+        "resumeArgs": [
+          "--resume",
+          "{resumeId}"
+        ],
+        "cwdArgs": []
+      }
+    },
+    {
+      "id": "grok",
+      "name": "Grok Build",
+      "executable": "grok",
+      "logo": "G",
+      "bypassFlag": "--always-approve",
+      "history": {
+        "supported": true,
+        "sourceEnv": "GROK_HOME",
+        "rootPlaceholder": "/Users/you/.grok",
+        "description": "唯讀索引 Grok Build 本機歷史，支援搜尋、預覽與接續工作。",
+        "parserId": "grok",
+        "defaultDirectory": ".grok"
+      },
+      "resume": {
+        "manualId": true,
+        "argument": "--resume",
+        "description": "可從歷史接續或指定對話 ID；使用 --resume，不使用建立新對話的 --session-id。"
+      },
+      "launch": {
+        "versionArgs": [
+          "version"
+        ],
+        "newArgs": [],
+        "resumeArgs": [
+          "--resume",
+          "{resumeId}"
+        ],
+        "cwdArgs": []
+      }
+    },
+    {
+      "id": "antigravity",
+      "name": "Antigravity CLI",
+      "executable": "agy",
+      "logo": "A",
+      "bypassFlag": "--dangerously-skip-permissions",
+      "history": {
+        "supported": false,
+        "sourceEnv": null,
+        "rootPlaceholder": null,
+        "description": "CLI 工具 agy；與 Antigravity 桌面／IDE 歷史分開。尚不提供歷史搜尋、索引或預覽。",
+        "parserId": null,
+        "defaultDirectory": ".gemini/antigravity-cli"
+      },
+      "resume": {
+        "manualId": true,
+        "argument": "--conversation",
+        "description": "可開始新工作，或指定對話 ID，以 agy --conversation 接續。"
+      },
+      "launch": {
+        "versionArgs": [
+          "--version"
+        ],
+        "newArgs": [],
+        "resumeArgs": [
+          "--conversation",
+          "{resumeId}"
+        ],
+        "cwdArgs": []
+      }
+    }
+  ]
+}

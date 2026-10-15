@@ -11,6 +11,8 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
+    pub const ALL: [Self; 4] = [Self::Codex, Self::Claude, Self::Grok, Self::Antigravity];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Codex => "codex",
@@ -21,13 +23,9 @@ impl AgentKind {
     }
 
     pub fn parse(value: &str) -> Result<Self, String> {
-        match value {
-            "codex" => Ok(Self::Codex),
-            "claude" => Ok(Self::Claude),
-            "grok" => Ok(Self::Grok),
-            "antigravity" => Ok(Self::Antigravity),
-            _ => Err(format!("Unsupported agent kind: {value}")),
-        }
+        crate::providers::lookup(value)
+            .map(|provider| provider.id)
+            .ok_or_else(|| format!("Unsupported agent kind: {value}"))
     }
 }
 
@@ -48,6 +46,22 @@ pub struct Installation {
     pub version: Option<String>,
     pub available: bool,
     pub error: Option<String>,
+    pub status: InstallationStatus,
+    pub login_status: LoginStatus,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum InstallationStatus {
+    Missing,
+    Available,
+    VersionCheckFailed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LoginStatus {
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

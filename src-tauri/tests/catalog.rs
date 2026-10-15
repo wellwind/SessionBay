@@ -364,21 +364,112 @@ fn cancelled_scan_has_consistent_checkpoint_and_can_resume() {
 }
 
 #[test]
-fn missing_source_is_healthy_empty_and_bad_source_does_not_block_good_one() {
+fn missing_empty_and_invalid_sources_have_distinct_health_without_blocking_good_one() {
     let h = Harness::new();
     let missing = h.source("missing", AgentKind::Codex);
+    let empty = h.source("empty", AgentKind::Codex);
     let bad = h.source("bad", AgentKind::Claude);
     let good = h.source("good", AgentKind::Codex);
+    fs::create_dir(&empty.root).unwrap();
     fs::write(&bad.root, "not a directory").unwrap();
-    h.write(&good, "sessions/a.jsonl", &codex("s", "available"));
+    let contents = codex("s", "available");
+    let path = h.write(&good, "sessions/a.jsonl", &contents);
     let status = h
         .catalog
-        .sync(&[missing, bad, good], &AtomicBool::new(false), |_| {})
+        .sync(
+            &[missing.clone(), empty.clone(), bad.clone(), good],
+            &AtomicBool::new(false),
+            |_| {},
+        )
         .unwrap();
-    assert_eq!(status.sources[0].status, "empty");
-    assert_eq!(status.sources[1].status, "error");
+    assert_eq!(status.sources[0].status, "missing");
+    assert_eq!(status.sources[0].files, 0);
+    assert_eq!(status.sources[1].status, "empty");
+    assert_eq!(status.sources[1].files, 0);
+    assert_ne!(status.sources[0].message, status.sources[1].message);
+    assert_eq!(status.sources[2].status, "error");
+    assert_eq!(status.sources[3].status, "ready");
+    assert_eq!(status.sources[3].files, 1);
     assert_eq!(h.total("available"), 1);
-    assert!(!status.errors.is_empty());
+    assert_eq!(status.errors.len(), 1);
+    assert!(status.errors[0].starts_with("bad:"));
+    assert!(!Path::new(&missing.root).exists());
+    assert_eq!(fs::read_dir(&empty.root).unwrap().count(), 0);
+    assert_eq!(fs::read_to_string(&bad.root).unwrap(), "not a directory");
+    assert_eq!(fs::read_to_string(path).unwrap(), contents);
+}
+
+#[test]
+fn source_health_tracks_missing_empty_and_ready_transitions_and_prunes_removed_history() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let health = || {
+        let status = h
+            .catalog
+            .sync(
+                std::slice::from_ref(&source),
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert!(status.errors.is_empty());
+        assert!(!status.cancelled);
+        status.sources.into_iter().next().unwrap()
+    };
+
+    assert_eq!(health().status, "missing");
+    assert!(!Path::new(&source.root).exists());
+    fs::create_dir(&source.root).unwrap();
+    assert_eq!(health().status, "empty");
+    assert_eq!(fs::read_dir(&source.root).unwrap().count(), 0);
+
+    let contents = codex("s", "available");
+    let path = h.write(&source, "sessions/a.jsonl", &contents);
+    let ready = health();
+    assert_eq!(ready.status, "ready");
+    assert_eq!(ready.files, 1);
+    assert_eq!(h.total("available"), 1);
+    assert_eq!(fs::read_to_string(&path).unwrap(), contents);
+
+    fs::remove_file(path).unwrap();
+    let empty = health();
+    assert_eq!(empty.status, "empty");
+    assert_eq!(empty.files, 0);
+    assert_eq!(h.total("available"), 0);
+
+    h.write(&source, "sessions/a.jsonl", &contents);
+    assert_eq!(health().status, "ready");
+    assert_eq!(h.total("available"), 1);
+    fs::remove_dir_all(&source.root).unwrap();
+    let missing = health();
+    assert_eq!(missing.status, "missing");
+    assert_eq!(missing.files, 0);
+    assert_eq!(h.total("available"), 0);
+    assert!(!Path::new(&source.root).exists());
+}
+
+#[test]
+fn disabled_and_unsupported_sources_keep_their_health_when_roots_are_missing() {
+    let h = Harness::new();
+    let mut disabled = h.source("disabled", AgentKind::Codex);
+    disabled.enabled = false;
+    let unsupported = h.source("unsupported", AgentKind::Antigravity);
+    let mut disabled_unsupported = h.source("disabled-unsupported", AgentKind::Antigravity);
+    disabled_unsupported.enabled = false;
+    let sources = [disabled, unsupported, disabled_unsupported];
+    let status = h
+        .catalog
+        .sync(&sources, &AtomicBool::new(false), |_| {})
+        .unwrap();
+
+    assert_eq!(status.sources[0].status, "disabled");
+    assert_eq!(status.sources[1].status, "unsupported");
+    assert_eq!(status.sources[2].status, "disabled");
+    assert!(status.sources.iter().all(|source| source.files == 0));
+    assert!(status.errors.is_empty());
+    assert!(sources
+        .iter()
+        .all(|source| !Path::new(&source.root).exists()));
 }
 
 #[test]

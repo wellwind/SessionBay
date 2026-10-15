@@ -35,6 +35,13 @@ fn old_settings_migrate_missing_agent_fields_without_resetting_preferences() {
     value["theme"] = "light".into();
     value["fontSize"] = 19.into();
     value["onboardingComplete"] = true.into();
+    // An older configuration intentionally has no Grok source, and may disable
+    // or rename existing sources. Registry defaults must not migrate this list.
+    value["sources"] = serde_json::json!([
+        {"id":"my-codex","kind":"codex","root":temp.path().join("old codex"),"enabled":false},
+        {"id":"my-claude","kind":"claude","root":temp.path().join("old claude"),"enabled":true}
+    ]);
+    let expected_sources = value["sources"].clone();
     let before = serde_json::to_vec(&value).unwrap();
     fs::write(store.directory.join("settings.json"), &before).unwrap();
     let (settings, warnings) = store.load_settings();
@@ -45,6 +52,14 @@ fn old_settings_migrate_missing_agent_fields_without_resetting_preferences() {
     assert_eq!(settings.theme, "light");
     assert_eq!(settings.font_size, 19);
     assert!(settings.onboarding_complete);
+    assert_eq!(
+        serde_json::to_value(&settings.sources).unwrap(),
+        expected_sources
+    );
+    assert!(!settings
+        .sources
+        .iter()
+        .any(|source| source.kind == AgentKind::Grok));
     for kind in [
         AgentKind::Codex,
         AgentKind::Claude,
@@ -199,6 +214,13 @@ fn detecting_installation_paths_ignores_dangerous_launch_options() {
     settings.agent_options.grok.bypass_permissions = true;
     let installations = sessionbay_lib::config::detect_paths(&settings);
     assert_eq!(installations.len(), 4);
+    for installation in &installations {
+        assert_eq!(
+            installation.login_status,
+            sessionbay_lib::models::LoginStatus::Unknown
+        );
+        assert!(installation.version.is_none());
+    }
     assert!(installations
         .iter()
         .any(|i| i.kind == AgentKind::Grok && i.available));
@@ -226,6 +248,14 @@ fn version_probe_uses_only_documented_version_argument_never_launch_flags() {
     settings.agent_options.antigravity.bypass_permissions = true;
     for installation in sessionbay_lib::config::detect(&settings) {
         assert!(installation.available);
+        assert_eq!(
+            installation.status,
+            sessionbay_lib::models::InstallationStatus::Available
+        );
+        assert_eq!(
+            installation.login_status,
+            sessionbay_lib::models::LoginStatus::Unknown
+        );
         assert!(installation.error.is_none(), "{:?}", installation.error);
         let expected = if installation.kind == AgentKind::Grok {
             "synthetic-version"
@@ -233,6 +263,115 @@ fn version_probe_uses_only_documented_version_argument_never_launch_flags() {
             "synthetic---version"
         };
         assert_eq!(installation.version.as_deref(), Some(expected));
+    }
+}
+
+#[test]
+fn registry_defaults_do_not_replace_saved_sources_or_custom_launch_configuration() {
+    let temp = tempfile::tempdir().unwrap();
+    let defaults = Settings::default();
+    let home = dirs::home_dir().unwrap_or_else(|| "/".into());
+    for provider in sessionbay_lib::providers::definitions() {
+        assert_eq!(
+            defaults.executables.for_kind(provider.id),
+            provider.executable
+        );
+        let source = defaults
+            .sources
+            .iter()
+            .find(|source| source.kind == provider.id);
+        assert_eq!(source.is_some(), provider.history.supported);
+        if let Some(source) = source {
+            assert_eq!(source.id, format!("{}-default", provider.id.as_str()));
+            assert_eq!(source.root, provider.state_root(&home).to_string_lossy());
+        }
+    }
+    let mut saved = defaults;
+    saved.sources = vec![HistorySource {
+        id: "intentionally-disabled-custom-source".into(),
+        kind: AgentKind::Claude,
+        root: temp
+            .path()
+            .join("custom source")
+            .to_string_lossy()
+            .into_owned(),
+        enabled: false,
+    }];
+    saved.executables.grok = temp
+        .path()
+        .join("custom grok")
+        .to_string_lossy()
+        .into_owned();
+    saved.agent_options.grok = AgentLaunchOptions {
+        extra_args: vec!["--model".into(), "saved model;$(literal)".into()],
+        bypass_permissions: true,
+    };
+    saved.default_agent = AgentKind::Claude;
+    saved.profiles[0].name = "My custom shell".into();
+    saved.profiles[0].args = vec!["custom argument".into()];
+    let store = ConfigStore::open(temp.path().join("app")).unwrap();
+    store.save_settings(&saved).unwrap();
+    let expected = serde_json::to_value(&saved).unwrap();
+    let before = fs::read(store.directory.join("settings.json")).unwrap();
+    let (loaded, warnings) = store.load_settings();
+    assert!(warnings.is_empty());
+    assert_eq!(serde_json::to_value(loaded).unwrap(), expected);
+    assert_eq!(
+        fs::read(store.directory.join("settings.json")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn detection_distinguishes_missing_failed_timed_out_and_available_without_claiming_login() {
+    use sessionbay_lib::models::{InstallationStatus, LoginStatus};
+    use std::{
+        os::unix::fs::PermissionsExt,
+        time::{Duration, Instant},
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let script = |name: &str, contents: &str| {
+        let executable = temp.path().join(name);
+        fs::write(&executable, contents).unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        executable.to_string_lossy().into_owned()
+    };
+    let mut settings = Settings::default();
+    settings.executables.codex = script("available", "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = --version ] || exit 9\nprintf 'synthetic 1.0\\n'\n");
+    settings.executables.claude = temp.path().join("missing").to_string_lossy().into_owned();
+    settings.executables.grok = script("failed", "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = version ] || exit 9\nprintf 'synthetic failure\\n'\nexit 7\n");
+    settings.executables.antigravity = script("timeout", "#!/bin/sh\nexec /bin/sleep 30\n");
+    settings.agent_options.codex.bypass_permissions = true;
+    settings.agent_options.grok.bypass_permissions = true;
+    let started = Instant::now();
+    let installations = sessionbay_lib::config::detect(&settings);
+    assert!(started.elapsed() < Duration::from_secs(8));
+    let item = |kind| installations.iter().find(|item| item.kind == kind).unwrap();
+    assert_eq!(item(AgentKind::Codex).status, InstallationStatus::Available);
+    assert_eq!(
+        item(AgentKind::Codex).version.as_deref(),
+        Some("synthetic 1.0")
+    );
+    assert_eq!(item(AgentKind::Claude).status, InstallationStatus::Missing);
+    assert!(!item(AgentKind::Claude).available);
+    assert!(item(AgentKind::Claude).executable.is_none());
+    for kind in [AgentKind::Grok, AgentKind::Antigravity] {
+        assert_eq!(item(kind).status, InstallationStatus::VersionCheckFailed);
+        assert!(item(kind).available);
+        assert!(item(kind).version.is_none());
+        assert!(item(kind).error.is_some());
+    }
+    assert!(item(AgentKind::Antigravity)
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("逾時"));
+    for installation in installations {
+        assert_eq!(installation.login_status, LoginStatus::Unknown);
+        assert_eq!(
+            serde_json::to_value(installation).unwrap()["loginStatus"],
+            "unknown"
+        );
     }
 }
 

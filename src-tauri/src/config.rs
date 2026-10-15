@@ -1,4 +1,8 @@
-use crate::models::{AgentKind, HistorySource};
+pub use crate::models::Installation;
+use crate::{
+    models::{AgentKind, HistorySource, InstallationStatus, LoginStatus},
+    providers,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -30,10 +34,34 @@ pub struct Executables {
 }
 
 fn default_grok_executable() -> String {
-    "grok".into()
+    providers::definition(AgentKind::Grok).executable.clone()
 }
 fn default_antigravity_executable() -> String {
-    "agy".into()
+    providers::definition(AgentKind::Antigravity)
+        .executable
+        .clone()
+}
+
+impl Executables {
+    pub fn for_kind(&self, kind: AgentKind) -> &str {
+        match kind {
+            AgentKind::Codex => &self.codex,
+            AgentKind::Claude => &self.claude,
+            AgentKind::Grok => &self.grok,
+            AgentKind::Antigravity => &self.antigravity,
+        }
+    }
+}
+
+impl Default for Executables {
+    fn default() -> Self {
+        Self {
+            codex: providers::definition(AgentKind::Codex).executable.clone(),
+            claude: providers::definition(AgentKind::Claude).executable.clone(),
+            grok: default_grok_executable(),
+            antigravity: default_antigravity_executable(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -82,16 +110,6 @@ pub struct Settings {
     pub onboarding_complete: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Installation {
-    pub kind: AgentKind,
-    pub executable: Option<String>,
-    pub version: Option<String>,
-    pub available: bool,
-    pub error: Option<String>,
-}
-
 impl Default for Settings {
     fn default() -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
@@ -135,35 +153,17 @@ impl Default for Settings {
                 args: vec!["-l".into()],
                 env: HashMap::new(),
             }],
-            sources: vec![
-                HistorySource {
-                    id: "codex-default".into(),
-                    kind: AgentKind::Codex,
-                    root: std::env::var("CODEX_HOME")
-                        .unwrap_or_else(|_| home.join(".codex").to_string_lossy().into_owned()),
+            sources: providers::definitions()
+                .iter()
+                .filter(|provider| provider.history.supported)
+                .map(|provider| HistorySource {
+                    id: format!("{}-default", provider.id.as_str()),
+                    kind: provider.id,
+                    root: provider.state_root(&home).to_string_lossy().into_owned(),
                     enabled: true,
-                },
-                HistorySource {
-                    id: "claude-default".into(),
-                    kind: AgentKind::Claude,
-                    root: std::env::var("CLAUDE_CONFIG_DIR")
-                        .unwrap_or_else(|_| home.join(".claude").to_string_lossy().into_owned()),
-                    enabled: true,
-                },
-                HistorySource {
-                    id: "grok-default".into(),
-                    kind: AgentKind::Grok,
-                    root: std::env::var("GROK_HOME")
-                        .unwrap_or_else(|_| home.join(".grok").to_string_lossy().into_owned()),
-                    enabled: true,
-                },
-            ],
-            executables: Executables {
-                codex: "codex".into(),
-                claude: "claude".into(),
-                grok: default_grok_executable(),
-                antigravity: default_antigravity_executable(),
-            },
+                })
+                .collect(),
+            executables: Executables::default(),
             agent_options: AgentOptions::default(),
             shortcuts,
             onboarding_complete: false,
@@ -233,19 +233,11 @@ impl Settings {
                 return Err("同一 Agent 的資料根目錄不可重複".into());
             }
         }
-        if !clean_string(&self.executables.codex, 4096)
-            || !clean_string(&self.executables.claude, 4096)
-            || !clean_string(&self.executables.grok, 4096)
-            || !clean_string(&self.executables.antigravity, 4096)
-        {
-            return Err("Agent 執行檔設定不可空白".into());
-        }
-        for kind in [
-            AgentKind::Codex,
-            AgentKind::Claude,
-            AgentKind::Grok,
-            AgentKind::Antigravity,
-        ] {
+        for provider in providers::definitions() {
+            let kind = provider.id;
+            if !clean_string(self.executables.for_kind(kind), 4096) {
+                return Err("Agent 執行檔設定不可空白".into());
+            }
             crate::launch_options::validate(kind, self.agent_options.for_kind(kind))?;
         }
         if self.shortcuts.len() > 32 {
@@ -437,30 +429,32 @@ pub fn resolve_executable(value: &str) -> Result<PathBuf, String> {
 }
 
 pub fn detect_paths(settings: &Settings) -> Vec<Installation> {
-    [
-        (AgentKind::Codex, &settings.executables.codex),
-        (AgentKind::Claude, &settings.executables.claude),
-        (AgentKind::Grok, &settings.executables.grok),
-        (AgentKind::Antigravity, &settings.executables.antigravity),
-    ]
-    .into_iter()
-    .map(|(kind, path)| match resolve_executable(path) {
-        Err(e) => Installation {
-            kind,
-            executable: None,
-            version: None,
-            available: false,
-            error: Some(e),
-        },
-        Ok(path) => Installation {
-            kind,
-            executable: Some(path.to_string_lossy().into_owned()),
-            version: None,
-            available: true,
-            error: None,
-        },
-    })
-    .collect()
+    providers::definitions()
+        .iter()
+        .map(|provider| {
+            let kind = provider.id;
+            match resolve_executable(settings.executables.for_kind(kind)) {
+                Err(e) => Installation {
+                    kind,
+                    executable: None,
+                    version: None,
+                    available: false,
+                    error: Some(e),
+                    status: InstallationStatus::Missing,
+                    login_status: LoginStatus::Unknown,
+                },
+                Ok(path) => Installation {
+                    kind,
+                    executable: Some(path.to_string_lossy().into_owned()),
+                    version: None,
+                    available: true,
+                    error: None,
+                    status: InstallationStatus::Available,
+                    login_status: LoginStatus::Unknown,
+                },
+            }
+        })
+        .collect()
 }
 
 pub fn detect(settings: &Settings) -> Vec<Installation> {
@@ -470,7 +464,10 @@ pub fn detect(settings: &Settings) -> Vec<Installation> {
             if let Some(path) = &installation.executable {
                 match version(Path::new(path), installation.kind) {
                     Ok(v) => installation.version = Some(v),
-                    Err(e) => installation.error = Some(e),
+                    Err(e) => {
+                        installation.error = Some(e);
+                        installation.status = InstallationStatus::VersionCheckFailed;
+                    }
                 }
             }
             installation
@@ -486,12 +483,7 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
     let info = runtime.launch(
         LaunchSpec {
             executable: path.to_string_lossy().into_owned(),
-            args: vec![if kind == AgentKind::Grok {
-                "version"
-            } else {
-                "--version"
-            }
-            .into()],
+            args: providers::definition(kind).launch.version_args.clone(),
             cwd: PathBuf::from("/"),
             env: HashMap::new(),
             session_id: None,
@@ -509,6 +501,11 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut bytes = Vec::new();
     loop {
+        // A continuously readable output channel must not postpone the deadline.
+        if Instant::now() >= deadline {
+            runtime.stop(&info.id)?;
+            return Err("工具版本查詢逾時；仍可嘗試啟動".into());
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
         match receiver.recv_timeout(remaining) {
             Ok(TerminalEvent::Output {
@@ -581,6 +578,30 @@ mod tests {
     fn executable_resolution_does_not_evaluate_shell() {
         assert!(resolve_executable("sh; touch /tmp/pwned").is_err());
         assert!(resolve_executable("/bin/sh").is_ok());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn version_output_is_bounded_and_continuous_output_cannot_extend_deadline() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let executable = temp.path().join("synthetic version output");
+        fs::write(
+            &executable,
+            "#!/bin/sh\ni=0; while [ \"$i\" -lt 5000 ]; do printf x; i=$((i + 1)); done\n",
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(version(&executable, AgentKind::Codex).unwrap().len(), 4096);
+        fs::write(
+            &executable,
+            "#!/bin/sh\nwhile :; do printf 'synthetic continuous version output'; done\n",
+        )
+        .unwrap();
+        let started = Instant::now();
+        assert!(version(&executable, AgentKind::Codex)
+            .unwrap_err()
+            .contains("逾時"));
+        assert!(started.elapsed() < Duration::from_secs(6));
     }
     #[cfg(unix)]
     #[test]

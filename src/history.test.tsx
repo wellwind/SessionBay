@@ -351,12 +351,10 @@ describe('HistoryView search and filters', () => {
     fireEvent.click(screen.getByRole('button', { name: '篩選' }));
     fireEvent.change(screen.getByLabelText('開始日期'), { target: { value: '2026-10-01' } });
     fireEvent.change(screen.getByLabelText('結束日期'), { target: { value: '2026-10-15' } });
-    fireEvent.change(screen.getByRole('combobox', { name: '篩選 Agent' }), {
-      target: { value: 'claude' },
-    });
-    fireEvent.change(screen.getByRole('combobox', { name: '封存狀態' }), {
-      target: { value: 'all' },
-    });
+    fireEvent.click(screen.getByRole('combobox', { name: '篩選 Agent' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
+    fireEvent.click(screen.getByRole('combobox', { name: '封存狀態' }));
+    fireEvent.click(screen.getByRole('option', { name: '包含封存' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '包含子代理與分支' }));
     await tick();
     expect(api.sessions).toHaveBeenLastCalledWith({
@@ -455,16 +453,18 @@ describe('additional agent history capabilities', () => {
     setup();
     await tick();
     const filter = screen.getByRole('combobox', { name: '篩選 Agent' });
-    expect(within(filter).getAllByRole('option').map((option) => (option as HTMLOptionElement).value))
-      .toEqual(['', 'codex', 'claude', 'grok']);
-    expect(within(filter).queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
+    fireEvent.click(filter);
+    expect(screen.getAllByRole('option').map((option) => option.textContent))
+      .toEqual(['所有 Agent', 'CCodex', '✳Claude Code', 'GGrok Build']);
+    expect(screen.queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
   });
   it('queries Grok history and forwards its catalog session only on explicit resume', async () => {
     const grokSession = session('grok-session', { kind: 'grok', externalId: 'grok-external', title: 'Synthetic Grok conversation' });
     vi.mocked(api.sessions).mockResolvedValue({ items: [grokSession], total: 1 });
     const { props } = setup();
     await tick();
-    fireEvent.change(screen.getByRole('combobox', { name: '篩選 Agent' }), { target: { value: 'grok' } });
+    fireEvent.click(screen.getByRole('combobox', { name: '篩選 Agent' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
     await tick(300);
     expect(api.sessions).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'grok' }));
     expect(screen.getAllByText('Grok Build').length).toBeGreaterThan(1);
@@ -473,4 +473,24 @@ describe('additional agent history capabilities', () => {
     expect(props.onResume).toHaveBeenCalledExactlyOnceWith(grokSession);
     expect(invoke).not.toHaveBeenCalled();
   });
+});
+
+
+it('cannot resume or curate stale project results while the next directory is loading', async () => {
+  const next = deferred<SessionPage>();
+  vi.mocked(api.sessions).mockResolvedValueOnce({ items: [session('project-a-session')], total: 1 }).mockReturnValueOnce(next.promise);
+  const onResume = vi.fn();
+  const onCurate = vi.fn();
+  const { props, rerender } = setup({ projectId: project.id, onResume, onCurate, projects: [{ ...project, curated: false }] });
+  await tick();
+  expect(screen.getByRole('button', { name: '接續工作' })).toBeEnabled();
+  rerender(<HistoryView {...props} projectId="project-b" />);
+  expect(screen.queryByRole('button', { name: '接續工作' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '將此目錄加入專案' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Session project-a-session/ })).not.toBeInTheDocument();
+  await tick();
+  await act(async () => next.resolve({ items: [session('project-b-session', { projectId: 'project-b', cwd: '/synthetic/b' })], total: 1 }));
+  fireEvent.click(screen.getByRole('button', { name: '接續工作' }));
+  expect(onResume).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: 'project-b' }));
+  expect(onCurate).not.toHaveBeenCalled();
 });

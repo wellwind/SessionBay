@@ -15,9 +15,12 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { AgentKind, IndexStatus, Installation, Settings, ShellProfile } from '../types';
+import type { AgentKind, IndexStatus, Installation, Settings, ShellCandidate, ShellProfile } from '../types';
 import { normalizedShortcut, shortcutDefaults } from '../commands';
-import { agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, normalizedAgentOptions } from '../agents';
+import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions } from '../agents';
+import type { HistoryAgentKind } from '../agents';
+import { Select } from './controls';
+import { AgentIcon } from './AgentIcon';
 import './settings.css';
 
 export interface SettingsPanelProps {
@@ -32,6 +35,7 @@ export interface SettingsPanelProps {
   onCancelScan: () => Promise<void>;
   onClearIndex: () => Promise<void>;
   onDetect: () => Promise<void>;
+  onDetectShells?: () => Promise<ShellCandidate[]>;
 }
 
 type Section = 'sources' | 'profiles' | 'appearance' | 'shortcuts';
@@ -306,13 +310,17 @@ export function SettingsPanel({
   onCancelScan,
   onClearIndex,
   onDetect,
+  onDetectShells,
 }: SettingsPanelProps) {
   const [draft, setDraft] = useState(() => cloneSettings(settings));
   const [jsonFields, setJsonFields] = useState(() => profileFields(settings));
   const [agentJson, setAgentJson] = useState(() => Object.fromEntries(agentKinds.map((kind) =>
     [kind, JSON.stringify(normalizedAgentOptions(settings)[kind].extraArgs)])));
   const [section, setSection] = useState<Section>('sources');
+  const [newSourceKind, setNewSourceKind] = useState<HistoryAgentKind>('codex');
+  const [focusSourceId, setFocusSourceId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [shellCandidates, setShellCandidates] = useState<ShellCandidate[] | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [confirmation, setConfirmation] = useState<'clear' | 'discard' | null>(null);
@@ -326,6 +334,13 @@ export function SettingsPanel({
     setAgentJson(Object.fromEntries(agentKinds.map((kind) => [kind, JSON.stringify(normalizedAgentOptions(settings)[kind].extraArgs)])));
     setShowErrors(false);
   }, [settings]);
+
+  useEffect(() => {
+    if (!focusSourceId) return;
+    const field = document.getElementById(`source-root-${focusSourceId}`);
+    field?.focus();
+    setFocusSourceId(null);
+  }, [focusSourceId, draft.sources]);
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -428,7 +443,7 @@ export function SettingsPanel({
       ? panelRef.current?.querySelector('[role="alertdialog"]')
       : panelRef.current;
     const focusable = focusRoot?.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]',
     );
     if (!focusable?.length) {
       event.preventDefault();
@@ -450,35 +465,38 @@ export function SettingsPanel({
       first.focus();
     }
   };
+  const addSource = (kind: HistoryAgentKind) => {
+    if (draft.sources.length >= 32) return;
+    const id = newId('source');
+    update('sources', [...draft.sources, { id, kind, root: '', enabled: true }]);
+    setFocusSourceId(id);
+  };
   const sourceStatus = (sourceId: string, enabled: boolean, changed: boolean) => {
     if (changed)
       return { text: '尚未套用', className: 'neutral', detail: '儲存後會使用新的資料來源設定。' };
     if (!enabled)
       return { text: '已停用', className: 'neutral', detail: '此來源不會納入下一次掃描。' };
     const health = index.sources.find((source) => source.sourceId === sourceId);
+    if (index.running)
+      return { text: '索引中', className: 'neutral', detail: '正在掃描已啟用的來源，完成後更新讀取結果。' };
     if (!health)
-      return { text: '尚未掃描', className: 'neutral', detail: '掃描後顯示歷史資料的讀取狀態。' };
-    if (health.status.toLowerCase() === 'empty')
-      return {
-        text: '尚無歷史',
-        className: 'neutral',
-        detail: health.message || '目前沒有支援的歷史紀錄；仍然可以開始新工作。',
-      };
-    const healthy = ['ok', 'ready', 'healthy', 'scanned', 'complete'].includes(
-      health.status.toLowerCase(),
-    );
-    const missing = ['missing', 'unavailable', 'error', 'failed', 'invalid'].includes(
-      health.status.toLowerCase(),
-    );
-    return {
-      text: healthy
-        ? `可讀取 · ${health.files} 個檔案`
-        : missing
-          ? '來源需注意'
-          : `${health.status} · ${health.files} 個檔案`,
-      className: healthy ? 'success' : missing ? 'warning' : 'neutral',
-      detail: health.message,
-    };
+      return { text: '尚未掃描', className: 'neutral', detail: '尚未確認是否有歷史資料，請先掃描。' };
+    const state = health.status.toLowerCase();
+    if (state === 'empty')
+      return { text: '尚無歷史', className: 'neutral', detail: health.message || '掃描完成，目前沒有支援的歷史紀錄。' };
+    if (state === 'missing')
+      return { text: '找不到來源目錄', className: 'warning', detail: health.message || '請確認歷史資料目錄的完整路徑。' };
+    if (['error', 'failed', 'invalid', 'unavailable'].includes(state))
+      return { text: '來源讀取錯誤', className: 'warning', detail: health.message || '請檢查路徑與讀取權限後重新掃描。' };
+    if (['ok', 'ready', 'healthy', 'scanned', 'complete'].includes(state))
+      return { text: `可讀取 · ${health.files} 個檔案`, className: 'success', detail: health.message };
+    if (state === 'partial')
+      return { text: `部分可讀取 · ${health.files} 個檔案`, className: 'warning', detail: health.message || '部分歷史未能完整讀取，請查看掃描提醒。' };
+    if (state === 'cancelled')
+      return { text: '掃描已取消', className: 'neutral', detail: health.message || '結果可能不完整，請重新掃描。' };
+    if (state === 'disabled')
+      return { text: '等待重新掃描', className: 'neutral', detail: '已啟用來源，但尚未取得新的掃描結果。' };
+    return { text: '來源狀態待確認', className: 'neutral', detail: health.message || `尚未確認的掃描狀態：${health.status}` };
   };
 
   return (
@@ -550,7 +568,10 @@ export function SettingsPanel({
               <fieldset className="settings-fieldset" disabled={locked}>
                 {section === 'sources' && (
                   <>
-                    <div className="settings-section-heading">
+                    <div className="settings-source-wayfinding" aria-label="來源與工具區段">
+                      <a href="#settings-agent-tools">Agent 工具</a><a href="#settings-history-sources">歷史資料來源</a><span>啟動能力與歷史能力分別確認</span>
+                    </div>
+                    <div className="settings-section-heading" id="settings-agent-tools">
                       <div>
                         <h3>Agent 工具</h3>
                         <p>工具可啟動與歷史可讀取，會分別確認。</p>
@@ -568,28 +589,19 @@ export function SettingsPanel({
                     <div className="settings-installations">
                       {agentKinds.map((kind) => {
                         const installation = installations.find((item) => item.kind === kind);
+                        const parsedArgs = parseAgentArgs(agentJson[kind]);
+                        const argumentSummary = parsedArgs.error ? '參數待修正' : parsedArgs.value?.length ? '已有自訂參數' : '使用安全預設';
+                        const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
                         return (
                           <div className="settings-installation" key={kind}>
                             <div className="settings-installation-top">
-                              <span className={`settings-agent-logo ${kind}`} aria-hidden="true">
-                                {kind === 'codex' ? 'C' : kind === 'claude' ? '✳' : kind === 'grok' ? 'G' : 'A'}
-                              </span>
+                              <AgentIcon kind={kind} />
                               <strong>{agentNames[kind]}</strong>
-                              <span
-                                className={`settings-status ${installation?.available ? 'success' : 'neutral'}`}
-                              >
-                                {installation?.available ? (
-                                  <>
-                                    <Check size={12} />
-                                    可啟動
-                                  </>
-                                ) : installation ? (
-                                  '未偵測到'
-                                ) : (
-                                  '尚未偵測'
-                                )}
+                              <span className={`settings-status ${binary.className}`}>
+                                {binary.className === 'success' && <Check size={12} />}{binary.text}
                               </span>
                             </div>
+                            <p className="settings-help">登入狀態：未驗證；沿用 CLI 自身登入。</p>
                             <p className="settings-version">
                               {installation?.available
                                 ? installation.version || '已找到執行檔'
@@ -624,9 +636,14 @@ export function SettingsPanel({
                             {installation?.error && (
                               <p className="settings-subtle-warning">{installation.error}</p>
                             )}
-                            <p className="settings-help">{kind === 'antigravity'
-                              ? 'CLI 工具 agy；與 Antigravity 桌面／IDE 歷史分開。尚不提供歷史搜尋。'
-                              : '支援唯讀歷史索引、搜尋及接續。'}</p>
+                            <p className="settings-help">{agentCapabilities[kind].history.supported
+                              ? '支援唯讀歷史索引、搜尋及接續。'
+                              : '支援啟動／指定對話 ID 恢復，尚不索引歷史。'}</p>
+                            <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>
+                              <summary aria-label={`${agentNames[kind]} 參數與權限設定`}>
+                                <span>參數與權限</span><span>{draft.agentOptions[kind].bypassPermissions ? '高風險模式已開啟' : argumentSummary}</span>
+                              </summary>
+                              <div className="settings-agent-advanced-body">
                             <label className="settings-field">
                               <span>自訂啟動參數 <small>JSON 字串陣列</small></span>
                               <textarea rows={3} aria-label={`${agentNames[kind]} 自訂啟動參數`}
@@ -637,7 +654,7 @@ export function SettingsPanel({
                             </label>
                             <p className="settings-help">例如 ["--model", "模型名稱"]。每項為一個參數，不需 Shell 引號；不接受覆寫工作目錄／來源／Session 的參數。儲存為本機明文，勿填密碼或金鑰。</p>
                             <label className="settings-risk-toggle">
-                              <input type="checkbox" checked={draft.agentOptions[kind].bypassPermissions}
+                              <input className="checkbox" type="checkbox" checked={draft.agentOptions[kind].bypassPermissions}
                                 aria-label={`${agentNames[kind]} 略過權限確認`}
                                 onChange={(event) => update('agentOptions', { ...draft.agentOptions,
                                   [kind]: { ...draft.agentOptions[kind], bypassPermissions: event.target.checked } })} />
@@ -646,6 +663,8 @@ export function SettingsPanel({
                             <p className="settings-subtle-warning">啟用預設加入 {bypassFlags[kind]}；自訂權限選項以啟動預覽為準。Agent 可能不再詢問就執行命令、讀寫或刪除檔案。{kind === 'codex'
                               ? 'Codex 此模式也會停用 sandbox。'
                               : '這不代表停用 sandbox，隔離仍依原工具設定。'}僅在可信目錄使用；儲存後套用後續新啟動與恢復，現有程序不變。</p>
+                              </div>
+                            </details>
                           </div>
                         );
                       })}
@@ -653,145 +672,91 @@ export function SettingsPanel({
                     {dirty && (
                       <p className="settings-help">變更設定後，請先儲存，再重新偵測或掃描。</p>
                     )}
-                    <div className="settings-section-heading settings-section-space">
+                    <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
-                        <h3>
-                          歷史資料來源{' '}
-                          <span className="settings-count">{draft.sources.length}</span>
-                        </h3>
-                        <p>可為同一個 Agent 加入多個資料目錄。</p>
+                        <h3>歷史資料來源 <span className="settings-count">{draft.sources.length}</span></h3>
+                        <p>四個 Agent 的能力固定顯示；歷史讀取不以 CLI 安裝或啟動為前提。</p>
                       </div>
-                      <button
-                        type="button"
-                        className="settings-button secondary compact"
-                        disabled={draft.sources.length >= 32}
-                        onClick={() =>
-                          update('sources', [
-                            ...draft.sources,
-                            { id: newId('source'), kind: 'codex', root: '', enabled: true },
-                          ])
-                        }
-                      >
-                        <Plus size={14} />
-                        新增來源
+                    </div>
+                    <div className="settings-add-source">
+                      <label className="settings-field">
+                        <span>新增來源的 Agent</span>
+                        <Select aria-label="新增來源的 Agent" value={newSourceKind} disabled={locked}
+                          onChange={(value) => setNewSourceKind(value as HistoryAgentKind)}
+                          options={historyAgentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} /> }))} />
+                      </label>
+                      <button type="button" className="settings-button secondary compact"
+                        disabled={draft.sources.length >= 32} onClick={() => addSource(newSourceKind)}>
+                        <Plus size={14} />新增來源
                       </button>
                     </div>
                     <FieldError id="sources-error" message={errors.sources} />
-                    {!draft.sources.length && (
-                      <div className="settings-empty">
-                        <Folder size={24} />
-                        <strong>尚未加入歷史來源</strong>
-                        <p>新增 Codex、Claude Code 或 Grok Build 資料目錄，或先使用一般終端機。</p>
-                      </div>
-                    )}
-                    <div className="settings-source-list">
-                      {draft.sources.map((source, i) => {
-                        const saved = settings.sources.find((item) => item.id === source.id);
-                        const status = sourceStatus(
-                          source.id,
-                          source.enabled,
-                          !saved ||
-                            saved.root !== source.root ||
-                            saved.kind !== source.kind ||
-                            saved.enabled !== source.enabled,
-                        );
+                    <div className="settings-history-providers">
+                      {agentKinds.map((kind) => {
+                        const capability = agentCapabilities[kind];
+                        const installation = installations.find((item) => item.kind === kind);
+                        const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
+                        const sources = draft.sources.map((source, i) => ({ source, i })).filter(({ source }) => source.kind === kind);
                         return (
-                          <div
-                            className={`settings-source${source.enabled ? '' : ' is-disabled'}`}
-                            key={source.id}
-                          >
-                            <div className="settings-source-top">
-                              <label className="settings-toggle-label">
-                                <input
-                                  type="checkbox"
-                                  checked={source.enabled}
-                                  onChange={(event) =>
-                                    update(
-                                      'sources',
-                                      draft.sources.map((item) =>
-                                        item.id === source.id
-                                          ? { ...item, enabled: event.target.checked }
-                                          : item,
-                                      ),
-                                    )
-                                  }
-                                  aria-label={`啟用資料來源 ${i + 1}`}
-                                />
-                                <span>來源 {String(i + 1).padStart(2, '0')}</span>
-                              </label>
-                              <span className={`settings-status ${status.className}`}>
-                                {status.text}
-                              </span>
-                              <button
-                                type="button"
-                                className="settings-icon-button danger"
-                                aria-label={`移除資料來源 ${i + 1}`}
-                                onClick={() =>
-                                  update(
-                                    'sources',
-                                    draft.sources.filter((item) => item.id !== source.id),
-                                  )
-                                }
-                              >
-                                <Trash2 size={15} />
+                          <section className="settings-history-provider" key={kind} aria-label={`${capability.name} 歷史來源`}>
+                            <div className="settings-history-provider-top">
+                              <AgentIcon kind={kind} />
+                              <h4>{capability.name}</h4>
+                              <span className={`settings-status ${binary.className}`}>CLI {binary.text}</span>
+                            </div>
+                            <p className="settings-help">{capability.history.description}</p>
+                            {!capability.history.supported ? <>
+                              <span className="settings-status neutral">歷史尚不支援</span>
+                              <p className="settings-help">{capability.resume.description}</p>
+                            </> : <>
+                              {!sources.length && <div className="settings-history-unconfigured">
+                                <span className="settings-status neutral">尚未設定來源</span>
+                                <p className="settings-help">請指定已有歷史的完整資料目錄。尚未掃描，無法判斷是否有對話。</p>
+                              </div>}
+                              <div className="settings-source-list">
+                                {sources.map(({ source, i }) => {
+                                  const saved = settings.sources.find((item) => item.id === source.id);
+                                  const status = sourceStatus(source.id, source.enabled, !saved || saved.root !== source.root || saved.kind !== source.kind || saved.enabled !== source.enabled);
+                                  return (
+                                    <div className={`settings-source${source.enabled ? '' : ' is-disabled'}`} key={source.id}>
+                                      <div className="settings-source-top">
+                                        <label className="settings-toggle-label">
+                                          <input className="checkbox" type="checkbox" checked={source.enabled} aria-label={`啟用資料來源 ${i + 1}`}
+                                            onChange={(event) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, enabled: event.target.checked } : item))} />
+                                          <span>來源 {String(i + 1).padStart(2, '0')}</span>
+                                        </label>
+                                        <span className={`settings-status ${status.className}`}>{status.text}</span>
+                                        <button type="button" className="settings-icon-button danger" aria-label={`移除資料來源 ${i + 1}`}
+                                          onClick={() => update('sources', draft.sources.filter((item) => item.id !== source.id))}>
+                                          <Trash2 size={15} />
+                                        </button>
+                                      </div>
+                                      <div className="settings-source-fields">
+                                        <label className="settings-field">
+                                          <span>Agent 類型</span>
+                                          <Select aria-label="Agent 類型" value={source.kind} disabled={locked}
+                                            onChange={(value) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, kind: value as AgentKind } : item))}
+                                            options={historyAgentKinds.map((option) => ({ value: option, label: agentNames[option], icon: <AgentIcon kind={option} /> }))} />
+                                        </label>
+                                        <label className="settings-field">
+                                          <span>{capability.history.sourceEnv} 資料目錄</span>
+                                          <input id={`source-root-${source.id}`} value={source.root} placeholder={capability.history.rootPlaceholder!}
+                                            onChange={(event) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, root: event.target.value } : item))}
+                                            spellCheck={false} aria-invalid={Boolean(errors[`sources.${i}.root`])} aria-describedby={`source-${i}-error`} />
+                                          <FieldError id={`source-${i}-error`} message={errors[`sources.${i}.root`] ?? errors[`sources.${i}.id`] ?? errors[`sources.${i}.kind`]} />
+                                        </label>
+                                      </div>
+                                      {status.detail && <p className="settings-help">{status.detail}</p>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <button type="button" className="settings-button secondary compact settings-provider-add"
+                                disabled={draft.sources.length >= 32} onClick={() => addSource(kind as HistoryAgentKind)}>
+                                <Plus size={14} />{sources.length ? `新增 ${capability.name} 歷史來源` : `設定 ${capability.name} 歷史來源`}
                               </button>
-                            </div>
-                            <div className="settings-source-fields">
-                              <label className="settings-field">
-                                <span>Agent 類型</span>
-                                <select
-                                  value={source.kind}
-                                  onChange={(event) =>
-                                    update(
-                                      'sources',
-                                      draft.sources.map((item) =>
-                                        item.id === source.id
-                                          ? { ...item, kind: event.target.value as AgentKind }
-                                          : item,
-                                      ),
-                                    )
-                                  }
-                                >
-                                  <option value="codex">Codex</option>
-                                  <option value="claude">Claude Code</option>
-                                  <option value="grok">Grok Build</option>
-                                </select>
-                              </label>
-                              <label className="settings-field">
-                                <span>
-                                  {source.kind === 'codex'
-                                    ? 'CODEX_HOME 資料目錄'
-                                    : source.kind === 'grok' ? 'GROK_HOME 資料目錄' : 'CLAUDE_CONFIG_DIR 資料目錄'}
-                                </span>
-                                <input
-                                  value={source.root}
-                                  placeholder={
-                                    source.kind === 'codex'
-                                      ? '/Users/you/.codex'
-                                      : source.kind === 'grok' ? '/Users/you/.grok' : '/Users/you/.claude'
-                                  }
-                                  onChange={(event) =>
-                                    update(
-                                      'sources',
-                                      draft.sources.map((item) =>
-                                        item.id === source.id
-                                          ? { ...item, root: event.target.value }
-                                          : item,
-                                      ),
-                                    )
-                                  }
-                                  spellCheck={false}
-                                  aria-invalid={Boolean(errors[`sources.${i}.root`])}
-                                  aria-describedby={`source-${i}-error`}
-                                />
-                                <FieldError
-                                  id={`source-${i}-error`}
-                                  message={errors[`sources.${i}.root`] ?? errors[`sources.${i}.id`]}
-                                />
-                              </label>
-                            </div>
-                            {status.detail && <p className="settings-help">{status.detail}</p>}
-                          </div>
+                            </>}
+                          </section>
                         );
                       })}
                     </div>
@@ -905,6 +870,37 @@ export function SettingsPanel({
                         <Plus size={14} />
                         新增 Profile
                       </button>
+                    </div>
+                    <div className="settings-shell-discovery">
+                      <div className="settings-section-heading">
+                        <div><h4>可用的 Shell</h4><p>偵測只讀取本機執行檔資訊；選擇加入後才建立新的 Profile。</p></div>
+                        <button type="button" className="settings-button secondary compact" disabled={!onDetectShells}
+                          onClick={() => void run(async () => {
+                            setShellCandidates(null);
+                            setShellCandidates(await onDetectShells!());
+                          })}>
+                          <RefreshCw size={14} />重新偵測 Shell
+                        </button>
+                      </div>
+                      {shellCandidates !== null && <div role="region" aria-label="偵測到的 Shell" className="settings-shell-candidates">
+                        {shellCandidates.length === 0 && <p className="settings-help">沒有新的 Shell 可加入。已設定的 Shell 會自動排除；你仍可手動新增完整執行檔路徑。</p>}
+                        {shellCandidates.map((candidate) => {
+                          const added = draft.profiles.some((profile) => profile.executable === candidate.executable);
+                          return <div className="settings-shell-candidate" key={candidate.executable}>
+                            <div><strong>{candidate.name}</strong><p>{candidate.executable}</p></div>
+                            <button type="button" className="settings-button secondary compact" disabled={added || draft.profiles.length >= 32}
+                              aria-label={added ? `${candidate.name} 已有 Profile` : `加入 ${candidate.name} Profile`}
+                              onClick={() => {
+                                const profile: ShellProfile = { id: newId('profile'), name: candidate.name, executable: candidate.executable, args: [], env: {} };
+                                update('profiles', [...draft.profiles, profile]);
+                                setJsonFields((current) => ({ ...current, [profile.id]: { args: '[]', env: '{}' } }));
+                              }}>
+                              {added ? '已有 Profile' : '加入 Profile'}
+                            </button>
+                          </div>;
+                        })}
+                      </div>}
+                      <p className="settings-help">不會取代既有 Profile 的名稱、參數、環境變數或預設選擇。新增的參數與環境變數預設為空，可自行編輯。</p>
                     </div>
                     <FieldError id="profiles-error" message={errors.profiles} />
                     <div className="settings-profile-list">
@@ -1076,15 +1072,9 @@ export function SettingsPanel({
                     <div className="settings-two-columns settings-section-space">
                       <label className="settings-field">
                         <span>終端色票</span>
-                        <select
-                          value={draft.terminalTheme}
-                          onChange={(event) =>
-                            update('terminalTheme', event.target.value as Settings['terminalTheme'])
-                          }
-                        >
-                          <option value="bay">Bay · 柔和暖色</option>
-                          <option value="classic">Classic · 經典對比</option>
-                        </select>
+                        <Select aria-label="終端色票" value={draft.terminalTheme} disabled={locked}
+                          onChange={(value) => update('terminalTheme', value as Settings['terminalTheme'])}
+                          options={[{ value: 'bay', label: 'Bay · 柔和暖色' }, { value: 'classic', label: 'Classic · 經典對比' }]} />
                         <FieldError id="terminal-theme-error" message={errors.terminalTheme} />
                       </label>
                       <label className="settings-field">
@@ -1140,7 +1130,7 @@ export function SettingsPanel({
                       <p>讓每一次工作，都能接續。</p>
                       <span className="settings-preview-cursor" aria-hidden="true" />
                     </div>
-                    <div className="settings-section-heading settings-section-space">
+                    <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
                         <h3>開始新工作時</h3>
                         <p>既有面板不會因變更預設值而重新啟動。</p>
@@ -1149,34 +1139,16 @@ export function SettingsPanel({
                     <div className="settings-two-columns">
                       <label className="settings-field">
                         <span>預設 Agent</span>
-                        <select
-                          value={draft.defaultAgent}
-                          onChange={(event) =>
-                            update('defaultAgent', event.target.value as AgentKind)
-                          }
-                        >
-                          <option value="codex">Codex</option>
-                          <option value="claude">Claude Code</option>
-                                  <option value="grok">Grok Build</option>
-                          <option value="antigravity">Antigravity CLI</option>
-                        </select>
+                        <Select aria-label="預設 Agent" value={draft.defaultAgent} disabled={locked}
+                          onChange={(value) => update('defaultAgent', value as AgentKind)}
+                          options={agentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} /> }))} />
                         <FieldError id="default-agent-error" message={errors.defaultAgent} />
                       </label>
                       <label className="settings-field">
                         <span>預設 Shell Profile</span>
-                        <select
-                          value={draft.defaultProfileId}
-                          onChange={(event) => update('defaultProfileId', event.target.value)}
-                        >
-                          {!draft.profiles.some(
-                            (profile) => profile.id === draft.defaultProfileId,
-                          ) && <option value="">請選擇 Profile</option>}
-                          {draft.profiles.map((profile) => (
-                            <option value={profile.id} key={profile.id}>
-                              {profile.name || '未命名 Profile'}
-                            </option>
-                          ))}
-                        </select>
+                        <Select aria-label="預設 Shell Profile" value={draft.defaultProfileId} disabled={locked}
+                          onChange={(value) => update('defaultProfileId', value)}
+                          options={draft.profiles.map((profile) => ({ value: profile.id, label: profile.name || '未命名 Profile', icon: <Terminal size={14} />, description: profile.executable }))} />
                         <FieldError id="default-profile-error" message={errors.defaultProfileId} />
                       </label>
                     </div>

@@ -1,6 +1,6 @@
 # Session Bay Agent 整合規格
 
-每個 Agent 透過 adapter 提供工具偵測、歷史列舉、對話解析與啟動規格。各家沒有可假定通用的本機歷史格式，支援範圍必須明列。
+Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋四工具，歷史列舉／解析僅由已實作 adapter 提供。各家沒有通用的本機歷史格式；目前不是動態外掛系統，未知工具或格式不會自動取得歷史能力。
 
 ## Agent 能力矩陣
 
@@ -11,11 +11,23 @@
 | Codex CLI／`codex` | `codex` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
 | Claude Code CLI／`claude` | `claude` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
 | Grok Build／`grok` | `grok` | 本批新增唯讀 summary／updates adapter | 新工作、索引 Session 或手動 ID 恢復 |
-| Antigravity CLI／`antigravity` | `agy` | **尚不支援**，不提供該工具的歷史來源設定 | 新工作、手動 conversation ID 恢復 |
+| Antigravity CLI／`antigravity` | `agy` | **尚不支援**，固定顯示能力卡片與限制，不提供可索引來源設定 | 新工作、手動 conversation ID 恢復 |
 | Gemini CLI、OpenCode、Aider 等 | 未整合 | 個別研究 | 後續候選 |
 | 各工具桌面版、IDE 與雲端紀錄 | 分別評估 | 不因 CLI 支援就假定涵蓋 | 不自動附接外部程序 |
 
 工具名稱、可執行檔與模型供應商不同。此處 Grok 指 xAI 的 Grok Build CLI；Antigravity 指 `agy` CLI，並非同品牌 App 或 IDE 的通用歷史整合。
+
+## 統一來源入口與升級
+
+設定以 TypeScript／Rust 共用的 `src/agent-manifest.json` 內建能力登錄固定列出四工具卡片，不依執行檔偵測、是否曾啟動或來源數量決定可見性。工具是否可執行、是否有歷史 adapter、來源是否已設定／啟用及來源健康各自呈現；多個自訂來源仍按工具管理，不合併來源身份。
+
+全新設定預置 Codex／Claude／Grok 來源；升級則保留原本來源的 ID、root 與 enabled。因此舊設定可能只有前兩者，原因與是否曾開啟 Grok 無關。Grok 卡片在缺來源時提供設定入口，先加入可編輯草稿，使用者填入絕對路徑並保存後才生效；不從前端猜使用者 home，也不在升級或開啟設定時自動開始索引新根目錄。Antigravity 卡片始終明示歷史尚不支援，不能把啟動能力或已知 transcript 位置當成 parser。
+
+## 內建 provider 登錄與偵測
+
+`src/agent-manifest.json` 是共同 metadata 來源，包含 kind、名稱／標誌、預設執行檔、版本探測 argv、歷史能力／parser ID／來源環境及啟動／恢復模板。TypeScript 用於設定、狀態與啟動器；Rust 消費同一份資料並透過型別檢查對應已實作 parser。工具專屬 argv 白名單及安全驗證仍由 Rust 負責，不因編輯 manifest 就放寬。
+
+新增內建工具需同步型別、adapter／launch 驗證與契約測試；沒有 parser 的 provider 必須明示歷史不支援，不動態載入任意程式。工具重新偵測只更新安裝與版本資訊，與歷史索引掃描分開；偵測使用保存後的執行檔設定，不帶自訂參數／危險旗標。安裝狀態區分缺失、可用及版本檢查失敗；登入狀態維持未知，不以找到執行檔或取得版本證明已登入、歷史可讀或可成功接續。
 
 ## Adapter 能力契約
 
@@ -37,7 +49,7 @@ interface LaunchSpec {
 }
 ```
 
-此為邊界示意，未列型別在實作時補齊。adapter 產生啟動規格，Runtime Manager 才實際執行。能力欄位分別表示是否支援歷史、預覽、resume、fork 與 attach，不以單一 supported 布林值概括。
+此為能力邊界示意，不代表已存在此 TypeScript 外掛介面；目前實作以 Rust 內建 AgentKind 分派與個別 adapter 為準。未列型別仍需按實作補齊。adapter 產生啟動規格，Runtime Manager 才實際執行。能力欄位分別表示是否支援歷史、預覽、resume、fork 與 attach，不以單一 supported 布林值概括。
 
 工具偵測考慮桌面 GUI 與互動式 Shell 的 PATH 差異。Grok 版本探測使用 `version`，其餘使用 `--version`，不帶自訂參數或危險旗標。版本查詢有 timeout，使用者可手動指定執行檔；登入、金鑰與權限交由原 CLI 管理。
 
@@ -122,7 +134,7 @@ Claude 的 `custom-title`／`customTitle` 優先於 `summary`。兩工具均在�
 6. Repo、子目錄與 worktree 的合併列為 P1；同 Repo 不代表同一工作環境。
 7. 若對話中途換目錄，保留時間脈絡。分組採明確的主要 cwd 規則，啟動 cwd 由 adapter 恢復行為決定，不能任選第一筆或最後一筆。
 8. 使用者重新定位只建立 Session Bay 的 launch override，不移動或修改原紀錄。
-9. 目錄分組只用於 catalog 身份與歷史查詢，不自動加入左側專案；`curated` 由使用者選擇維護。所有工作階段保留未加入目錄的歷史。
+9. 目錄分組只用於 catalog 身份與歷史查詢，不自動加入左側專案；`curated` 由使用者選擇維護。所有目錄頁以 `sessionCount > 0` 保留全部歷史分組，包含已加入／未加入、未知／失效目錄；先選組再看歷史。
 10. 加入、移出與更名不改原始 cwd、恢復參數或來源資料；直接接續未加入專案的 Session 也不隱含加入。
 
 ## Session 與程序關聯

@@ -42,3 +42,19 @@ describe('launch preview IPC contract', () => {
     expect(native.channels).not.toHaveBeenCalled();
   });
 });
+
+
+describe('shell discovery IPC contract', () => {
+  it('reads shell candidates without creating a PTY or supplying configuration changes', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const candidates = [{ name: 'Zsh', executable: '/synthetic/zsh' }];
+    vi.mocked(invoke).mockResolvedValue(candidates);
+    await expect(api.detectShells()).resolves.toEqual(candidates);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('detect_shells', undefined);
+    expect(native.channels).not.toHaveBeenCalled();
+  });
+  it('requires the desktop environment for shell discovery', async () => {
+    await expect(api.detectShells()).rejects.toThrow('桌面執行環境未連線');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});

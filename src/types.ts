@@ -6,7 +6,13 @@ export interface HistorySource {
   root: string;
   enabled: boolean;
 }
+export interface ShellCandidate {
+  name: string;
+  executable: string;
+}
 export interface Installation {
+  status?: 'missing' | 'available' | 'versionCheckFailed';
+  loginStatus?: 'unknown';
   kind: AgentKind;
   executable: string | null;
   version: string | null;

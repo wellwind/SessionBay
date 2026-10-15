@@ -1,84 +1,158 @@
 #!/usr/bin/env bash
-# Run under xvfb-run. Uses only empty temporary application/source directories.
+# Run under xvfb-run. All state and histories are synthetic and under temporary HOME.
+# Shared fixture/marker helpers are also sourced by the macOS DOM/IPC smoke.
 set -euo pipefail
-binary="$(realpath "${1:-src-tauri/target/release/sessionbay}")"
-output="$(realpath -m "${2:-artifacts/linux-smoke}")"
-mkdir -p "$output"
-temporary="$(mktemp -d)"
-pid=''
-cleanup() {
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+
+smoke_stop() {
+  if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
     kill -TERM "$pid" 2>/dev/null || true
     for _ in $(seq 1 30); do
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1
     done
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -KILL "$pid" 2>/dev/null || true
-    fi
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   fi
-  rm -rf "$temporary"
+  pid=''
 }
-trap cleanup EXIT
-export HOME="$temporary/home" XDG_CONFIG_HOME="$temporary/config" XDG_DATA_HOME="$temporary/data" XDG_CACHE_HOME="$temporary/cache" XDG_RUNTIME_DIR="$temporary/runtime"
-export SESSIONBAY_SMOKE=1
-# Xvfb has no accelerated compositor. This changes graphics only, never sandboxing.
-# https://trac.webkit.org/wiki/EnvironmentVariables
-export WEBKIT_DISABLE_COMPOSITING_MODE=1
-export CODEX_HOME="$temporary/codex" CLAUDE_CONFIG_DIR="$temporary/claude" GROK_HOME="$temporary/grok"
-mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
-chmod 700 "$XDG_RUNTIME_DIR"
-"$binary" > "$output/app.log" 2>&1 &
-pid=$!
-window=''
-for _ in $(seq 1 60); do
+
+smoke_environment() {
+  local root="$1"
+  export HOME="$root/home" XDG_CONFIG_HOME="$root/config" XDG_DATA_HOME="$root/data" XDG_CACHE_HOME="$root/cache" XDG_RUNTIME_DIR="$root/runtime"
+  export SESSIONBAY_SMOKE=1
+  export CODEX_HOME="$root/codex" CLAUDE_CONFIG_DIR="$root/claude" GROK_HOME="$root/grok"
+  mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR" "$CODEX_HOME" "$CLAUDE_CONFIG_DIR" "$GROK_HOME"
+  chmod 700 "$XDG_RUNTIME_DIR"
+}
+
+smoke_seed_fixture() {
+  # No real tool executables, credentials, SQLite writes, or PTY launches. Normal adapters
+  # index these JSONL files; the smoke probe curates the two existing fixture directories.
+  python3 - "$1" <<'PY'
+import json, os, pathlib, sys
+assert sys.argv[1] in ('dark', 'light')
+home = pathlib.Path(os.environ['HOME'])
+root = home / 'sessionbay-smoke-fixture'
+for path in [root/'codex/sessions/2026/01/01', root/'claude/projects/smoke', root/'workspaces/harbor', root/'workspaces/notes']:
+    path.mkdir(parents=True, exist_ok=True)
+for number, (directory, title) in enumerate([
+    ('harbor', '整理 API 邊界與錯誤處理'),
+    ('notes', '檢查發行筆記與測試清單'),
+    ('missing-worktree', '保留已移動目錄的歷史'),
+    (None, '未記錄工作目錄的對話'),
+]):
+    meta = {'id': f'smoke-codex-{number}', 'title': title, 'source': 'cli'}
+    if directory: meta['cwd'] = str(root/'workspaces'/directory)
+    records = [
+        {'timestamp': '2026-01-15T09:00:00Z', 'type': 'session_meta', 'payload': meta},
+        {'timestamp': '2026-01-15T09:01:00Z', 'type': 'response_item', 'payload': {'type': 'message', 'role': 'user', 'content': [{'type': 'input_text', 'text': title + '。這是供介面驗證的合成資料，不含真實工作內容。'}]}},
+        {'timestamp': '2026-01-15T09:02:00Z', 'type': 'response_item', 'payload': {'type': 'message', 'role': 'assistant', 'content': [{'type': 'output_text', 'text': '已整理目前的實作脈絡。下一步先檢查邊界條件，再執行回歸測試。\n\n所有來源保留唯讀；介面預覽不會啟動外部程序。'}]}},
+    ]
+    (root/f'codex/sessions/2026/01/01/smoke-{number}.jsonl').write_text('\n'.join(json.dumps(item, ensure_ascii=False) for item in records)+'\n')
+claude = [{'type': role, 'sessionId': 'smoke-claude-1', 'uuid': f'smoke-message-{index}', 'cwd': str(root/'workspaces/harbor'), 'timestamp': f'2026-01-16T08:0{index}:00Z', 'message': {'role': role, 'content': [{'type': 'text', 'text': text}]}} for index, (role, text) in enumerate([('user', '為專案導覽補上鍵盤測試'), ('assistant', '確認選取、焦點與取消操作；保持已開啟的工作區。')])]
+(root/'claude/projects/smoke/session.jsonl').write_text('\n'.join(json.dumps(item, ensure_ascii=False) for item in claude)+'\n')
+kinds = ['codex', 'claude', 'grok', 'antigravity']
+settings = {
+    'version': 1, 'theme': sys.argv[1], 'terminalTheme': 'bay',
+    'fontFamily': 'ui-monospace, SFMono-Regular, Menlo, monospace', 'fontSize': 14,
+    'defaultAgent': 'codex', 'defaultProfileId': 'smoke-shell',
+    'profiles': [{'id': 'smoke-shell', 'name': 'POSIX Shell · 預覽專用', 'executable': '/bin/sh', 'args': [], 'env': {}}],
+    'sources': [{'id': f'sessionbay-smoke-{kind}', 'kind': kind, 'root': str(root/kind), 'enabled': True} for kind in ['codex', 'claude']],
+    'executables': {kind: str(root/'unavailable-cli'/kind) for kind in kinds},
+    'agentOptions': {kind: {'extraArgs': [], 'bypassPermissions': False} for kind in kinds},
+    'shortcuts': {}, 'onboardingComplete': False,
+}
+# Tauri uses XDG data on Linux and Application Support on macOS. Both are isolated.
+for directory in [pathlib.Path(os.environ['XDG_DATA_HOME'])/'dev.sessionbay.desktop', home/'Library/Application Support/dev.sessionbay.desktop']:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory/'settings.json').write_text(json.dumps(settings, ensure_ascii=False))
+PY
+}
+
+smoke_alive() {
   if ! kill -0 "$pid" 2>/dev/null; then
-    cat "$output/app.log"
-    echo 'Desktop process exited before showing a window.' >&2
-    exit 1
+    cat "$log"
+    echo 'Native process exited during smoke.' >&2
+    return 1
   fi
-  window="$(xwininfo -name 'Session Bay' 2>/dev/null | awk '/Window id:/ {print $4}')" || true
-  [[ -n "$window" ]] && break
-  sleep 0.5
-done
-[[ -n "$window" ]] || { echo 'No Session Bay window appeared.' >&2; exit 1; }
-ready=''
-for _ in $(seq 1 120); do
-  if ! kill -0 "$pid" 2>/dev/null; then
-    cat "$output/app.log"
-    echo 'Desktop process exited before frontend readiness.' >&2
-    exit 1
-  fi
-  if grep -q '^SESSIONBAY_FRONTEND .*"phase":"error"' "$output/app.log"; then
-    cat "$output/app.log"
+  if grep -q '^SESSIONBAY_FRONTEND .*"phase":"error"' "$log"; then
+    cat "$log"
     echo 'Frontend startup or interaction failed.' >&2
-    exit 1
+    return 1
   fi
-  if grep -q '^SESSIONBAY_FRONTEND .*"phase":"ready"' "$output/app.log" &&
-     grep -q '^SESSIONBAY_FRONTEND .*"phase":"interaction"' "$output/app.log"; then
-    ready=1
-    break
+}
+
+smoke_wait_marker() {
+  local phase="$1" message="${2:-}"
+  for _ in $(seq 1 600); do
+    smoke_alive || return 1
+    if grep '^SESSIONBAY_FRONTEND ' "$log" | grep -F "\"phase\":\"$phase\"" | grep -F "${message:+\"message\":\"$message\"}" >/dev/null; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  cat "$log"
+  echo "Timed out waiting for native smoke marker: $phase $message" >&2
+  return 1
+}
+
+# macOS sources the platform-neutral helpers above, never the Linux capture code.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return; fi
+binary="$(realpath "${1:-src-tauri/target/release/sessionbay}")"
+output="$(realpath -m "${2:-artifacts/linux-smoke}")"
+mkdir -p "$output"
+temporary="$(mktemp -d)"
+pid=''
+cleanup() { smoke_stop; rm -rf "$temporary"; }
+trap cleanup EXIT
+# Xvfb software compositing changes graphics only, never sandboxing.
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+
+capture() {
+  local name="$1" colors
+  smoke_alive
+  # Less than the frontend's 6s state hold. A slow capture fails instead of drifting.
+  timeout 4s import -window "$window" "$output/$name.png"
+  [[ -s "$output/$name.png" ]]
+  colors="$(identify -format '%k' "$output/$name.png")"
+  identify "$output/$name.png" >> "$output/image-info.txt"
+  [[ "$colors" -ge 32 ]] || { echo "Screenshot $name has only $colors colors; likely unpainted." >&2; return 1; }
+  smoke_alive
+}
+
+: > "$output/image-info.txt"
+for scenario in empty dark light; do
+  smoke_environment "$temporary/$scenario"
+  [[ "$scenario" == empty ]] || smoke_seed_fixture "$scenario"
+  log="$output/$scenario-app.log"
+  "$binary" > "$log" 2>&1 &
+  pid=$!
+  window=''
+  for _ in $(seq 1 150); do
+    smoke_alive
+    window="$(xwininfo -name 'Session Bay' 2>/dev/null | awk '/Window id:/ {print $4}')" || true
+    [[ -n "$window" ]] && break
+    sleep 0.2
+  done
+  [[ -n "$window" ]] || { echo 'No Session Bay window appeared.' >&2; exit 1; }
+  smoke_wait_marker ready
+  if [[ "$scenario" == empty ]]; then
+    smoke_wait_marker interaction
+    capture sessionbay-empty
+  else
+    for state in projects directories providers launcher calendar; do
+      marker="$state-$scenario"
+      smoke_wait_marker snapshot "$marker"
+      capture "sessionbay-$marker"
+      # Reject a capture that ran into a subsequent state rather than mislabeling pixels.
+      latest="$(grep '^SESSIONBAY_FRONTEND ' "$log" | grep '"phase":"snapshot"' | tail -1)"
+      [[ "$latest" == *"\"message\":\"$marker\""* ]] || { echo "Capture crossed snapshot boundary: $marker" >&2; exit 1; }
+    done
+    smoke_wait_marker interaction
   fi
-  sleep 0.5
+  smoke_alive
+  smoke_stop
 done
-if [[ -z "$ready" ]]; then
-  cat "$output/app.log"
-  echo 'Timed out waiting for React DOM, backend bootstrap, and settings and project interaction.' >&2
-  exit 1
-fi
-kill -0 "$pid"
-timeout 15s import -window "$window" "$output/sessionbay-linux.png"
-[[ -s "$output/sessionbay-linux.png" ]]
-# Secondary paint regression guard. Native DOM/IPC/interaction markers above remain mandatory.
-colors="$(identify -format '%k' "$output/sessionbay-linux.png")"
-identify "$output/sessionbay-linux.png" > "$output/image-info.txt"
-if [[ "$colors" -lt 32 ]]; then
-  echo "Native screenshot has only $colors colors; likely blank/unpainted WebView." >&2
-  exit 1
-fi
-if grep -q '^SESSIONBAY_FRONTEND .*"phase":"error"' "$output/app.log"; then
-  cat "$output/app.log"
-  exit 1
-fi
-printf 'Native Linux WebView DOM + backend bootstrap + settings and project open/close/reopen smoke passed; screenshot captured with Xvfb software compositing.\nScreenshot still requires visual review; DOM readiness alone does not prove painted pixels.\nThis does not verify IME, actual CLI resume, or interactive terminal behavior.\n' | tee "$output/result.txt"
+cp "$output/dark-app.log" "$output/app.log"
+cp "$output/sessionbay-projects-dark.png" "$output/sessionbay-linux.png"
+printf 'Native Linux WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nCaptured 10 real UI states: Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar in both themes.\nAll ready/interaction markers were required; snapshot markers were allowlisted and screenshots checked for nonblank paint.\nPNG visual review is still required. This does not verify IME, real CLI resume, terminal interaction, or macOS pixels.\n' | tee "$output/result.txt"

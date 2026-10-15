@@ -241,16 +241,13 @@ impl Service {
                 cwd = project.launch_path.or(project.path);
             }
         }
-        let agent = match request.kind.as_str() {
-            "codex" => Some(AgentKind::Codex),
-            "claude" => Some(AgentKind::Claude),
-            "grok" => Some(AgentKind::Grok),
-            "antigravity" => Some(AgentKind::Antigravity),
-            "shell" => None,
-            _ => return Err("不支援的工具種類".into()),
+        let agent = if request.kind == "shell" {
+            None
+        } else {
+            Some(AgentKind::parse(&request.kind)?)
         };
         if let Some(resume_id) = &request.resume_id {
-            if !matches!(agent, Some(AgentKind::Grok | AgentKind::Antigravity)) {
+            if !agent.is_some_and(|kind| crate::providers::definition(kind).resume.manual_id) {
                 return Err(
                     "Manual resume IDs are supported for Grok Build and Antigravity CLI only."
                         .into(),
@@ -298,6 +295,7 @@ impl Service {
             }
             args = resume_arguments(session.kind, id);
         } else if let Some(kind) = agent {
+            args = crate::providers::definition(kind).launch.new_args.clone();
             if let Some(key) = history_environment(kind) {
                 if request.resume_id.is_some()
                     && settings
@@ -319,24 +317,18 @@ impl Service {
             }
             if let Some(id) = &request.resume_id {
                 args = resume_arguments(kind, id);
-                let source_root = if kind == AgentKind::Grok {
-                    env.get("GROK_HOME")
-                        .cloned()
-                        .or_else(|| std::env::var("GROK_HOME").ok())
-                        .unwrap_or_else(|| {
-                            dirs::home_dir()
-                                .unwrap_or_else(|| PathBuf::from("/"))
-                                .join(".grok")
-                                .to_string_lossy()
-                                .into_owned()
-                        })
-                } else {
-                    dirs::home_dir()
-                        .unwrap_or_else(|| PathBuf::from("/"))
-                        .join(".gemini/antigravity-cli")
-                        .to_string_lossy()
-                        .into_owned()
-                };
+                let provider = crate::providers::definition(kind);
+                let source_root = provider
+                    .history
+                    .source_env
+                    .as_ref()
+                    .and_then(|key| env.get(key).cloned())
+                    .unwrap_or_else(|| {
+                        provider
+                            .state_root(&dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")))
+                            .to_string_lossy()
+                            .into_owned()
+                    });
                 resume_key = Some(provider_resume_key(kind, &source_root, id));
             }
         }
@@ -350,15 +342,8 @@ impl Service {
                 *kind,
                 settings.agent_options.for_kind(*kind),
             )?);
-            if matches!(kind, AgentKind::Codex) {
-                args.extend(["--cd".into(), cwd.to_string_lossy().into_owned()]);
-            }
-            config::resolve_executable(match kind {
-                AgentKind::Codex => &settings.executables.codex,
-                AgentKind::Claude => &settings.executables.claude,
-                AgentKind::Grok => &settings.executables.grok,
-                AgentKind::Antigravity => &settings.executables.antigravity,
-            })?
+            args.extend(crate::providers::definition(*kind).cwd_arguments(&cwd));
+            config::resolve_executable(settings.executables.for_kind(*kind))?
         } else {
             let profile_id = request
                 .profile_id
@@ -499,24 +484,14 @@ fn validate_resume_id(id: &str) -> Result<(), String> {
 }
 
 fn history_environment(kind: AgentKind) -> Option<&'static str> {
-    match kind {
-        AgentKind::Codex => Some("CODEX_HOME"),
-        AgentKind::Claude => Some("CLAUDE_CONFIG_DIR"),
-        AgentKind::Grok => Some("GROK_HOME"),
-        AgentKind::Antigravity => None,
-    }
+    crate::providers::definition(kind)
+        .history
+        .source_env
+        .as_deref()
 }
 
 fn resume_arguments(kind: AgentKind, id: &str) -> Vec<String> {
-    vec![
-        match kind {
-            AgentKind::Codex => "resume",
-            AgentKind::Claude | AgentKind::Grok => "--resume",
-            AgentKind::Antigravity => "--conversation",
-        }
-        .into(),
-        id.into(),
-    ]
+    crate::providers::definition(kind).resume_arguments(id)
 }
 
 fn empty_index() -> IndexStatus {

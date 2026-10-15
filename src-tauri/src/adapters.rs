@@ -1,6 +1,7 @@
 //! Read-only adapters for explicitly supported local JSONL shapes.
 //! All examples and tests are synthetic; no live CLI history is inspected.
 use crate::models::AgentKind;
+use crate::providers::{self, ParserId};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -143,7 +144,7 @@ pub fn display_title(state: &ParsedState, kind: AgentKind, external_id: &str) ->
 
 // Codex names live outside rollouts. Read only the selected source's sidecar.
 pub fn source_titles(kind: AgentKind, root: &Path) -> Result<HashMap<String, String>, String> {
-    if kind != AgentKind::Codex {
+    if providers::definition(kind).history.parser_id != Some(ParserId::Codex) {
         return Ok(HashMap::new());
     }
     let path = root.join("session_index.jsonl");
@@ -316,8 +317,8 @@ pub fn search_text(value: &Value, kind: AgentKind, parsed: &ParsedMessage) -> St
     if !parsed.searchable {
         return String::new();
     }
-    match kind {
-        AgentKind::Codex => {
+    match providers::definition(kind).history.parser_id {
+        Some(ParserId::Codex) => {
             let payload = value.get("payload").unwrap_or(value);
             if value.get("type").and_then(Value::as_str) == Some("event_msg") {
                 payload
@@ -329,15 +330,15 @@ pub fn search_text(value: &Value, kind: AgentKind, parsed: &ParsedMessage) -> St
                 search_content(payload.get("content").unwrap_or(&Value::Null))
             }
         }
-        AgentKind::Claude => search_content(
+        Some(ParserId::Claude) => search_content(
             value
                 .get("message")
                 .and_then(|m| m.get("content"))
                 .or_else(|| value.get("content"))
                 .unwrap_or(&Value::Null),
         ),
-        AgentKind::Grok => parsed.text.clone(),
-        AgentKind::Antigravity => String::new(),
+        Some(ParserId::Grok) => parsed.text.clone(),
+        None => String::new(),
     }
 }
 
@@ -358,11 +359,11 @@ pub fn parse_value(
     path: &Path,
 ) -> Option<ParsedMessage> {
     let timestamp = observe_timestamp(state, value);
-    match kind {
-        AgentKind::Codex => parse_codex(value, state, timestamp),
-        AgentKind::Claude => parse_claude(value, state, timestamp, path),
-        AgentKind::Grok => parse_grok(value, state),
-        AgentKind::Antigravity => None,
+    match providers::definition(kind).history.parser_id {
+        Some(ParserId::Codex) => parse_codex(value, state, timestamp),
+        Some(ParserId::Claude) => parse_claude(value, state, timestamp, path),
+        Some(ParserId::Grok) => parse_grok(value, state),
+        None => None,
     }
 }
 

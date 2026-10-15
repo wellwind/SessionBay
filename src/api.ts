@@ -9,6 +9,7 @@ import type {
   RuntimeInfo,
   SessionPage,
   SessionQuery,
+  ShellCandidate,
   Settings,
   TerminalEvent,
   TranscriptPage,
@@ -21,6 +22,7 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
 export const api = {
   bootstrap: () => call<Bootstrap>('bootstrap'),
   detect: () => call<Installation[]>('detect_installations'),
+  detectShells: () => call<ShellCandidate[]>('detect_shells'),
   saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),

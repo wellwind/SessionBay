@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import observerSource from '../public/startup-diagnostics.js?raw';
 import './startup';
+import { call } from './api';
+import { smokeSnapshot, smokeSnapshotHoldMs, type SmokeSnapshot } from './startup';
+
+vi.mock('./api', () => ({ call: vi.fn() }));
+afterEach(() => vi.useRealTimers());
 
 function harness(smokeEnabled = false) {
   const doc = document.implementation.createHTMLDocument('Session Bay startup test');
@@ -122,5 +127,38 @@ describe('pre-module startup observer', () => {
     expect(h.invoke).toHaveBeenCalledTimes(32);
     expect(h.invoke.mock.calls[1][1].message.length).toBe(2048);
     expect(h.doc.querySelector('#startup-status img')).toBeNull();
+  });
+});
+
+describe('bounded native screenshot rendezvous', () => {
+  it.each(['projects-dark', 'directories-light', 'providers-dark', 'launcher-light', 'calendar-dark'] as const)(
+    'settles two frames and holds the acknowledged %s state', async (name) => {
+      vi.useFakeTimers();
+      vi.mocked(call).mockResolvedValue(true);
+      let complete = false;
+      const pending = smokeSnapshot(name).then(() => { complete = true; });
+      expect(call).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(16);
+      expect(call).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(32);
+      expect(call).toHaveBeenCalledExactlyOnceWith('frontend_diagnostic', { phase: 'snapshot', message: name });
+      expect(complete).toBe(false);
+      await vi.advanceTimersByTimeAsync(smokeSnapshotHoldMs);
+      await pending;
+      expect(complete).toBe(true);
+    },
+  );
+
+  it('rejects unknown screen names before sending native IPC', async () => {
+    await expect(smokeSnapshot('../arbitrary-path' as SmokeSnapshot)).rejects.toThrow('invalid snapshot name');
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it('requires explicit backend smoke acknowledgment', async () => {
+    vi.useFakeTimers();
+    vi.mocked(call).mockResolvedValue(false);
+    const pending = expect(smokeSnapshot('projects-dark')).rejects.toThrow('not acknowledged');
+    await vi.advanceTimersByTimeAsync(64);
+    await pending;
   });
 });

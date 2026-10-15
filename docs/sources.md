@@ -18,6 +18,17 @@
 | Codex 額度說明 | [Pricing](https://learn.chatgpt.com/docs/pricing) | 官方 usage dashboard 與 CLI `/status` 的人工查看入口 |
 | Claude Code metrics | [Monitoring](https://code.claude.com/docs/en/monitoring-usage) | token／cost 與 Session 屬性；cost 為近似值，不等於實際帳務 |
 
+## macOS 圖示與產生流程
+
+查閱日期：2026-10-15。Apple 現行文件著重新版分層圖示與 Icon Composer；不能直接推導傳統 ICNS 的固定留白比例。
+
+| 主題 | 官方來源 | 適用內容與限制 |
+| --- | --- | --- |
+| Apple 圖示設計 | [App icons](https://developer.apple.com/design/human-interface-guidelines/app-icons/)、[Adopting Liquid Glass](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass) | 視覺平衡、新版圖示網格與分層流程；未以此聲稱 Apple 規定 824／1024 的傳統 ICNS 外形尺寸 |
+| Tauri 圖示 CLI | [App Icons](https://v2.tauri.app/develop/icons/) | 方形透明 PNG／SVG 輸入、可指定輸出目錄、macOS ICNS／Windows ICO／Linux PNG 與 bundle.icon；本專案只從暫存產物更新 ICNS |
+
+412／512（等同 824／1024）是本次 macOS 視覺校正選擇，原圖等比置中而不修改品牌圖形。檔案 alpha 邊界可自動檢查，與其他應用在 Cmd+Tab／Dock 的視覺比較仍須原生驗收。
+
 ## Session 命名來源
 
 2026-10-15 查閱 [Codex 官方命令](https://learn.chatgpt.com/docs/developer-commands)與 [Claude Code Session 命名](https://code.claude.com/docs/en/sessions#name-your-sessions)，確認兩工具均提供 `/rename`。Codex [App Server](https://learn.chatgpt.com/docs/app-server)另提供 thread 名稱欄位與名稱更新能力。
@@ -98,3 +109,9 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 | Claude 權限選項 | [CLI reference](https://code.claude.com/docs/en/cli-reference) | skip-permissions／permission-mode；不概括承諾略過外部管理限制 |
 
 本應用接受的自訂參數是較窄的已審查白名單，並非供應商 CLI 全部 flags。啟動與預覽共用實作的驗證結果、focused 檢查與尚待完成的全套／平台測試，見 [本批變更紀錄](mvp-validation.md#2026-10-15-agent-擴充與自訂參數變更紀錄)。
+
+
+## 介面設計參考（2026-10-15）
+
+- [UI/UX Pro Max 官方來源](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/tree/56ea9cf174ed86786187daa9de0e6247cb0747e4)：使用者指定的 MIT 設計指南。已套用經產品／平台判斷的研究流程，沒有直接採用不適合桌面工作台的行銷頁與遠端字型建議。
+- [Session Bay 介面設計系統](ui-design-system.md)：本次重新設計的流程、語意 tokens、明確保留的功能邊界與逐項驗證依據。

@@ -2,6 +2,7 @@
 //! Connections are operation-local; WAL readers never share a scan's connection.
 use crate::adapters::{self, ParsedState, MAX_LINE_BYTES, PARSER_VERSION};
 use crate::models::*;
+use crate::providers::{self, ParserId};
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
@@ -1338,15 +1339,16 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
     if !source.enabled {
         return (vec![], health, true);
     }
-    if source.kind == AgentKind::Antigravity {
+    let provider = providers::definition(source.kind);
+    if !provider.history.supported {
         health.status = "unsupported".into();
-        health.message = Some("Antigravity local history has no verified supported format. History indexing is unsupported; launch and manual conversation-ID resume are available.".into());
+        health.message = Some(provider.history.description.clone());
         return (vec![], health, true);
     }
     let root = Path::new(&source.root);
     match fs::metadata(root) {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            health.status = "empty".into();
+            health.status = "missing".into();
             health.message =
                 Some("No history directory yet; new sessions can still be started.".into());
             return (vec![], health, true);
@@ -1370,11 +1372,11 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
         health.message = Some("The history directory cannot be listed.".into());
         return (vec![], health, false);
     }
-    let directories = match source.kind {
-        AgentKind::Codex => vec!["sessions", "archived_sessions"],
-        AgentKind::Claude => vec!["projects"],
-        AgentKind::Grok => vec!["sessions"],
-        AgentKind::Antigravity => vec![],
+    let directories = match provider.history.parser_id {
+        Some(ParserId::Codex) => vec!["sessions", "archived_sessions"],
+        Some(ParserId::Claude) => vec!["projects"],
+        Some(ParserId::Grok) => vec!["sessions"],
+        None => vec![],
     };
     let mut files = Vec::new();
     let mut complete = true;
@@ -1392,7 +1394,7 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
             }
             _ => {}
         }
-        let max_depth = if source.kind == AgentKind::Grok {
+        let max_depth = if provider.history.parser_id == Some(ParserId::Grok) {
             3
         } else {
             usize::MAX
@@ -1409,7 +1411,7 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
             match entry {
                 Ok(entry)
                     if entry.file_type().is_file()
-                        && if source.kind == AgentKind::Grok {
+                        && if provider.history.parser_id == Some(ParserId::Grok) {
                             entry.depth() == 3
                                 && (entry.file_name() == "updates.jsonl"
                                     || (entry.file_name() == "summary.json"

@@ -3,7 +3,6 @@ import { listen } from '@tauri-apps/api/event';
 import {
   Anchor,
   ArrowRight,
-  ChevronDown,
   ChevronRight,
   CircleHelp,
   Command as CommandIcon,
@@ -21,13 +20,14 @@ import {
   TerminalSquare,
   X,
   AlertTriangle,
-  Check,
   Square,
   Compass,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { startup } from './startup';
-import { agentKinds, bypassFlags } from './agents';
+import { agentCapabilities, agentKinds, bypassFlags, installationState } from './agents';
+import { AgentIcon } from './components/AgentIcon';
+import { Select } from './components/controls';
 import type {
   AgentKind,
   Bootstrap,
@@ -55,6 +55,7 @@ import { matchesShortcut, shortcutConflicts, shortcutDefaults } from './commands
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
+import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
@@ -91,10 +92,13 @@ export default function App() {
   const [bootError, setBootError] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
+  const [allSessionsSearch, setAllSessionsSearch] = useState(false);
   const [view, setView] = useState<'history' | 'workspace'>('history');
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const detectionGeneration = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [projectSearch, setProjectSearch] = useState('');
   const [refreshToken, setRefreshToken] = useState(0);
@@ -157,8 +161,8 @@ export default function App() {
     if (view === 'workspace' && !activeTab) setView('history');
     if (maximizedId && !workspace.panes[maximizedId]) setMaximizedId(null);
   }, [view, activeTab, workspace.panes, maximizedId]);
-  const stateRef = useRef({ workspace, selectedId, boot, view, projects: visibleProjects });
-  stateRef.current = { workspace, selectedId, boot, view, projects: visibleProjects };
+  const stateRef = useRef({ workspace, selectedId, boot, view, navigation, projects: visibleProjects });
+  stateRef.current = { workspace, selectedId, boot, view, navigation, projects: visibleProjects };
   const indexRef = useRef(index);
   indexRef.current = index;
   const saveQueue = useRef(Promise.resolve());
@@ -322,6 +326,7 @@ export default function App() {
     const tab = stateRef.current.workspace.tabs.find((t) => paneIds(t.layout).includes(id));
     if (!tab) return;
     setSelectedId(tab.projectId);
+    setAllSessionsSearch(false);
     setView('workspace');
     setMaximizedId(null);
     setWorkspace((w) => ({
@@ -411,6 +416,7 @@ export default function App() {
       };
     });
     setSelectedId(project.id);
+    setAllSessionsSearch(false);
     setView('workspace');
     setMaximizedId(null);
   };
@@ -521,9 +527,12 @@ export default function App() {
     },
     {
       id: 'search-sessions',
-      label: '搜尋所有工作階段',
+      label: current ? '搜尋此目錄的工作階段' : '搜尋所有工作階段',
       run: () => {
-        setSelectedId(undefined);
+        if (!current) {
+          setNavigation('directories');
+          setAllSessionsSearch(true);
+        }
         setView('history');
         setTimeout(() => document.getElementById('session-search')?.focus(), 0);
       },
@@ -592,15 +601,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', key);
   }, [conflicts]);
   const runCommand = (id: string) => commands.find((c) => c.id === id && !c.disabled)?.run();
+  const detectAgents = async () => {
+    const generation = ++detectionGeneration.current;
+    try {
+      const installations = await api.detect();
+      if (generation === detectionGeneration.current)
+        setBoot((b) => (b ? { ...b, installations } : b));
+    } catch (error) {
+      if (generation === detectionGeneration.current) throw error;
+    }
+  };
   const saveSettings = async (next: Settings) => {
     const first = !settings?.onboardingComplete;
+    ++detectionGeneration.current;
     const saved = await api.saveSettings(next);
-    setBoot((b) => (b ? { ...b, settings: saved } : b));
+    setBoot((b) => (b ? { ...b, settings: saved, installations: [] } : b));
     setSettingsOpen(false);
-    void api
-      .detect()
-      .then((installations) => setBoot((b) => (b ? { ...b, installations } : b)))
-      .catch(notify);
+    void detectAgents().catch(notify);
     if (first) void scan(false).catch(notify);
   };
   const saveMembership = async (project: Project, curated: boolean) => {
@@ -615,7 +632,7 @@ export default function App() {
       const result = await api.updateProject(project.id, { curated });
       projectReadGeneration.current++;
       setProjects((previous) => previous.map((p) => p.id === result.id ? result : p));
-      if (!curated && stateRef.current.selectedId === project.id &&
+      if (!curated && stateRef.current.navigation === 'projects' && stateRef.current.selectedId === project.id &&
           !stateRef.current.workspace.tabs.some((tab) => tab.projectId === project.id)) {
         setSelectedId(undefined);
         setView('history');
@@ -640,7 +657,7 @@ export default function App() {
     else notify('找不到工作目錄，請先重新整理索引。');
   };
   const sortedProjects = [...projects]
-    .filter((p) => p.curated)
+    .filter((p) => navigation === 'projects' ? p.curated : p.sessionCount > 0)
     .filter((p) => `${p.name} ${p.path ?? ''}`.toLowerCase().includes(projectSearch.toLowerCase()))
     .sort(
       (a, b) =>
@@ -648,11 +665,29 @@ export default function App() {
         (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') ||
         a.name.localeCompare(b.name),
     );
+  const selectNavigation = (page: 'projects' | 'directories') => {
+    setNavigation(page);
+    setSelectedId(undefined);
+    setAllSessionsSearch(false);
+    setProjectSearch('');
+    setView('history');
+    setMaximizedId(null);
+  };
+  const selectProject = (project: Project) => {
+    setSelectedId(project.id);
+    setAllSessionsSearch(false);
+    setView('history');
+    setMaximizedId(null);
+  };
+  const navigationName = navigation === 'projects' ? '專案' : '所有目錄';
+  const projectCount = projects.filter((project) => project.curated).length;
+  const directoryCount = projects.filter((project) => project.sessionCount > 0).length;
   const activeCount = Object.values(workspace.panes).filter(
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
   return (
     <div className="app-shell" data-app-shell data-backend-ready={ready && desktop}>
+      <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
       <header className="app-topbar">
         <div className="brand">
           <div className="brand-mark">
@@ -662,6 +697,24 @@ export default function App() {
             Session Bay<span className="brand-tag">WORKSPACE</span>
           </span>
         </div>
+        <div className="navigation-tabs" role="tablist" aria-label="導覽頁面">
+            {(['projects', 'directories'] as const).map((page) => <button key={page} type="button"
+              id={`navigation-${page}`} role="tab" aria-selected={navigation === page}
+              tabIndex={navigation === page ? 0 : -1} aria-controls="navigation-content"
+              onClick={() => selectNavigation(page)} onKeyDown={(event) => {
+                if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                  event.preventDefault();
+                  const next = event.key === 'Home' ? 'projects' : event.key === 'End' ? 'directories'
+                    : page === 'projects' ? 'directories' : 'projects';
+                  selectNavigation(next);
+                  document.getElementById(`navigation-${next}`)?.focus();
+                }
+              }}>
+              {page === 'projects' ? <Folder size={16} aria-hidden="true" /> : <Compass size={16} aria-hidden="true" />}
+              {page === 'projects' ? '專案' : '所有目錄'}
+              <span>{page === 'projects' ? projectCount : directoryCount}</span>
+            </button>)}
+          </div>
         <button className="global-search" onClick={() => runCommand('command-palette')}>
           <Search size={15} />
           <span>搜尋專案或執行命令</span>
@@ -697,17 +750,14 @@ export default function App() {
               </button>
             </div>
             <button
-              className={`sidebar-global ${selectedId === undefined ? 'active' : ''}`}
-              onClick={() => {
-                setSelectedId(undefined);
-                setView('history');
-              }}
+              className={`sidebar-global ${selectedId === undefined && !allSessionsSearch ? 'active' : ''}`}
+              onClick={() => selectNavigation(navigation)}
             >
               <Compass size={17} />
-              所有工作階段<span>{projects.reduce((sum, p) => sum + p.sessionCount, 0)}</span>
+              {navigation === 'projects' ? '專案總覽' : '目錄總覽'}<span>{navigation === 'projects' ? projectCount : directoryCount}</span>
             </button>
             <div className="sidebar-section">
-              <span>專案</span>
+              <span>{navigationName}</span>
               <button
                 className="icon-button"
                 title="加入專案"
@@ -718,16 +768,16 @@ export default function App() {
                 <Plus size={16} />
               </button>
             </div>
-            <div className="project-search">
+            <div className="project-search search-field">
               <Search size={13} />
               <input
-                aria-label="搜尋專案"
-                placeholder="尋找專案…"
+                aria-label={navigation === 'projects' ? '搜尋專案' : '搜尋所有目錄'}
+                placeholder={navigation === 'projects' ? '尋找專案…' : '尋找目錄…'}
                 value={projectSearch}
                 onChange={(event) => setProjectSearch(event.target.value)}
               />
             </div>
-            <nav className="project-list" aria-label="專案">
+            <nav className="project-list" aria-label={navigationName}>
               {sortedProjects.map((project) => (
                 <div
                   key={project.id}
@@ -735,11 +785,7 @@ export default function App() {
                 >
                   <button
                     className="project-main"
-                    onClick={() => {
-                      setSelectedId(project.id);
-                      setView('history');
-                      setMaximizedId(null);
-                    }}
+                    onClick={() => selectProject(project)}
                     title={project.path ?? '未分類'}
                   >
                     <Folder size={17} />
@@ -754,7 +800,7 @@ export default function App() {
                     <span className="project-count">{project.sessionCount}</span>
                     {!project.exists && <AlertTriangle className="warning-icon" size={13} />}
                   </button>
-                  <button
+                  {project.curated && <button
                     className={`project-pin ${project.pinned ? 'pinned' : ''}`}
                     aria-label={
                       project.pinned ? `取消置頂 ${project.name}` : `置頂 ${project.name}`
@@ -763,12 +809,14 @@ export default function App() {
                     onClick={() => void setPinned(project)}
                   >
                     <Pin size={12} />
-                  </button>
+                  </button>}
                 </div>
               ))}
               {!sortedProjects.length && (
                 <p className="sidebar-empty">
-                  {projectSearch ? '沒有符合的專案' : '尚未加入專案。從所有工作階段挑選目錄，或加入／建立專案。'}
+                  {projectSearch ? `沒有符合的${navigationName}` : navigation === 'projects'
+                    ? '尚未加入專案。可從所有目錄挑選，或加入／建立專案。'
+                    : '尚未找到包含工作階段的目錄。請確認資料來源並更新索引。'}
                 </p>
               )}
             </nav>
@@ -807,7 +855,7 @@ export default function App() {
             </div>
           </aside>
         )}
-        <main className="main-content">
+        <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
             <div>
               <div className="breadcrumb">
@@ -822,10 +870,11 @@ export default function App() {
                 )}
                 Session Bay
                 <ChevronRight size={12} />
-                {current ? current.curated ? '專案' : '工作目錄' : '總覽'}
+                {current || allSessionsSearch ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : navigationName}
+                {current && <><ChevronRight size={12} />{current.curated ? '專案' : '工作目錄'}</>}
               </div>
               <h1>
-                {current?.name ?? '所有工作階段'}
+                {current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
                 {current?.pinned && <Pin size={16} />}
               </h1>
               <div className="project-path">
@@ -847,29 +896,32 @@ export default function App() {
                     </button>
                   </>
                 ) : (
-                  '所有自動找到的對話都在這裡。專案清單只收錄你選定的目錄。'
+                  navigation === 'projects' ? '管理你選入的專案，專注在真正有意義的工作。'
+                    : '保留所有工作階段的目錄分組。選擇目錄瀏覽對話，或加入專案。'
                 )}
               </div>
             </div>
             <div className="header-buttons">
+              {navigation === 'directories' && !current && <button className="secondary" disabled={!boot}
+                onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
+                {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
+                {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
+              </button>}
               {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}
                 title={current.curated ? '只移出專案清單，不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
                 onClick={() => void saveMembership(current, !current.curated)}>
                 {current.curated ? '移出專案' : '加入專案'}
               </button>}
-              <button
-                className="secondary"
-                disabled={!boot}
-                onClick={() => runCommand('new-terminal')}
-              >
-                <TerminalSquare size={15} />
-                Terminal
-              </button>
-              <button className="primary" disabled={!boot} onClick={() => runCommand('new-agent')}>
-                <Plus size={15} />
-                新增工作
-                <ChevronDown size={13} />
-              </button>
+              {current ? <>
+                <button className="secondary" onClick={() => runCommand('new-terminal')}>
+                  <TerminalSquare size={16} />Terminal
+                </button>
+                <button className="primary" onClick={() => runCommand('new-agent')}>
+                  <Plus size={16} />新增工作
+                </button>
+              </> : <button className="primary" disabled={!boot} onClick={() => setProjectDialog({})}>
+                <FolderPlus size={16} />加入／建立專案
+              </button>}
             </div>
           </div>
           {!desktop ? (
@@ -934,7 +986,7 @@ export default function App() {
                   </button>
                 </div>
               )}
-              <div className="workspace-tabs">
+              {(current || allSessionsSearch) && <div className="workspace-tabs">
                 <button
                   className={view === 'history' ? 'active history-tab' : 'history-tab'}
                   onClick={() => setView('history')}
@@ -983,13 +1035,13 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
-              </div>
-              <div className="main-work-area">
+              </div>}
+              <div className="main-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
                 <div
                   className="history-mount"
                   style={{ display: view === 'history' ? undefined : 'none' }}
                 >
-                  <HistoryView
+                  {current || allSessionsSearch ? <HistoryView
                     projectId={selectedId}
                     projects={projects}
                     refreshToken={refreshToken}
@@ -997,7 +1049,9 @@ export default function App() {
                     onCurate={curateSession}
                     curating={projectBusy}
                     onNew={() => openLauncher(settings?.defaultAgent ?? 'codex')}
-                  />
+                  /> : <DirectoryOverview page={navigation} projects={sortedProjects} searching={!!projectSearch}
+                    busy={projectBusy} onSelect={selectProject} onMembership={saveMembership}
+                    onAdd={() => setProjectDialog({})} onDirectories={() => selectNavigation('directories')} />}
                 </div>
                 {settings && (
                   <WorkspaceCanvas
@@ -1124,14 +1178,14 @@ export default function App() {
             await refresh();
             setIndex(await api.index());
           }}
-          onDetect={async () => {
-            const installations = await api.detect();
-            setBoot((b) => (b ? { ...b, installations } : b));
-          }}
+          onDetectShells={api.detectShells}
+          onDetect={detectAgents}
         />
       )}
       {projectDialog && <ProjectDialog onClose={() => setProjectDialog(null)} onSaved={async (project) => {
         await refresh();
+        setNavigation('projects');
+        setAllSessionsSearch(false);
         setSelectedId(project.id);
         setView('history');
         if (projectDialog.launchKind && settings) setLauncher({ kind: projectDialog.launchKind,
@@ -1153,6 +1207,7 @@ export default function App() {
               void task
                 .then(async (project) => {
                   await refresh();
+                  setAllSessionsSearch(false);
                   setSelectedId(project.id);
                   setView('history');
                   const session = pathDialog.resume;
@@ -1208,7 +1263,7 @@ export default function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (current && launchPreview && !previewPending && !previewError) {
+              if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false)) {
                 addPane(
                   current,
                   launcher.kind,
@@ -1225,27 +1280,29 @@ export default function App() {
             <p className="dialog-description">
               在 {current?.name} 開始工作。Agent 沿用 CLI 本身的登入與權限設定。
             </p>
-            <div className="launch-options">
-              {([...agentKinds, 'shell'] as const).map((kind) => (
-                <button
-                  type="button"
-                  className={launcher.kind === kind ? 'selected' : ''}
-                  key={kind}
-                  onClick={() => setLauncher({ ...launcher, kind, resumeId: undefined })}
-                >
-                  {kind === 'shell' ? <TerminalSquare size={23} /> : <CommandIcon size={23} />}
-                  <strong>{kind === 'shell' ? 'Terminal' : agentName(kind)}</strong>
-                  <small>
-                    {kind === 'shell'
-                      ? '普通 Shell'
-                      : boot?.installations.find((i) => i.kind === kind)?.available
-                        ? '可啟動'
-                        : '需設定 CLI'}
-                  </small>
-                  {launcher.kind === kind && <Check className="option-check" size={15} />}
-                </button>
-              ))}
+            <div className="launch-kind-switch" role="group" aria-label="工作類型">
+              <button type="button" aria-pressed={launcher.kind === 'shell'}
+                onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined })}>
+                <TerminalSquare size={19} />Shell<span>命令列工作</span>
+              </button>
+              <button type="button" aria-pressed={launcher.kind !== 'shell'}
+                onClick={() => setLauncher({ ...launcher, kind: settings.defaultAgent, resumeId: undefined })}>
+                <CommandIcon size={19} />Agent<span>AI 協作</span>
+              </button>
             </div>
+            {launcher.kind !== 'shell' && <label className="field-label">
+              Agent
+              <Select aria-label="Agent" value={launcher.kind}
+                onChange={(kind) => setLauncher({ ...launcher, kind: kind as AgentKind, resumeId: undefined })}
+                options={agentKinds.map((kind) => {
+                  const installation = boot?.installations.find((item) => item.kind === kind);
+                  return { value: kind, label: agentName(kind), icon: <AgentIcon kind={kind} />,
+                    disabled: installation?.available === false,
+                    description: installationState(installation).text };
+                })} />
+              {boot?.installations.find((item) => item.kind === launcher.kind)?.available === false &&
+                <span className="inline-warning">未偵測到這個 Agent，請先在設定中指定執行檔並重新偵測。</span>}
+            </label>}
             <label className="field-label">
               工作目錄
               <input
@@ -1254,28 +1311,21 @@ export default function App() {
                 onChange={(event) => setLauncher({ ...launcher, cwd: event.target.value })}
               />
             </label>
-            {(launcher.kind === 'grok' || launcher.kind === 'antigravity') && (
+            {launcher.kind !== 'shell' && agentCapabilities[launcher.kind].resume.manualId && (
               <label className="field-label">接續對話 ID（選填）
                 <input value={launcher.resumeId || ''} placeholder="留空開始新對話；填入原工具的對話 ID"
                   onChange={(event) => setLauncher({ ...launcher, resumeId: event.target.value })} />
-                <span className="small-muted">{launcher.kind === 'antigravity'
-                  ? 'Antigravity CLI 使用 agy --conversation；尚不支援自動索引／預覽其歷史。'
-                  : 'Grok 使用 --resume；不會使用建立新 Session 的 --session-id。'}</span>
+                <span className="small-muted">{agentCapabilities[launcher.kind].resume.description}
+                  {!agentCapabilities[launcher.kind].history.supported && ' 尚不支援自動索引／預覽其歷史。'}</span>
               </label>
             )}
             {launcher.kind === 'shell' && (
               <label className="field-label">
                 Shell Profile
-                <select
-                  value={launcher.profileId}
-                  onChange={(event) => setLauncher({ ...launcher, profileId: event.target.value })}
-                >
-                  {settings.profiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name} · {profile.executable}
-                    </option>
-                  ))}
-                </select>
+                <Select aria-label="Shell Profile" value={launcher.profileId}
+                  onChange={(profileId) => setLauncher({ ...launcher, profileId })}
+                  options={settings.profiles.map((profile) => ({ value: profile.id,
+                    label: profile.name, description: profile.executable }))} />
               </label>
             )}
             <div className="launch-preview" aria-label="啟動參數預覽" aria-live="polite">
@@ -1292,7 +1342,7 @@ export default function App() {
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
                 取消
               </button>
-              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError}>
+              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && boot?.installations.find((item) => item.kind === launcher.kind)?.available === false)}>
                 開始工作
                 <ArrowRight size={14} />
               </button>
@@ -1326,7 +1376,7 @@ export default function App() {
       )}
       {palette && (
         <Dialog title="命令面板" onClose={() => setPalette(false)}>
-          <div className="palette-input">
+          <div className="palette-input search-field">
             <Search size={18} />
             <input
               autoFocus

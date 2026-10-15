@@ -43,12 +43,29 @@ npm run tauri -- build --bundles app
 
 `npm run dev:web` 只啟動前端網頁預覽；畫面會明確提示沒有桌面 Runtime，不生成假 Sessions 或假 Terminal。
 
+## macOS 圖示維護
+
+macOS 使用 `src-tauri/icons/icon-macos.svg` 與 `icon.icns`：原圖等比縮至 412×412，置中於 512×512 透明畫布。這是改善 Cmd+Tab／Dock 視覺占比的專案選擇，不是 Apple 規定的 ICNS 留白比例。原始 `icon.svg`、Linux PNG 與 Windows ICO 維持原設計。
+
+安裝既有 npm dependencies 並備妥 Python 3 後，在 repo 根目錄執行：
+
+```bash
+node scripts/generate-macos-icon.mjs
+python3 scripts/validate-macos-icon.py src-tauri/icons/icon.icns
+# 選用：將前後比較 PNG 存在 repo 外的絕對路徑
+node scripts/generate-macos-icon.mjs --preview-dir /tmp/sessionbay-icon-preview
+```
+
+腳本由原始 SVG 派生 macOS 向量，使用已安裝的 Tauri icon CLI 輸出至暫存目錄，驗證 ICNS 後只複製 macOS 檔案；SHA-256 比對確認其他圖示資產不變。不要直接對預設 icons 目錄重建全平台圖示，以免覆寫各平台設計。獨立 validator 檢查各尺寸 alpha 邊界；它與建置通過都不能代替 macOS 實際 Cmd+Tab／Dock 視覺比較。
+
+官方依據與適用限制見[圖示決策](decisions.md#2026-10-15-macos-圖示視覺尺寸修正)及[資料來源](sources.md#macos-圖示與產生流程)。
+
 ## 第一次使用
 
-1. 開啟「設定與資料來源」。確認各 Agent 的可執行檔；Codex／Claude／Grok 可設定資料根目錄後啟用索引，Antigravity CLI 目前僅提供啟動與手動 ID 接續。
-2. 全新設定的預設來源尊重 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`GROK_HOME`；否則為 `~/.codex`、`~/.claude`、`~/.grok`。升級保留既有來源清單，需要時自行新增 Grok 來源。欄位輸入完整絕對路徑，依工具包含 `sessions`／`archived_sessions`、`projects` 或 Grok 的 `sessions`。
+1. 開啟「設定與資料來源」。四 Agent 的能力卡片固定可見，與是否啟動過或找到執行檔無關；Codex／Claude／Grok 可設定資料根目錄後啟用索引，Antigravity 明示歷史尚不支援，目前僅提供啟動與手動 ID 接續。
+2. 全新設定的預設來源尊重 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`GROK_HOME`；否則為 `~/.codex`、`~/.claude`、`~/.grok`。升級保留既有來源清單；若缺少 Grok，使用卡片設定入口新增草稿，填入絕對路徑並明確保存，不會猜測 home 或自動新增索引根目錄。欄位輸入完整絕對路徑，依工具包含 `sessions`／`archived_sessions`、`projects` 或 Grok 的 `sessions`。
 3. 每個來源有獨立 ID。同一 Agent 的相同 canonical root 不可重複；不同來源同名 Session 不會被合併。
-4. 用「所有工作階段」（All Sessions）搜尋自動發現的歷史，或選擇自己加入的專案。掃描不會自動填入左側專案。中文以連續子字串匹配；英文 ASCII 不分大小寫，`%`、`_` 不當 SQL wildcard；不提供模糊或語意搜尋。3 字元以上使用 compact trigram 候選索引再精確驗證，不足 3 字元掃描匹配。
+4. 預設開啟「專案」總覽，管理自己加入的目錄；切到「所有目錄」可看所有有 Session 的分組，包含未知或失效路徑。兩頁都有卡片與側欄，選擇一組後才搜尋該目錄歷史；掃描不自動加入專案，總覽不混列各目錄的 Session。中文以連續子字串匹配；英文 ASCII 不分大小寫，`%`、`_` 不當 SQL wildcard；不提供模糊或語意搜尋。3 字元以上使用 compact trigram 候選索引再精確驗證，不足 3 字元掃描匹配。
 5. 點選對話只預覽，不啟動 CLI。接續時才會啟動原工具，沿用 CLI 權限及登入流程。
 6. 新增 Terminal 或左右／上下分割，兩邊各自有 PTY。切換分頁不結束程序；關閉面板／退出應用需確認結束受管程序。
 7. 重開只恢復布局占位，點「重新開啟」才執行。普通 Terminal 中手動啟動 Agent 不自動與歷史關聯。
@@ -59,14 +76,24 @@ npm run tauri -- build --bundles app
 
 - **加入既有目錄**：填入已存在的絕對路徑，可另填顯示名稱；相同 canonical 目錄沿用同一專案。沒有歷史也能加入後開始新工作。
 - **建立新專案**：填入已存在父目錄的絕對路徑及一個新資料夾名稱。只建立該層資料夾；目標已存在、父目錄不存在或名稱含多層路徑時會報錯，不覆寫、不遞迴建立。
-- **從歷史加入**：在所有工作階段預覽對話，對可用目錄按「加入專案」。加入不啟動 CLI；直接接續也不自動加入專案。
-- **移出專案**：僅取消清單會員資格與釘選；原目錄、歷史、搜尋結果及執行中程序均保留。未加入或移出的已開啟工作區仍有獨立入口。
+- **從歷史加入**：在所有目錄選擇分組，從目錄或對話預覽對可用目錄按「加入專案」。加入不啟動 CLI；直接接續也不自動加入專案。
+- **移出專案**：僅取消清單會員資格與釘選；原目錄、歷史、搜尋結果及執行中程序均保留。未加入或移出的已開啟工作區在兩頁仍有獨立入口。
 - **置頂**：保留 `pinned` 作為自選專案內的排序偏好；取消置頂不會移出專案。
-- **保存與升級**：加入狀態、名稱及釘選保存在自有 catalog；舊版手動加入或釘選項會保留為自選專案，其餘掃描目錄仍可在所有工作階段找到。
+- **保存與升級**：加入狀態、名稱及釘選保存在自有 catalog；舊版手動加入或釘選項會保留為自選專案，其餘有 Session 的掃描目錄仍可在所有目錄找到。
 
 此版尚無原生目錄選擇器，請輸入完整絕對路徑，不使用 `~` 或相對路徑。專案更名只改顯示名稱；搬移後請用原有「重新定位」，仍保留原始 cwd／transcript。
 
-本次變更在隔離雲端使用合成資料與暫存路徑驗證，不存取使用者真實電腦或 Agent 歷史。具體測試結果與尚待驗收範圍見[變更紀錄](mvp-validation.md#2026-10-15-自選專案導覽變更紀錄)。
+本次變更在隔離雲端使用合成資料與暫存路徑驗證，不存取使用者真實電腦或 Agent 歷史。具體測試結果與尚待驗收範圍見[變更紀錄](mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)。
+
+## 工具與 Shell 重新偵測
+
+設定中的 Agent「重新偵測」使用已保存的執行檔設定取得安裝／版本資訊；修改後先保存。這不會讀取歷史，歷史來源的「重新掃描」是另一個動作。工具與能力清單由前後端共用的 `src/agent-manifest.json` 定義，仍需內建 parser 才能支援歷史。
+
+新增工作先選普通 Shell 或 Agent，再以帶標誌的下拉清單選 Agent。搜尋 Session 預設快捷鍵為 macOS `Cmd+Shift+F`／Linux `Ctrl+Shift+F`，已有選定目錄時保留其範圍；未選目錄時，主動使用此快捷鍵或全域搜尋按鈕可查跨目錄對話。兩頁預設仍呈現目錄分組總覽。
+
+全新 Shell Profile 使用有效、已存在的絕對 `$SHELL`，否則 macOS 選 `/bin/zsh`、Linux 選 `/bin/bash`，預設 args 為 `["-l"]`。這不是匯入 Terminal.app／iTerm 等應用的 Profile，也不複製 `.zshrc`／`.bashrc`；啟動後由 Shell 自行載入適用啟動檔。
+
+Shell「重新偵測」只列候選，由你選擇加入 Profile 並保存，保留既有自訂 Profiles、參數、環境變數及預設項。不需為了更新候選清單重設整份設定。
 
 ## 自訂 Agent 啟動參數
 
@@ -141,10 +168,11 @@ Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](
 - Tauri CLI 在 `interface/rust.rs` 出現 `Option::unwrap()` panic：先檢查 `rustc -vV` 是否正常輸出 `host:`。本機曾遇到 PATH 選到缺少 LLVM 動態函式庫的 Homebrew Rust，導致 Tauri 取得空輸出；專案 npm 指令已優先選取 rustup。若仍失敗，檢查 `CARGO_HOME` 與 rustup 安裝，確認可取得 `rust-toolchain.toml` 指定版本。Rust 安裝方式見 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#rust)。
 - 找不到 CLI：在設定填可執行檔絕對路徑。桌面 GUI 的 PATH 可能和 terminal 不同；本應用另搜尋 Homebrew、`~/.local/bin`、`~/.cargo/bin` 等常見位置。
 - 參數保存失敗：確認格式為 JSON 字串陣列，使用支援選項，並分開傳入參數和值；需同意的權限選項必須先勾選。取消勾選時要一併移除仍需同意的參數。
+- 舊設定只有 Codex／Claude 來源：升級刻意保留來源，與是否啟動過其他 Agent 無關。在 Grok 卡片建立來源草稿、填入絕對路徑並保存；原來源的 ID、root 與 enabled 不會因此改變。
 - Antigravity 沒有歷史清單：目前只有 CLI 新工作及手動 conversation ID 接續；找到執行檔不代表已支援 transcript。
 - 有歷史沒工具：仍可搜尋預覽，指定工具後才能接續。
 - 工具有但無歷史：加入專案並開新工作即可；不存在的預設來源不會當成整批失敗。
-- 有歷史但左側專案空白：這是完整歷史與自選專案分開的預期行為；從所有工作階段預覽後加入，或用新增入口加入既有目錄／建立新專案。
+- 有歷史但左側專案空白：這是完整歷史與自選專案分開的預期行為；切到所有目錄、選組後加入，或用新增入口加入既有目錄／建立新專案。
 - 新專案建立失敗：確認父目錄存在、使用絕對路徑且有寫入權限，名稱只含一層，目標尚不存在；既有資料夾請改用「加入既有目錄」。
 - 專案移動：使用「重新定位」，保留原始 cwd／transcript，不改寫歷史。
 - 索引中修改設定：先取消索引，等狀態完成後再保存。取消不清空已完成 checkpoint，手動更新可重新開始。

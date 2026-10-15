@@ -1,9 +1,10 @@
 import { agentNames, defaultAgentOptions } from './agents';
+import { useEffect } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api, isDesktop } from './api';
-import type { AgentKind, Bootstrap, LaunchPreview, Pane, Project, RuntimeInfo, Session, Workspace } from './types';
+import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, Session, Workspace } from './types';
 import { emptyWorkspace } from './workspace';
 import { startup } from './startup';
 import { runSmokeInteraction } from './smoke';
@@ -12,6 +13,9 @@ const native = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload?: unknown }) => void>(),
   patch: undefined as ((id: string, patch: Partial<Pane>) => void) | undefined,
   sessionCwd: undefined as string | null | undefined,
+  historyRender: vi.fn(),
+  canvasMounted: vi.fn(),
+  canvasUnmounted: vi.fn(),
   alreadyOpen: undefined as ((id: string, info: RuntimeInfo) => void) | undefined,
 }));
 vi.mock('@tauri-apps/api/event', () => ({
@@ -34,6 +38,7 @@ vi.mock('./api', () => ({
     runtimes: vi.fn(),
     launch: vi.fn(),
     detect: vi.fn(),
+    detectShells: vi.fn(),
     cancelScan: vi.fn(),
     clearIndex: vi.fn(),
     saveSettings: vi.fn(),
@@ -53,14 +58,17 @@ vi.mock('./components/History', () => ({
     curating?: boolean;
     onResume: (session: Session) => void;
   }) => {
-    const session: Session | undefined = projects[0] ? {
+    native.historyRender(projectId);
+    const project = projects.find((entry) => entry.id === projectId);
+    const session: Session | undefined = project ? {
       id: 'synthetic-session', sourceId: 'synthetic-source', kind: 'codex', externalId: 'external',
-      projectId: projects[0].id, title: 'Synthetic session',
-      cwd: native.sessionCwd === undefined ? projects[0].path : native.sessionCwd,
+      projectId: project.id, title: 'Synthetic session',
+      cwd: native.sessionCwd === undefined ? project.path : native.sessionCwd,
       updatedAt: '2026-10-15T01:00:00Z', timeSource: 'event', archived: false,
       parentId: null, partial: false, snippet: null,
     } : undefined;
     return <div data-testid="history-view">
+      <input id="session-search" aria-label="搜尋 Session" />
       <output data-testid="history-projects">{JSON.stringify(projects)}</output>
       <output data-testid="history-selected-project">{projectId ?? 'all'}</output>
       {session && <>
@@ -84,6 +92,10 @@ vi.mock('./components/WorkspaceCanvas', () => ({
     onStart: (id: string) => void;
     onAlreadyOpen: (id: string, info: RuntimeInfo) => void;
   }) => {
+    useEffect(() => {
+      native.canvasMounted();
+      return () => { native.canvasUnmounted(); };
+    }, []);
     native.patch = onPatch;
     native.alreadyOpen = onAlreadyOpen;
     return (
@@ -172,6 +184,12 @@ async function tick(ms = 0) {
     await vi.advanceTimersByTimeAsync(ms);
   });
 }
+function changePage(name: '專案' | '所有目錄') {
+  fireEvent.click(within(screen.getByRole('tablist', { name: '導覽頁面' })).getByRole('tab', { name: new RegExp(`^${name}(?:\\s+\\d+)?$`) }));
+}
+function selectGroup(name = 'Synthetic project', page: '專案' | '所有目錄' = '專案') {
+  fireEvent.click(within(screen.getByRole('navigation', { name: page })).getByRole('button', { name: new RegExp(`^${name}`) }));
+}
 async function nativeClose() {
   await act(async () => {
     native.handlers.get('app-close-requested')?.({});
@@ -185,10 +203,13 @@ beforeEach(() => {
   native.sessionCwd = undefined;
   native.alreadyOpen = undefined;
   vi.mocked(isDesktop).mockReturnValue(false);
-  vi.mocked(api.bootstrap).mockResolvedValue(bootstrap());
+  vi.mocked(api.updateProject).mockReset();
+  vi.mocked(api.addProject).mockReset();
+  vi.mocked(api.createProject).mockReset();
+  vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap());
   vi.mocked(api.scan).mockResolvedValue(bootstrap().index);
   vi.mocked(api.index).mockResolvedValue(bootstrap().index);
-  vi.mocked(api.projects).mockResolvedValue(bootstrap().projects);
+  vi.mocked(api.projects).mockReset().mockResolvedValue(bootstrap().projects);
   vi.mocked(api.saveWorkspace).mockResolvedValue(undefined);
   vi.mocked(api.close).mockResolvedValue(undefined);
   vi.mocked(api.stop).mockResolvedValue(undefined);
@@ -305,7 +326,7 @@ describe('App desktop lifecycle', () => {
     vi.mocked(api.index).mockResolvedValue({ ...bootstrap().index, revision: 2 });
     await tick(1100);
     expect(screen.getByText(/僅工作區/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /所有工作階段/ }));
+    changePage('所有目錄');
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     expect(screen.getByRole('heading', { name: 'Synthetic project' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
@@ -340,7 +361,7 @@ describe('App desktop lifecycle', () => {
     render(<App />);
     await tick(500);
     expect(api.saveWorkspace).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: /^Synthetic project/ }));
+    selectGroup();
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
     await tick(200);
     fireEvent.click(
@@ -491,7 +512,7 @@ describe('App desktop lifecycle', () => {
 
 
 describe('App curated project navigation', () => {
-  it('starts in All Sessions with an empty curated list while automatic history stays available', async () => {
+  it('starts on Projects without mounting mixed history and opens an automatic group only from All Directories', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();
     data.projects[0] = { ...data.projects[0], curated: false, sessionCount: 12 };
@@ -499,19 +520,28 @@ describe('App curated project navigation', () => {
     vi.mocked(api.bootstrap).mockResolvedValue(data);
     render(<App />);
     await tick();
-    expect(screen.getByRole('heading', { name: '所有工作階段' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '所有工作階段 12' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '專案', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^專案(?:\s+\d+)?$/ })).toHaveAttribute('aria-selected', 'true');
     expect(within(screen.getByRole('navigation', { name: '專案' })).queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByText('尚未加入專案。從所有工作階段挑選目錄，或加入／建立專案。')).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(native.historyRender).not.toHaveBeenCalled();
+    changePage('所有目錄');
+    expect(screen.getByRole('heading', { name: '所有目錄', level: 1 })).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: '所有目錄' })).getByRole('button', { name: /^Synthetic project/ })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(native.historyRender).not.toHaveBeenCalled();
+    selectGroup('Synthetic project', '所有目錄');
+    expect(screen.getByRole('heading', { name: 'Synthetic project', level: 1 })).toBeInTheDocument();
     expect(JSON.parse(screen.getByTestId('history-projects').textContent!)).toEqual(data.projects);
-    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('all');
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    expect(native.historyRender.mock.calls.every(([id]) => id === 'project-a')).toBe(true);
     expect(api.updateProject).not.toHaveBeenCalled();
     expect(api.addProject).not.toHaveBeenCalled();
     expect(api.createProject).not.toHaveBeenCalled();
     expect(api.launch).not.toHaveBeenCalled();
   });
 
-  it('curates only through the history callback and restores saved inclusion and removal after reload', async () => {
+  it('curates a scoped history group and restores saved inclusion and removal after reload', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();
     data.projects[0] = { ...data.projects[0], curated: false, sessionCount: 4 };
@@ -521,28 +551,35 @@ describe('App curated project navigation', () => {
     vi.mocked(api.updateProject).mockResolvedValueOnce(included);
     const first = render(<App />);
     await tick();
+    changePage('所有目錄');
+    selectGroup('Synthetic project', '所有目錄');
     fireEvent.click(screen.getByRole('button', { name: 'Curate synthetic history project' }));
     await tick();
     expect(api.updateProject).toHaveBeenCalledExactlyOnceWith('project-a', { curated: true });
+    changePage('專案');
     expect(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Synthetic project/ })).toBeInTheDocument();
     first.unmount();
     vi.mocked(api.bootstrap).mockResolvedValue({ ...data, projects: [included] });
     const second = render(<App />);
     await tick();
-    fireEvent.click(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Synthetic project/ }));
+    selectGroup();
     expect(screen.getByRole('heading', { name: 'Synthetic project' })).toBeInTheDocument();
     vi.mocked(api.updateProject).mockResolvedValueOnce(data.projects[0]);
     fireEvent.click(screen.getByRole('button', { name: '移出專案' }));
     await tick();
     expect(api.updateProject).toHaveBeenLastCalledWith('project-a', { curated: false });
-    expect(screen.getByRole('heading', { name: '所有工作階段' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '專案', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
     second.unmount();
     vi.mocked(api.bootstrap).mockResolvedValue(data);
     render(<App />);
     await tick();
     expect(within(screen.getByRole('navigation', { name: '專案' })).queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '所有工作階段 4' })).toBeInTheDocument();
+    changePage('所有目錄');
+    selectGroup('Synthetic project', '所有目錄');
     expect(JSON.parse(screen.getByTestId('history-projects').textContent!)).toEqual(data.projects);
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    expect(native.historyRender.mock.calls.every(([id]) => id === 'project-a')).toBe(true);
     expect(api.updateProject).toHaveBeenCalledTimes(2);
     expect(api.launch).not.toHaveBeenCalled();
     expect(api.stop).not.toHaveBeenCalled();
@@ -561,7 +598,7 @@ describe('App curated project navigation', () => {
     expect(within(screen.getByRole('navigation', { name: '專案' })).queryByRole('button')).not.toBeInTheDocument();
     expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!)).toEqual(before);
     expect(screen.getByText('1 個執行中程序')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /所有工作階段/ }));
+    changePage('所有目錄');
     fireEvent.click(within(screen.getByRole('region', { name: '開啟中的工作區' })).getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     expect(screen.getByRole('heading', { name: 'Synthetic project' })).toBeInTheDocument();
     expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!)).toEqual(before);
@@ -571,7 +608,7 @@ describe('App curated project navigation', () => {
     expect(api.updateProject).toHaveBeenCalledExactlyOnceWith('project-a', { curated: false });
   });
 
-  it.each(['existing', 'create'] as const)('adds a %s project and refreshes the sidebar before selecting it', async (mode) => {
+  it.each(['existing', 'create'] as const)('adds a %s project from All Directories and selects it on Projects after refresh', async (mode) => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const added: Project = { ...bootstrap().projects[0], id: 'added', name: 'Chosen folder', path: '/synthetic/chosen' };
     vi.mocked(api.addProject).mockResolvedValue(added);
@@ -579,7 +616,8 @@ describe('App curated project navigation', () => {
     vi.mocked(api.projects).mockResolvedValue([...bootstrap().projects, added]);
     render(<App />);
     await tick();
-    fireEvent.click(screen.getByRole('button', { name: '加入／建立專案' }));
+    changePage('所有目錄');
+    fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: '加入／建立專案' }));
     if (mode === 'create') fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
     fireEvent.change(screen.getByLabelText(mode === 'create' ? '上層目錄路徑' : '目錄路徑'), { target: { value: mode === 'create' ? '/synthetic' : '/synthetic/chosen' } });
     fireEvent.change(screen.getByLabelText(mode === 'create' ? '專案名稱（新資料夾名稱）' : '專案名稱（選填）'), { target: { value: 'Chosen folder' } });
@@ -587,6 +625,7 @@ describe('App curated project navigation', () => {
     await tick();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Chosen folder' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^專案(?:\s+\d+)?$/ })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByTestId('history-selected-project')).toHaveTextContent('added');
     expect(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Chosen folder/ })).toBeInTheDocument();
     expect(mode === 'create' ? api.createProject : api.addProject).toHaveBeenCalledExactlyOnceWith(mode === 'create' ? '/synthetic' : '/synthetic/chosen', 'Chosen folder');
@@ -600,7 +639,7 @@ describe('App curated project navigation', () => {
     vi.mocked(api.projects).mockRejectedValueOnce(new Error('Index refresh failed')).mockResolvedValue([...bootstrap().projects, added]);
     render(<App />);
     await tick();
-    fireEvent.click(screen.getByRole('button', { name: '加入／建立專案' }));
+    fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: '加入／建立專案' }));
     fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
     fireEvent.change(screen.getByLabelText('上層目錄路徑'), { target: { value: '/synthetic' } });
     fireEvent.change(screen.getByLabelText('專案名稱（新資料夾名稱）'), { target: { value: 'new' } });
@@ -620,7 +659,7 @@ describe('App curated project navigation', () => {
     await tick();
     fireEvent.click(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Synthetic project/ }));
     for (const dismissal of ['cancel', 'escape']) {
-      fireEvent.click(screen.getByRole('button', { name: '加入／建立專案' }));
+      fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: '加入／建立專案' }));
       expect(screen.getByLabelText('目錄路徑')).toHaveValue('');
       fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
       fireEvent.change(screen.getByLabelText('上層目錄路徑'), { target: { value: '/synthetic' } });
@@ -639,11 +678,14 @@ describe('App curated project navigation', () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();
     data.projects[0].curated = false;
+    data.projects[0].sessionCount = 1;
     vi.mocked(api.bootstrap).mockResolvedValue(data);
     let reject!: (reason: unknown) => void;
     vi.mocked(api.updateProject).mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
     render(<App />);
     await tick();
+    changePage('所有目錄');
+    selectGroup('Synthetic project', '所有目錄');
     const add = screen.getByRole('button', { name: 'Curate synthetic history project' });
     fireEvent.click(add);
     fireEvent.click(add);
@@ -652,6 +694,8 @@ describe('App curated project navigation', () => {
     await act(async () => { reject(new Error('Unable to save project membership')); });
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to save project membership');
     expect(add).toBeEnabled();
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    changePage('專案');
     expect(within(screen.getByRole('navigation', { name: '專案' })).queryByRole('button')).not.toBeInTheDocument();
   });
 });
@@ -697,6 +741,7 @@ describe('App session-specific working directories', () => {
     vi.mocked(api.bootstrap).mockResolvedValue(data);
     render(<App />);
     await tick();
+    selectGroup();
     fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
     const current = JSON.parse(screen.getByTestId('workspace-snapshot').textContent!) as Workspace;
     const resumed = Object.values(current.panes).find((pane) => pane.sessionId === 'synthetic-session');
@@ -731,9 +776,19 @@ async function openLauncher() {
   vi.mocked(isDesktop).mockReturnValue(true);
   render(<App />);
   await tick();
-  fireEvent.click(screen.getByRole('button', { name: /^Synthetic project/ }));
+  selectGroup();
   fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
   return screen.getByRole('dialog', { name: '開始新的工作' });
+}
+function chooseLaunchKind(dialog: HTMLElement, kind: 'shell' | AgentKind) {
+  if (kind === 'shell') {
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Shell/ }));
+    return;
+  }
+  if (!within(dialog).queryByRole('combobox', { name: 'Agent' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
+  fireEvent.click(within(dialog).getByRole('combobox', { name: 'Agent' }));
+  fireEvent.click(screen.getByRole('option', { name: new RegExp(`^${agentNames[kind]}`) }));
 }
 function workspaceSnapshot(): Workspace {
   return JSON.parse(screen.getByTestId('workspace-snapshot').textContent!) as Workspace;
@@ -745,7 +800,7 @@ describe('exact agent launch preview and manual resume', () => {
     vi.mocked(api.preview).mockResolvedValueOnce({ executable: '/synthetic/grok', args: ['--resume', 'first-id'], cwd: '/synthetic/project' })
       .mockReturnValueOnce(next.promise);
     const dialog = await openLauncher();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Grok Build/ }));
+    chooseLaunchKind(dialog, 'grok');
     const id = within(dialog).getByRole('textbox', { name: /接續對話 ID/ });
     fireEvent.change(id, { target: { value: 'first-id' } });
     await tick(150);
@@ -769,20 +824,20 @@ describe('exact agent launch preview and manual resume', () => {
     const dialog = await openLauncher();
     await tick(150);
     expect(within(dialog).getByRole('button', { name: '開始工作' })).toBeEnabled();
-    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Shell Profile' }), { target: { value: 'alternate' } });
+    fireEvent.click(within(dialog).getByRole('combobox', { name: 'Shell Profile' }));
+    fireEvent.click(screen.getByRole('option', { name: /^Alternate Shell/ }));
     expect(within(dialog).getByRole('button', { name: '開始工作' })).toBeDisabled();
     await tick(150);
     expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'shell', profileId: 'alternate' }));
     expect(within(dialog).getByRole('button', { name: '開始工作' })).toBeEnabled();
   });
 
-  it('offers four named agents plus the shell and requires the backend preview before launch', async () => {
+  it('separates Shell and Agent work and requires the backend preview before launch', async () => {
     const pending = deferredPreview();
     vi.mocked(api.preview).mockReturnValueOnce(pending.promise);
     const dialog = await openLauncher();
-    for (const name of ['Codex', 'Claude Code', 'Grok Build', 'Antigravity CLI', 'Terminal']) {
-      expect(within(dialog).getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
-    }
+    expect(within(dialog).getByRole('button', { name: /^Shell/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByRole('button', { name: /^Agent/ })).toHaveAttribute('aria-pressed', 'false');
     const start = within(dialog).getByRole('button', { name: '開始工作' });
     expect(start).toBeDisabled();
     expect(api.preview).not.toHaveBeenCalled();
@@ -834,7 +889,7 @@ describe('exact agent launch preview and manual resume', () => {
     vi.mocked(api.preview).mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise);
     const dialog = await openLauncher();
     await tick(150);
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Grok Build/ }));
+    chooseLaunchKind(dialog, 'grok');
     await tick(150);
     await act(async () => old.reject(new Error('stale tool failure')));
     expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
@@ -845,14 +900,14 @@ describe('exact agent launch preview and manual resume', () => {
   it('blocks start on preview failure and permits a new preview after the user corrects input', async () => {
     vi.mocked(api.preview).mockRejectedValueOnce(new Error('找不到 agy 執行檔'));
     const dialog = await openLauncher();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Antigravity CLI/ }));
+    chooseLaunchKind(dialog, 'antigravity');
     await tick(150);
     expect(within(dialog).getByRole('alert')).toHaveTextContent('找不到 agy 執行檔');
     const start = within(dialog).getByRole('button', { name: '開始工作' });
     expect(start).toBeDisabled();
     fireEvent.submit(start.closest('form')!);
     expect(Object.keys(workspaceSnapshot().panes)).toEqual(['pane-a']);
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Grok Build/ }));
+    chooseLaunchKind(dialog, 'grok');
     expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
     await tick(150);
     expect(start).toBeEnabled();
@@ -887,7 +942,7 @@ describe('exact agent launch preview and manual resume', () => {
     vi.mocked(api.preview).mockResolvedValue({ executable: kind === 'grok' ? '/synthetic/grok' : '/synthetic/agy',
       args: [kind === 'grok' ? '--resume' : '--conversation', 'synthetic-conversation'], cwd: '/synthetic/project' });
     const dialog = await openLauncher();
-    fireEvent.click(within(dialog).getByRole('button', { name: new RegExp(`^${agentNames[kind]}`) }));
+    chooseLaunchKind(dialog, kind);
     fireEvent.change(within(dialog).getByRole('textbox', { name: /接續對話 ID/ }), {
       target: { value: '  synthetic-conversation  ' },
     });
@@ -908,10 +963,9 @@ describe('exact agent launch preview and manual resume', () => {
   });
   it.each(['codex', 'claude', 'shell', 'antigravity'] as const)('clears a Grok manual ID when switching to %s', async (kind) => {
     const dialog = await openLauncher();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Grok Build/ }));
+    chooseLaunchKind(dialog, 'grok');
     fireEvent.change(within(dialog).getByRole('textbox', { name: /接續對話 ID/ }), { target: { value: 'grok-only-id' } });
-    const label = kind === 'shell' ? 'Terminal' : agentNames[kind];
-    fireEvent.click(within(dialog).getByRole('button', { name: new RegExp(`^${label}`) }));
+    chooseLaunchKind(dialog, kind);
     if (kind === 'antigravity') expect(within(dialog).getByRole('textbox', { name: /接續對話 ID/ })).toHaveValue('');
     else expect(within(dialog).queryByRole('textbox', { name: /接續對話 ID/ })).not.toBeInTheDocument();
     await tick(150);
@@ -923,7 +977,7 @@ describe('exact agent launch preview and manual resume', () => {
   });
   it('treats whitespace-only manual IDs as a new session', async () => {
     const dialog = await openLauncher();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Grok Build/ }));
+    chooseLaunchKind(dialog, 'grok');
     fireEvent.change(within(dialog).getByRole('textbox', { name: /接續對話 ID/ }), { target: { value: '   ' } });
     await tick(150);
     expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'grok', resumeId: undefined }));
@@ -951,9 +1005,9 @@ describe('exact agent launch preview and manual resume', () => {
     vi.mocked(api.bootstrap).mockResolvedValue(data);
     const dialog = await openLauncher();
     expect(within(dialog).queryByText(/已啟用高風險權限模式/)).not.toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Grok Build/ }));
+    chooseLaunchKind(dialog, 'grok');
     expect(within(dialog).getByText(/已啟用高風險權限模式/)).toHaveTextContent('--always-approve');
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Antigravity CLI/ }));
+    chooseLaunchKind(dialog, 'antigravity');
     expect(within(dialog).queryByText(/已啟用高風險權限模式/)).not.toBeInTheDocument();
   });
 });
@@ -972,6 +1026,7 @@ async function resumeWithExistingLiveSession(cwd: string, state: 'running' | 'st
   await tick();
   act(() => native.patch?.('pane-a', { state, runtimeId: 'original-runtime' }));
   const original = workspaceSnapshot();
+  selectGroup();
   fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
   const requested = workspaceSnapshot();
   const newPane = Object.values(requested.panes).find((pane) => pane.id !== 'pane-a')!;
@@ -1052,6 +1107,7 @@ describe('catalog sessions reassigned to another project', () => {
       if (state === 'exited') act(() => native.patch?.('pane-a', { state, exitCode: 7 }));
       const original = workspaceSnapshot();
       expect(original.panes['pane-a']).toMatchObject({ state, projectId: 'project-a' });
+      selectGroup('Latest session project');
       fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
       const requested = workspaceSnapshot();
       const newPane = Object.values(requested.panes).find((pane) => pane.id !== 'pane-a');
@@ -1076,4 +1132,406 @@ describe('catalog sessions reassigned to another project', () => {
       expect(saved.panes[newPane!.id].startToken).toBeUndefined();
     },
   );
+});
+
+
+function directoryOverviewBootstrap(): Bootstrap {
+  const data = bootstrap();
+  const base = data.projects[0];
+  data.workspace = emptyWorkspace();
+  data.projects = [
+    { ...base, name: 'Curated manual', path: '/synthetic/manual', sessionCount: 0 },
+    { ...base, id: 'observed', name: 'Observed history', path: '/synthetic/observed', curated: false, sessionCount: 5 },
+    { ...base, id: 'missing', name: 'Missing directory', path: '/synthetic/missing', exists: false, curated: false, sessionCount: 2 },
+    { ...base, id: 'unknown', name: 'Unknown directory', path: null, exists: false, curated: false, sessionCount: 3 },
+    { ...base, id: 'curated-history', name: 'Curated history', path: '/synthetic/curated-history', sessionCount: 1 },
+    { ...base, id: 'empty-auto', name: 'Empty automatic', path: '/synthetic/empty-auto', curated: false, sessionCount: 0 },
+  ];
+  return data;
+}
+
+describe('Projects and All Directories pages', () => {
+  it('renders curated management cards first and only groups with sessions in All Directories, including unknown and missing paths', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = directoryOverviewBootstrap();
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    const main = screen.getByRole('main');
+    let navigation = screen.getByRole('navigation', { name: '專案' });
+    for (const name of ['Curated manual', 'Curated history']) {
+      expect(within(navigation).getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+      expect(within(main).getByText(name)).toBeInTheDocument();
+    }
+    for (const name of ['Observed history', 'Missing directory', 'Unknown directory', 'Empty automatic']) {
+      expect(within(navigation).queryByRole('button', { name: new RegExp(`^${name}`) })).not.toBeInTheDocument();
+      expect(within(main).queryByText(name)).not.toBeInTheDocument();
+    }
+    expect(native.historyRender).not.toHaveBeenCalled();
+    changePage('所有目錄');
+    navigation = screen.getByRole('navigation', { name: '所有目錄' });
+    for (const name of ['Observed history', 'Missing directory', 'Unknown directory', 'Curated history']) {
+      expect(within(navigation).getByRole('button', { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+      expect(within(main).getByText(name)).toBeInTheDocument();
+    }
+    for (const name of ['Curated manual', 'Empty automatic']) {
+      expect(within(navigation).queryByRole('button', { name: new RegExp(`^${name}`) })).not.toBeInTheDocument();
+      expect(within(main).queryByText(name)).not.toBeInTheDocument();
+    }
+    expect(native.historyRender).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(api.updateProject).not.toHaveBeenCalled();
+    expect(api.addProject).not.toHaveBeenCalled();
+    expect(api.createProject).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+
+  it('opens each chosen directory as scoped history without ever requesting a flat mixed overview', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = directoryOverviewBootstrap();
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    changePage('所有目錄');
+    for (const project of data.projects.filter((entry) => entry.sessionCount > 0)) {
+      selectGroup(project.name, '所有目錄');
+      expect(screen.getByRole('heading', { name: project.name, level: 1 })).toBeInTheDocument();
+      expect(screen.getByTestId('history-selected-project')).toHaveTextContent(project.id);
+      expect(native.historyRender).toHaveBeenLastCalledWith(project.id);
+    }
+    expect(native.historyRender.mock.calls.every(([id]) => typeof id === 'string' && id.length > 0)).toBe(true);
+    expect(api.updateProject).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.preview).not.toHaveBeenCalled();
+  });
+
+  it('scopes group search to its page and clears the search and selected group when switching pages', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.bootstrap).mockResolvedValue(directoryOverviewBootstrap());
+    render(<App />);
+    await tick();
+    const search = () => screen.getByRole('textbox', { name: /搜尋專案|搜尋所有目錄/ });
+    fireEvent.change(search(), { target: { value: 'missing' } });
+    expect(within(screen.getByRole('navigation', { name: '專案' })).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('main')).queryByText('Missing directory')).not.toBeInTheDocument();
+    changePage('所有目錄');
+    expect(search()).toHaveValue('');
+    fireEvent.change(search(), { target: { value: '/synthetic/missing' } });
+    const dirs = screen.getByRole('navigation', { name: '所有目錄' });
+    expect(within(dirs).getByRole('button', { name: /^Missing directory/ })).toBeInTheDocument();
+    expect(within(dirs).queryByRole('button', { name: /^Observed history/ })).not.toBeInTheDocument();
+    selectGroup('Missing directory', '所有目錄');
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('missing');
+    changePage('專案');
+    expect(search()).toHaveValue('');
+    expect(screen.getByRole('heading', { name: '專案', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Curated manual/ })).toBeInTheDocument();
+    selectGroup('Curated manual');
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    changePage('所有目錄');
+    expect(search()).toHaveValue('');
+    expect(screen.getByRole('heading', { name: '所有目錄', level: 1 })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(native.historyRender.mock.calls.every(([id]) => id !== undefined)).toBe(true);
+  });
+
+  it('keeps a selected directory and its sessions visible after removing it from Projects on All Directories', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = directoryOverviewBootstrap();
+    const original = data.projects.find((entry) => entry.id === 'curated-history')!;
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.updateProject).mockResolvedValue({ ...original, curated: false });
+    render(<App />);
+    await tick();
+    changePage('所有目錄');
+    selectGroup('Curated history', '所有目錄');
+    fireEvent.click(screen.getByRole('button', { name: '移出專案' }));
+    await tick();
+    expect(screen.getByRole('tab', { name: /^所有目錄(?:\s+\d+)?$/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: 'Curated history', level: 1 })).toBeInTheDocument();
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('curated-history');
+    expect(within(screen.getByRole('navigation', { name: '所有目錄' })).getByRole('button', { name: /^Curated history/ })).toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId('history-projects').textContent!)).toContainEqual({ ...original, curated: false });
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith(original.id, { curated: false });
+    changePage('專案');
+    expect(within(screen.getByRole('navigation', { name: '專案' })).queryByRole('button', { name: /^Curated history/ })).not.toBeInTheDocument();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.saveWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('asks for a location before curating an unknown directory and keeps its source group identity', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = directoryOverviewBootstrap();
+    const unknown = data.projects.find((entry) => entry.id === 'unknown')!;
+    const saved = { ...unknown, curated: true, launchPath: '/synthetic/chosen-location', exists: true };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.updateProject).mockResolvedValue(saved);
+    vi.mocked(api.projects).mockResolvedValue(data.projects.map((entry) => entry.id === saved.id ? saved : entry));
+    render(<App />);
+    await tick();
+    changePage('所有目錄');
+    selectGroup('Unknown directory', '所有目錄');
+    fireEvent.click(screen.getByRole('button', { name: 'Curate synthetic history project' }));
+    const dialog = screen.getByRole('dialog', { name: '重新定位專案目錄' });
+    expect(within(dialog).getByLabelText('目錄路徑')).toHaveValue('');
+    expect(api.updateProject).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByLabelText('目錄路徑'), { target: { value: '/synthetic/chosen-location' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '儲存新位置' }));
+    await tick();
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith('unknown', { launchPath: '/synthetic/chosen-location', curated: true });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('unknown');
+    expect(JSON.parse(screen.getByTestId('history-projects').textContent!)).toContainEqual(saved);
+    changePage('專案');
+    expect(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Unknown directory/ })).toBeInTheDocument();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.addProject).not.toHaveBeenCalled();
+  });
+
+  it('keeps live workspaces mounted and reachable while both pages change selection', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
+    const original = workspaceSnapshot();
+    expect(native.canvasMounted).toHaveBeenCalledOnce();
+    for (const page of ['所有目錄', '專案', '所有目錄', '專案'] as const) {
+      changePage(page);
+      expect(screen.getByRole('heading', { name: page, level: 1 })).toBeInTheDocument();
+      expect(workspaceSnapshot()).toEqual(original);
+      expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+      fireEvent.click(within(screen.getByRole('region', { name: '開啟中的工作區' })).getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
+      expect(screen.getByRole('heading', { name: 'Synthetic project', level: 1 })).toBeInTheDocument();
+      expect(workspaceSnapshot()).toEqual(original);
+      expect(screen.getByText('1 個執行中程序')).toBeInTheDocument();
+    }
+    expect(native.canvasMounted).toHaveBeenCalledOnce();
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.saveWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('directory navigation interruptions and direct management', () => {
+  it('adds and removes a directory from overview cards without opening history or starting work', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = directoryOverviewBootstrap();
+    const observed = data.projects.find((entry) => entry.id === 'observed')!;
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.updateProject).mockResolvedValueOnce({ ...observed, curated: true }).mockResolvedValueOnce(observed);
+    render(<App />);
+    await tick();
+    changePage('所有目錄');
+    fireEvent.click(screen.getByRole('button', { name: '加入專案 Observed history' }));
+    await tick();
+    expect(screen.getByRole('heading', { name: '所有目錄', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '移出專案 Observed history' })).toBeInTheDocument();
+    expect(native.historyRender).not.toHaveBeenCalled();
+    changePage('專案');
+    expect(screen.getByRole('button', { name: '瀏覽專案 Observed history' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '移出專案 Observed history' }));
+    await tick();
+    expect(screen.queryByRole('button', { name: '瀏覽專案 Observed history' })).not.toBeInTheDocument();
+    changePage('所有目錄');
+    expect(screen.getByRole('button', { name: '瀏覽目錄 Observed history' })).toBeInTheDocument();
+    expect(vi.mocked(api.updateProject).mock.calls).toEqual([['observed', { curated: true }], ['observed', { curated: false }]]);
+    expect(native.historyRender).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+
+  it('opens a group directly from its overview card and returns to management without a mixed query', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.bootstrap).mockResolvedValue(directoryOverviewBootstrap());
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '瀏覽專案 Curated manual' }));
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    fireEvent.click(screen.getByRole('button', { name: /^專案總覽/ }));
+    expect(screen.getByRole('region', { name: '專案管理總覽' })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    changePage('所有目錄');
+    fireEvent.click(screen.getByRole('button', { name: '瀏覽目錄 Missing directory' }));
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('missing');
+    fireEvent.click(screen.getByRole('button', { name: /^目錄總覽/ }));
+    expect(screen.getByRole('region', { name: '所有目錄總覽' })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(native.historyRender.mock.calls.every(([id]) => id !== undefined)).toBe(true);
+  });
+
+  it('supports arrow and boundary keys on the page tabs without activating history', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    const tabs = within(screen.getByRole('tablist', { name: '導覽頁面' }));
+    const projects = tabs.getByRole('tab', { name: /^專案/ });
+    const directories = tabs.getByRole('tab', { name: /^所有目錄/ });
+    projects.focus();
+    fireEvent.keyDown(projects, { key: 'ArrowRight' });
+    expect(directories).toHaveFocus();
+    expect(directories).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: '所有目錄', level: 1 })).toBeInTheDocument();
+    fireEvent.keyDown(directories, { key: 'Home' });
+    expect(projects).toHaveFocus();
+    expect(projects).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(projects, { key: 'End' });
+    expect(directories).toHaveFocus();
+    expect(directories).toHaveAttribute('aria-selected', 'true');
+    expect(native.historyRender).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+
+  it('opens cross-directory search only when explicitly requested and returns to grouped directories', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.bootstrap).mockResolvedValue(directoryOverviewBootstrap());
+    render(<App />);
+    await tick();
+    expect(native.historyRender).not.toHaveBeenCalled();
+    changePage('所有目錄');
+    expect(native.historyRender).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '搜尋所有工作階段' }));
+    expect(screen.getByRole('heading', { name: '搜尋所有工作階段', level: 1 })).toBeInTheDocument();
+    expect(native.historyRender).toHaveBeenLastCalledWith(undefined);
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('all');
+    fireEvent.click(screen.getByRole('button', { name: '返回目錄總覽' }));
+    expect(screen.getByRole('region', { name: '所有目錄總覽' })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '搜尋所有工作階段' }));
+    changePage('專案');
+    expect(screen.getByRole('region', { name: '專案管理總覽' })).toBeInTheDocument();
+    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(api.updateProject).not.toHaveBeenCalled();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+
+  it('does not undo newer navigation when a pending project removal resolves', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = directoryOverviewBootstrap();
+    const removed = { ...data.projects.find((entry) => entry.id === 'curated-history')!, curated: false };
+    let resolve!: (value: Project) => void;
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.updateProject).mockImplementationOnce(() => new Promise<Project>((done) => { resolve = done; }));
+    render(<App />);
+    await tick();
+    selectGroup('Curated history');
+    fireEvent.click(screen.getByRole('button', { name: '移出專案' }));
+    changePage('所有目錄');
+    selectGroup('Observed history', '所有目錄');
+    await act(async () => { resolve(removed); });
+    expect(screen.getByRole('heading', { name: 'Observed history', level: 1 })).toBeInTheDocument();
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('observed');
+    expect(screen.getByRole('tab', { name: /^所有目錄/ })).toHaveAttribute('aria-selected', 'true');
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith('curated-history', { curated: false });
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+
+  it('does not restore removed project membership from an older index refresh response', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.workspace = emptyWorkspace();
+    data.projects[0].sessionCount = 1;
+    let resolve!: (value: Project[]) => void;
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.index).mockResolvedValue({ ...data.index, revision: 2 });
+    vi.mocked(api.projects).mockImplementationOnce(() => new Promise<Project[]>((done) => { resolve = done; }));
+    vi.mocked(api.updateProject).mockResolvedValue({ ...data.projects[0], curated: false });
+    render(<App />);
+    await tick();
+    await tick(1000);
+    expect(api.projects).toHaveBeenCalledOnce();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: '移出專案' }));
+    await tick();
+    expect(screen.getByRole('heading', { name: '專案', level: 1 })).toBeInTheDocument();
+    await act(async () => { resolve(data.projects); });
+    expect(within(screen.getByRole('navigation', { name: '專案' })).queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '瀏覽專案 Synthetic project' })).not.toBeInTheDocument();
+    changePage('所有目錄');
+    selectGroup('Synthetic project', '所有目錄');
+    const projects = JSON.parse(screen.getByTestId('history-projects').textContent!) as Project[];
+    expect(projects[0]).toMatchObject({ curated: false, sessionCount: 1 });
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith('project-a', { curated: false });
+  });
+});
+
+
+describe('shared launcher and scoped search controls', () => {
+  it('keeps the project search shortcut scoped and focuses its complete search field', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.keyDown(document, { key: 'F', code: 'KeyF', ctrlKey: true, shiftKey: true });
+    await tick();
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    expect(screen.getByRole('textbox', { name: '搜尋 Session' })).toHaveFocus();
+    expect(within(screen.getByRole('tablist', { name: '導覽頁面' })).getByRole('tab', { name: /^專案/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('heading', { name: '所有工作階段' })).not.toBeInTheDocument();
+  });
+  it('shows every registry provider in one scalable dropdown and blocks missing executables', async () => {
+    const data = bootstrap();
+    data.installations = [
+      { kind: 'codex', executable: '/synthetic/codex', available: true, version: null, error: null },
+      { kind: 'grok', executable: 'grok', available: false, version: null, error: 'missing' },
+    ];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    const dialog = await openLauncher();
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
+    const selector = within(dialog).getByRole('combobox', { name: 'Agent' });
+    fireEvent.click(selector);
+    for (const kind of ['codex', 'claude', 'grok', 'antigravity'] as const)
+      expect(screen.getByRole('option', { name: new RegExp(`^${agentNames[kind]}`) })).toBeInTheDocument();
+    const missing = screen.getByRole('option', { name: /^Grok Build/ });
+    expect(missing).toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(missing);
+    expect(selector).toHaveTextContent('Codex');
+    fireEvent.keyDown(selector, { key: 'Escape' });
+    expect(dialog).toBeInTheDocument();
+    await tick(150);
+    expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'codex' }));
+  });
+  it('does not launch a missing default Agent even if a stale preview would succeed', async () => {
+    const data = bootstrap();
+    data.installations = [{ kind: 'codex', executable: 'codex', available: false, version: null, error: 'missing' }];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    const dialog = await openLauncher();
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
+    await tick(150);
+    const start = within(dialog).getByRole('button', { name: '開始工作' });
+    expect(start).toBeDisabled();
+    fireEvent.submit(start.closest('form')!);
+    expect(Object.keys(workspaceSnapshot().panes)).toEqual(['pane-a']);
+  });
+});
+
+
+it('ignores an older agent detection result after newer executable settings are saved', async () => {
+  let resolveOld!: (value: Installation[]) => void;
+  const old = new Promise<Installation[]>((resolve) => { resolveOld = resolve; });
+  vi.mocked(api.detect).mockReset().mockReturnValueOnce(old).mockResolvedValueOnce([
+    { kind: 'codex', executable: '/synthetic/new-codex', available: true, version: 'new-version', error: null },
+  ]);
+  vi.mocked(api.saveSettings).mockImplementation(async (settings) => settings);
+  vi.mocked(isDesktop).mockReturnValue(true);
+  render(<App />);
+  await tick();
+  for (const path of ['/synthetic/old-codex', '/synthetic/new-codex']) {
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    const settings = screen.getByRole('dialog');
+    fireEvent.change(within(settings).getByRole('textbox', { name: 'Codex 執行檔路徑' }), { target: { value: path } });
+    fireEvent.click(within(settings).getByRole('button', { name: '儲存設定' }));
+    await tick();
+  }
+  await act(async () => resolveOld([
+    { kind: 'codex', executable: '/synthetic/old-codex', available: false, version: null, error: 'outdated missing result' },
+  ]));
+  fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+  expect(screen.getByRole('textbox', { name: 'Codex 執行檔路徑' })).toHaveValue('/synthetic/new-codex');
+  expect(screen.getByText('new-version')).toBeInTheDocument();
+  expect(screen.queryByText('outdated missing result')).not.toBeInTheDocument();
 });

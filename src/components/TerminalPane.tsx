@@ -404,7 +404,7 @@ export function TerminalPane({
       </div>
       {searchOpen && (
         <form
-          className="terminal-search"
+          className="terminal-search search-field"
           onSubmit={(event) => {
             event.preventDefault();
             search.current?.findNext(needle);

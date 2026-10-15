@@ -14,7 +14,9 @@ import {
   X,
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
-import { agentNames } from '../agents';
+import { agentNames, historyAgentKinds } from '../agents';
+import { AgentIcon } from './AgentIcon';
+import { DatePicker, Select } from './controls';
 import { localDayBound } from '../workspace';
 import type { AgentKind, Project, Session, SessionPage, TranscriptPage } from '../types';
 export const agentName = (kind: AgentKind) => agentNames[kind];
@@ -75,12 +77,16 @@ export function HistoryView({
       ...previous,
       [key]: { ...(previous[key] ?? initialFilters), offset: 0, ...patch },
     }));
-  const [page, setPage] = useState<SessionPage>({ items: [], total: 0 });
+  const [storedPage, setPage] = useState<SessionPage>({ items: [], total: 0 });
+  const [resultKey, setResultKey] = useState<string | null>(null);
+  const page = resultKey === key ? storedPage : { items: [], total: 0 };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState<Session | null>(null);
+  const [selection, setSelected] = useState<Session | null>(null);
+  const selected = resultKey === key ? selection : null;
   const [previewOpen, setPreviewOpen] = useState(true);
   const [moreFilters, setMoreFilters] = useState(false);
+  const [dateReset, setDateReset] = useState(0);
   const selectedSessionId = selected?.id;
   const [transcript, setTranscript] = useState<TranscriptPage | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -110,6 +116,7 @@ export function HistoryView({
           .then((result) => {
             if (!cancelled) {
               setPage(result);
+              setResultKey(projectId ?? '__all');
               setSelected(
                 (previous) =>
                   result.items.find((s) => s.id === previous?.id) ?? result.items[0] ?? null,
@@ -226,16 +233,11 @@ export function HistoryView({
             </button>
           )}
         </div>
-        <select
-          aria-label="篩選 Agent"
-          value={filters.kind}
-          onChange={(event) => change({ kind: event.target.value as '' | AgentKind })}
-        >
-          <option value="">所有 Agent</option>
-          <option value="codex">Codex</option>
-          <option value="claude">Claude Code</option>
-          <option value="grok">Grok Build</option>
-        </select>
+        <Select aria-label="篩選 Agent" className="history-agent-filter" value={filters.kind}
+          onChange={(kind) => change({ kind: kind as '' | AgentKind })}
+          options={[{ value: '', label: '所有 Agent' }, ...historyAgentKinds.map((kind) => ({
+            value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} />,
+          }))]} />
         <button
           className={`secondary ${moreFilters ? 'selected' : ''}`}
           onClick={() => setMoreFilters(!moreFilters)}
@@ -256,40 +258,27 @@ export function HistoryView({
         <div className="filter-bar">
           <label>
             從
-            <input
-              type="date"
-              aria-label="開始日期"
-              value={filters.after}
-              onChange={(event) => change({ after: event.target.value })}
-            />
+            <DatePicker key={`${key}-after`} resetKey={dateReset} aria-label="開始日期" value={filters.after}
+              onChange={(after) => change({ after })} />
           </label>
           <label>
             至
-            <input
-              type="date"
-              aria-label="結束日期"
-              value={filters.before}
-              onChange={(event) => change({ before: event.target.value })}
-            />
+            <DatePicker key={`${key}-before`} resetKey={dateReset} aria-label="結束日期" value={filters.before}
+              onChange={(before) => change({ before })} />
           </label>
-          <select
-            aria-label="封存狀態"
-            value={filters.archived}
-            onChange={(event) => change({ archived: event.target.value as Filters['archived'] })}
-          >
-            <option value="active">未封存</option>
-            <option value="all">包含封存</option>
-            <option value="archived">僅封存</option>
-          </select>
+          <Select aria-label="封存狀態" className="history-archive-filter" value={filters.archived}
+            onChange={(archived) => change({ archived: archived as Filters['archived'] })}
+            options={[{ value: 'active', label: '未封存' }, { value: 'all', label: '包含封存' },
+              { value: 'archived', label: '僅封存' }]} />
           <label className="checkbox-label">
             <input
-              type="checkbox"
+              type="checkbox" className="checkbox"
               checked={filters.children}
               onChange={(event) => change({ children: event.target.checked })}
             />
             包含子代理與分支
           </label>
-          {filtered && <button onClick={() => change(initialFilters)}>重設篩選</button>}
+          {filtered && <button onClick={() => { change(initialFilters); setDateReset((value) => value + 1); }}>重設篩選</button>}
         </div>
       )}
       <div className="history-caption">

@@ -263,14 +263,7 @@ pub fn arguments(kind: AgentKind, options: &AgentLaunchOptions) -> Result<Vec<St
     let explicit_permission = inspect(kind, options)?;
     let mut args = options.extra_args.clone();
     if options.bypass_permissions && !explicit_permission {
-        args.push(
-            match kind {
-                AgentKind::Codex => "--dangerously-bypass-approvals-and-sandbox",
-                AgentKind::Claude | AgentKind::Antigravity => "--dangerously-skip-permissions",
-                AgentKind::Grok => "--always-approve",
-            }
-            .into(),
-        );
+        args.push(crate::providers::definition(kind).bypass_flag.clone());
     }
     Ok(args)
 }

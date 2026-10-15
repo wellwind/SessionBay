@@ -3,6 +3,7 @@ use crate::{
     models::{IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
     runtime::{RuntimeInfo, TerminalEvent},
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
+    shells::{self, ShellCandidate},
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -19,9 +20,26 @@ static FRONTEND_DIAGNOSTICS: AtomicUsize = AtomicUsize::new(0);
 fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
     if !matches!(
         phase,
-        "observer" | "module-loaded" | "mounted" | "ready" | "interaction" | "error"
+        "observer" | "module-loaded" | "mounted" | "ready" | "interaction" | "error" | "snapshot"
     ) {
         return Err("Unknown frontend diagnostic phase".into());
+    }
+    if phase == "snapshot"
+        && !matches!(
+            message,
+            "projects-dark"
+                | "directories-dark"
+                | "providers-dark"
+                | "launcher-dark"
+                | "calendar-dark"
+                | "projects-light"
+                | "directories-light"
+                | "providers-light"
+                | "launcher-light"
+                | "calendar-light"
+        )
+    {
+        return Err("Unknown frontend snapshot identifier".into());
     }
     let message: String = message.chars().take(2048).collect();
     Ok(format!(
@@ -59,6 +77,20 @@ async fn bootstrap(state: AppState<'_>) -> Result<Bootstrap, String> {
 async fn detect_installations(state: AppState<'_>) -> Result<Vec<Installation>, String> {
     let s = state.inner().clone();
     blocking(move || Ok(config::detect(&s.settings()?))).await
+}
+#[tauri::command]
+async fn detect_shells(state: AppState<'_>) -> Result<Vec<ShellCandidate>, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        let saved_executables = s
+            .settings()?
+            .profiles
+            .into_iter()
+            .map(|profile| profile.executable)
+            .collect::<Vec<_>>();
+        Ok(shells::detect_shells(&saved_executables))
+    })
+    .await
 }
 #[tauri::command]
 async fn save_settings(state: AppState<'_>, settings: Settings) -> Result<Settings, String> {
@@ -241,6 +273,7 @@ pub fn run() {
             frontend_diagnostic,
             bootstrap,
             detect_installations,
+            detect_shells,
             save_settings,
             list_projects,
             add_project,
@@ -308,6 +341,40 @@ mod tests {
             serde_json::from_str(line.strip_prefix("SESSIONBAY_FRONTEND ").unwrap()).unwrap();
         assert_eq!(value["message"].as_str().unwrap().chars().count(), 2048);
         assert!(diagnostic_line("arbitrary", "ignored").is_err());
+    }
+
+    #[test]
+    fn frontend_snapshots_accept_only_known_screens_and_themes() {
+        for screen in [
+            "projects",
+            "directories",
+            "providers",
+            "launcher",
+            "calendar",
+        ] {
+            for theme in ["dark", "light"] {
+                let message = format!("{screen}-{theme}");
+                let line = diagnostic_line("snapshot", &message).unwrap();
+                let value: serde_json::Value =
+                    serde_json::from_str(line.strip_prefix("SESSIONBAY_FRONTEND ").unwrap())
+                        .unwrap();
+                assert_eq!(
+                    value,
+                    serde_json::json!({ "phase": "snapshot", "message": message })
+                );
+                assert_eq!(line.lines().count(), 1);
+            }
+        }
+        for message in [
+            "",
+            "projects",
+            "projects-auto",
+            "unknown-dark",
+            "projects-dark\n",
+            "../projects-dark",
+        ] {
+            assert!(diagnostic_line("snapshot", message).is_err());
+        }
     }
 
     #[test]

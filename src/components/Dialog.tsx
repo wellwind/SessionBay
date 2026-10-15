@@ -23,6 +23,7 @@ export function Dialog({
       root?.querySelector<HTMLElement>('button')
     )?.focus();
     const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.key === 'Escape') {
         event.stopPropagation();
         closeRef.current();
@@ -30,7 +31,7 @@ export function Dialog({
       if (event.key === 'Tab') {
         const focusable = Array.from(
           root?.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+            'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]',
           ) ?? [],
         ).filter((el) => el.offsetParent !== null);
         if (!focusable.length) return;
@@ -44,9 +45,9 @@ export function Dialog({
         }
       }
     };
-    document.addEventListener('keydown', key, true);
+    document.addEventListener('keydown', key);
     return () => {
-      document.removeEventListener('keydown', key, true);
+      document.removeEventListener('keydown', key);
       previous?.focus();
     };
   }, []);

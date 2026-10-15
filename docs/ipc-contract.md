@@ -8,7 +8,7 @@ Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "
 
 - AgentKind: `codex` | `claude` | `grok` | `antigravity`
 - HistorySource: `{ id: string, kind: AgentKind, root: string, enabled: boolean }` (root is CODEX_HOME / CLAUDE_CONFIG_DIR / GROK_HOME; Antigravity history is unsupported)
-- Installation: `{ kind, executable: string | null, version: string | null, available: boolean, error: string | null }`
+- Installation: `{ kind, executable: string | null, version: string | null, available: boolean, status: 'missing' | 'available' | 'versionCheckFailed', loginStatus: 'unknown', error: string | null }`; `available` indicates executable discovery, not login or a successful version probe.
 - SourceHealth: `{ sourceId: string, status: string, message: string | null, files: number }`
 - Project: `{ id, name, path: string | null, launchPath: string | null, exists: boolean, curated: boolean, pinned: boolean, sessionCount: number, updatedAt: string | null, agents: AgentKind[] }`; `curated` is explicit user-selected Projects membership, independent of discovered Session grouping and open workspaces.
 - Session: `{ id, sourceId, kind, externalId, projectId, title, cwd: string | null, updatedAt: string, timeSource: 'event' | 'mtime', archived: boolean, parentId: string | null, partial: boolean, snippet: string | null }`
@@ -18,6 +18,7 @@ Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "
 - TranscriptPage: `{ messages: TranscriptMessage[], hasMore: boolean, beforeLine: number | null, stale: boolean, warning: string | null }`
 - IndexStatus: `{ revision: number, running: boolean, processed: number, total: number, cancelled: boolean, errors: string[], sources: SourceHealth[] }`
 - ShellProfile: `{ id, name, executable, args: string[], env: Record<string,string> }`
+- ShellCandidate: `{ name: string, executable: string }`; executable preserves the first discovered absolute invocation path. Canonical targets are used only for deduplication and saved-profile exclusion, so an invocation alias such as `sh` is not silently replaced by its target.
 - AgentLaunchOptions: `{ extraArgs: string[], bypassPermissions: boolean }`; default empty/false independently per kind.
 - Settings: `{ version: 1, theme: 'dark' | 'light' | 'system', terminalTheme: 'bay' | 'classic', fontFamily: string, fontSize: number, defaultAgent: AgentKind, defaultProfileId: string, profiles: ShellProfile[], sources: HistorySource[], executables: Record<AgentKind,string>, agentOptions: Record<AgentKind,AgentLaunchOptions>, shortcuts: Record<string,string>, onboardingComplete: boolean }`
 - Bootstrap: `{ settings: Settings, projects: Project[], installations: Installation[], index: IndexStatus, workspace: unknown, warnings: string[] }`
@@ -29,10 +30,11 @@ Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "
 
 ## Commands
 
-- frontend_diagnostic({phase,message}) -> boolean: startup observer only; strict phases, 2,048-character messages, at most 32 single-line JSON stderr records. Returns false without logging unless the native process explicitly has SESSIONBAY_SMOKE=1. No filesystem paths, file writes, remote transport, or Agent launch; only an opt-in CI process can enable the safe DOM interaction probe.
+- frontend_diagnostic({phase,message}) -> boolean: opt-in startup／native UI smoke diagnostics; phases are `observer`, `module-loaded`, `mounted`, `ready`, `interaction`, `error`, `snapshot`. Messages are bounded to 2,048 characters, with at most 32 single-line JSON stderr records. Returns false without logging unless the native process explicitly has SESSIONBAY_SMOKE=1. No filesystem-path argument, file writes, remote transport, or Agent launch. Snapshot messages accept only `projects-dark`, `directories-dark`, `providers-dark`, `launcher-dark`, `calendar-dark` and their `-light` equivalents; unknown identifiers are rejected. A snapshot marker identifies the UI state for external capture; it does not capture an image or prove painted pixels. Existing ready／interaction／error checks remain required.
 
 - bootstrap() -> Bootstrap
-- detect_installations() -> Installation[]
+- detect_installations() -> Installation[] (uses saved settings and provider-specific version argv; not a history scan or login check)
+- detect_shells() -> ShellCandidate[] (read-only discovery; no arguments, process launch or settings write)
 - save_settings({settings}) -> Settings (validate before write)
 - list_projects() -> Project[] (complete catalog groups; frontend Projects filters `curated`, not Session queries)
 - add_project({path, name?: string}) -> Project (existing absolute directory; optional display name; marks `curated: true`; canonical duplicates reuse the same Project)
@@ -58,6 +60,17 @@ RuntimeManager API (module runtime.rs): `new()`, `launch(spec: LaunchSpec, cols:
 
 Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::open(path: &Path) -> Result<Self,String>`, `projects()`, project addition/creation/update methods matching the commands above, `query(&SessionQuery)`, `transcript(id:&str,before_line:Option<u64>,limit:usize)`, `session(id:&str)->Result<Session,String>`, `clear()`, `sync(sources:&[HistorySource], cancel:&AtomicBool, progress: impl Fn(IndexStatus))`. Catalog owns DB path, opens per method/scan for concurrency. Data models in models.rs owned by catalog implementer. Other definitions Settings/Profile/Bootstrap owned by integration implementer in config.rs. Catalog provides source root/file existence and uniqueness preflight as `resume_source(session_id: &str) -> Result<(Session, HistorySource),String>`.
 
+## Provider 與 Shell 偵測語意
+
+- `src/agent-manifest.json` 是 TypeScript／Rust 的共同內建 metadata；不是 IPC 注入的外掛設定。parser、危險參數驗證與來源身份仍由型別實作控制。
+- `Installation.available` 只表示找到可執行檔。找不到時為 `available: false`、`status: 'missing'`，附上錯誤；bootstrap 只檢查路徑，找到時為 `available: true`、`status: 'available'`、`version: null`、`error: null`，不代表版本已檢查。`detect_installations` 使用共同 manifest 的版本 argv；成功填入 `version`，失敗／逾時則保持 `available: true`，改為 `status: 'versionCheckFailed'` 並附上 `error`。不得把版本失敗誤報為找不到執行檔。
+- 版本探測只傳工具的 `--version`（Grok 為 `version`），不用自訂 argv 或高風險旗標；cwd 為 `/`，不套用選取來源／專案環境。單次期限 2 秒、收集輸出最多 4096 bytes，逾時停止所管理程序。`loginStatus` 固定為 `unknown`，不得把路徑或版本探測成功標成已登入。
+- `detect_shells` 讀取有上限的 OS shell 清單、目前絕對 `$SHELL` 與絕對 PATH／標準 bin 位置中的已知 shell 名稱；只做檔案 metadata 探索、canonical 去重，不執行候選、不讀 rc 或歷史，不寫設定。候選保留首次找到的絕對路徑拼法，canonical 路徑只用於身份比較。
+- 偵測先取得已儲存 Profiles 的唯讀快照，排除其 canonical 執行檔目標；例如已保存 `/bin/bash`，不會再把同目標的 `/usr/bin/bash` 當新候選。已儲存的 bare command 依真正啟動的順序解析：絕對 PATH 位置優先，接著 home 的 `.local/bin`、`.cargo/bin`，再走標準 fallback 位置。只比較已儲存設定；UI 另外避免重複加入同一路徑的未儲存候選。
+- 探索上限：OS 清單 64 KiB／128 行，PATH 64 KiB，標準與 PATH 合計最多 32 個目錄項目、256 個候選路徑 probe、64 個結果。已儲存命令解析另有限制：32 個 executable 字串、每個 bare command 最多 128 個搜尋目錄項目、總計 1024 個有快取的路徑 probe，不占用候選的 256 次額度。若已儲存命令解析因上限而不完整，保守回傳空清單，避免推薦可能重複的 Profile；空清單表示「沒有新的 Shell 可加入」，不表示這台電腦沒有 Shell。
+- 候選由 UI 明確加入 Profile 草稿，再以 `save_settings` 保存；偵測不修改既有 id、名稱、參數、環境變數、執行檔拼法或 `defaultProfileId`。新增候選使用空參數與空環境，使用者可自行編輯。
+- 全新設定選有效且存在的絕對 `$SHELL`，否則 macOS `/bin/zsh`、Linux `/bin/bash`，預設 args `["-l"]`。不匯入 Terminal Profiles／rc；實際啟動檔由 Shell 自身處理。
+
 ## Agent 選項與啟動計畫
 
 - 設定版本保留 `1`。缺少 `executables.grok`／`antigravity` 時補為 `grok`／`agy`；缺少或部分缺少 `agentOptions` 時逐工具／欄位補為 `extraArgs: []`、`bypassPermissions: false`。原來源清單不覆寫；只有全新預設設定加入 `grok-default`（`GROK_HOME` 或 `~/.grok`）。
@@ -71,8 +84,8 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 
 ## 自選專案語意與驗證
 
-- Bootstrap 的 `projects` 與 `list_projects()` 都保留未加入的目錄分組，供歷史預覽、Session 關聯與已開啟工作區使用。左側 Projects 只顯示 `curated: true`；工作區導覽不受此篩選限制。
-- 所有工作階段以省略 `SessionQuery.projectId` 查詢完整範圍，既有文字、Agent、日期、封存及子代理篩選維持原語意。`curated` 不新增為隱含搜尋條件。
+- Bootstrap 的 `projects` 與 `list_projects()` 保留完整目錄分組。「專案」預設頁的卡片／側欄以 `curated: true` 篩選；「所有目錄」頁以 `sessionCount > 0` 篩選，包含已加入、未加入、未知及失效目錄。已開啟工作區在兩頁皆可到達，不受這兩種投影限制。
+- 兩頁未選組時顯示總覽，不查詢混合 Session 清單；選組後以 `SessionQuery.projectId` 查詢該組歷史，既有文字、Agent、日期、封存及子代理篩選維持原語意。明確開啟全域搜尋時省略 `projectId` 查詢跨目錄結果，但不是兩頁的預設總覽 UI；`curated` 不新增為隱含搜尋條件。此導覽澄清不需要新增 IPC 或變更 catalog migration。
 - 自動探索、重掃與重建不自動加入 Projects。升級時僅把舊版手動加入或釘選專案遷移為 curated，其餘預設 false；此回填不可在日後掃描重複執行。
 - 路徑輸入必須是絕對路徑，前端目前沒有原生目錄選擇器。`add_project` 要求存在且為目錄；不建立輸入路徑。
 - `create_project` 的父目錄必須已存在且為目錄；`name` 不得為空、`.`、`..`、絕對路徑或多個路徑元件。只建立一個新資料夾，不覆寫任何既有目標，也不建立祖先目錄；錯誤由後端回報，不能僅依賴前端驗證。

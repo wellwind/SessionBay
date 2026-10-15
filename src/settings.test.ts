@@ -1,6 +1,7 @@
-import { agentKinds, agentNames, bypassFlags, defaultAgentOptions, normalizedAgentOptions } from './agents';
+import { agentCapabilities, agentKinds, agentNames, bypassFlags, executableDefaults, historyAgentKinds, installationState, defaultAgentOptions, normalizedAgentOptions } from './agents';
 import { createElement } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import manifest from './agent-manifest.json';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -12,7 +13,7 @@ import {
 } from './components/SettingsPanel';
 import type { SettingsPanelProps } from './components/SettingsPanel';
 import { shortcutDefaults } from './commands';
-import type { AgentKind, Settings } from './types';
+import type { AgentKind, Settings, ShellCandidate } from './types';
 
 function validSettings(): Settings {
   return {
@@ -44,8 +45,15 @@ function props(overrides: Partial<SettingsPanelProps> = {}): SettingsPanelProps 
     onCancelScan: vi.fn().mockResolvedValue(undefined),
     onClearIndex: vi.fn().mockResolvedValue(undefined),
     onDetect: vi.fn().mockResolvedValue(undefined),
+    onDetectShells: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
+}
+
+function openAgentOptions(name: string) {
+  const summary = screen.getByLabelText(`${name} 參數與權限設定`);
+  const details = summary.closest('details')!;
+  if (!details.open) fireEvent.click(summary);
 }
 
 describe('settings validation', () => {
@@ -323,7 +331,9 @@ describe('per-agent launch options', () => {
     expect(screen.getByRole('textbox', { name: 'Grok Build 執行檔路徑' })).toHaveValue('grok');
     expect(screen.getByRole('textbox', { name: 'Antigravity CLI 執行檔路徑' })).toHaveValue('agy');
     for (const kind of agentKinds) {
+      openAgentOptions(agentNames[kind]);
       expect(screen.getByRole('textbox', { name: `${agentNames[kind]} 自訂啟動參數` })).toHaveValue('[]');
+      openAgentOptions(agentNames[kind]);
       expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 略過權限確認` })).not.toBeChecked();
     }
     expect(screen.getByRole('button', { name: '重新偵測' })).toBeEnabled();
@@ -344,6 +354,7 @@ describe('per-agent launch options', () => {
       antigravity: ['--model', '<script>never execute</script>', '--agent', 'two words'],
     };
     for (const kind of agentKinds) {
+      openAgentOptions(agentNames[kind]);
       fireEvent.change(screen.getByRole('textbox', { name: `${agentNames[kind]} 自訂啟動參數` }), {
         target: { value: JSON.stringify(argsByAgent[kind]) },
       });
@@ -361,6 +372,7 @@ describe('per-agent launch options', () => {
   it.each(['[broken', '{}', '[1]', '[null]', '["\\u0000"]'])('preserves invalid custom argv %s and blocks save', async (raw) => {
     const config = props();
     render(createElement(SettingsPanel, config));
+    openAgentOptions('Grok Build');
     const field = screen.getByRole('textbox', { name: 'Grok Build 自訂啟動參數' });
     fireEvent.change(field, { target: { value: raw } });
     await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
@@ -383,11 +395,13 @@ describe('per-agent launch options', () => {
   it.each(agentKinds)('limits %s permission bypass opt-in to that tool and saves custom argv', async (kind) => {
     const config = props();
     render(createElement(SettingsPanel, config));
+    openAgentOptions(agentNames[kind]);
     fireEvent.change(screen.getByRole('textbox', { name: `${agentNames[kind]} 自訂啟動參數` }), {
       target: { value: JSON.stringify([bypassFlags[kind]]) },
     });
     await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
     expect(config.onSave).not.toHaveBeenCalled();
+    openAgentOptions(agentNames[kind]);
     await userEvent.click(screen.getByRole('checkbox', { name: `${agentNames[kind]} 略過權限確認` }));
     await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
     const saved = vi.mocked(config.onSave).mock.calls[0][0];
@@ -400,6 +414,7 @@ describe('per-agent launch options', () => {
   it('preserves unsupported custom argv for correction when authoritative save validation rejects it', async () => {
     const config = props({ onSave: vi.fn().mockRejectedValue(new Error('Unsupported or managed grok argument: --session-id')) });
     render(createElement(SettingsPanel, config));
+    openAgentOptions('Grok Build');
     const field = screen.getByRole('textbox', { name: 'Grok Build 自訂啟動參數' });
     fireEvent.change(field, { target: { value: '["--session-id","managed-id"]' } });
     await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
@@ -411,9 +426,11 @@ describe('per-agent launch options', () => {
   it('does not save incomplete custom argv or bypass changes when they are discarded', async () => {
     const config = props();
     render(createElement(SettingsPanel, config));
+    openAgentOptions('Antigravity CLI');
     fireEvent.change(screen.getByRole('textbox', { name: 'Antigravity CLI 自訂啟動參數' }), {
       target: { value: '[incomplete' },
     });
+    openAgentOptions('Antigravity CLI');
     await userEvent.click(screen.getByRole('checkbox', { name: 'Antigravity CLI 略過權限確認' }));
     await userEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(config.onClose).not.toHaveBeenCalled();
@@ -425,14 +442,18 @@ describe('per-agent launch options', () => {
   it('replaces custom argv and risk edits when authoritative settings change', () => {
     const config = props();
     const view = render(createElement(SettingsPanel, config));
+    openAgentOptions('Grok Build');
     fireEvent.change(screen.getByRole('textbox', { name: 'Grok Build 自訂啟動參數' }), {
       target: { value: '[unfinished' },
     });
+    openAgentOptions('Grok Build');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Grok Build 略過權限確認' }));
     const authoritative = validSettings();
     authoritative.agentOptions.grok.extraArgs = ['--model', 'saved model'];
     view.rerender(createElement(SettingsPanel, { ...config, settings: authoritative }));
+    openAgentOptions('Grok Build');
     expect(screen.getByRole('textbox', { name: 'Grok Build 自訂啟動參數' })).toHaveValue('["--model","saved model"]');
+    openAgentOptions('Grok Build');
     expect(screen.getByRole('checkbox', { name: 'Grok Build 略過權限確認' })).not.toBeChecked();
     expect(screen.getByRole('button', { name: '重新偵測' })).toBeEnabled();
   });
@@ -441,16 +462,20 @@ describe('per-agent launch options', () => {
     render(createElement(SettingsPanel, config));
     expect(screen.getByText(/CLI 工具 agy；與 Antigravity 桌面／IDE 歷史分開/)).toBeInTheDocument();
     const sourceKind = screen.getByRole('combobox', { name: 'Agent 類型' });
-    expect(within(sourceKind).getAllByRole('option').map((option) => (option as HTMLOptionElement).value))
-      .toEqual(['codex', 'claude', 'grok']);
-    expect(within(sourceKind).queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
+    fireEvent.click(sourceKind);
+    const sourceOptions = within(screen.getByRole('listbox', { name: 'Agent 類型' }));
+    expect(sourceOptions.getAllByRole('option')).toHaveLength(3);
+    for (const name of ['Codex', 'Claude Code', 'Grok Build']) expect(sourceOptions.getByRole('option', { name })).toBeInTheDocument();
+    expect(sourceOptions.queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
-    expect(within(screen.getByRole('combobox', { name: '預設 Agent' })).getByRole('option', { name: 'Antigravity CLI' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('combobox', { name: '預設 Agent' }));
+    expect(screen.getByRole('option', { name: 'Antigravity CLI' })).toBeInTheDocument();
   });
   it('saves a Grok history source with its own directory hint', async () => {
     const config = props();
     render(createElement(SettingsPanel, config));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Agent 類型' }), { target: { value: 'grok' } });
+    fireEvent.click(screen.getByRole('combobox', { name: 'Agent 類型' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
     const root = screen.getByRole('textbox', { name: /GROK.*資料目錄|Grok.*資料目錄/i });
     expect(root).toHaveAttribute('placeholder', expect.stringContaining('.grok'));
     fireEvent.change(root, { target: { value: '/synthetic/.grok' } });
@@ -465,5 +490,368 @@ describe('per-agent launch options', () => {
     expect(validateSettings(settings)).toEqual({});
     settings.sources[0].kind = 'antigravity';
     expect(validateSettings(settings)['sources.0.kind']).toBeTruthy();
+  });
+});
+
+
+function olderHistorySettings(): Settings {
+  return {
+    ...validSettings(),
+    sources: [
+      { id: 'source-a', kind: 'codex', root: '/synthetic/custom-codex', enabled: true },
+      { id: 'source-b', kind: 'claude', root: '/synthetic/custom-claude', enabled: false },
+    ],
+  };
+}
+function providerHistory(kind: AgentKind) {
+  return within(screen.getByRole('region', { name: `${agentNames[kind]} 歷史來源` }));
+}
+
+describe('fixed provider history capabilities', () => {
+  it('distinguishes a failed version probe from a missing binary without inferring login', () => {
+    const installation = { kind: 'grok' as const, executable: '/synthetic/grok', version: null, available: true,
+      status: 'versionCheckFailed' as const, loginStatus: 'unknown' as const, error: 'Synthetic version timeout' };
+    expect(installationState(installation)).toEqual({ text: '已找到執行檔 · 版本檢查失敗', className: 'warning' });
+    render(createElement(SettingsPanel, props({ installations: [installation] })));
+    expect(providerHistory('grok').getByText('CLI 已找到執行檔 · 版本檢查失敗')).toBeInTheDocument();
+    expect(providerHistory('grok').queryByText('CLI 未偵測到')).not.toBeInTheDocument();
+    expect(screen.getAllByText('登入狀態：未驗證；沿用 CLI 自身登入。')).toHaveLength(4);
+    expect(screen.getByText('Synthetic version timeout')).toBeInTheDocument();
+  });
+  it('reports discovered but unprobed binaries honestly for legacy and explicit detection results', () => {
+    const discovered = { kind: 'codex' as const, executable: '/synthetic/codex', version: null, available: true, error: null };
+    expect(installationState(discovered).text).toBe('已找到執行檔');
+    expect(installationState({ ...discovered, status: 'available', loginStatus: 'unknown' }).text).toBe('已找到執行檔');
+    expect(installationState({ ...discovered, available: false, status: 'missing', executable: null }).text).toBe('未偵測到');
+    expect(installationState(undefined).text).toBe('尚未偵測');
+  });
+
+  it('keeps the shared built-in manifest complete and consistent with registered UI and managed argv contracts', () => {
+    expect(manifest.version).toBe(1);
+    expect(manifest.providers.map((provider) => provider.id)).toEqual(['codex', 'claude', 'grok', 'antigravity']);
+    expect(new Set(manifest.providers.map((provider) => provider.id)).size).toBe(manifest.providers.length);
+    expect([...agentKinds]).toEqual(manifest.providers.map((provider) => provider.id));
+    for (const provider of manifest.providers) {
+      expect(agentCapabilities[provider.id as AgentKind]).toEqual(provider);
+      expect(provider.launch.versionArgs).toEqual(provider.id === 'grok' ? ['version'] : ['--version']);
+      expect(provider.launch.newArgs).toEqual([]);
+      expect(provider.launch.resumeArgs).toEqual([provider.resume.argument, '{resumeId}']);
+      expect(provider.launch.cwdArgs).toEqual(provider.id === 'codex' ? ['--cd', '{cwd}'] : []);
+      expect(provider.history.defaultDirectory).not.toMatch(/^\//);
+      expect(provider.history.supported).toBe(provider.history.parserId !== null);
+      if (provider.history.supported) {
+        expect(provider.history.parserId).toBe(provider.id);
+        expect(provider.history.sourceEnv).toMatch(/^[A-Z_]+$/);
+        expect(provider.history.rootPlaceholder).toMatch(/^\//);
+      } else {
+        expect(provider.history.sourceEnv).toBeNull();
+        expect(provider.history.rootPlaceholder).toBeNull();
+      }
+    }
+    expect(agentCapabilities.antigravity.history.defaultDirectory).toBe('.gemini/antigravity-cli');
+  });
+
+  it('derives compatible names, executables, history providers and resume semantics from one registry', () => {
+    expect(Object.keys(agentCapabilities)).toEqual([...agentKinds]);
+    expect(historyAgentKinds).toEqual(['codex', 'claude', 'grok']);
+    for (const kind of agentKinds) {
+      expect(agentNames[kind]).toBe(agentCapabilities[kind].name);
+      expect(executableDefaults[kind]).toBe(agentCapabilities[kind].executable);
+      expect(bypassFlags[kind]).toBe(agentCapabilities[kind].bypassFlag);
+    }
+    expect(agentCapabilities.grok.history).toMatchObject({ supported: true, sourceEnv: 'GROK_HOME' });
+    expect(agentCapabilities.grok.resume).toMatchObject({ manualId: true, argument: '--resume' });
+    expect(agentCapabilities.antigravity).toMatchObject({ executable: 'agy', history: { supported: false, sourceEnv: null, rootPlaceholder: null } });
+    expect(agentCapabilities.antigravity.resume).toMatchObject({ manualId: true, argument: '--conversation' });
+  });
+  it('always renders four history providers for older two-source settings without mutating or enabling sources', () => {
+    const settings = olderHistorySettings();
+    const config = props({ settings });
+    render(createElement(SettingsPanel, config));
+    for (const kind of agentKinds) {
+      expect(screen.getByRole('region', { name: `${agentNames[kind]} 歷史來源` })).toBeVisible();
+    }
+    expect(providerHistory('grok').getByText('尚未設定來源')).toBeInTheDocument();
+    expect(providerHistory('grok').getByRole('button', { name: '設定 Grok Build 歷史來源' })).toBeEnabled();
+    expect(providerHistory('grok').queryByRole('textbox')).not.toBeInTheDocument();
+    expect(providerHistory('claude').getByRole('checkbox', { name: '啟用資料來源 2' })).not.toBeChecked();
+    expect(providerHistory('codex').getByRole('textbox', { name: 'CODEX_HOME 資料目錄' })).toHaveValue('/synthetic/custom-codex');
+    expect(providerHistory('antigravity').getByText('歷史尚不支援')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新偵測' })).toBeEnabled();
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(config.onScan).not.toHaveBeenCalled();
+    expect(settings.sources).toEqual(olderHistorySettings().sources);
+  });
+  it('opens a blank focused Grok source draft, validates it, and saves without overwriting older sources', async () => {
+    const settings = olderHistorySettings();
+    const config = props({ settings });
+    render(createElement(SettingsPanel, config));
+    await userEvent.click(providerHistory('grok').getByRole('button', { name: '設定 Grok Build 歷史來源' }));
+    const root = providerHistory('grok').getByRole('textbox', { name: 'GROK_HOME 資料目錄' });
+    expect(root).toHaveValue('');
+    expect(root).toHaveFocus();
+    expect(root).toHaveAttribute('placeholder', '/Users/you/.grok');
+    expect(providerHistory('grok').getByText('尚未套用')).toBeInTheDocument();
+    expect(providerHistory('grok').queryByText('尚無歷史')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新掃描' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(root).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(root, { target: { value: '/synthetic/existing-grok' } });
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    expect(config.onSave).toHaveBeenCalledTimes(1);
+    const saved = vi.mocked(config.onSave).mock.calls[0][0];
+    expect(saved.sources.slice(0, 2)).toEqual(settings.sources);
+    expect(saved.sources[2]).toEqual({ id: expect.any(String), kind: 'grok', root: '/synthetic/existing-grok', enabled: true });
+    expect(new Set(saved.sources.map((source) => source.id)).size).toBe(3);
+    expect(settings.sources).toHaveLength(2);
+    expect(config.onScan).not.toHaveBeenCalled();
+  });
+  it('discards a new Grok source without saving or changing the original provider states', async () => {
+    const settings = olderHistorySettings();
+    const config = props({ settings });
+    const view = render(createElement(SettingsPanel, config));
+    await userEvent.click(providerHistory('grok').getByRole('button', { name: '設定 Grok Build 歷史來源' }));
+    fireEvent.change(providerHistory('grok').getByRole('textbox', { name: 'GROK_HOME 資料目錄' }), { target: { value: '/synthetic/draft-only' } });
+    await userEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(config.onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(config.onClose).toHaveBeenCalledTimes(1);
+    expect(settings.sources).toEqual(olderHistorySettings().sources);
+    view.unmount();
+    render(createElement(SettingsPanel, config));
+    expect(providerHistory('grok').getByText('尚未設定來源')).toBeInTheDocument();
+    expect(providerHistory('grok').queryByRole('textbox')).not.toBeInTheDocument();
+    expect(providerHistory('claude').getByRole('checkbox')).not.toBeChecked();
+  });
+  it('keeps explicit provider selection and multiple custom sources with their original IDs and enablement', async () => {
+    const settings = olderHistorySettings();
+    settings.sources.push({ id: 'grok-disabled', kind: 'grok', root: '/synthetic/archived-grok', enabled: false });
+    const config = props({ settings });
+    render(createElement(SettingsPanel, config));
+    const selector = screen.getByRole('combobox', { name: '新增來源的 Agent' });
+    fireEvent.click(selector);
+    expect(screen.getAllByRole('option')).toHaveLength(3);
+    for (const name of ['Codex', 'Claude Code', 'Grok Build']) expect(screen.getByRole('option', { name })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
+    await userEvent.click(screen.getByRole('button', { name: '新增來源' }));
+    const fields = providerHistory('grok').getAllByRole('textbox', { name: 'GROK_HOME 資料目錄' });
+    expect(fields).toHaveLength(2);
+    expect(fields[0]).toHaveValue('/synthetic/archived-grok');
+    expect(fields[1]).toHaveValue('');
+    expect(providerHistory('grok').getByRole('checkbox', { name: '啟用資料來源 3' })).not.toBeChecked();
+    fireEvent.change(fields[1], { target: { value: '/synthetic/second-grok' } });
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    const saved = vi.mocked(config.onSave).mock.calls[0][0];
+    expect(saved.sources.slice(0, 3)).toEqual(settings.sources);
+    expect(saved.sources[3]).toMatchObject({ kind: 'grok', root: '/synthetic/second-grok', enabled: true });
+  });
+  it('returns Grok to unconfigured after removing its last draft source while retaining its provider card', async () => {
+    render(createElement(SettingsPanel, props({ settings: olderHistorySettings() })));
+    await userEvent.click(providerHistory('grok').getByRole('button', { name: '設定 Grok Build 歷史來源' }));
+    await userEvent.click(providerHistory('grok').getByRole('button', { name: '移除資料來源 3' }));
+    expect(providerHistory('grok').getByText('尚未設定來源')).toBeInTheDocument();
+    expect(providerHistory('grok').queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新掃描' })).toBeEnabled();
+  });
+  it('shows Antigravity launch and manual resume separately from unsupported history even when its CLI is installed', () => {
+    render(createElement(SettingsPanel, props({ installations: [{ kind: 'antigravity', executable: '/synthetic/agy', version: 'test', available: true, error: null }] })));
+    const history = providerHistory('antigravity');
+    expect(history.getByText('CLI 可啟動')).toBeInTheDocument();
+    expect(history.getByText('歷史尚不支援')).toBeInTheDocument();
+    expect(history.getByText(/agy --conversation/)).toBeInTheDocument();
+    expect(history.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(history.queryByRole('button')).not.toBeInTheDocument();
+    expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('combobox', { name: '新增來源的 Agent' }));
+    expect(screen.queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
+  });
+  it.each([
+    { status: 'ready', files: 3, expected: '可讀取 · 3 個檔案' },
+    { status: 'empty', files: 0, expected: '尚無歷史' },
+    { status: 'missing', files: 0, expected: '找不到來源目錄' },
+    { status: 'error', files: 0, expected: '來源讀取錯誤' },
+    { status: 'cancelled', files: 1, expected: '掃描已取消' },
+    { status: 'partial', files: 2, expected: '部分可讀取 · 2 個檔案' },
+    { status: 'unexpected-state', files: 0, expected: '來源狀態待確認' },
+  ])('shows known history status $status independently of a missing binary', ({ status, files, expected }) => {
+    const config = props({ installations: [{ kind: 'codex', executable: null, version: null, available: false, error: 'CLI missing' }] });
+    config.index.sources = [{ sourceId: 'source-a', status, files, message: 'Synthetic source detail' }];
+    render(createElement(SettingsPanel, config));
+    const history = providerHistory('codex');
+    expect(history.getByText('CLI 未偵測到')).toBeInTheDocument();
+    expect(history.getByText(expected)).toBeInTheDocument();
+    expect(history.getByText('Synthetic source detail')).toBeInTheDocument();
+    if (status !== 'empty') expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
+  });
+  it('does not confuse installed CLI with configured or scanned history', () => {
+    const settings = validSettings();
+    settings.sources = [];
+    render(createElement(SettingsPanel, props({ settings, installations: [{ kind: 'grok', executable: '/synthetic/grok', version: 'test', available: true, error: null }] })));
+    const history = providerHistory('grok');
+    expect(history.getByText('CLI 可啟動')).toBeInTheDocument();
+    expect(history.getByText('尚未設定來源')).toBeInTheDocument();
+    expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
+  });
+  it('keeps unscanned and disabled states truthful during an active scan', () => {
+    const config = props({ settings: olderHistorySettings() });
+    const view = render(createElement(SettingsPanel, config));
+    expect(providerHistory('codex').getByText('尚未掃描')).toBeInTheDocument();
+    expect(providerHistory('codex').queryByText('尚無歷史')).not.toBeInTheDocument();
+    view.rerender(createElement(SettingsPanel, { ...config, index: { ...config.index, running: true } }));
+    expect(providerHistory('codex').getByText('索引中')).toBeInTheDocument();
+    expect(providerHistory('claude').getByText('已停用')).toBeInTheDocument();
+    expect(providerHistory('claude').queryByText('索引中')).not.toBeInTheDocument();
+    expect(providerHistory('grok').getByText('尚未設定來源')).toBeInTheDocument();
+  });
+  it('marks an edited binary path unapplied without discarding known source health', () => {
+    const config = props({ installations: [{ kind: 'codex', executable: '/synthetic/codex', version: 'test', available: true, error: null }] });
+    config.index.sources = [{ sourceId: 'source-a', status: 'ready', files: 4, message: null }];
+    render(createElement(SettingsPanel, config));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Codex 執行檔路徑' }), { target: { value: '/synthetic/new-codex' } });
+    expect(providerHistory('codex').getByText('CLI 設定尚未套用')).toBeInTheDocument();
+    expect(providerHistory('codex').getByText('可讀取 · 4 個檔案')).toBeInTheDocument();
+  });
+  it('invalidates old scan health in the edited draft instead of presenting it as current', () => {
+    const config = props();
+    config.index.sources = [{ sourceId: 'source-a', status: 'empty', files: 0, message: null }];
+    render(createElement(SettingsPanel, config));
+    expect(providerHistory('codex').getByText('尚無歷史')).toBeInTheDocument();
+    fireEvent.change(providerHistory('codex').getByRole('textbox', { name: 'CODEX_HOME 資料目錄' }), { target: { value: '/synthetic/different-source' } });
+    expect(providerHistory('codex').getByText('尚未套用')).toBeInTheDocument();
+    expect(providerHistory('codex').queryByText('尚無歷史')).not.toBeInTheDocument();
+  });
+});
+
+
+describe('explicit shell discovery', () => {
+  it('detects candidates only on request and does not replace profiles or choose a default', async () => {
+    const settings = validSettings();
+    settings.profiles[0] = { ...settings.profiles[0], name: 'My configured bash', args: ['--noprofile'], env: { SYNTHETIC: 'kept' } };
+    const config = props({ settings, onDetectShells: vi.fn().mockResolvedValue([
+      { name: 'Bash', executable: '/bin/bash' }, { name: 'Zsh', executable: '/synthetic/bin/zsh' },
+    ]) });
+    render(createElement(SettingsPanel, config));
+    await userEvent.click(screen.getByRole('button', { name: 'Shell Profiles' }));
+    expect(config.onDetectShells).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '重新偵測 Shell' }));
+    await waitFor(() => expect(screen.getByRole('region', { name: '偵測到的 Shell' })).toBeInTheDocument());
+    expect(config.onDetectShells).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Bash 已有 Profile' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '加入 Zsh Profile' })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: '名稱' })).toHaveValue('My configured bash');
+    expect(config.onSave).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    expect(config.onSave).toHaveBeenCalledWith(expect.objectContaining({ profiles: settings.profiles, defaultProfileId: 'main' }));
+  });
+  it('adds the chosen shell as an independent draft with empty args/env and leaves the custom profile/default intact', async () => {
+    const settings = validSettings();
+    settings.profiles[0] = { ...settings.profiles[0], name: 'Personal shell', args: ['-l', '--noprofile'], env: { LANG: 'synthetic' } };
+    const config = props({ settings, onDetectShells: vi.fn().mockResolvedValue([{ name: 'Zsh', executable: '/synthetic/bin/zsh' }]) });
+    render(createElement(SettingsPanel, config));
+    await userEvent.click(screen.getByRole('button', { name: 'Shell Profiles' }));
+    await userEvent.click(screen.getByRole('button', { name: '重新偵測 Shell' }));
+    await userEvent.click(await screen.findByRole('button', { name: '加入 Zsh Profile' }));
+    expect(screen.getByRole('button', { name: 'Zsh 已有 Profile' })).toBeDisabled();
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(settings.profiles).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    const saved = vi.mocked(config.onSave).mock.calls[0][0];
+    expect(saved.profiles).toHaveLength(2);
+    expect(saved.profiles[0]).toEqual(settings.profiles[0]);
+    expect(saved.profiles[1]).toEqual({ id: expect.any(String), name: 'Zsh', executable: '/synthetic/bin/zsh', args: [], env: {} });
+    expect(saved.defaultProfileId).toBe('main');
+    expect(saved.profiles[1].id).not.toBe('main');
+  });
+  it('discards a selected shell without saving or overwriting existing profiles', async () => {
+    const config = props({ onDetectShells: vi.fn().mockResolvedValue([{ name: 'Fish', executable: '/synthetic/fish' }]) });
+    render(createElement(SettingsPanel, config));
+    await userEvent.click(screen.getByRole('button', { name: 'Shell Profiles' }));
+    await userEvent.click(screen.getByRole('button', { name: '重新偵測 Shell' }));
+    await userEvent.click(await screen.findByRole('button', { name: '加入 Fish Profile' }));
+    await userEvent.click(screen.getByRole('button', { name: '取消' }));
+    await userEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(config.onClose).toHaveBeenCalledTimes(1);
+    expect(config.settings.profiles).toEqual(validSettings().profiles);
+    expect(config.settings.defaultProfileId).toBe('main');
+  });
+  it('prevents concurrent discovery and leaves manual profile editing available after failure', async () => {
+    let reject!: (reason: Error) => void;
+    const config = props({ onDetectShells: vi.fn(() => new Promise<ShellCandidate[]>((_, fail) => { reject = fail; })) });
+    render(createElement(SettingsPanel, config));
+    await userEvent.click(screen.getByRole('button', { name: 'Shell Profiles' }));
+    const detect = screen.getByRole('button', { name: '重新偵測 Shell' });
+    fireEvent.click(detect);
+    fireEvent.click(detect);
+    expect(config.onDetectShells).toHaveBeenCalledTimes(1);
+    expect(detect).toBeDisabled();
+    await act(async () => reject(new Error('Synthetic shell discovery failure')));
+    expect(screen.getByRole('alert')).toHaveTextContent('Synthetic shell discovery failure');
+    expect(detect).toBeEnabled();
+    expect(screen.getByRole('button', { name: '新增 Profile' })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Shell 執行檔' })).toHaveValue('/bin/bash');
+    expect(config.onSave).not.toHaveBeenCalled();
+  });
+  it('reports no candidates truthfully and preserves the manual configuration route', async () => {
+    render(createElement(SettingsPanel, props()));
+    await userEvent.click(screen.getByRole('button', { name: 'Shell Profiles' }));
+    await userEvent.click(screen.getByRole('button', { name: '重新偵測 Shell' }));
+    expect(await screen.findByText(/沒有新的 Shell 可加入/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '新增 Profile' })).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Shell 執行檔' })).toHaveValue('/bin/bash');
+  });
+});
+
+describe('shared settings controls integration', () => {
+  it('closes an open Select on Escape without closing settings or changing provider selection', async () => {
+    const config = props();
+    render(createElement(SettingsPanel, config));
+    const chooser = screen.getByRole('combobox', { name: '新增來源的 Agent' });
+    await userEvent.click(chooser);
+    expect(screen.getByRole('listbox', { name: '新增來源的 Agent' })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(chooser).toHaveFocus();
+    expect(config.onClose).not.toHaveBeenCalled();
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '重新掃描' })).toBeEnabled();
+  });
+  it('closes a portalled provider menu and blocks it when settings become locked', async () => {
+    const config = props();
+    const view = render(createElement(SettingsPanel, config));
+    await userEvent.click(screen.getByRole('combobox', { name: '新增來源的 Agent' }));
+    expect(screen.getByRole('option', { name: 'Grok Build' })).toBeInTheDocument();
+    view.rerender(createElement(SettingsPanel, { ...config, busy: true }));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '新增來源的 Agent' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Agent 類型' })).toBeDisabled();
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(config.settings.sources).toEqual(validSettings().sources);
+  });
+});
+
+describe('progressive provider configuration', () => {
+  it('keeps advanced args collapsed by default and reports unsaved custom arguments accurately', () => {
+    render(createElement(SettingsPanel, props()));
+    const summary = screen.getByLabelText('Grok Build 參數與權限設定');
+    // jsdom's accessibility tree does not hide descendants of a closed details.
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+    expect(summary).toHaveTextContent('使用安全預設');
+    fireEvent.click(summary);
+    expect(summary.closest('details')).toHaveAttribute('open');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Grok Build 自訂啟動參數' }), { target: { value: '["--model","review-model"]' } });
+    expect(summary).toHaveTextContent('已有自訂參數');
+    fireEvent.click(summary);
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+    expect(summary).toHaveTextContent('已有自訂參數');
+  });
+  it('exposes an already opted-in risk mode without requiring disclosure navigation', () => {
+    const settings = validSettings();
+    settings.agentOptions.grok.bypassPermissions = true;
+    render(createElement(SettingsPanel, props({ settings })));
+    expect(screen.getByRole('checkbox', { name: 'Grok Build 略過權限確認' })).toBeChecked();
+    expect(screen.getByLabelText('Grok Build 參數與權限設定')).toHaveTextContent('高風險模式已開啟');
   });
 });

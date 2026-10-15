@@ -3,8 +3,10 @@ pub mod catalog;
 pub mod config;
 pub mod launch_options;
 pub mod models;
+pub mod providers;
 pub mod runtime;
 pub mod service;
+pub mod shells;
 
 #[cfg(feature = "desktop")]
 mod desktop;

@@ -2,6 +2,9 @@ name: Desktop checks
 on:
   workflow_dispatch:
   pull_request:
+    paths-ignore:
+      - README.md
+      - docs/*.md
   push:
     branches: [main]
 permissions:
@@ -40,6 +43,8 @@ jobs:
         run: rustup show && rustup component add rustfmt clippy
       - run: npm ci
       - run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: Validate visual assets and semantic contrast
+        run: python3 scripts/validate-ui-design.py && python3 scripts/validate-macos-icon.py
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings

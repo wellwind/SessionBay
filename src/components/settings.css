@@ -828,3 +828,82 @@
 .settings-installation .settings-subtle-warning { overflow-wrap: anywhere; }
 /* Leave the full text line inside the fixed-height native form controls. */
 .settings-panel input:not([type='checkbox']), .settings-panel select { padding-top: 6px; padding-bottom: 6px; }
+.settings-add-source {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+.settings-add-source .settings-field {
+  flex: 1;
+  margin: 0;
+}
+.settings-history-providers {
+  display: grid;
+  gap: 14px;
+}
+.settings-history-provider {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--settings-border);
+  border-radius: 8px;
+  background: var(--settings-surface);
+}
+.settings-history-provider-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.settings-history-provider-top h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.settings-history-provider-top > .settings-status {
+  margin-left: auto;
+}
+.settings-history-provider > .settings-help {
+  margin: 10px 0;
+}
+.settings-history-provider .settings-source-list {
+  margin-top: 12px;
+}
+.settings-history-provider .settings-source {
+  background: var(--settings-bg);
+}
+.settings-history-unconfigured {
+  margin-top: 12px;
+}
+.settings-provider-add {
+  margin-top: 12px;
+}
+@media (max-width: 500px) {
+  .settings-history-provider { padding: 12px; }
+  .settings-history-provider .settings-source-top { flex-wrap: wrap; }
+}
+.settings-shell-discovery {
+  border: 1px solid var(--settings-border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+.settings-shell-discovery h4 { margin: 0; font-size: 12px; }
+.settings-shell-candidates { display: grid; gap: 8px; }
+.settings-shell-candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--settings-surface);
+  font-size: 11px;
+}
+.settings-shell-candidate > div { min-width: 0; }
+.settings-shell-candidate p {
+  margin: 5px 0 0;
+  color: var(--settings-muted);
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
