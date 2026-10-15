@@ -116,7 +116,11 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
             }
         }
         let output = String::from_utf8(output).unwrap();
-        assert!(output.contains(&format!("CWD:{}", project.display())));
+        // The runtime intentionally canonicalizes cwd; macOS /var may be a symlink.
+        assert!(output.contains(&format!(
+            "CWD:{}",
+            project.canonicalize().unwrap().display()
+        )));
         assert!(output.contains(&format!("ARG:{}", session.external_id)));
         match session.kind {
             AgentKind::Codex => {

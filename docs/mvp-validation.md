@@ -10,13 +10,15 @@
 | 工具鏈 | Node 24.19.0、npm 11.9.0、Rust 1.99.0；套件版本由兩個 lockfile 固定 |
 | Linux 桌面依賴 | 官方 Debian 套件，GTK 3.24.49／WebKitGTK 2.54.0；解壓至工作區，未修改使用者電腦 |
 | 前端 | TypeScript、ESLint、Vite production build 通過；5 組共 98 測試通過；完整 npm audit（含 dev dependencies）0 vulnerabilities |
-| Rust 核心 | 17 unit＋34 catalog＋15 PTY＋1 service 整合，共 67 測試通過 |
-| 完整 Linux crate | 預設 desktop features 的 cargo test 67 測試通過；all-target Clippy `-D warnings` 與 native cargo build 通過 |
+| Rust 核心 | 24 unit＋34 catalog＋17 PTY＋1 service 整合，共 76 測試通過（Darwin 修正的 Linux 回歸） |
+| 完整 Linux crate | 預設 desktop features 的 cargo test 76 測試通過；all-target Clippy `-D warnings` 與 native cargo build 通過 |
 | Linux executable | 真正 x86_64 ELF debug executable 已成功連結；未視為可跨 distro 發布的安裝包 |
-| macOS | 已實作平台分支，未在 macOS 編譯或執行 |
+| macOS | 首輪 macOS 15 ARM64／Intel 原生編譯成功；CI 找出 Darwin zombie leader 的 session 查詢差異，已加入修正與回歸測試；最新平台結果請查下方 PR Checks |
 | Native GUI／截圖 | 未驗證；此環境 Chromium／圖形沙箱受限，未停用沙箱繞過，也未提供假截圖 |
-| CI | 已準備 Ubuntu 24.04 x64、macOS 15 ARM64／Intel 工作流程，Linux 包含 Xvfb 原生視窗／截圖 smoke；本紀錄尚無遠端 run 結果 |
+| CI | 已啟動 Ubuntu 24.04 x64、macOS 15 ARM64／Intel 工作流程；首輪 Linux tests／Clippy 通過。Linux 包含 Xvfb 原生視窗／截圖 smoke；建置與後續修正結果以 PR Checks 的 exact commit 為準 |
 | 獨立程式審查 | 已通過修正後的資料唯讀、IPC、注入防護、程序所有權、關閉競態與布局恢復檢查；不等同平台驗收 |
+
+遠端驗證：[Draft PR #1 與 Checks](https://github.com/wellwind/SessionBay/pull/1)、[首輪 native run](https://github.com/wellwind/SessionBay/actions/runs/38677233976)。本表記錄 Darwin 修正提交前已觀察的結果，不預先宣稱修正後 macOS 或 bundle 通過。
 
 所有資料測試使用合成 fixture／暫存目錄，沒有讀取使用者真實 Agent 歷史。CLI 的測試替身只用於斷言 executable／argv／cwd／env，不宣稱已接上真實已登入工具。
 
@@ -44,6 +46,8 @@ Service 整合測試涵蓋：同專案 Codex＋Claude 合成歷史 → 中文搜
 - bootstrap 失敗、損壞或較新布局：未改動時不以空布局覆寫原檔。
 - 版本探測：逾時清理自有 session 子程序，避免留下 sleep 等後代。
 - 來源刪除：移除搜尋內容，同時保留現有工作區導航；來源已失效的 Session 不允許恢復。
+- Darwin zombie leader：以私有 OwnedChild 與 fresh waitid(WNOWAIT) 證明未回收的子程序所有權，不依賴 Darwin 對 zombie 失效的 getsid；ECHILD、live session mismatch 仍拒絕，對仍持有 child 但尚在退出中的短暫 ESRCH 只做有界重試，後代 process group 持續驗證成員。
+- 跨平台測試：預期 cwd 與產品同樣 canonicalize，避免 macOS /var → /private/var symlink 造成假失敗。
 
 ## 效能
 

@@ -43,6 +43,11 @@ jobs:
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
       - name: Build unsigned local bundle
         run: npm run tauri -- build --bundles ${{ matrix.bundle }}
+      - name: Preserve macOS application permissions
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p artifacts/macos
+          tar -czf "artifacts/macos/SessionBay-${{ runner.arch }}.app.tar.gz" -C src-tauri/target/release/bundle/macos "Session Bay.app"
       - name: Native Linux window smoke
         if: runner.os == 'Linux'
         run: xvfb-run -a -s "-screen 0 1440x940x24" bash scripts/ci-linux-smoke.sh
@@ -51,7 +56,8 @@ jobs:
         with:
           name: sessionbay-${{ matrix.os }}-unsigned
           path: |
-            src-tauri/target/release/bundle/
+            src-tauri/target/release/bundle/deb/*.deb
+            artifacts/macos/*.tar.gz
             artifacts/linux-smoke/
           retention-days: 7
           if-no-files-found: warn

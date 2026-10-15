@@ -1,7 +1,8 @@
 //! Owned PTY runtimes for macOS and Linux.
 //!
 //! Only the worker owns/reaps the child. `waitid(WNOWAIT)` keeps its PID reserved
-//! until cleanup is finished, so a stale runtime can never signal a reused PID.
+//! until cleanup is finished. Session authority is tied to that owned, waitable
+//! child, not to getsid(leader), which cannot find zombies on Darwin.
 //! All job-control groups in the new PTY session are cleaned up; processes that
 //! deliberately daemonize into another session are outside this ownership scope.
 //! Output stays as bytes and is sent by one worker, never through application UI
@@ -28,6 +29,8 @@ const TERM_AFTER: Duration = Duration::from_millis(200);
 const KILL_AFTER: Duration = Duration::from_millis(600);
 const STOP_TIMEOUT: Duration = Duration::from_secs(3);
 const ACK_TIMEOUT: Duration = Duration::from_secs(30);
+const SESSION_VERIFY_RETRIES: usize = 50;
+const SESSION_VERIFY_RETRY_DELAY: Duration = Duration::from_millis(2);
 
 type Emitter = Arc<dyn Fn(TerminalEvent) -> Result<(), String> + Send + Sync>;
 
@@ -269,15 +272,11 @@ impl RuntimeManager {
             .map_err(|error| format!("Cannot start {}: {error}", spec.executable))?;
         drop(pair.slave);
         let mut owned = OwnedChild::new(child)?;
-        // portable-pty 0.9's Unix spawn performs setsid before exec. Verify the
-        // isolation before granting the worker any process-group authority.
-        if unsafe { libc::getsid(owned.pid) } != owned.pid {
-            let _ = owned.child.kill();
-            let _ = owned.child.wait();
-            owned.reaped = true;
-            return Err("The child did not establish its own terminal session".into());
-        }
-        owned.isolated = true;
+        // This constructor is reached only after portable-pty's successful
+        // setsid-before-exec spawn. A fast command may already be a zombie here.
+        owned.verify_pty_session().map_err(|error| {
+            format!("The child did not establish its own terminal session: {error}")
+        })?;
         let info = RuntimeInfo {
             id: Uuid::new_v4().to_string(),
             pane_id: spec.pane_id,
@@ -482,6 +481,31 @@ struct OwnedChild {
 }
 
 impl OwnedChild {
+    // Only call after a successful portable-pty Unix spawn, whose pre_exec
+    // fails the spawn if setsid fails. No arbitrary external PID enters here.
+    // https://docs.rs/portable-pty/0.9.0/src/portable_pty/unix.rs.html#229-298
+    fn verify_pty_session(&mut self) -> io::Result<()> {
+        verify_spawned_session_with_retry(
+            self.pid,
+            || (session_id(self.pid), child_has_exited(self.pid)),
+            || thread::sleep(SESSION_VERIFY_RETRY_DELAY),
+        )?;
+        self.isolated = true;
+        Ok(())
+    }
+
+    fn verified_session(&self) -> io::Result<libc::pid_t> {
+        if !self.isolated || self.reaped || self.pid <= 1 {
+            return Err(io::Error::other(
+                "terminal session ownership is no longer held",
+            ));
+        }
+        // WNOWAIT succeeds for both a live owned child and its unreaped zombie.
+        // ECHILD means ownership was lost: fail closed, never signal that PID.
+        child_has_exited(self.pid)?;
+        Ok(self.pid)
+    }
+
     fn new(mut child: Box<dyn Child + Send + Sync>) -> Result<Self, String> {
         match child
             .process_id()
@@ -505,11 +529,11 @@ impl OwnedChild {
 
 impl Drop for OwnedChild {
     fn drop(&mut self) {
-        if !self.reaped {
+        if !self.reaped && child_has_exited(self.pid).is_ok() {
             if self.isolated {
-                let _ = signal_owned_session(self.pid, libc::SIGKILL);
+                let _ = signal_owned_session(self, libc::SIGKILL);
             }
-            // The handle is still unreaped, so this exact child ID is reserved.
+            // waitid just confirmed this exact child is still ours/unreaped.
             let _ = unsafe { libc::kill(self.pid, libc::SIGKILL) };
             let _ = self.child.wait();
         }
@@ -581,7 +605,7 @@ fn run_worker(
             }
         }
         if (stopping || exited || wait_failed) && cleanup.is_none() {
-            if let Err(error) = signal_owned_session(owned.pid, libc::SIGHUP) {
+            if let Err(error) = signal_owned_session(&owned, libc::SIGHUP) {
                 report_error(
                     &emit,
                     &id,
@@ -591,12 +615,12 @@ fn run_worker(
                 lock(&runtime.control).cleanup_error =
                     Some(format!("Could not signal all terminal jobs: {error}"));
             }
-            let _ = signal_owned_session(owned.pid, libc::SIGCONT);
+            let _ = signal_owned_session(&owned, libc::SIGCONT);
             cleanup = Some((Instant::now(), 0));
         }
         if let Some((started, stage)) = cleanup.as_mut() {
             if !owned.reaped && started.elapsed() >= TERM_AFTER && *stage == 0 {
-                if let Err(error) = signal_owned_session(owned.pid, libc::SIGTERM) {
+                if let Err(error) = signal_owned_session(&owned, libc::SIGTERM) {
                     lock(&runtime.control).cleanup_error =
                         Some(format!("Could not terminate all terminal jobs: {error}"));
                     failed = true;
@@ -604,7 +628,7 @@ fn run_worker(
                 *stage = 1;
             }
             if !owned.reaped && started.elapsed() >= KILL_AFTER && *stage >= 1 {
-                if let Err(error) = signal_owned_session(owned.pid, libc::SIGKILL) {
+                if let Err(error) = signal_owned_session(&owned, libc::SIGKILL) {
                     lock(&runtime.control).cleanup_error =
                         Some(format!("Could not kill all terminal jobs: {error}"));
                     failed = true;
@@ -615,10 +639,10 @@ fn run_worker(
             // usual no-descendant case there is no reason to wait the grace.
             let no_descendants = !owned.reaped
                 && exited
-                && owned_session_has_live_descendants(owned.pid).is_ok_and(|alive| !alive);
+                && owned_session_has_live_descendants(&owned).is_ok_and(|alive| !alive);
             if !owned.reaped && ((exited && no_descendants) || wait_failed) {
                 if wait_failed {
-                    let _ = signal_owned_session(owned.pid, libc::SIGKILL);
+                    let _ = signal_owned_session(&owned, libc::SIGKILL);
                 }
                 match owned.child.wait() {
                     Ok(status) => {
@@ -800,29 +824,86 @@ fn run_worker(
 
 fn child_has_exited(pid: libc::pid_t) -> io::Result<bool> {
     // WNOWAIT deliberately does not release the child PID before group cleanup.
-    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    let result = unsafe {
-        libc::waitid(
-            libc::P_PID,
-            pid as libc::id_t,
-            &mut info,
-            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-        )
-    };
-    if result < 0 {
-        let error = io::Error::last_os_error();
-        if error.kind() == io::ErrorKind::Interrupted {
-            return Ok(false);
+    // EINTR is not ownership evidence; retry instead of treating it as alive.
+    loop {
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
         }
-        return Err(error);
+        #[cfg(target_os = "linux")]
+        let observed = unsafe { info.si_pid() };
+        #[cfg(target_os = "macos")]
+        let observed = info.si_pid;
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        let observed = 0;
+        return Ok(observed == pid);
     }
-    #[cfg(target_os = "linux")]
-    let observed = unsafe { info.si_pid() };
-    #[cfg(target_os = "macos")]
-    let observed = info.si_pid;
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    let observed = 0;
-    Ok(observed == pid)
+}
+
+fn session_id(pid: libc::pid_t) -> io::Result<libc::pid_t> {
+    let session = unsafe { libc::getsid(pid) };
+    if session < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(session)
+    }
+}
+
+fn verify_spawned_session_with_retry(
+    pid: libc::pid_t,
+    mut observe: impl FnMut() -> (io::Result<libc::pid_t>, io::Result<bool>),
+    mut retry_delay: impl FnMut(),
+) -> io::Result<()> {
+    for attempt in 0..=SESSION_VERIFY_RETRIES {
+        let (session, exited) = observe();
+        // XNU proc_refdrain removes a dying process from getsid's proc_find
+        // before exit marks it SZOMB for waitid. The child is still ours, but
+        // cannot yet authorize the zombie fallback. Retry only that transient
+        // pair, for at most 100 ms of scheduled delay; never infer isolation
+        // from a timeout, lost ownership, mismatched SID, or another error.
+        let transitioning = session
+            .as_ref()
+            .is_err_and(|error| error.raw_os_error() == Some(libc::ESRCH))
+            && matches!(exited, Ok(false));
+        if transitioning && attempt < SESSION_VERIFY_RETRIES {
+            retry_delay();
+            continue;
+        }
+        return verify_spawned_session(pid, session, exited);
+    }
+    unreachable!("the final verification attempt always returns")
+}
+
+fn verify_spawned_session(
+    pid: libc::pid_t,
+    observed_session: io::Result<libc::pid_t>,
+    owned_child_exited: io::Result<bool>,
+) -> io::Result<()> {
+    if pid <= 1 {
+        return Err(io::Error::other("invalid child process ID"));
+    }
+    let exited = owned_child_exited?;
+    match observed_session {
+        Ok(session) if session == pid => Ok(()),
+        // A successful portable-pty spawn already proved setsid succeeded.
+        // Accept missing metadata only for our confirmed unreaped zombie,
+        // never a live unverified process or an arbitrary missing PID.
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) && exited => Ok(()),
+        Err(error) => Err(error),
+        Ok(_) => Err(io::Error::other("child is not its terminal session leader")),
+    }
 }
 
 fn owned_session_members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
@@ -832,7 +913,8 @@ fn owned_session_members(session: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
         .collect())
 }
 
-fn owned_session_has_live_descendants(session: libc::pid_t) -> io::Result<bool> {
+fn owned_session_has_live_descendants(owned: &OwnedChild) -> io::Result<bool> {
+    let session = owned.verified_session()?;
     for pid in owned_session_members(session)? {
         if pid != session && process_is_live(pid)? {
             return Ok(true);
@@ -895,12 +977,13 @@ fn process_is_live(_pid: libc::pid_t) -> io::Result<bool> {
     ))
 }
 
-fn signal_owned_session(session: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
-    if session <= 1 || unsafe { libc::getsid(session) } != session {
-        return Err(io::Error::other(
-            "terminal session ownership could not be verified",
-        ));
-    }
+fn signal_owned_session(owned: &OwnedChild, signal: libc::c_int) -> io::Result<()> {
+    // Darwin getsid uses proc_find and returns ESRCH for an unreaped zombie.
+    // XNU: bsd/kern/kern_prot.c getsid; kern_proc.c proc_find_ident_validated;
+    // kern_exit.c waitid retains the child when WNOWAIT is specified.
+    // The reservation established by the owned child is the authority here;
+    // descendants still need a live getsid/getpgid membership check below.
+    let session = owned.verified_session()?;
     let own_group = unsafe { libc::getpgrp() };
     let members = owned_session_members(session);
     let mut groups = HashSet::from([session]);
@@ -915,9 +998,21 @@ fn signal_owned_session(session: libc::pid_t, signal: libc::c_int) -> io::Result
             }
         }
     }
-    let mut first_error = members.err();
+    let mut first_error = None;
     for group in groups {
         if group <= 1 || group == own_group {
+            continue;
+        }
+        if group != session
+            && !members.as_ref().is_ok_and(|members| {
+                members.iter().any(|pid| {
+                    (unsafe { libc::getsid(*pid) }) == session
+                        && (unsafe { libc::getpgid(*pid) }) == group
+                })
+            })
+        {
+            // The observed group exited or changed before we could signal it.
+            // Do not act on a cached process-group number without a witness.
             continue;
         }
         if unsafe { libc::kill(-group, signal) } < 0 {
@@ -927,7 +1022,7 @@ fn signal_owned_session(session: libc::pid_t, signal: libc::c_int) -> io::Result
             }
         }
     }
-    match first_error {
+    match first_error.or_else(|| members.err()) {
         Some(error) => Err(error),
         None => Ok(()),
     }
@@ -982,6 +1077,160 @@ fn process_ids() -> io::Result<Vec<libc::pid_t>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_session_metadata_requires_a_confirmed_owned_zombie() {
+        let missing = || Err(io::Error::from_raw_os_error(libc::ESRCH));
+        let no_child = || Err(io::Error::from_raw_os_error(libc::ECHILD));
+        assert!(verify_spawned_session(42, missing(), Ok(true)).is_ok());
+        assert!(verify_spawned_session(42, missing(), Ok(false)).is_err());
+        assert!(verify_spawned_session(42, missing(), no_child()).is_err());
+        assert!(verify_spawned_session(42, Ok(42), no_child()).is_err());
+        assert!(verify_spawned_session(42, Ok(43), Ok(false)).is_err());
+        assert!(verify_spawned_session(42, Ok(43), Ok(true)).is_err());
+        assert!(verify_spawned_session(
+            42,
+            Err(io::Error::from_raw_os_error(libc::EPERM)),
+            Ok(true)
+        )
+        .is_err());
+        assert!(verify_spawned_session(1, Ok(1), Ok(true)).is_err());
+        assert!(verify_spawned_session(42, Ok(42), Ok(false)).is_ok());
+    }
+
+    #[test]
+    fn session_verification_retries_until_identity_is_confirmed() {
+        let missing = || Err(io::Error::from_raw_os_error(libc::ESRCH));
+        for terminal in [(missing(), Ok(true)), (Ok(42), Ok(false))] {
+            let mut terminal = Some(terminal);
+            let mut observations = 0;
+            let mut pauses = 0;
+            verify_spawned_session_with_retry(
+                42,
+                || {
+                    observations += 1;
+                    if observations < 3 {
+                        (missing(), Ok(false))
+                    } else {
+                        terminal
+                            .take()
+                            .expect("must finish after identity is confirmed")
+                    }
+                },
+                || pauses += 1,
+            )
+            .unwrap();
+            assert_eq!(observations, 3);
+            assert_eq!(pauses, 2);
+        }
+    }
+
+    #[test]
+    fn session_verification_retry_exhaustion_fails_closed() {
+        let mut observations = 0;
+        let mut pauses = 0;
+        let error = verify_spawned_session_with_retry(
+            42,
+            || {
+                observations += 1;
+                (Err(io::Error::from_raw_os_error(libc::ESRCH)), Ok(false))
+            },
+            || pauses += 1,
+        )
+        .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+        assert_eq!(observations, SESSION_VERIFY_RETRIES + 1);
+        assert_eq!(pauses, SESSION_VERIFY_RETRIES);
+    }
+
+    #[test]
+    fn session_verification_retry_stops_on_ownership_loss_or_invalid_identity() {
+        let missing = || Err(io::Error::from_raw_os_error(libc::ESRCH));
+        let no_child = || Err(io::Error::from_raw_os_error(libc::ECHILD));
+        for terminal in [
+            (missing(), no_child()),
+            (Ok(42), no_child()),
+            (Ok(43), Ok(false)),
+            (Ok(43), Ok(true)),
+            (Err(io::Error::from_raw_os_error(libc::EPERM)), Ok(false)),
+            (Err(io::Error::from_raw_os_error(libc::EPERM)), Ok(true)),
+        ] {
+            let mut terminal = Some(terminal);
+            let mut observations = 0;
+            let mut pauses = 0;
+            assert!(verify_spawned_session_with_retry(
+                42,
+                || {
+                    observations += 1;
+                    if observations == 1 {
+                        (missing(), Ok(false))
+                    } else {
+                        terminal.take().expect("must not retry a terminal error")
+                    }
+                },
+                || pauses += 1,
+            )
+            .is_err());
+            assert_eq!(observations, 2);
+            assert_eq!(pauses, 1);
+        }
+    }
+
+    fn exited_pty_child() -> (OwnedChild, Box<dyn MasterPty + Send>) {
+        let pair = native_pty_system().openpty(pty_size(80, 24)).unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "exit 17"]);
+        let owned = OwnedChild::new(pair.slave.spawn_command(command).unwrap()).unwrap();
+        drop(pair.slave);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !child_has_exited(owned.pid).unwrap() {
+            assert!(Instant::now() < deadline, "child did not exit");
+            thread::sleep(Duration::from_millis(1));
+        }
+        (owned, pair.master)
+    }
+
+    #[test]
+    fn zombie_leader_retains_session_authority_only_until_reaped() {
+        // Deliberately defer the first identity check until the leader is a
+        // zombie. On Darwin getsid now returns ESRCH, but WNOWAIT still proves
+        // ownership and reserves its original session/group number.
+        let (mut owned, _master) = exited_pty_child();
+        owned.verify_pty_session().unwrap();
+        assert_eq!(owned.verified_session().unwrap(), owned.pid);
+        signal_owned_session(&owned, libc::SIGHUP).unwrap();
+        assert!(!owned_session_has_live_descendants(&owned).unwrap());
+        assert_eq!(owned.child.wait().unwrap().exit_code(), 17);
+        owned.reaped = true;
+        assert!(owned.verified_session().is_err());
+        assert!(signal_owned_session(&owned, libc::SIGTERM).is_err());
+    }
+
+    #[test]
+    fn unexpectedly_reaped_child_cannot_authorize_any_group_signal() {
+        let (mut owned, _master) = exited_pty_child();
+        owned.verify_pty_session().unwrap();
+        // Simulate another component collecting the child without updating the
+        // runtime flag. The fresh WNOWAIT guard must reject its stale identity.
+        owned.child.wait().unwrap();
+        assert!(!owned.reaped);
+        let error = signal_owned_session(&owned, libc::SIGTERM).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+        // Drop must also skip all signals once waitid no longer proves ownership.
+    }
+
+    #[test]
+    fn live_nonisolated_child_cannot_authorize_group_cleanup() {
+        let child = std::process::Command::new("/bin/sleep")
+            .arg("60")
+            .spawn()
+            .unwrap();
+        let mut owned = OwnedChild::new(Box::new(child)).unwrap();
+        assert!(owned.verify_pty_session().is_err());
+        assert!(signal_owned_session(&owned, libc::SIGTERM).is_err());
+        assert!(owned.child.try_wait().unwrap().is_none());
+        // Drop can terminate this exact owned child, but never our process group.
+    }
 
     #[test]
     fn manager_and_handles_are_send_and_sync() {

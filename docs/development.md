@@ -71,7 +71,8 @@ Session Bay 的索引與設定只寫自己的 app data directory，identifier �
 - 清除索引只清除可重建衍生資料，保留設定及手動專案，不修改來源。
 - 移除／停用來源後重新索引會同步清理該來源的衍生內容。
 - 所有 transcript 以純文字呈現，不執行 HTML 或自動抓取遠端圖片。終端 OSC52 剪貼簿控制序列被封鎖。
-- 面板關閉只處理應用擁有的 Unix session／process groups；刻意自行 daemonize 的程序另有生命週期，不假裝能可靠收回。
+- 面板關閉以應用擁有的 Unix session／process groups 為清理範圍；刻意自行 daemonize 的程序另有生命週期，不假裝能可靠收回。
+- Leader 由單一 worker 持有並延後 reap，以保留其 PID；後代 job-control group 在發訊號前重新檢查 session 成員。Unix 的成員查詢與 group signal 並非原子操作，對刻意競速改換群組的同使用者惡意程序仍有 check/use 競態；這不是執行不可信程式的安全沙箱。
 
 ## 檢查與測試
 
@@ -95,7 +96,9 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 第一個參數為 Session 數，第二個為每個 Session 的近似 KiB。結果含實際來源 bytes、索引耗時、未變更補掃、20 次查詢 p50／p95；不是 WebView 互動或整體記憶體量測。
 
-`.github/workflows/ci.yml` 會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。Linux job 額外在空白暫存 HOME 的 Xvfb 啟動原生視窗並擷取 PNG，沒有停用 WebKit sandbox；這是視窗 smoke，不取代互動式驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
+`.github/workflows/ci.yml` 會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。Linux job 額外在空白暫存 HOME 的 Xvfb 啟動原生視窗並擷取 PNG，沒有停用 WebKit sandbox；這是視窗 smoke，不取代互動式驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
+
+Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](https://github.com/actions/upload-artifact/blob/v4/README.md#permission-loss)。
 
 ## 疑難排解
 

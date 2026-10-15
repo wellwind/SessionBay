@@ -558,3 +558,33 @@ fn large_paste_cannot_block_stop_when_the_child_is_not_reading() {
     manager.stop(&info.id).unwrap();
     assert!(started.elapsed() < Duration::from_secs(3));
 }
+
+#[test]
+fn rapidly_exiting_children_keep_their_output_and_status() {
+    let cwd = tempfile::tempdir().unwrap();
+    let manager = RuntimeManager::new();
+    for _ in 0..24 {
+        let (info, rx) = launch(&manager, shell(cwd.path(), "printf quick; exit 23"));
+        let (output, code) = collect(&manager, &rx);
+        assert_eq!(output, b"quick");
+        assert_eq!(code, Some(23));
+        manager.stop(&info.id).unwrap();
+    }
+}
+
+#[test]
+fn exited_session_leader_still_cleans_up_separate_job_control_groups() {
+    let cwd = tempfile::tempdir().unwrap();
+    let manager = RuntimeManager::new();
+    let (_, rx) = launch(
+        &manager,
+        shell(
+            cwd.path(),
+            "set -m; trap '' HUP TERM; sleep 60 & printf 'CHILD:%s\\n' \"$!\"; exit 19",
+        ),
+    );
+    let (output, code) = collect(&manager, &rx);
+    assert_eq!(code, Some(19));
+    let child = child_pid(&String::from_utf8_lossy(&output));
+    wait_until(|| !process_is_running(child));
+}
