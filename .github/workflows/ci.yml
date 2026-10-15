@@ -1,0 +1,57 @@
+name: Desktop checks
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            bundle: deb
+          - os: macos-15
+            bundle: app
+          - os: macos-15-intel
+            bundle: app
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev patchelf xvfb xauth x11-utils imagemagick
+      - name: Rust components
+        run: rustup show && rustup component add rustfmt clippy
+      - run: npm ci
+      - run: npm run typecheck && npm run lint && npm test && npm run build
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Build unsigned local bundle
+        run: npm run tauri -- build --bundles ${{ matrix.bundle }}
+      - name: Native Linux window smoke
+        if: runner.os == 'Linux'
+        run: xvfb-run -a -s "-screen 0 1440x940x24" bash scripts/ci-linux-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sessionbay-${{ matrix.os }}-unsigned
+          path: |
+            src-tauri/target/release/bundle/
+            artifacts/linux-smoke/
+          retention-days: 7
+          if-no-files-found: warn

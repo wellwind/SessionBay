@@ -1,0 +1,1450 @@
+//! SQLite catalog and cancellable, read-only JSONL reconciliation.
+//! Connections are operation-local; WAL readers never share a scan's connection.
+use crate::adapters::{self, ParsedState, MAX_LINE_BYTES, PARSER_VERSION};
+use crate::models::*;
+use chrono::{DateTime, SecondsFormat, Utc};
+use rusqlite::{
+    params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
+};
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
+use std::fs::{self, File, Metadata};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, UNIX_EPOCH};
+use walkdir::WalkDir;
+
+const SCHEMA_VERSION: i64 = 2;
+const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial";
+const MAX_ERRORS: usize = 100;
+const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
+const MAX_PREVIEW_PAGE_BYTES: usize = 1024 * 1024;
+type CheckpointRow = (
+    i64,
+    Option<String>,
+    String,
+    i64,
+    String,
+    i64,
+    i64,
+    String,
+    i64,
+    String,
+);
+
+#[derive(Debug, Clone)]
+pub struct Catalog {
+    path: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+struct FileRecord {
+    id: i64,
+    session_id: Option<String>,
+    identity: String,
+    size: u64,
+    modified: String,
+    offset: u64,
+    lines: u64,
+    prefix_hash: String,
+    parser_version: i64,
+    state: ParsedState,
+}
+
+fn error(e: impl std::fmt::Display) -> String {
+    e.to_string()
+}
+fn hash_id(parts: &[&str]) -> String {
+    let mut hash = Sha256::new();
+    for part in parts {
+        hash.update((part.len() as u64).to_le_bytes());
+        hash.update(part.as_bytes());
+    }
+    format!("{:x}", hash.finalize())
+}
+
+pub fn session_identity(source: &HistorySource, external_id: &str) -> String {
+    format!(
+        "session-{}",
+        hash_id(&[source.kind.as_str(), &source.id, external_id])
+    )
+}
+
+fn directory_key(raw: &str) -> String {
+    let path = Path::new(raw);
+    if path.is_absolute() {
+        if let Ok(canonical) = fs::canonicalize(path) {
+            return canonical.to_string_lossy().into_owned();
+        }
+    }
+    // Lexical cleanup only. Never lowercase paths or infer a missing cwd.
+    let mut clean = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if clean.file_name().is_some_and(|part| part != "..") {
+                    clean.pop();
+                } else if !clean.has_root() {
+                    clean.push("..");
+                }
+            }
+            _ => clean.push(component.as_os_str()),
+        }
+    }
+    clean.to_string_lossy().into_owned()
+}
+
+fn project_identity(path: Option<&str>) -> String {
+    match path {
+        Some(path) => format!("project-{}", hash_id(&[&directory_key(path)])),
+        None => "project-unclassified".into(),
+    }
+}
+
+fn project_name(path: Option<&str>) -> String {
+    match path {
+        Some(path) => Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(path)
+            .to_owned(),
+        None => "未分類".into(),
+    }
+}
+
+fn ensure_project(conn: &Connection, cwd: Option<&str>, manual: bool) -> Result<String, String> {
+    let id = project_identity(cwd);
+    conn.execute(
+        "INSERT INTO projects(id,name,path,pinned,manual) VALUES(?1,?2,?3,0,?4)
+        ON CONFLICT(id) DO UPDATE SET manual=MAX(projects.manual,excluded.manual)",
+        params![id, project_name(cwd), cwd, manual],
+    )
+    .map_err(error)?;
+    Ok(id)
+}
+
+fn validate_absolute_directory(path: &str) -> Result<(), String> {
+    if path.trim().is_empty() || path.contains('\0') || !Path::new(path).is_absolute() {
+        return Err("Choose an absolute project directory.".into());
+    }
+    if !Path::new(path).is_dir() {
+        return Err("The selected project directory does not exist or is not a directory.".into());
+    }
+    Ok(())
+}
+
+impl Catalog {
+    pub fn open(path: &Path) -> Result<Self, String> {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent).map_err(error)?;
+        }
+        let catalog = Self {
+            path: path.to_path_buf(),
+        };
+        let mut conn = catalog.connect()?;
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(error)?;
+        if version > SCHEMA_VERSION {
+            return Err("The index was created by a newer Session Bay version. Use that version or rebuild a separate index.".into());
+        }
+        if version == 0 {
+            let tx = conn.transaction().map_err(error)?;
+            tx.execute_batch("CREATE TABLE sources(
+                id TEXT PRIMARY KEY, kind TEXT NOT NULL, root TEXT NOT NULL, enabled INTEGER NOT NULL);
+                CREATE TABLE projects(
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT, launch_path TEXT,
+                pinned INTEGER NOT NULL DEFAULT 0, manual INTEGER NOT NULL DEFAULT 0);
+                CREATE TABLE sessions(
+                id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL, external_id TEXT NOT NULL, project_id TEXT NOT NULL REFERENCES projects(id),
+                title TEXT NOT NULL, cwd TEXT, updated_at TEXT NOT NULL, time_source TEXT NOT NULL,
+                archived INTEGER NOT NULL, parent_id TEXT, child INTEGER NOT NULL DEFAULT 0, partial INTEGER NOT NULL,
+                UNIQUE(source_id,kind,external_id));
+                CREATE TABLE files(
+                id INTEGER PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+                path TEXT NOT NULL, session_id TEXT, identity TEXT NOT NULL, size INTEGER NOT NULL,
+                modified TEXT NOT NULL, offset INTEGER NOT NULL, lines INTEGER NOT NULL,
+                prefix_hash TEXT NOT NULL, parser_version INTEGER NOT NULL, state TEXT NOT NULL,
+                archived INTEGER NOT NULL, trailing_partial INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(source_id,path));
+                CREATE TABLE messages(
+                file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                line INTEGER NOT NULL, byte_offset INTEGER NOT NULL, byte_len INTEGER NOT NULL,
+                role TEXT NOT NULL, timestamp TEXT, search_text TEXT NOT NULL,
+                fallback INTEGER NOT NULL DEFAULT 0, hidden INTEGER NOT NULL DEFAULT 0,
+                placeholder TEXT, PRIMARY KEY(file_id,line));
+                CREATE INDEX sessions_recent ON sessions(updated_at DESC,id);
+                CREATE INDEX sessions_project ON sessions(project_id,updated_at DESC,id);
+                CREATE INDEX sessions_external ON sessions(kind,external_id);
+                CREATE INDEX files_session ON files(session_id);
+                CREATE INDEX messages_file ON messages(file_id,line DESC);
+                PRAGMA user_version=1;").map_err(error)?;
+            tx.commit().map_err(error)?;
+        }
+        if version < 2 {
+            let tx = conn.transaction().map_err(error)?;
+            // External content avoids copying conversation text into the FTS table.
+            // Triggers and content changes commit or roll back together, including
+            // cascaded source/file deletions. Rebuild indexes pre-migration rows.
+            tx.execute_batch("CREATE VIRTUAL TABLE messages_fts USING fts5(search_text, content='messages', content_rowid='rowid', tokenize='trigram', detail=none, columnsize=0);
+                CREATE TRIGGER messages_fts_insert AFTER INSERT ON messages BEGIN
+                    INSERT INTO messages_fts(rowid,search_text) VALUES(new.rowid,new.search_text);
+                END;
+                CREATE TRIGGER messages_fts_delete AFTER DELETE ON messages BEGIN
+                    INSERT INTO messages_fts(messages_fts,rowid,search_text) VALUES('delete',old.rowid,old.search_text);
+                END;
+                CREATE TRIGGER messages_fts_update AFTER UPDATE OF search_text ON messages WHEN new.search_text<>old.search_text BEGIN
+                    INSERT INTO messages_fts(messages_fts,rowid,search_text) VALUES('delete',old.rowid,old.search_text);
+                    INSERT INTO messages_fts(rowid,search_text) VALUES(new.rowid,new.search_text);
+                END;
+                INSERT INTO messages_fts(messages_fts) VALUES('rebuild');
+                PRAGMA user_version=2;").map_err(error)?;
+            tx.commit().map_err(error)?;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(error)?;
+        }
+        Ok(catalog)
+    }
+
+    fn connect(&self) -> Result<Connection, String> {
+        let conn = Connection::open(&self.path).map_err(error)?;
+        conn.busy_timeout(Duration::from_secs(5)).map_err(error)?;
+        conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA secure_delete=ON;").map_err(error)?;
+        Ok(conn)
+    }
+
+    pub fn projects(&self) -> Result<Vec<Project>, String> {
+        let conn = self.connect()?;
+        let conn = conn.unchecked_transaction().map_err(error)?;
+        let mut stmt = conn.prepare("SELECT p.id,p.name,p.path,p.launch_path,p.pinned,COUNT(s.id),MAX(s.updated_at)
+            FROM projects p LEFT JOIN sessions s ON s.project_id=p.id
+            GROUP BY p.id HAVING COUNT(s.id)>0 OR p.manual=1 OR p.pinned=1 OR p.launch_path IS NOT NULL
+            ORDER BY p.pinned DESC,MAX(s.updated_at) DESC,p.name,p.id").map_err(error)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(Project {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    path: row.get(2)?,
+                    launch_path: row.get(3)?,
+                    pinned: row.get(4)?,
+                    session_count: row.get::<_, i64>(5)? as u64,
+                    updated_at: row.get(6)?,
+                    exists: false,
+                    agents: vec![],
+                })
+            })
+            .map_err(error)?;
+        let mut projects = rows.collect::<Result<Vec<_>, _>>().map_err(error)?;
+        for project in &mut projects {
+            project.exists = project
+                .launch_path
+                .as_ref()
+                .or(project.path.as_ref())
+                .is_some_and(|path| Path::new(path).is_absolute() && Path::new(path).is_dir());
+            let mut agents = conn
+                .prepare("SELECT DISTINCT kind FROM sessions WHERE project_id=?1 ORDER BY kind")
+                .map_err(error)?;
+            let values = agents
+                .query_map([&project.id], |r| r.get::<_, String>(0))
+                .map_err(error)?;
+            project.agents = values
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(error)?
+                .iter()
+                .map(|kind| AgentKind::parse(kind))
+                .collect::<Result<_, _>>()?;
+        }
+        Ok(projects)
+    }
+
+    pub fn add_project(&self, path: &str) -> Result<Project, String> {
+        validate_absolute_directory(path)?;
+        let conn = self.connect()?;
+        let id = ensure_project(&conn, Some(path), true)?;
+        self.projects()?
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| "Project could not be loaded.".into())
+    }
+
+    pub fn update_project(
+        &self,
+        id: &str,
+        pinned: Option<bool>,
+        launch_path: Option<&str>,
+    ) -> Result<Project, String> {
+        if let Some(path) = launch_path.filter(|p| !p.is_empty()) {
+            validate_absolute_directory(path)?;
+        }
+        let conn = self.connect()?;
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        if !exists {
+            return Err("Project not found.".into());
+        }
+        conn.execute("UPDATE projects SET manual=1 WHERE id=?1", [id])
+            .map_err(error)?;
+        if let Some(pinned) = pinned {
+            conn.execute(
+                "UPDATE projects SET pinned=?1 WHERE id=?2",
+                params![pinned, id],
+            )
+            .map_err(error)?;
+        }
+        if let Some(path) = launch_path {
+            conn.execute(
+                "UPDATE projects SET launch_path=?1 WHERE id=?2",
+                params![if path.is_empty() { None } else { Some(path) }, id],
+            )
+            .map_err(error)?;
+        }
+        self.projects()?
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| "Project is no longer visible.".into())
+    }
+
+    pub fn session(&self, id: &str) -> Result<Session, String> {
+        let conn = self.connect()?;
+        conn.query_row(
+            &format!("SELECT {SESSION_COLUMNS} FROM sessions s WHERE s.id=?1"),
+            [id],
+            session_row,
+        )
+        .optional()
+        .map_err(error)?
+        .ok_or_else(|| "Session not found. Refresh the history index.".into())
+    }
+
+    pub fn query(&self, query: &SessionQuery) -> Result<SessionPage, String> {
+        let conn = self.connect()?;
+        let conn = conn.unchecked_transaction().map_err(error)?;
+        let mut clauses = vec!["1=1".to_owned()];
+        let mut values: Vec<SqlValue> = Vec::new();
+        if let Some(ref id) = query.project_id {
+            clauses.push("s.project_id=?".into());
+            values.push(id.clone().into());
+        }
+        if let Some(kind) = query.kind {
+            clauses.push("s.kind=?".into());
+            values.push(kind.as_str().to_owned().into());
+        }
+        if let Some(archived) = query.archived {
+            clauses.push("s.archived=?".into());
+            values.push((archived as i64).into());
+        }
+        if !query.include_children.unwrap_or(false) {
+            clauses.push("s.child=0".into());
+        }
+        if let Some(ref after) = query.after {
+            let time = adapters::normalized_time(after).ok_or("The start date must be RFC3339.")?;
+            clauses.push("s.updated_at>=?".into());
+            values.push(time.into());
+        }
+        if let Some(ref before) = query.before {
+            let time = adapters::normalized_time(before).ok_or("The end date must be RFC3339.")?;
+            clauses.push("s.updated_at<?".into());
+            values.push(time.into());
+        }
+        let search = query.query.as_deref().unwrap_or("").trim();
+        if search.chars().count() > 1000 {
+            return Err("Search text is limited to 1,000 characters.".into());
+        }
+        if search.contains('\0') {
+            return Err("Search text cannot contain a NUL character.".into());
+        }
+        let fold_ascii = search.bytes().any(|byte| byte.is_ascii_alphabetic());
+        let folded_search =
+            fold_ascii.then(|| (search.to_ascii_lowercase(), literal_like_pattern(search)));
+        if !search.is_empty() {
+            let literal_parameter = values.len() + 1;
+            values.push(search.to_owned().into());
+            let folded_parameters = folded_search.as_ref().map(|(folded, pattern)| {
+                values.push(folded.clone().into());
+                let folded_parameter = values.len();
+                values.push(pattern.clone().into());
+                (folded_parameter, values.len())
+            });
+            let title_match = literal_match_sql("s.title", literal_parameter, folded_parameters);
+            let body_match =
+                literal_match_sql("m.search_text", literal_parameter, folded_parameters);
+            if search.chars().count() >= 3 {
+                // FTS is only a candidate set. Exact matching preserves literal punctuation,
+                // ASCII-only case folding, Chinese, and all original matching semantics.
+                // IN materializes candidates once, rather than MATCH per session.
+                values.push(trigram_candidates(search).into());
+                let candidate_parameter = values.len();
+                clauses.push(format!("({title_match} OR s.id IN (SELECT f.session_id FROM messages_fts JOIN messages m ON m.rowid=messages_fts.rowid JOIN files f ON f.id=m.file_id WHERE messages_fts MATCH ?{candidate_parameter} AND m.hidden=0 AND {body_match}))"));
+            } else {
+                clauses.push(format!("({title_match} OR EXISTS(SELECT 1 FROM files f JOIN messages m ON m.file_id=f.id WHERE f.session_id=s.id AND m.hidden=0 AND {body_match}))"));
+            }
+        }
+        let filter = clauses.join(" AND ");
+        let total: i64 = conn
+            .query_row(
+                &format!("SELECT COUNT(*) FROM sessions s WHERE {filter}"),
+                params_from_iter(values.iter()),
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        let limit = query.limit.unwrap_or(50).clamp(1, 200);
+        let offset = query.offset.unwrap_or(0).min(i64::MAX as usize);
+        values.push((limit as i64).into());
+        values.push((offset as i64).into());
+        let mut stmt = conn.prepare(&format!("SELECT {SESSION_COLUMNS} FROM sessions s WHERE {filter} ORDER BY s.updated_at DESC,s.id ASC LIMIT ? OFFSET ?")).map_err(error)?;
+        let rows = stmt
+            .query_map(params_from_iter(values.iter()), session_row)
+            .map_err(error)?;
+        let mut items = rows.collect::<Result<Vec<_>, _>>().map_err(error)?;
+        for session in &mut items {
+            let text: Option<String> = if search.is_empty() {
+                conn.query_row("SELECT substr(m.search_text,1,220) FROM messages m JOIN files f ON f.id=m.file_id WHERE f.session_id=?1 AND m.hidden=0 AND m.search_text<>'' ORDER BY m.line DESC LIMIT 1", [&session.id], |r| r.get(0)).optional().map_err(error)?
+            } else {
+                let folded_parameter = folded_search.as_ref().map(|_| 3);
+                let position = literal_position_sql("m.search_text", 2, folded_parameter);
+                let body_match =
+                    literal_match_sql("m.search_text", 2, folded_search.as_ref().map(|_| (3, 4)));
+                let sql = format!("SELECT substr(m.search_text,max(1,({position})-50),220) FROM messages m JOIN files f ON f.id=m.file_id WHERE f.session_id=?1 AND m.hidden=0 AND {body_match} ORDER BY m.line DESC LIMIT 1");
+                let mut params: Vec<SqlValue> =
+                    vec![session.id.clone().into(), search.to_owned().into()];
+                if let Some((folded, pattern)) = &folded_search {
+                    params.push(folded.clone().into());
+                    params.push(pattern.clone().into());
+                }
+                conn.query_row(&sql, params_from_iter(params.iter()), |r| r.get(0))
+                    .optional()
+                    .map_err(error)?
+            };
+            session.snippet = text.map(|text| snippet(&text, search));
+        }
+        Ok(SessionPage {
+            items,
+            total: total as u64,
+        })
+    }
+
+    pub fn transcript(
+        &self,
+        id: &str,
+        before_line: Option<u64>,
+        limit: usize,
+    ) -> Result<TranscriptPage, String> {
+        let conn = self.connect()?;
+        let conn = conn.unchecked_transaction().map_err(error)?;
+        let session = self.session(id)?;
+        let file: Option<(i64,String,String,u64,String,u64)> = conn.query_row(
+            "SELECT id,path,identity,size,modified,offset FROM files WHERE session_id=?1 ORDER BY archived ASC,modified DESC,path LIMIT 1", [id],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get::<_,i64>(3)? as u64,r.get(4)?,r.get::<_,i64>(5)? as u64))).optional().map_err(error)?;
+        let Some((file_id, path, identity, size, modified, _offset)) = file else {
+            return Ok(stale_page(
+                "The source transcript is no longer indexed. Refresh the index.",
+            ));
+        };
+        let metadata = match fs::metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                return Ok(stale_page(
+                    "The source transcript was removed or cannot be read. Refresh the index.",
+                ))
+            }
+        };
+        // A changed file can invalidate byte locators. Do not display cached text as current.
+        if file_identity(&metadata) != identity
+            || metadata.len() != size
+            || modification(&metadata) != modified
+        {
+            return Ok(stale_page("The source transcript changed after indexing. Refresh the index before loading it."));
+        }
+        let duplicate_files: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE session_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        let mut handle = File::open(&path)
+            .map_err(|_| "The transcript is not readable. Check source permissions.".to_owned())?;
+        let opened = handle.metadata().map_err(error)?;
+        if file_identity(&opened) != identity
+            || opened.len() != size
+            || modification(&opened) != modified
+        {
+            return Ok(stale_page(
+                "The transcript changed while opening it. Refresh the index.",
+            ));
+        }
+        let limit = limit.clamp(1, 200);
+        let before = before_line.unwrap_or(i64::MAX as u64).min(i64::MAX as u64) as i64;
+        let mut stmt = conn.prepare("SELECT line,byte_offset,byte_len,role,timestamp,placeholder FROM messages WHERE file_id=?1 AND line<?2 AND hidden=0 ORDER BY line DESC LIMIT ?3").map_err(error)?;
+        let locators = stmt
+            .query_map(params![file_id, before, (limit + 1) as i64], |r| {
+                Ok((
+                    r.get::<_, i64>(0)? as u64,
+                    r.get::<_, i64>(1)? as u64,
+                    r.get::<_, i64>(2)? as usize,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        let locator_count = locators.len();
+        let mut messages = Vec::new();
+        let mut page_bytes = 0usize;
+        let mut shortened = false;
+        for (line, offset, len, role, timestamp, placeholder) in locators.into_iter().take(limit) {
+            let text = if let Some(placeholder) = placeholder {
+                placeholder
+            } else {
+                if len > MAX_LINE_BYTES {
+                    "[Oversized record omitted]".into()
+                } else {
+                    handle.seek(SeekFrom::Start(offset)).map_err(error)?;
+                    let mut bytes = vec![0; len];
+                    if handle.read_exact(&mut bytes).is_err() {
+                        return Ok(stale_page(
+                            "The transcript changed while it was being read. Refresh the index.",
+                        ));
+                    }
+                    match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        Ok(value) => adapters::parse_value(
+                            session.kind,
+                            &value,
+                            &mut ParsedState::default(),
+                            Path::new(&path),
+                        )
+                        .map(|message| message.text)
+                        .unwrap_or_else(|| "[Unsupported event]".into()),
+                        Err(_) => "[Malformed JSON record]".into(),
+                    }
+                }
+            };
+            let (text, clipped) = bounded_preview(text);
+            // Byte budget complements pagination, keeping desktop IPC bounded.
+            if !messages.is_empty() && page_bytes + text.len() > MAX_PREVIEW_PAGE_BYTES {
+                break;
+            }
+            shortened |= clipped;
+            page_bytes += text.len();
+            messages.push(TranscriptMessage {
+                role,
+                text,
+                timestamp,
+                line,
+            });
+        }
+        let has_more = locator_count > messages.len();
+        messages.reverse();
+        let before_line = messages.first().map(|m| m.line).filter(|_| has_more);
+        let after_read = handle.metadata().map_err(error)?;
+        let path_still_matches = fs::metadata(&path)
+            .map(|m| {
+                file_identity(&m) == identity && m.len() == size && modification(&m) == modified
+            })
+            .unwrap_or(false);
+        if !path_still_matches
+            || file_identity(&after_read) != identity
+            || after_read.len() != size
+            || modification(&after_read) != modified
+        {
+            return Ok(stale_page(
+                "The transcript changed while it was being read. Refresh the index.",
+            ));
+        }
+        let mut warning = if duplicate_files > 1 {
+            Some("Multiple transcript files have this source/session identity. Showing one file; resume is blocked until the ambiguity is resolved.".into())
+        } else if session.partial {
+            Some("This transcript is incomplete or contains unsupported records. Placeholders indicate omitted content.".into())
+        } else {
+            None
+        };
+        if shortened {
+            let note = "Some messages were shortened to 64 KiB for preview; complete text within supported records remains searchable.";
+            warning = Some(
+                warning.map_or_else(|| note.to_owned(), |existing| format!("{existing} {note}")),
+            );
+        }
+        Ok(TranscriptPage {
+            messages,
+            has_more,
+            before_line,
+            stale: false,
+            warning,
+        })
+    }
+
+    pub fn resume_source(&self, session_id: &str) -> Result<(Session, HistorySource), String> {
+        let session = self.session(session_id)?;
+        let conn = self.connect()?;
+        let conn = conn.unchecked_transaction().map_err(error)?;
+        let source = conn
+            .query_row(
+                "SELECT id,kind,root,enabled FROM sources WHERE id=?1",
+                [&session.source_id],
+                |r| {
+                    Ok(HistorySource {
+                        id: r.get(0)?,
+                        kind: session.kind,
+                        root: r.get(2)?,
+                        enabled: r.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(error)?
+            .ok_or("The history source was removed.")?;
+        if !source.enabled {
+            return Err(
+                "This history source is disabled. Enable and refresh it before resuming.".into(),
+            );
+        }
+        if !Path::new(&source.root).is_dir() {
+            return Err("The history source directory is missing or unreadable.".into());
+        }
+        let copies: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE kind=?1 AND external_id=?2",
+                params![session.kind.as_str(), session.external_id],
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        if copies != 1 {
+            return Err("This session ID exists in multiple history sources. Disable the other source and refresh before resuming; Session Bay will not guess.".into());
+        }
+        let mut stmt = conn
+            .prepare("SELECT path,identity,size,modified FROM files WHERE session_id=?1")
+            .map_err(error)?;
+        let paths = stmt
+            .query_map([session_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)? as u64,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        if paths.len() != 1 {
+            return Err("Multiple files claim this session ID. Resolve the duplicate transcripts before resuming.".into());
+        }
+        let parser_state: String = conn
+            .query_row(
+                "SELECT state FROM files WHERE session_id=?1 LIMIT 1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .map_err(error)?;
+        if serde_json::from_str::<ParsedState>(&parser_state)
+            .map_err(error)?
+            .identity_conflict
+        {
+            return Err("This file contains conflicting session identities. Resume is blocked until the source is corrected.".into());
+        }
+        let (path, identity, size, modified) = &paths[0];
+        let file = File::open(path).map_err(|_| {
+            "The source transcript is missing or unreadable. Refresh the index.".to_owned()
+        })?;
+        let metadata = file.metadata().map_err(error)?;
+        if file_identity(&metadata) != *identity
+            || metadata.len() != *size
+            || modification(&metadata) != *modified
+        {
+            return Err(
+                "The transcript changed after indexing. Refresh the index before resuming.".into(),
+            );
+        }
+        if session.external_id.trim().is_empty()
+            || session.external_id.starts_with('-')
+            || session.external_id.contains(['\0', '\n', '\r'])
+        {
+            return Err("This transcript has an unsafe or unsupported session identifier.".into());
+        }
+        if session.parent_id.is_some() && session.external_id.starts_with("agent-") {
+            return Err("Direct resume of a Claude subagent transcript is unsupported. Open its parent session.".into());
+        }
+        Ok((session, source))
+    }
+
+    pub fn clear(&self) -> Result<(), String> {
+        let mut conn = self.connect()?;
+        let tx = conn.transaction().map_err(error)?;
+        tx.execute_batch(
+            "DELETE FROM messages; DELETE FROM files; DELETE FROM sessions; DELETE FROM sources; INSERT INTO messages_fts(messages_fts) VALUES('delete-all');",
+        )
+        .map_err(error)?;
+        tx.commit().map_err(error)?;
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(error)?;
+        Ok(())
+    }
+
+    pub fn sync(
+        &self,
+        sources: &[HistorySource],
+        cancel: &AtomicBool,
+        progress: impl Fn(IndexStatus),
+    ) -> Result<IndexStatus, String> {
+        let mut conn = self.connect()?;
+        let mut status = IndexStatus {
+            running: true,
+            ..IndexStatus::default()
+        };
+        if cancel.load(Ordering::Relaxed) {
+            status.running = false;
+            status.cancelled = true;
+            progress(status.clone());
+            return Ok(status);
+        }
+        let mut ids = HashSet::new();
+        for source in sources {
+            if source.id.trim().is_empty() || !ids.insert(source.id.clone()) {
+                return Err("Each history source must have a unique, nonempty ID.".into());
+            }
+            if !Path::new(&source.root).is_absolute() {
+                return Err("History source roots must be absolute directories.".into());
+            }
+        }
+        let existing = conn
+            .prepare("SELECT id FROM sources")
+            .map_err(error)?
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        for id in existing {
+            if !ids.contains(&id) {
+                conn.execute("DELETE FROM sources WHERE id=?1", [&id])
+                    .map_err(error)?;
+            }
+        }
+        let mut discoveries = Vec::new();
+        for source in sources {
+            let old: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT kind,root FROM sources WHERE id=?1",
+                    [&source.id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()
+                .map_err(error)?;
+            if old.is_some_and(|(kind, root)| kind != source.kind.as_str() || root != source.root)
+                || !source.enabled
+            {
+                conn.execute("DELETE FROM sources WHERE id=?1", [&source.id])
+                    .map_err(error)?;
+            }
+            conn.execute("INSERT INTO sources(id,kind,root,enabled) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,root=excluded.root,enabled=excluded.enabled",params![source.id,source.kind.as_str(),source.root,source.enabled]).map_err(error)?;
+            let (files, health, complete) = discover(source, cancel);
+            status.total += files.len();
+            status.sources.push(health);
+            discoveries.push((source, files, complete));
+        }
+        progress(status.clone());
+        for (source, files, complete) in discoveries {
+            if cancel.load(Ordering::Relaxed) {
+                status.cancelled = true;
+                break;
+            }
+            if !source.enabled {
+                continue;
+            }
+            let mut seen = HashSet::new();
+            let mut partial = 0usize;
+            let mut failed = false;
+            for path in files {
+                if cancel.load(Ordering::Relaxed) {
+                    status.cancelled = true;
+                    break;
+                }
+                seen.insert(path.to_string_lossy().into_owned());
+                match index_file(&mut conn, source, &path, cancel) {
+                    Ok(is_partial) => {
+                        if is_partial {
+                            partial += 1;
+                        }
+                    }
+                    Err(message) if cancel.load(Ordering::Relaxed) => {
+                        let _ = message;
+                        status.cancelled = true;
+                        break;
+                    }
+                    Err(message) => {
+                        failed = true;
+                        if status.errors.len() < MAX_ERRORS {
+                            status.errors.push(format!("{}: {message}", source.id));
+                        }
+                    }
+                }
+                status.processed += 1;
+                progress(status.clone());
+            }
+            if !status.cancelled && complete {
+                let tx = conn.transaction().map_err(error)?;
+                let old = tx
+                    .prepare("SELECT id,path,session_id FROM files WHERE source_id=?1")
+                    .map_err(error)?
+                    .query_map([&source.id], |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    })
+                    .map_err(error)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(error)?;
+                let mut affected = HashSet::new();
+                for (id, path, session) in old {
+                    if !seen.contains(&path) {
+                        tx.execute("DELETE FROM files WHERE id=?1", [id])
+                            .map_err(error)?;
+                        if let Some(session) = session {
+                            affected.insert(session);
+                        }
+                    }
+                }
+                for id in affected {
+                    rebuild_session(&tx, source, &id)?;
+                }
+                tx.commit().map_err(error)?;
+            }
+            if let Some(health) = status.sources.iter_mut().find(|h| h.source_id == source.id) {
+                if status.cancelled {
+                    health.status = "cancelled".into();
+                    health.message =
+                        Some("Indexing cancelled; committed files remain available.".into());
+                } else if failed {
+                    health.status = "error".into();
+                    health.message = Some(
+                        "Some transcripts could not be read; readable files were indexed.".into(),
+                    );
+                } else if partial > 0 && health.status != "error" {
+                    health.status = "partial".into();
+                    health.message = Some(format!(
+                        "{partial} transcript(s) contain incomplete or unsupported records."
+                    ));
+                }
+            }
+            progress(status.clone());
+            if status.cancelled {
+                break;
+            }
+        }
+        status.cancelled |= cancel.load(Ordering::Relaxed);
+        status.running = false;
+        for health in &status.sources {
+            if health.status == "error" && status.errors.len() < MAX_ERRORS {
+                let message = format!(
+                    "{}: {}",
+                    health.source_id,
+                    health.message.as_deref().unwrap_or("Source scan failed.")
+                );
+                if !status.errors.contains(&message) {
+                    status.errors.push(message);
+                }
+            }
+        }
+        progress(status.clone());
+        Ok(status)
+    }
+}
+
+fn session_row(row: &Row<'_>) -> rusqlite::Result<Session> {
+    let kind: String = row.get(2)?;
+    let kind = AgentKind::parse(&kind).map_err(|message| {
+        rusqlite::Error::FromSqlConversionFailure(
+            2,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                message,
+            )),
+        )
+    })?;
+    Ok(Session {
+        id: row.get(0)?,
+        source_id: row.get(1)?,
+        kind,
+        external_id: row.get(3)?,
+        project_id: row.get(4)?,
+        title: row.get(5)?,
+        cwd: row.get(6)?,
+        updated_at: row.get(7)?,
+        time_source: row.get(8)?,
+        archived: row.get(9)?,
+        parent_id: row.get(10)?,
+        partial: row.get(11)?,
+        snippet: None,
+    })
+}
+
+// SQLite's default LIKE folds ASCII only, just like lower()+instr. Each
+// connection is newly opened and never changes case_sensitive_like. Escaping
+// every LIKE metacharacter makes this a literal substring predicate. Trying LIKE
+// first avoids scanning the whole record for an absent original-case match and
+// avoids whole-record lower() allocation. LIKE stops at embedded NUL, unlike
+// instr, so that uncommon false result explicitly falls back to the original
+// expression instead of losing recall.
+fn literal_match_sql(column: &str, literal: usize, folded: Option<(usize, usize)>) -> String {
+    match folded {
+        Some((folded, pattern)) => format!("(CASE WHEN {column} LIKE ?{pattern} ESCAPE '\\' THEN 1 WHEN instr({column},char(0))>0 THEN instr(lower({column}),?{folded})>0 ELSE 0 END)"),
+        None => format!("instr({column},?{literal})>0"),
+    }
+}
+
+fn literal_like_pattern(search: &str) -> String {
+    let mut pattern = String::with_capacity(search.len() + 2);
+    pattern.push('%');
+    for character in search.chars() {
+        if matches!(character, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(character);
+    }
+    pattern.push('%');
+    pattern
+}
+
+fn literal_position_sql(column: &str, literal: usize, folded: Option<usize>) -> String {
+    match folded {
+        Some(folded) => format!("CASE WHEN instr({column},?{literal})>0 THEN instr({column},?{literal}) ELSE instr(lower({column}),?{folded}) END"),
+        None => format!("instr({column},?{literal})"),
+    }
+}
+
+// detail=none stores one posting per document/term, avoiding positional growth
+// for repetitive logs. Every sampled three-codepoint window is necessary for a
+// true substring match; exact instr then removes disconnected-window matches.
+fn trigram_candidates(search: &str) -> String {
+    let chars: Vec<char> = search.chars().collect();
+    let windows = chars.len() - 2;
+    let count = windows.min(32);
+    let mut seen = HashSet::new();
+    let mut terms = Vec::new();
+    for step in 0..count {
+        let position = if count == 1 {
+            0
+        } else {
+            step * (windows - 1) / (count - 1)
+        };
+        let gram: String = chars[position..position + 3].iter().collect();
+        if seen.insert(gram.clone()) {
+            terms.push(format!("\"{}\"", gram.replace('"', "\"\"")));
+        }
+    }
+    terms.join(" AND ")
+}
+
+fn snippet(text: &str, query: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let lowered = text.to_ascii_lowercase();
+    let index = if query.is_empty() {
+        0
+    } else {
+        lowered
+            .find(&query.to_ascii_lowercase())
+            .map(|byte| text[..byte].chars().count())
+            .unwrap_or(0)
+    };
+    let start = index.saturating_sub(50);
+    let end = (start + 220).min(chars.len());
+    format!(
+        "{}{}{}",
+        if start > 0 { "…" } else { "" },
+        chars[start..end].iter().collect::<String>(),
+        if end < chars.len() { "…" } else { "" }
+    )
+}
+
+fn bounded_preview(mut text: String) -> (String, bool) {
+    if text.len() <= MAX_PREVIEW_MESSAGE_BYTES {
+        return (text, false);
+    }
+    let marker =
+        "\n\n[Preview shortened at 64 KiB; open the original transcript for the full message.]";
+    let mut end = MAX_PREVIEW_MESSAGE_BYTES - marker.len();
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+    text.push_str(marker);
+    (text, true)
+}
+
+fn stale_page(message: &str) -> TranscriptPage {
+    TranscriptPage {
+        messages: vec![],
+        has_more: false,
+        before_line: None,
+        stale: true,
+        warning: Some(message.into()),
+    }
+}
+
+fn file_identity(metadata: &Metadata) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        format!("{}:{}", metadata.dev(), metadata.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        metadata
+            .created()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos().to_string())
+            .unwrap_or_default()
+    }
+}
+fn modification(metadata: &Metadata) -> String {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos().to_string())
+        .unwrap_or_default()
+}
+fn mtime_rfc3339(metadata: &Metadata) -> String {
+    metadata
+        .modified()
+        .map(|time| DateTime::<Utc>::from(time).to_rfc3339_opts(SecondsFormat::Millis, true))
+        .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".into())
+}
+
+fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, SourceHealth, bool) {
+    let mut health = SourceHealth {
+        source_id: source.id.clone(),
+        status: if source.enabled { "ready" } else { "disabled" }.into(),
+        message: None,
+        files: 0,
+    };
+    if !source.enabled {
+        return (vec![], health, true);
+    }
+    let root = Path::new(&source.root);
+    match fs::metadata(root) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            health.status = "empty".into();
+            health.message =
+                Some("No history directory yet; new sessions can still be started.".into());
+            return (vec![], health, true);
+        }
+        Err(_) => {
+            health.status = "error".into();
+            health.message = Some(
+                "The history directory is not readable. Check its path and permissions.".into(),
+            );
+            return (vec![], health, false);
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            health.status = "error".into();
+            health.message = Some("The history source root is not a directory.".into());
+            return (vec![], health, false);
+        }
+        _ => {}
+    }
+    if fs::read_dir(root).is_err() {
+        health.status = "error".into();
+        health.message = Some("The history directory cannot be listed.".into());
+        return (vec![], health, false);
+    }
+    let directories = match source.kind {
+        AgentKind::Codex => vec!["sessions", "archived_sessions"],
+        AgentKind::Claude => vec!["projects"],
+    };
+    let mut files = Vec::new();
+    let mut complete = true;
+    for directory in directories {
+        let base = root.join(directory);
+        match fs::metadata(&base) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                complete = false;
+                continue;
+            }
+            Ok(metadata) if !metadata.is_dir() => {
+                complete = false;
+                continue;
+            }
+            _ => {}
+        }
+        for entry in WalkDir::new(&base).follow_links(false).max_open(16) {
+            if cancel.load(Ordering::Relaxed) {
+                complete = false;
+                break;
+            }
+            match entry {
+                Ok(entry)
+                    if entry.file_type().is_file()
+                        && entry.path().extension().and_then(|s| s.to_str()) == Some("jsonl") =>
+                {
+                    files.push(entry.into_path())
+                }
+                Ok(_) => {}
+                Err(_) => complete = false,
+            }
+        }
+    }
+    files.sort();
+    health.files = files.len();
+    if cancel.load(Ordering::Relaxed) {
+        health.status = "cancelled".into();
+        health.message = Some("Indexing cancelled during source discovery.".into());
+    } else if !complete {
+        health.status = "error".into();
+        health.message=Some("Part of this history source could not be scanned. Cached entries are retained until a complete scan.".into());
+    } else if files.is_empty() {
+        health.status = "empty".into();
+        health.message = Some("No supported JSONL transcripts found.".into());
+    }
+    (files, health, complete)
+}
+
+fn prefix_digest(file: &mut File, len: u64, cancel: &AtomicBool) -> Result<String, String> {
+    file.seek(SeekFrom::Start(0)).map_err(error)?;
+    let mut hasher = Sha256::new();
+    let mut left = len;
+    let mut buffer = [0u8; 64 * 1024];
+    while left > 0 {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Indexing cancelled.".into());
+        }
+        let want = (left as usize).min(buffer.len());
+        let size = file.read(&mut buffer[..want]).map_err(error)?;
+        if size == 0 {
+            return Err("Transcript changed while verifying its checkpoint.".into());
+        }
+        hasher.update(&buffer[..size]);
+        left -= size as u64;
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+// Read a complete physical line with a strict memory cap, even for malformed logs.
+fn bounded_line(
+    reader: &mut BufReader<File>,
+    buffer: &mut Vec<u8>,
+    cancel: &AtomicBool,
+) -> Result<(u64, bool, bool), String> {
+    buffer.clear();
+    let mut total = 0u64;
+    let mut oversized = false;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Indexing cancelled.".into());
+        }
+        let chunk = reader.fill_buf().map_err(error)?;
+        if chunk.is_empty() {
+            return Ok((total, false, oversized));
+        }
+        let newline = chunk.iter().position(|byte| *byte == b'\n');
+        let take = newline.map_or(chunk.len(), |position| position + 1);
+        total += take as u64;
+        if buffer.len() + take <= MAX_LINE_BYTES {
+            buffer.extend_from_slice(&chunk[..take]);
+        } else {
+            oversized = true;
+        }
+        reader.consume(take);
+        if newline.is_some() {
+            return Ok((total, true, oversized));
+        }
+    }
+}
+
+fn load_record(
+    conn: &Connection,
+    source: &HistorySource,
+    path: &str,
+) -> Result<Option<FileRecord>, String> {
+    let row:Option<CheckpointRow>=conn.query_row(
+        "SELECT id,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state FROM files WHERE source_id=?1 AND path=?2",params![source.id,path],
+        |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?))).optional().map_err(error)?;
+    row.map(
+        |(
+            id,
+            session_id,
+            identity,
+            size,
+            modified,
+            offset,
+            lines,
+            prefix_hash,
+            parser_version,
+            state,
+        )| {
+            Ok(FileRecord {
+                id,
+                session_id,
+                identity,
+                size: size as u64,
+                modified,
+                offset: offset as u64,
+                lines: lines as u64,
+                prefix_hash,
+                parser_version,
+                state: serde_json::from_str(&state).map_err(error)?,
+            })
+        },
+    )
+    .transpose()
+}
+
+fn index_file(
+    conn: &mut Connection,
+    source: &HistorySource,
+    path: &Path,
+    cancel: &AtomicBool,
+) -> Result<bool, String> {
+    let path_string = path
+        .to_str()
+        .ok_or("Transcript paths must be valid UTF-8.")?;
+    let mut file =
+        File::open(path).map_err(|_| format!("Cannot read transcript {}.", path.display()))?;
+    let metadata = file.metadata().map_err(error)?;
+    if !metadata.is_file() {
+        return Err("Transcript is not a regular file.".into());
+    }
+    let identity = file_identity(&metadata);
+    let modified = modification(&metadata);
+    let size = metadata.len();
+    let old = load_record(conn, source, path_string)?;
+    if let Some(old) = &old {
+        if old.identity == identity
+            && old.size == size
+            && old.modified == modified
+            && old.parser_version == PARSER_VERSION
+        {
+            return Ok(old.state.bad_lines > 0
+                || old.state.unknown_events > 0
+                || old.offset < size);
+        }
+    }
+    let incremental = if let Some(old) = &old {
+        old.identity == identity
+            && old.offset <= size
+            && old.parser_version == PARSER_VERSION
+            && prefix_digest(&mut file, old.offset, cancel)? == old.prefix_hash
+    } else {
+        false
+    };
+    let mut state = if incremental {
+        old.as_ref().unwrap().state.clone()
+    } else {
+        ParsedState::default()
+    };
+    let mut offset = if incremental {
+        old.as_ref().unwrap().offset
+    } else {
+        0
+    };
+    let mut lines = if incremental {
+        old.as_ref().unwrap().lines
+    } else {
+        0
+    };
+    let archived = path
+        .strip_prefix(&source.root)
+        .ok()
+        .is_some_and(|relative| {
+            relative
+                .components()
+                .any(|c| c.as_os_str() == "archived_sessions")
+        });
+    let tx = conn.transaction().map_err(error)?;
+    let file_id = if let Some(old) = &old {
+        if !incremental {
+            tx.execute("DELETE FROM messages WHERE file_id=?1", [old.id])
+                .map_err(error)?;
+        }
+        old.id
+    } else {
+        tx.execute("INSERT INTO files(source_id,path,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived) VALUES(?1,?2,?3,0,'',0,0,'',?4,'{}',?5)",params![source.id,path_string,identity,PARSER_VERSION,archived]).map_err(error)?;
+        tx.last_insert_rowid()
+    };
+    file.seek(SeekFrom::Start(offset)).map_err(error)?;
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
+    let mut buffer = Vec::new();
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Indexing cancelled.".into());
+        }
+        let (length, complete, oversized) = bounded_line(&mut reader, &mut buffer, cancel)?;
+        if length == 0 || !complete {
+            break;
+        }
+        lines += 1;
+        let line_offset = offset;
+        offset += length;
+        let mut placeholder = None;
+        let mut role = "system".to_owned();
+        let mut timestamp = None;
+        let mut search = String::new();
+        let mut fallback = false;
+        let mut store = true;
+        if oversized {
+            state.bad_lines += 1;
+            placeholder = Some("[Oversized JSON record omitted]".to_owned());
+        } else if buffer.iter().all(u8::is_ascii_whitespace) {
+            store = false;
+        } else {
+            match serde_json::from_slice::<serde_json::Value>(&buffer) {
+                Ok(value) => {
+                    if let Some(message) =
+                        adapters::parse_value(source.kind, &value, &mut state, path)
+                    {
+                        role = message.role.clone();
+                        timestamp = message.timestamp.clone();
+                        fallback = message.fallback;
+                        search = adapters::search_text(&value, source.kind, &message);
+                        // Only bounded locator metadata and searchable prose are persisted.
+                        if !message.searchable {
+                            placeholder = Some(message.text);
+                        }
+                    } else {
+                        store = false;
+                    }
+                }
+                Err(_) => {
+                    state.bad_lines += 1;
+                    placeholder = Some("[Malformed JSON record]".to_owned());
+                }
+            }
+        }
+        if store {
+            tx.execute("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text,fallback,hidden,placeholder) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9) ON CONFLICT(file_id,line) DO UPDATE SET byte_offset=excluded.byte_offset,byte_len=excluded.byte_len,role=excluded.role,timestamp=excluded.timestamp,search_text=excluded.search_text,fallback=excluded.fallback,hidden=0,placeholder=excluded.placeholder",params![file_id,lines as i64,line_offset as i64,length as i64,role,timestamp,search,fallback,placeholder]).map_err(error)?;
+        }
+    }
+    let mut file = reader.into_inner();
+    let after = file.metadata().map_err(error)?;
+    // Writers may append during a scan. Retry instead of committing inconsistent locators.
+    if after.len() != size || modification(&after) != modified {
+        return Err("Transcript changed during indexing; refresh to retry.".into());
+    }
+    let prefix_hash = prefix_digest(&mut file, offset, cancel)?;
+    let verified = file.metadata().map_err(error)?;
+    let path_still_matches = fs::metadata(path)
+        .map(|m| file_identity(&m) == identity && m.len() == size && modification(&m) == modified)
+        .unwrap_or(false);
+    if !path_still_matches || verified.len() != size || modification(&verified) != modified {
+        return Err("Transcript changed while verifying its checkpoint; refresh to retry.".into());
+    }
+    let session_id = if state.recognized {
+        if state.external_id.is_none() {
+            state.external_id = Some(adapters::fallback_id(path, source.kind));
+        }
+        Some(session_identity(
+            source,
+            state.external_id.as_deref().unwrap(),
+        ))
+    } else {
+        None
+    };
+    tx.execute("UPDATE files SET session_id=?1,identity=?2,size=?3,modified=?4,offset=?5,lines=?6,prefix_hash=?7,parser_version=?8,state=?9,archived=?10,trailing_partial=?11 WHERE id=?12",
+        params![session_id,identity,size as i64,modified,offset as i64,lines as i64,prefix_hash,PARSER_VERSION,serde_json::to_string(&state).map_err(error)?,archived,offset<size,file_id]).map_err(error)?;
+    // Some Codex versions repeat messages in event_msg and response_item records.
+    tx.execute("UPDATE messages SET hidden=CASE WHEN fallback=1 AND EXISTS(SELECT 1 FROM messages canonical WHERE canonical.file_id=messages.file_id AND canonical.fallback=0 AND canonical.role=messages.role AND canonical.search_text=messages.search_text AND canonical.search_text<>'') THEN 1 ELSE 0 END WHERE file_id=?1",[file_id]).map_err(error)?;
+    if let Some(id) = &session_id {
+        rebuild_session(&tx, source, id)?;
+    }
+    if let Some(old_id) = old
+        .as_ref()
+        .and_then(|old| old.session_id.as_ref())
+        .filter(|id| Some(*id) != session_id.as_ref())
+    {
+        rebuild_session(&tx, source, old_id)?;
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Indexing cancelled.".into());
+    }
+    tx.commit().map_err(error)?;
+    Ok(state.bad_lines > 0 || state.unknown_events > 0 || offset < size)
+}
+
+fn rebuild_session(conn: &Connection, source: &HistorySource, id: &str) -> Result<(), String> {
+    let files=conn.prepare("SELECT path,state,archived,trailing_partial FROM files WHERE session_id=?1 ORDER BY archived ASC,modified DESC,path").map_err(error)?.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,bool>(2)?,r.get::<_,bool>(3)?))).map_err(error)?.collect::<Result<Vec<_>,_>>().map_err(error)?;
+    if files.is_empty() {
+        conn.execute("DELETE FROM sessions WHERE id=?1", [id])
+            .map_err(error)?;
+        return Ok(());
+    }
+    let mut states = Vec::new();
+    for (path, json, archived, trailing) in &files {
+        states.push((
+            path,
+            serde_json::from_str::<ParsedState>(json).map_err(error)?,
+            *archived,
+            *trailing,
+        ));
+    }
+    let primary = &states[0].1;
+    let external_id = primary
+        .external_id
+        .as_deref()
+        .ok_or("Transcript has no session identity.")?;
+    let cwd = primary
+        .cwd
+        .as_deref()
+        .filter(|cwd| Path::new(cwd).is_absolute());
+    let project_id = ensure_project(conn, cwd, false)?;
+    let event_at = states
+        .iter()
+        .filter_map(|(_, state, _, _)| state.event_at.as_ref())
+        .max()
+        .cloned();
+    let (updated_at, time_source) = match event_at {
+        Some(time) => (time, "event"),
+        None => {
+            let fallback = states
+                .iter()
+                .filter_map(|(path, _, _, _)| fs::metadata(path).ok().map(|m| mtime_rfc3339(&m)))
+                .max()
+                .unwrap_or_else(|| "1970-01-01T00:00:00.000Z".into());
+            (fallback, "mtime")
+        }
+    };
+    let title = primary
+        .title
+        .as_deref()
+        .or(primary.first_user.as_deref())
+        .map(|text| adapters::short_text(text, 120))
+        .unwrap_or_else(|| {
+            format!(
+                "{} {}",
+                source.kind.as_str(),
+                external_id.chars().take(12).collect::<String>()
+            )
+        });
+    let parent = primary
+        .parent_external
+        .as_ref()
+        .map(|parent| session_identity(source, parent));
+    let archived = states.iter().all(|(_, _, archived, _)| *archived);
+    let partial = states.len() > 1
+        || states.iter().any(|(_, state, _, trailing)| {
+            *trailing || state.bad_lines > 0 || state.unknown_events > 0
+        });
+    conn.execute("INSERT INTO sessions(id,source_id,kind,external_id,project_id,title,cwd,updated_at,time_source,archived,parent_id,child,partial)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
+        ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,title=excluded.title,cwd=excluded.cwd,updated_at=excluded.updated_at,time_source=excluded.time_source,archived=excluded.archived,parent_id=excluded.parent_id,child=excluded.child,partial=excluded.partial",
+        params![id,source.id,source.kind.as_str(),external_id,project_id,title,primary.cwd,updated_at,time_source,archived,parent,primary.child,partial]).map_err(error)?;
+    Ok(())
+}

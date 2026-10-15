@@ -1,0 +1,1135 @@
+use serde_json::json;
+use sessionbay_lib::catalog::Catalog;
+use sessionbay_lib::models::{AgentKind, HistorySource, SessionQuery};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tempfile::TempDir;
+
+const CODEX: &str = include_str!("../../fixtures/codex/standard.jsonl");
+const CLAUDE: &str = include_str!("../../fixtures/claude/standard.jsonl");
+const CHILD: &str = include_str!("../../fixtures/claude/subagent.jsonl");
+
+struct Harness {
+    _temp: TempDir,
+    catalog: Catalog,
+    root: PathBuf,
+}
+impl Harness {
+    fn new() -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_owned();
+        let catalog = Catalog::open(&root.join("app/index.sqlite")).unwrap();
+        Self {
+            _temp: temp,
+            catalog,
+            root,
+        }
+    }
+    fn source(&self, id: &str, kind: AgentKind) -> HistorySource {
+        HistorySource {
+            id: id.into(),
+            kind,
+            root: self.root.join(id).to_string_lossy().into_owned(),
+            enabled: true,
+        }
+    }
+    fn write(&self, source: &HistorySource, relative: &str, text: &str) -> PathBuf {
+        let path = Path::new(&source.root).join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, text).unwrap();
+        path
+    }
+    fn sync(&self, sources: &[HistorySource]) {
+        let status = self
+            .catalog
+            .sync(sources, &AtomicBool::new(false), |_| {})
+            .unwrap();
+        assert!(!status.running);
+    }
+    fn total(&self, query: &str) -> u64 {
+        self.catalog
+            .query(&SessionQuery {
+                query: Some(query.into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .total
+    }
+}
+fn codex(id: &str, text: &str) -> String {
+    format!(
+        "{}\n{}\n",
+        json!({"type":"session_meta","payload":{"id":id,"cwd":"/synthetic/shared"}}),
+        json!({"timestamp":"2026-01-01T00:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}})
+    )
+}
+fn append(path: &Path, text: &str) {
+    OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap()
+        .write_all(text.as_bytes())
+        .unwrap();
+}
+fn user(text: &str) -> String {
+    format!(
+        "{}\n",
+        json!({"type":"response_item","timestamp":"2026-02-01T00:00:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}})
+    )
+}
+
+#[test]
+fn cross_agent_grouping_literal_unicode_search_and_safe_tool_omission() {
+    let h = Harness::new();
+    let a = h.source("codex", AgentKind::Codex);
+    let b = h.source("claude", AgentKind::Claude);
+    let p = h.write(&a, "sessions/a.jsonl", CODEX);
+    let q = h.write(&b, "projects/test/b.jsonl", CLAUDE);
+    let before = (fs::read(&p).unwrap(), fs::read(&q).unwrap());
+    h.sync(&[a, b]);
+    let projects = h.catalog.projects().unwrap();
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].session_count, 2);
+    assert_eq!(projects[0].agents.len(), 2);
+    assert_eq!(h.total("中文"), 1);
+    assert_eq!(h.total("登入"), 1);
+    assert_eq!(h.total("parse_request"), 2);
+    assert_eq!(h.total("100%_literal"), 1);
+    assert_eq!(h.total("BUILD_LOG_NEVER_INDEXED"), 0);
+    assert_eq!(h.total("%' OR 1=1 --"), 0);
+    let page = h.catalog.query(&SessionQuery::default()).unwrap();
+    let codex = page
+        .items
+        .iter()
+        .find(|s| s.kind == AgentKind::Codex)
+        .unwrap();
+    let transcript = h.catalog.transcript(&codex.id, None, 100).unwrap();
+    assert_eq!(
+        transcript
+            .messages
+            .iter()
+            .filter(|m| m.role == "user")
+            .count(),
+        1
+    );
+    assert_eq!((fs::read(&p).unwrap(), fs::read(&q).unwrap()), before);
+}
+
+#[test]
+fn append_partial_line_checkpoint_and_idempotence() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let path = h.write(&source, "sessions/a.jsonl", &codex("s", "original"));
+    h.sync(std::slice::from_ref(&source));
+    let next = user("新增中文");
+    append(&path, next.trim_end_matches('\n'));
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("新增中文"), 0);
+    assert!(h.catalog.query(&SessionQuery::default()).unwrap().items[0].partial);
+    append(&path, "\n");
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("新增中文"), 1);
+    let s = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert!(!s.partial);
+    h.sync(&[source]);
+    assert_eq!(
+        h.catalog
+            .transcript(&s.id, None, 100)
+            .unwrap()
+            .messages
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn truncation_replaces_old_identity_and_search_content() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let path = h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("old-id", "old-secret-value"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    fs::write(path, codex("new-id", "new-content")).unwrap();
+    h.sync(&[source]);
+    assert_eq!(h.total("old-secret-value"), 0);
+    assert_eq!(h.total("new-content"), 1);
+    assert_eq!(
+        h.catalog.query(&SessionQuery::default()).unwrap().items[0].external_id,
+        "new-id"
+    );
+}
+
+#[test]
+fn inode_replacement_and_in_place_prefix_rewrite_are_detected() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let path = h.write(&source, "sessions/a.jsonl", &codex("s", "AAAA"));
+    h.sync(std::slice::from_ref(&source));
+    let replacement = h.write(&source, "replacement.tmp", &codex("s", "BBBB"));
+    fs::rename(replacement, &path).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("AAAA"), 0);
+    assert_eq!(h.total("BBBB"), 1);
+    // Same inode, a same-length rewritten prefix, followed by new records.
+    fs::write(&path, format!("{}{}", codex("s", "CCCC"), user("DDDD"))).unwrap();
+    h.sync(&[source]);
+    assert_eq!(h.total("BBBB"), 0);
+    assert_eq!(h.total("CCCC"), 1);
+    assert_eq!(h.total("DDDD"), 1);
+}
+
+#[test]
+fn archive_move_preserves_identity_then_deletion_purges_search() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let path = h.write(&source, "sessions/a.jsonl", &codex("s", "archive me"));
+    h.sync(std::slice::from_ref(&source));
+    let id = h.catalog.query(&SessionQuery::default()).unwrap().items[0]
+        .id
+        .clone();
+    let target = Path::new(&source.root).join("archived_sessions/a.jsonl");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::rename(path, &target).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    let s = h.catalog.session(&id).unwrap();
+    assert!(s.archived);
+    assert_eq!(h.total("archive me"), 1);
+    assert!(h.catalog.resume_source(&id).is_ok());
+    fs::remove_file(target).unwrap();
+    h.sync(&[source]);
+    assert_eq!(h.total("archive me"), 0);
+}
+
+#[test]
+fn cancelled_scan_has_consistent_checkpoint_and_can_resume() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    for i in 0..4 {
+        h.write(
+            &source,
+            &format!("sessions/{i}.jsonl"),
+            &codex(&format!("s{i}"), "searchable"),
+        );
+    }
+    let cancel = AtomicBool::new(false);
+    let status = h
+        .catalog
+        .sync(std::slice::from_ref(&source), &cancel, |status| {
+            if status.processed == 1 {
+                cancel.store(true, Ordering::Relaxed);
+            }
+        })
+        .unwrap();
+    assert!(status.cancelled);
+    assert_eq!(status.processed, 1);
+    assert_eq!(h.total("searchable"), 1);
+    h.sync(&[source]);
+    assert_eq!(h.total("searchable"), 4);
+}
+
+#[test]
+fn missing_source_is_healthy_empty_and_bad_source_does_not_block_good_one() {
+    let h = Harness::new();
+    let missing = h.source("missing", AgentKind::Codex);
+    let bad = h.source("bad", AgentKind::Claude);
+    let good = h.source("good", AgentKind::Codex);
+    fs::write(&bad.root, "not a directory").unwrap();
+    h.write(&good, "sessions/a.jsonl", &codex("s", "available"));
+    let status = h
+        .catalog
+        .sync(&[missing, bad, good], &AtomicBool::new(false), |_| {})
+        .unwrap();
+    assert_eq!(status.sources[0].status, "empty");
+    assert_eq!(status.sources[1].status, "error");
+    assert_eq!(h.total("available"), 1);
+    assert!(!status.errors.is_empty());
+}
+
+#[test]
+fn removed_root_disabled_source_and_removed_configuration_purge_content() {
+    let h = Harness::new();
+    let mut source = h.source("a", AgentKind::Codex);
+    h.write(&source, "sessions/a.jsonl", &codex("s", "remove"));
+    h.sync(std::slice::from_ref(&source));
+    fs::remove_dir_all(&source.root).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("remove"), 0);
+    h.write(&source, "sessions/a.jsonl", &codex("s", "disable"));
+    h.sync(std::slice::from_ref(&source));
+    source.enabled = false;
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("disable"), 0);
+    source.enabled = true;
+    h.sync(&[source]);
+    assert_eq!(h.total("disable"), 1);
+    h.sync(&[]);
+    assert_eq!(h.total("disable"), 0);
+}
+
+#[test]
+fn children_keep_source_relationship_and_are_hidden_by_default() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Claude);
+    h.write(&source, "projects/test/a.jsonl", CLAUDE);
+    h.write(
+        &source,
+        "projects/test/claude-synthetic-001/subagents/agent-synthetic-child.jsonl",
+        CHILD,
+    );
+    h.sync(&[source]);
+    let main = h.catalog.query(&SessionQuery::default()).unwrap();
+    assert_eq!(main.total, 1);
+    let all = h
+        .catalog
+        .query(&SessionQuery {
+            include_children: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(all.total, 2);
+    let child = all
+        .items
+        .iter()
+        .find(|s| s.external_id == "agent-synthetic-child")
+        .unwrap();
+    assert_eq!(child.parent_id.as_deref(), Some(main.items[0].id.as_str()));
+    assert!(h.catalog.resume_source(&child.id).is_err());
+}
+
+#[test]
+fn duplicate_sources_are_distinct_and_resume_never_guesses() {
+    let h = Harness::new();
+    let a = h.source("a", AgentKind::Codex);
+    let mut b = h.source("b", AgentKind::Codex);
+    h.write(&a, "sessions/a.jsonl", &codex("same", "source a"));
+    h.write(&b, "sessions/b.jsonl", &codex("same", "source b"));
+    h.sync(&[a.clone(), b.clone()]);
+    let page = h.catalog.query(&SessionQuery::default()).unwrap();
+    assert_eq!(page.total, 2);
+    assert_ne!(page.items[0].id, page.items[1].id);
+    let id = page
+        .items
+        .iter()
+        .find(|s| s.source_id == "a")
+        .unwrap()
+        .id
+        .clone();
+    assert!(h
+        .catalog
+        .resume_source(&id)
+        .unwrap_err()
+        .contains("multiple history sources"));
+    b.enabled = false;
+    h.sync(&[a, b]);
+    assert!(h.catalog.resume_source(&id).is_ok());
+}
+
+#[test]
+fn duplicate_files_show_warning_and_block_resume() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(&source, "sessions/a.jsonl", &codex("same", "first"));
+    h.write(&source, "sessions/b.jsonl", &codex("same", "second"));
+    h.sync(&[source]);
+    let page = h.catalog.query(&SessionQuery::default()).unwrap();
+    assert_eq!(page.total, 1);
+    assert!(page.items[0].partial);
+    assert!(h
+        .catalog
+        .transcript(&page.items[0].id, None, 50)
+        .unwrap()
+        .warning
+        .unwrap()
+        .contains("Multiple"));
+    assert!(h.catalog.resume_source(&page.items[0].id).is_err());
+}
+
+#[test]
+fn lazy_transcript_pages_are_chronological_and_detect_stale_source() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let mut contents = codex("s", "first");
+    for i in 0..8 {
+        contents.push_str(&user(&format!("message {i}")));
+    }
+    let path = h.write(&source, "sessions/a.jsonl", &contents);
+    h.sync(&[source]);
+    let id = h.catalog.query(&SessionQuery::default()).unwrap().items[0]
+        .id
+        .clone();
+    let last = h.catalog.transcript(&id, None, 3).unwrap();
+    assert!(last.has_more);
+    assert_eq!(last.messages[0].text, "message 5");
+    assert_eq!(last.messages[2].text, "message 7");
+    let earlier = h.catalog.transcript(&id, last.before_line, 3).unwrap();
+    assert_eq!(earlier.messages[0].text, "message 2");
+    assert_eq!(earlier.messages[2].text, "message 4");
+    append(&path, &user("changed"));
+    let stale = h.catalog.transcript(&id, None, 3).unwrap();
+    assert!(stale.stale);
+    assert!(stale.messages.is_empty());
+    assert!(h.catalog.resume_source(&id).is_err());
+}
+
+#[test]
+fn project_overrides_and_clear_never_modify_original_history() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let path = h.write(&source, "sessions/a.jsonl", &codex("s", "original"));
+    h.sync(&[source]);
+    let raw = fs::read(&path).unwrap();
+    let project = h.catalog.projects().unwrap().remove(0);
+    let relocated = h.root.join("relocated");
+    fs::create_dir(&relocated).unwrap();
+    let updated = h
+        .catalog
+        .update_project(&project.id, Some(true), Some(relocated.to_str().unwrap()))
+        .unwrap();
+    assert!(updated.exists);
+    assert_eq!(updated.path.as_deref(), Some("/synthetic/shared"));
+    let manual = h.catalog.add_project(h.root.to_str().unwrap()).unwrap();
+    assert_eq!(manual.session_count, 0);
+    h.catalog.clear().unwrap();
+    assert_eq!(h.total("original"), 0);
+    let projects = h.catalog.projects().unwrap();
+    assert_eq!(projects.len(), 2);
+    assert!(projects.iter().any(|p| p.id == project.id && p.pinned));
+    assert_eq!(raw, fs::read(path).unwrap());
+}
+
+#[test]
+fn malformed_unknown_and_incomplete_records_are_tolerated() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let contents = format!(
+        "{}not json\n{{\"type\":\"future_type\"}}\n{}{{\"unfinished\":",
+        codex("s", "before"),
+        user("after")
+    );
+    h.write(&source, "sessions/a.jsonl", &contents);
+    let status = h
+        .catalog
+        .sync(&[source], &AtomicBool::new(false), |_| {})
+        .unwrap();
+    assert_eq!(status.sources[0].status, "partial");
+    assert_eq!(h.total("after"), 1);
+    let s = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert!(s.partial);
+    let t = h.catalog.transcript(&s.id, None, 100).unwrap();
+    assert!(t.messages.iter().any(|m| m.text.contains("Malformed")));
+    assert!(t.messages.iter().any(|m| m.text.contains("Unsupported")));
+}
+
+#[test]
+fn stable_pagination_and_date_filter_use_event_time() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    for i in 0..5 {
+        h.write(
+            &source,
+            &format!("sessions/{i}.jsonl"),
+            &codex(&format!("s{i}"), "same time"),
+        );
+    }
+    h.sync(&[source]);
+    let first = h
+        .catalog
+        .query(&SessionQuery {
+            limit: Some(2),
+            ..Default::default()
+        })
+        .unwrap();
+    let second = h
+        .catalog
+        .query(&SessionQuery {
+            limit: Some(2),
+            offset: Some(2),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(first.total, 5);
+    assert!(first
+        .items
+        .iter()
+        .all(|a| second.items.iter().all(|b| a.id != b.id)));
+    assert!(first.items.iter().all(|s| s.time_source == "event"));
+    assert_eq!(
+        h.catalog
+            .query(&SessionQuery {
+                before: Some("2026-01-01T00:00:00Z".into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .total,
+        0
+    );
+    assert!(h
+        .catalog
+        .query(&SessionQuery {
+            after: Some("invalid".into()),
+            ..Default::default()
+        })
+        .is_err());
+}
+
+#[test]
+fn missing_cwd_stays_unclassified_and_mtime_fallback_is_explicit() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        "{\"type\":\"session_meta\",\"payload\":{\"id\":\"missing-cwd\"}}\n",
+    );
+    h.sync(&[source]);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert_eq!(session.project_id, "project-unclassified");
+    assert!(session.cwd.is_none());
+    assert_eq!(session.time_source, "mtime");
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_symlink_paths_merge_without_losing_original_cwd() {
+    use std::os::unix::fs::symlink;
+    let h = Harness::new();
+    let real = h.root.join("real");
+    let alias = h.root.join("alias");
+    fs::create_dir(&real).unwrap();
+    symlink(&real, &alias).unwrap();
+    let source = h.source("a", AgentKind::Codex);
+    for (id, path) in [("one", real), ("two", alias)] {
+        let content =
+            codex(id, "same project").replace("/synthetic/shared", path.to_str().unwrap());
+        h.write(&source, &format!("sessions/{id}.jsonl"), &content);
+    }
+    h.sync(&[source]);
+    assert_eq!(h.catalog.projects().unwrap().len(), 1);
+    let sessions = h.catalog.query(&SessionQuery::default()).unwrap();
+    assert_ne!(sessions.items[0].cwd, sessions.items[1].cwd);
+}
+
+#[test]
+fn future_schema_is_rejected_and_catalog_reopens_persisted_index() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(&source, "sessions/a.jsonl", &codex("s", "persistent"));
+    h.sync(&[source]);
+    let db = h.root.join("app/index.sqlite");
+    assert_eq!(
+        Catalog::open(&db)
+            .unwrap()
+            .query(&SessionQuery::default())
+            .unwrap()
+            .total,
+        1
+    );
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .pragma_update(None, "user_version", 999)
+        .unwrap();
+    assert!(Catalog::open(&db).is_err());
+}
+
+#[test]
+fn oversized_record_is_bounded_and_following_valid_record_is_indexed() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let mut contents = codex("s", "before huge record");
+    contents.push_str(&"x".repeat(8 * 1024 * 1024 + 100));
+    contents.push('\n');
+    contents.push_str(&user("after huge record"));
+    h.write(&source, "sessions/a.jsonl", &contents);
+    h.sync(&[source]);
+    assert_eq!(h.total("after huge record"), 1);
+    let s = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert!(s.partial);
+    let preview = h.catalog.transcript(&s.id, None, 100).unwrap();
+    assert!(preview
+        .messages
+        .iter()
+        .any(|m| m.text.contains("Oversized")));
+}
+
+#[cfg(unix)]
+#[test]
+fn permission_denied_source_is_not_reported_as_empty_or_purged() {
+    use std::os::unix::fs::PermissionsExt;
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(&source, "sessions/a.jsonl", &codex("s", "cached"));
+    h.sync(std::slice::from_ref(&source));
+    fs::set_permissions(&source.root, fs::Permissions::from_mode(0o000)).unwrap();
+    // Privileged CI can bypass Unix mode bits; skip the inaccessible assertion then.
+    if fs::read_dir(&source.root).is_err() {
+        let status = h
+            .catalog
+            .sync(
+                std::slice::from_ref(&source),
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert_eq!(status.sources[0].status, "error");
+        assert_eq!(h.total("cached"), 1);
+    }
+    fs::set_permissions(&source.root, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[test]
+fn cancellation_before_scan_preserves_existing_catalog() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(&source, "sessions/a.jsonl", &codex("s", "existing"));
+    h.sync(&[source]);
+    let status = h.catalog.sync(&[], &AtomicBool::new(true), |_| {}).unwrap();
+    assert!(status.cancelled);
+    assert_eq!(h.total("existing"), 1);
+}
+
+#[test]
+fn queries_remain_available_during_background_indexing() {
+    use std::sync::Arc;
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    for i in 0..100 {
+        h.write(
+            &source,
+            &format!("sessions/{i}.jsonl"),
+            &codex(&format!("s{i}"), "parallel 中文"),
+        );
+    }
+    let catalog = h.catalog.clone();
+    let finished = Arc::new(AtomicBool::new(false));
+    let worker_finished = finished.clone();
+    let worker = std::thread::spawn(move || {
+        catalog
+            .sync(&[source], &AtomicBool::new(false), |_| {})
+            .unwrap();
+        worker_finished.store(true, Ordering::Release);
+    });
+    while !finished.load(Ordering::Acquire) {
+        h.catalog
+            .query(&SessionQuery {
+                query: Some("中文".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        std::thread::yield_now();
+    }
+    worker.join().unwrap();
+    assert_eq!(h.total("parallel"), 100);
+}
+
+#[test]
+fn source_root_reconfiguration_removes_previous_identity() {
+    let h = Harness::new();
+    let original = h.source("a", AgentKind::Codex);
+    let replacement = h.source("b", AgentKind::Codex);
+    h.write(
+        &original,
+        "sessions/a.jsonl",
+        &codex("old", "previous root"),
+    );
+    h.write(
+        &replacement,
+        "sessions/b.jsonl",
+        &codex("new", "replacement root"),
+    );
+    h.sync(std::slice::from_ref(&original));
+    let updated = HistorySource {
+        root: replacement.root,
+        ..original
+    };
+    h.sync(&[updated]);
+    assert_eq!(h.total("previous root"), 0);
+    assert_eq!(h.total("replacement root"), 1);
+}
+
+#[test]
+fn conflicting_session_metadata_does_not_reassign_or_resume_the_wrong_session() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &format!(
+            "{}{}",
+            codex("first", "correct context"),
+            codex("other", "unrelated context")
+        ),
+    );
+    h.sync(&[source]);
+    assert_eq!(h.total("correct context"), 1);
+    assert_eq!(h.total("unrelated context"), 0);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert_eq!(session.external_id, "first");
+    assert!(session.partial);
+    assert!(h
+        .catalog
+        .resume_source(&session.id)
+        .unwrap_err()
+        .contains("conflicting"));
+}
+
+#[test]
+fn transcript_preview_has_unicode_safe_message_and_page_byte_budgets() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let text = format!("{}FULL_TEXT_STILL_SEARCHABLE", "中文".repeat(12_000));
+    let mut content = codex("s", "first");
+    for _ in 0..20 {
+        content.push_str(&user(&text));
+    }
+    h.write(&source, "sessions/a.jsonl", &content);
+    h.sync(&[source]);
+    assert_eq!(h.total("FULL_TEXT_STILL_SEARCHABLE"), 1);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let page = h.catalog.transcript(&session.id, None, 200).unwrap();
+    assert!(page.has_more);
+    assert!(page.warning.unwrap().contains("shortened"));
+    assert!(page.messages.iter().all(|m| m.text.len() <= 64 * 1024));
+    assert!(page.messages.iter().map(|m| m.text.len()).sum::<usize>() <= 1024 * 1024);
+    let earlier = h
+        .catalog
+        .transcript(&session.id, page.before_line, 200)
+        .unwrap();
+    assert!(!earlier.has_more);
+    assert_eq!(earlier.messages.first().unwrap().text, "first");
+}
+
+#[test]
+fn failed_initial_migration_rolls_back_new_tables() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("index.sqlite");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("CREATE TABLE projects(existing_column TEXT);")
+        .unwrap();
+    drop(conn);
+    assert!(Catalog::open(&path).is_err());
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let sources: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sources'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(sources, 0);
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 0);
+}
+
+fn fts_integrity(path: &Path) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute(
+        "INSERT INTO messages_fts(messages_fts,rank) VALUES('integrity-check',1)",
+        [],
+    )
+    .unwrap();
+}
+
+#[test]
+fn trigram_candidates_preserve_literal_punctuation_unicode_and_title_matching() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex(
+            "s",
+            "[foo] 100%_literal \"quoted\" 中文搜尋 École test---case café",
+        ),
+    );
+    h.sync(&[source]);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    conn.execute("UPDATE sessions SET title='Title-only-needle'", [])
+        .unwrap();
+    drop(conn);
+    assert_eq!(h.total("Title-only-needle"), 1);
+    for query in [
+        "[foo]",
+        "100%_literal",
+        "\"quoted\"",
+        "中文搜尋",
+        "test---case",
+        "café",
+        "École",
+    ] {
+        assert_eq!(h.total(query), 1, "{query}");
+    }
+    for query in ["%literal", "' OR 1=1 --", "ecole", "cafe", "école"] {
+        assert_eq!(h.total(query), 0, "{query}");
+    }
+    // SQLite lower() is ASCII-only. FTS Unicode folding must not widen results.
+    assert_eq!(h.total("FOO"), 1);
+    assert_eq!(h.total("中文"), 1);
+    fts_integrity(&h.root.join("app/index.sqlite"));
+}
+
+#[test]
+fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("s", "migration_unique_word"),
+    );
+    h.sync(&[source]);
+    let project = h.catalog.projects().unwrap().remove(0);
+    h.catalog
+        .update_project(&project.id, Some(true), None)
+        .unwrap();
+    let path = h.root.join("app/index.sqlite");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("UPDATE sessions SET title='Neutral title'; DROP TRIGGER messages_fts_insert; DROP TRIGGER messages_fts_delete; DROP TRIGGER messages_fts_update; DROP TABLE messages_fts; PRAGMA user_version=1;").unwrap();
+    drop(conn);
+    let migrated = Catalog::open(&path).unwrap();
+    assert_eq!(
+        migrated
+            .query(&SessionQuery {
+                query: Some("migration_unique_word".into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .total,
+        1
+    );
+    assert!(migrated.projects().unwrap()[0].pinned);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 2);
+    drop(conn);
+    fts_integrity(&path);
+}
+
+#[test]
+fn fts_tracks_updates_rollbacks_cascade_deletions_clear_and_rebuild() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let file = h.write(&source, "sessions/a.jsonl", &codex("s", "old_fts_token"));
+    h.sync(std::slice::from_ref(&source));
+    let path = h.root.join("app/index.sqlite");
+    fts_integrity(&path);
+    // Update-trigger correctness and rollback of index/content together.
+    let mut conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute("UPDATE sessions SET title='Neutral title'", [])
+        .unwrap();
+    let tx = conn.transaction().unwrap();
+    tx.execute(
+        "UPDATE messages SET search_text='rolled_back_fts_token' WHERE search_text<>''",
+        [],
+    )
+    .unwrap();
+    tx.rollback().unwrap();
+    drop(conn);
+    assert_eq!(h.total("old_fts_token"), 1);
+    assert_eq!(h.total("rolled_back_fts_token"), 0);
+    fts_integrity(&path);
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute(
+        "UPDATE messages SET search_text='updated_fts_token' WHERE search_text<>''",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    assert_eq!(h.total("updated_fts_token"), 1);
+    fts_integrity(&path);
+    fs::write(&file, codex("s", "replaced_fts_token")).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("updated_fts_token"), 0);
+    assert_eq!(h.total("replaced_fts_token"), 1);
+    fts_integrity(&path);
+    fs::remove_file(&file).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("replaced_fts_token"), 0);
+    fts_integrity(&path);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("s", "rebuilt_fts_token"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    h.catalog.clear().unwrap();
+    assert_eq!(h.total("rebuilt_fts_token"), 0);
+    fts_integrity(&path);
+    h.sync(&[source]);
+    assert_eq!(h.total("rebuilt_fts_token"), 1);
+    fts_integrity(&path);
+}
+
+#[test]
+fn sampled_trigrams_keep_long_unicode_queries_and_reject_disconnected_matches() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let query="長查詢跨過三十二個字元_sample_identifier_0123456789_含有\"引號\"與%底線_最後的中文測試內容";
+    let chars: Vec<char> = query.chars().collect();
+    let disconnected = chars
+        .windows(3)
+        .map(|part| part.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    h.write(
+        &source,
+        "sessions/exact.jsonl",
+        &codex("exact", &format!("before {query} after")),
+    );
+    h.write(
+        &source,
+        "sessions/disconnected.jsonl",
+        &codex("disconnected", &disconnected),
+    );
+    h.sync(&[source]);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    conn.execute("UPDATE sessions SET title='Neutral'", [])
+        .unwrap();
+    drop(conn);
+    let page = h
+        .catalog
+        .query(&SessionQuery {
+            query: Some(query.into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.items[0].external_id, "exact");
+    fts_integrity(&h.root.join("app/index.sqlite"));
+}
+
+#[test]
+fn relative_cwd_is_preserved_but_never_resolved_against_application_directory() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("s", "relative cwd").replace("/synthetic/shared", "."),
+    );
+    h.sync(&[source]);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    assert_eq!(session.cwd.as_deref(), Some("."));
+    assert_eq!(session.project_id, "project-unclassified");
+    let project = h.catalog.projects().unwrap().remove(0);
+    assert!(project.path.is_none());
+    assert!(!project.exists);
+}
+
+#[test]
+fn exact_case_short_circuit_matches_original_ascii_fold_semantics() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let texts = [
+        "parse_request and foo🤖 中文 123_%",
+        "PARSE_REQUEST and FOO🤖 漢字標點",
+        "Parse_Request mixed x X code-X",
+        "É é ÄÖÜ 中文 a漢字 一A二",
+        "École école 一a二 quoted \"FoO\"",
+        "🙂🤖🚀 123_% 結尾 中文",
+    ];
+    for (index, text) in texts.iter().enumerate() {
+        h.write(
+            &source,
+            &format!("sessions/{index}.jsonl"),
+            &codex(&format!("s{index}"), text),
+        );
+    }
+    h.sync(&[source]);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    conn.execute("UPDATE sessions SET title='Neutral'", [])
+        .unwrap();
+    conn.execute(
+        "UPDATE sessions SET title='Title_MiXeD' WHERE external_id='s0'",
+        [],
+    )
+    .unwrap();
+    for query in [
+        "parse_request",
+        "PARSE_REQUEST",
+        "Parse_Request",
+        "x",
+        "X",
+        "中文",
+        "漢字標點",
+        "123_%",
+        "É",
+        "é",
+        "ÄÖÜ",
+        "一A二",
+        "一a二",
+        "code-X",
+        "\"FoO\"",
+        "🙂🤖🚀",
+        "foo🤖",
+        "title_mixed",
+        "TITLE_MIXED",
+    ] {
+        let mut stmt=conn.prepare("SELECT s.id FROM sessions s WHERE instr(lower(s.title),lower(?1))>0 OR EXISTS(SELECT 1 FROM files f JOIN messages m ON m.file_id=f.id WHERE f.session_id=s.id AND m.hidden=0 AND instr(lower(m.search_text),lower(?1))>0) ORDER BY s.id").unwrap();
+        let expected = stmt
+            .query_map([query], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let result = h
+            .catalog
+            .query(&SessionQuery {
+                query: Some(query.into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let mut actual = result.items.into_iter().map(|s| s.id).collect::<Vec<_>>();
+        actual.sort();
+        assert_eq!(actual, expected, "query: {query}");
+        assert_eq!(result.total, expected.len() as u64);
+    }
+}
+
+#[test]
+fn numbered_search_parameters_preserve_filters_and_unicode_snippet_positions() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let body = format!(
+        "{} \"mixed_PARse_Request\" 中文標記",
+        "前置資料".repeat(200)
+    );
+    h.write(&source, "sessions/a.jsonl", &codex("s", &body));
+    h.sync(&[source]);
+    let project = h.catalog.projects().unwrap().remove(0);
+    for query in ["parse_request", "中文標記"] {
+        let page = h
+            .catalog
+            .query(&SessionQuery {
+                project_id: Some(project.id.clone()),
+                kind: Some(AgentKind::Codex),
+                archived: Some(false),
+                after: Some("2025-12-31T00:00:00Z".into()),
+                before: Some("2026-01-02T00:00:00Z".into()),
+                query: Some(query.into()),
+                limit: Some(1),
+                offset: Some(0),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(page.total, 1);
+        let snippet = page.items[0].snippet.as_ref().unwrap();
+        assert!(snippet.to_ascii_lowercase().contains(query));
+        assert!(snippet.chars().count() <= 222);
+    }
+}
+
+#[test]
+fn escaped_like_fallback_preserves_wildcards_backslashes_and_embedded_nul() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let texts = [
+        "a_ a% a\\ path\\name literal_100% ",
+        "axb axpercent axslash pathXname literalX100suffix",
+        "École école ÄBC äbc",
+        "prefix\0tailafterNULL and a_ a% a\\",
+        "quoted \"foo\" and line\nbreak",
+    ];
+    for (index, text) in texts.iter().enumerate() {
+        h.write(
+            &source,
+            &format!("sessions/{index}.jsonl"),
+            &codex(&format!("s{index}"), text),
+        );
+    }
+    h.sync(&[source]);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    let default_like: i64 = conn
+        .query_row("SELECT 'a' LIKE 'A'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(default_like, 1);
+    conn.execute("UPDATE sessions SET title='Neutral'", [])
+        .unwrap();
+    // case_sensitive_like is connection-local. A different connection cannot
+    // change the fresh default used by any Catalog query.
+    conn.execute_batch("PRAGMA case_sensitive_like=ON;")
+        .unwrap();
+    let other_like: i64 = conn
+        .query_row("SELECT 'a' LIKE 'A'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(other_like, 0);
+    for query in [
+        "A_",
+        "A%",
+        "A\\",
+        "PATH\\NAME",
+        "LITERAL_100%",
+        "ÉCOLE",
+        "éCOLE",
+        "ÄBC",
+        "äBC",
+        "TA",
+        "TAILAFTERNULL",
+        "\"FOO\"",
+        "LINE\nBREAK",
+    ] {
+        let mut stmt=conn.prepare("SELECT s.id FROM sessions s WHERE instr(lower(s.title),lower(?1))>0 OR EXISTS(SELECT 1 FROM files f JOIN messages m ON m.file_id=f.id WHERE f.session_id=s.id AND m.hidden=0 AND instr(lower(m.search_text),lower(?1))>0) ORDER BY s.id").unwrap();
+        let expected = stmt
+            .query_map([query], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let page = h
+            .catalog
+            .query(&SessionQuery {
+                query: Some(query.into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let mut actual = page
+            .items
+            .into_iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        actual.sort();
+        assert_eq!(actual, expected, "query: {query}");
+        assert_eq!(page.total, expected.len() as u64);
+    }
+}

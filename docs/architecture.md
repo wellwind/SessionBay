@@ -1,5 +1,6 @@
 # Session Bay 技術架構
 
+> 2026-10-15 實作更新：本次包含 macOS＋Linux 的 P0 程式碼；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
 目前建議採用 Tauri 2＋Rust 後端、TypeScript 前端、xterm.js、跨平台 PTY 與 SQLite。這是依本機索引、程序管理與可客製化 UI 需求提出的方案，需先通過效能與終端相容性原型。
 
 ## 系統分工
@@ -166,3 +167,4 @@ Agent、provider、模型與帳號分開保存。事件以可靠來源 ID、requ
 ## 驗證入口
 
 先驗證 PTY → Channel → xterm 的往返路徑，再加入兩個可見面板與背景索引。效能量測應涵蓋 WebView 子程序，並將 Agent 子程序另外列出；完整計畫見[開發路線圖](roadmap.md)。
+

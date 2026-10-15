@@ -2,6 +2,25 @@
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
 
+## 2026-10-15 MVP 實作決策更新
+
+使用者要求先實作 MVP，並追加 **macOS 與 Linux 皆可使用**。本分支保留原始規格與待驗收項目，不把程式碼完成視為全部 P0 已通過。
+
+| 項目 | 本次實作決策 | 限制 |
+| --- | --- | --- |
+| 平台 | macOS 12+、Linux；CI 基準 Ubuntu 24.04 x64、macOS 15 ARM64／Intel | 實際通過紀錄見驗證報告；其他發行版不預先承諾 |
+| 桌面／資料 | Tauri 2、Rust、rusqlite bundled SQLite、portable-pty | Core 可單獨測試，不需要 WebView |
+| 前端 | React 19、TypeScript、Vite、npm、xterm.js | 宣告式 UI、成熟測試工具鏈與獨立終端實例 |
+| 版本 | npm 與 Cargo lockfiles、rust-toolchain.toml | 由 lockfiles 記錄實際依賴，不追逐最新版 |
+| 來源恢復 | source ID 命名空間；CODEX_HOME／CLAUDE_CONFIG_DIR 指向選中來源；來源內／跨來源同 ID 的 CLI 恢復歧義阻擋 | 不複製／改寫 transcript，不聲稱可以附接外部程序 |
+| 搜尋 | SQLite FTS5 compact trigram 候選＋參數化 literal substring 精確驗證；不足 3 字元回退掃描，英文 ASCII 不分大小寫 | 無詞幹或向量語意；效能須分資料規模量測 |
+| 來源更新 | 完整行 byte offset，變更檔案前綴驗證；每 10 秒 reconcile | 定期補掃是 MVP 的監控方式，未宣稱逐事件 filesystem watcher |
+| 終端生命週期 | 每面板獨立 PTY；切換僅隱藏；關閉需確認並清理自有 Unix session 程序群 | 刻意 setsid 脫離 session 的 daemon 不屬於可驗證的清理範圍 |
+| 串流／安全 | raw bytes、有序序號、xterm callback ACK、有界輸出；OSC52 封鎖 | 慢消費超時會明確停止，不能無限緩衝 |
+| 發行 | 先交付原始碼與未簽章開發建置；CI workflow 不自動公開 release | 簽章、公證、自動更新、授權／品牌決策仍獨立處理 |
+
+操作、安裝與支援邊界見[開發與試用](development.md)，可重複驗證見[MVP 驗收紀錄](mvp-validation.md)。
+
 ## 已確定方向
 
 | 項目 | 決定 | 依據 |
@@ -38,6 +57,8 @@
 
 ## 待決策事項
 
+下表保留原始提案；平台、框架、技術、來源恢復及 tokenizer 的本次選擇已由上方更新取代，CLI 版本與原生驗收仍待完成。
+
 | 問題 | 目前選項或建議 | 最晚確認時點 |
 | --- | --- | --- |
 | 第一個平台 | 建議 macOS 原型；Windows、Linux 支援另排驗證 | 階段 0 開始前 |
@@ -73,3 +94,4 @@
 ## 文件維護
 
 需求改變時先更新決策狀態，再更新產品規格、架構與路線圖。功能驗收以 product-spec 為準；架構細節以 architecture 與 agent-integrations 為準。里程碑完成後加入實測結果與日期，不把規劃目標改寫成既成事實。
+

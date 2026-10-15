@@ -42,3 +42,21 @@ Tauri 與 Electron 的資源差異、PTY 串流最大吞吐、中文搜尋策略
 Session Bay 尚未實測用量來源的版本支援、歷史完整性、帳號歸屬、去重、價格規則或用量刷新效能；[用量規格](usage-spec.md)中的能力需以 fixtures 與受支援環境驗證。
 
 Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同名結果，不能據此保證商標、網域或所有套件名稱可用；本目錄不包含品牌權利查核結論。
+
+
+## 本次 MVP 實作查核
+
+查閱日期：2026-10-15。下列來源確認 API、依賴與參數；不代替原生平台或實際 CLI 版本測試。
+
+| 主題 | 官方來源 | 本次用途與限制 |
+| --- | --- | --- |
+| Tauri 平台依賴 | [Prerequisites](https://v2.tauri.app/start/prerequisites/) | macOS Xcode CLT、Linux WebKitGTK 4.1；其他 distro 需另驗證 |
+| Tauri 設定 | [Configuration](https://v2.tauri.app/reference/config/) | CSP、bundle、最低 macOS 版本 |
+| PTY Unix 實作 | [portable-pty 0.9.0 Unix source](https://docs.rs/portable-pty/0.9.0/src/portable_pty/unix.rs.html) | setsid、controlling terminal、process group；Linux 已測、macOS 待原生驗證 |
+| Codex 參數 | [Developer commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | resume ID 與工作目錄選項；執行檔偵測不等於版本相容已通過 |
+| Claude CLI | [CLI reference](https://code.claude.com/docs/en/cli-reference) | --resume 與 CLI 啟動參數 |
+| Claude 設定 | [Settings](https://code.claude.com/docs/en/settings) | CLAUDE_CONFIG_DIR 來源選擇 |
+| SQLite FTS5 | [Trigram tokenizer](https://sqlite.org/fts5.html#the_trigram_tokenizer) | detail=none compact index 只做候選，exact substring 驗證保留字串語意 |
+| GitHub runner | [GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) | Ubuntu 24.04、macOS 15 ARM64／Intel matrix；workflow 存在不等於執行成功 |
+
+本次開發僅使用合成 fixtures／暫存資料，沒有存取或複製使用者原始對話。舊節的本機整合觀察屬原規劃文件背景，不是本次已執行的原生驗證。

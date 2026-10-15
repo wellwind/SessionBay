@@ -1,0 +1,173 @@
+export type AgentKind = 'codex' | 'claude';
+export interface HistorySource {
+  id: string;
+  kind: AgentKind;
+  root: string;
+  enabled: boolean;
+}
+export interface Installation {
+  kind: AgentKind;
+  executable: string | null;
+  version: string | null;
+  available: boolean;
+  error: string | null;
+}
+export interface SourceHealth {
+  sourceId: string;
+  status: string;
+  message: string | null;
+  files: number;
+}
+export interface Project {
+  workspaceOnly?: boolean;
+  id: string;
+  name: string;
+  path: string | null;
+  launchPath: string | null;
+  exists: boolean;
+  pinned: boolean;
+  sessionCount: number;
+  updatedAt: string | null;
+  agents: AgentKind[];
+}
+export interface Session {
+  id: string;
+  sourceId: string;
+  kind: AgentKind;
+  externalId: string;
+  projectId: string;
+  title: string;
+  cwd: string | null;
+  updatedAt: string;
+  timeSource: 'event' | 'mtime';
+  archived: boolean;
+  parentId: string | null;
+  partial: boolean;
+  snippet: string | null;
+}
+export interface SessionQuery {
+  projectId?: string;
+  kind?: AgentKind;
+  query?: string;
+  archived?: boolean;
+  includeChildren?: boolean;
+  after?: string;
+  before?: string;
+  offset?: number;
+  limit?: number;
+}
+export interface SessionPage {
+  items: Session[];
+  total: number;
+}
+export interface TranscriptMessage {
+  role: string;
+  text: string;
+  timestamp: string | null;
+  line: number;
+}
+export interface TranscriptPage {
+  messages: TranscriptMessage[];
+  hasMore: boolean;
+  beforeLine: number | null;
+  stale: boolean;
+  warning: string | null;
+}
+export interface IndexStatus {
+  revision?: number;
+  running: boolean;
+  processed: number;
+  total: number;
+  cancelled: boolean;
+  errors: string[];
+  sources: SourceHealth[];
+}
+export interface ShellProfile {
+  id: string;
+  name: string;
+  executable: string;
+  args: string[];
+  env: Record<string, string>;
+}
+export interface Settings {
+  version: 1;
+  theme: 'dark' | 'light' | 'system';
+  terminalTheme: 'bay' | 'classic';
+  fontFamily: string;
+  fontSize: number;
+  defaultAgent: AgentKind;
+  defaultProfileId: string;
+  profiles: ShellProfile[];
+  sources: HistorySource[];
+  executables: Record<AgentKind, string>;
+  shortcuts: Record<string, string>;
+  onboardingComplete: boolean;
+}
+export interface Bootstrap {
+  settings: Settings;
+  projects: Project[];
+  installations: Installation[];
+  index: IndexStatus;
+  workspace: unknown;
+  warnings: string[];
+}
+export interface LaunchRequest {
+  paneId: string;
+  kind: 'shell' | AgentKind;
+  projectId?: string;
+  sessionId?: string;
+  cwd?: string;
+  profileId?: string;
+  cols: number;
+  rows: number;
+}
+export interface RuntimeInfo {
+  id: string;
+  paneId: string;
+  sessionId: string | null;
+  state: string;
+  cwd: string;
+  exitCode: number | null;
+}
+export type TerminalEvent =
+  | { type: 'output'; runtimeId: string; sequence: number; data: number[] }
+  | { type: 'exit'; runtimeId: string; exitCode: number | null }
+  | { type: 'error'; runtimeId: string; message: string };
+export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed';
+export interface Pane {
+  id: string;
+  kind: 'shell' | AgentKind;
+  title: string;
+  projectId: string;
+  cwd: string;
+  sessionId?: string;
+  profileId?: string;
+  runtimeId?: string;
+  state: PaneState;
+  error?: string;
+  exitCode?: number | null;
+  startToken?: number;
+}
+export type LayoutNode =
+  | { kind: 'pane'; paneId: string }
+  | {
+      kind: 'split';
+      id: string;
+      axis: 'horizontal' | 'vertical';
+      ratio: number;
+      first: LayoutNode;
+      second: LayoutNode;
+    };
+export interface WorkspaceTab {
+  id: string;
+  projectId: string;
+  name: string;
+  layout: LayoutNode;
+  focusedPaneId: string;
+}
+export interface Workspace {
+  version: 1;
+  tabs: WorkspaceTab[];
+  panes: Record<string, Pane>;
+  activeTabByProject: Record<string, string>;
+}
