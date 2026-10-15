@@ -43,7 +43,7 @@ Codex 的 sessions、archived_sessions 與 payload.cwd，以及 Claude Code 的 
 
 ## 尚未形成實測結果的項目
 
-Tauri 與 Electron 的資源差異、PTY 串流最大吞吐、中文搜尋策略、跨平台終端相容性，以及支援 agy 等其他工具的可行性，均需以對應原型或整合研究確認。
+Tauri 與 Electron 的資源差異、PTY 串流最大吞吐、中文搜尋策略、跨平台終端相容性，以及額外工具的完整相容性，均需以對應原型或整合研究確認。Grok Build／Antigravity CLI 的本次官方資料查核見下節，不能代替真實 CLI 驗收。
 
 Session Bay 尚未實測用量來源的版本支援、歷史完整性、帳號歸屬、去重、價格規則或用量刷新效能；[用量規格](usage-spec.md)中的能力需以 fixtures 與受支援環境驗證。
 
@@ -81,3 +81,20 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 | Darwin PTY 退出排空 | [Apple XNU kern_exit.c](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exit.c#L2132-L2140)、[tty.c ttywait](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/tty.c#L1683-L1729) | session leader 退出會等待 tty 輸出清空；明確停止時仍以固定大小非阻塞讀取丟棄剩餘輸出，不等待前端 ACK；自然退出維持既有輸出順序 |
 | Darwin Ctrl-S／XOFF | [Apple XNU tty.c TIOCSTART](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/tty.c#L1376-L1382)、[tty_dev.c master read](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/tty_dev.c#L919-L928) | TTSTOP 會讓 master read 無法排空；停止時對自有 master 一次 TIOCSTART 恢復輸出，不注入按鍵，正常執行不改動 flow control |
 | Ubuntu CJK 與 Debian dependencies | [Ubuntu noble fonts-noto-cjk](https://packages.ubuntu.com/source/noble/fonts-noto-cjk)、[Tauri Debian packaging](https://v2.tauri.app/distribute/debian/) | 繁中 UI 使用本機 Noto Sans CJK TC；deb.depends 加入字型並保留 Tauri 預設依賴，CI 驗證 zh-tw coverage；不使用網路字型 |
+
+## 新增 Agent 與啟動權限查核
+
+查閱日期：2026-10-15。僅以官方文件與 xAI 官方儲存庫確認介面，未讀取真實使用者歷史；上游 `main` 的儲存格式是版本觀察，不是穩定 schema 承諾。
+
+| 主題 | 官方來源 | 本次用途與限制 |
+| --- | --- | --- |
+| Grok Build CLI | [CLI reference](https://docs.x.ai/build/cli/reference) | `grok`、指定 ID resume、模型／effort、auto-approve 與 aliases；自動核准不代表沙箱關閉 |
+| Grok 沙箱 | [Sandbox](https://docs.x.ai/build/features/sandbox) | 沙箱是獨立能力；本應用仍以精確 argv 及 CLI 實際設定為準 |
+| Grok 本機儲存 | [Persistence](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-shell/src/session/persistence.rs)、[Storage](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-shell/src/session/storage/mod.rs) | summary／updates、ACP chunks 與 rewind；只解析支援事件，不把未知格式當完整歷史 |
+| Antigravity 恢復 | [Resume](https://antigravity.google/docs/cli/commands/resume/) | `agy --conversation <id>`，CLI 新建與手動恢復；不據此聲稱可搜尋本機歷史 |
+| Antigravity 權限 | [Headless mode](https://antigravity.google/docs/cli/headless/) | `--dangerously-skip-permissions` 自動核准工具，sandbox 另列；文件不代替互動 CLI 版本驗收 |
+| Antigravity 歷史位置 | [Hooks](https://antigravity.google/docs/hooks) | `transcriptPath` 與 CLI／App／IDE 不同資料位置；未驗證 transcript 事件 schema，故本批不建歷史 adapter |
+| Codex 危險模式 | [Developer commands](https://learn.chatgpt.com/docs/developer-commands?surface=cli) | bypass／yolo 同時略過審批與沙箱；自訂權限模式語意須依 CLI 版本 |
+| Claude 權限選項 | [CLI reference](https://code.claude.com/docs/en/cli-reference) | skip-permissions／permission-mode；不概括承諾略過外部管理限制 |
+
+本應用接受的自訂參數是較窄的已審查白名單，並非供應商 CLI 全部 flags。啟動與預覽共用實作的驗證結果、focused 檢查與尚待完成的全套／平台測試，見 [本批變更紀錄](mvp-validation.md#2026-10-15-agent-擴充與自訂參數變更紀錄)。

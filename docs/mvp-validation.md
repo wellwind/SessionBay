@@ -2,6 +2,62 @@
 
 日期：2026-10-15。狀態：**P0 範圍的開發版本已實作；完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
+## 2026-10-15 自選專案導覽變更紀錄
+
+本次需求將所有工作階段與左側自選專案分開，新增 curated 遷移與持久化、既有目錄加入、單層新資料夾建立、預覽加入及非破壞性移出；置頂保留為自選清單內的排序，未加入或移出專案的開啟工作區仍可到達。另修正普通 Shell 正常退出後移除面板／最後分頁，Agent 或異常退出仍保留診斷。
+
+前一版遠端提交 `21f6cf0` 的 [CI run 38682505512](https://github.com/wellwind/SessionBay/actions/runs/38682505512) 已成功。這是本次變更之前的基線，不能作為本次程式碼或新導覽已驗證的證據。下方既有測試數字及平台結果也屬先前紀錄。
+
+本次檢查點：導覽／Shell 於 Agent 擴充前有 159 個前端、9 個 curated backend 與 2 個 service focused 測試通過；這些是過程紀錄，不與最終總數相加。完成來源標題與開發啟動指令整合後的結果見下方本批驗證表。**最終提交的三平台 CI 仍待執行／確認，本地原生 UI smoke 受環境阻擋**；原始 P0／平台驗收勾選狀態不變。
+
+先前文件檢查點的 `git diff --check` 與 45 個相對連結／章節錨點已通過；最新文件查核另列於本批紀錄。
+
+本次需驗證的範圍：
+
+- 新掃描不自動加入側欄；舊版手動加入／釘選升級為 curated，其餘保持未加入。
+- 加入、名稱、置頂、移出在重開及重掃後維持；所有工作階段的原搜尋與預覽範圍不受影響。
+- 既有目錄加入與 canonical 去重；建立只接受已存在的絕對父路徑與單一新名稱，不覆寫、不補建祖先；無效輸入、重複操作及取消均安全。
+- 預覽加入不啟動程序；從未加入專案直接接續仍使用原始 cwd／既有 launch override，不隱含加入。
+- 移出僅清 curated 與 pinned，檔案、歷史、索引、已開啟工作區及 Runtime 保留，且仍可切回工作區。
+- Shell 從 starting／running 以結束碼 0 退出時移除 pane／最後 tab；Agent、非零／未知退出、錯誤、已退出及還原占位的診斷與狀態保留。
+
+資料與環境邊界：隔離雲端的合成來源及暫存路徑；未存取使用者真實電腦或歷史。前端目前以絕對路徑欄位輸入，尚未提供原生目錄選擇器。本紀錄不代表新 Agent 種類／自訂參數或全部 P0 已完成。
+
+## 2026-10-15 Agent 擴充與自訂參數變更紀錄
+
+使用者追加 Grok Build、Antigravity CLI、每 Agent 自訂參數，以及明確啟用後不逐次重複確認的高風險權限模式。本批在既有導覽／Shell 修正上整合，與下方舊版測試數字及 `21f6cf0` 的成功 CI 分開記錄。
+
+本批範圍：
+
+- 四工具 executable／default Agent／設定與工作區種類；舊設定缺少新增欄位時補空參數及未勾選 opt-in，不改使用者已保存的來源清單。
+- Grok Build 唯讀 summary／updates adapter、搜尋與預覽、rewind 及來源身份檢查；Antigravity CLI 僅新工作與手動 conversation ID 接續，歷史明確不支援。
+- 後端 argv 白名單、值與長度限制、危險選項 opt-in、工具專屬預設與自訂權限模式優先；目錄、來源及 Session 身份仍受管理。
+- `preview_launch` 與真正啟動共用計畫；手動 `resumeId`／索引 `sessionId` 互斥、Grok 多來源手動恢復歧義阻擋；預覽不執行程序。
+- 風險警告與持久設定；保存一次後不重複增加 Session Bay 確認視窗，但不承諾略過 CLI 登入、信任或企業政策。
+
+### 本批整合後驗證
+
+下表為 2026-10-15 完成來源標題與開發指令整合後的工作樹檢查；不將舊 CI 或較早的 focused 數字加進總數，也不等同最終遠端提交已通過。
+
+| 檢查 | 實際結果與證據邊界 |
+| --- | --- |
+| 前端 | 8 組、230／230 測試通過；TypeScript、ESLint 與 production build 通過（06:41 UTC 檢查點） |
+| Rust 完整 Linux crate | `cargo test --manifest-path src-tauri/Cargo.toml --locked` 通過 134 個測試：40 unit、6 additional_agents、37 catalog、9 curated、19 Grok、21 Runtime、2 service；0 失敗 |
+| Rust 無 GUI core | 來源標題整合後的獨立 `cargo test --manifest-path src-tauri/Cargo.toml --locked --no-default-features` 全套 131 個測試通過；較早 125 個是先前檢查點，不累加。desktop 多出的 3 個測試另屬桌面整合 |
+| 格式與靜態檢查 | rustfmt、headless 與完整 desktop all-target Clippy `-D warnings` 通過 |
+| Linux 原生程式建置 | `cargo build` 成功；建置成功不代表視窗／互動已驗證，也不宣稱本批已重新產出安裝套件 |
+| 本地原生 UI smoke | **受阻，未通過**。Xvfb 日誌回報 `Cannot establish any listening sockets`，無法建立顯示服務；應用隨後在 GTK 初始化時退出，未出現視窗。未以關閉 sandbox 或放寬 CSP 繞過，不能視為 UI 成功 |
+| 三平台 CI | **新提交尚無成功證據**；Ubuntu 24.04 x64、macOS 15 ARM64／Intel 的 exact-commit build／smoke 待後續執行與結果確認 |
+| 獨立審查 | 最終導覽／Agent／來源標題整合未發現阻擋問題；獨立重跑 additional_agents 6、catalog 37、Grok 19、adapter 7、launch_options 6、App 61 個 focused 測試通過。這些是重跑子集，不加進全套總數，也不替代原生驗收 |
+
+本批回歸涵蓋四工具 argv／cwd／來源 env 替身斷言、設定遷移及持久化、危險選項 opt-in、受限自訂權限優先、啟動預覽／失敗／競態、手動與索引恢復去重、Grok metadata／缺檔／rewind，以及相鄰文字 chunk 合併後跨 chunk 的搜尋與預覽。Antigravity 不產生虛構可搜尋歷史。較早 10／17 個 Grok focused 結果由本次 19 個 Grok 回歸包含，不另行相加。
+
+整合時保留使用者遠端變更：`0679b79` 的來源原生 Session 名稱、`eb2793a` 的 `npm run dev` 桌面啟動與 `dev:web` 分離，以及 `11233b8` 的 13 項[後續待辦](future-backlog.md)。該待辦本輪只保留文件，沒有實作或勾選完成；此紀錄也不代表已建立遠端合併 ancestry、合併 MVP 至 main 或完成新提交 CI。
+
+尚未完成的真實 CLI／平台項目：各 CLI 支援版本矩陣、已登入帳號的新工作與指定對話接續、原生互動及權限提示。成功 spawn 或替身 argv 通過，不能宣稱真實對話已載入。僅使用隔離雲端的合成來源與暫存路徑，不讀取使用者真實電腦或已登入工具資料。
+
+文件檢查已通過：本批 `git diff --check`、60 個相對連結／章節錨點、原始 143 項任務／9 項原生驗收勾選狀態不變，以及 13 項後續待辦維持未勾選。文件檢查不能替代功能測試。
+
 ## 環境與結果
 
 | 項目 | 實際結果 |

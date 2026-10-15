@@ -1,6 +1,6 @@
 # Session Bay
 
-Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它集中整理 Codex、Claude Code 等工具的歷史對話，讓開發者找到正確脈絡，在正確目錄接續工作，並透過分頁與分割面板同時使用 Agent 和普通 Terminal。
+Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它集中整理 Codex、Claude Code、Grok Build 等受支援工具的歷史對話，讓開發者找到正確脈絡，在正確目錄接續工作，並透過分頁與分割面板同時使用 Agent 和普通 Terminal。
 
 **macOS＋Linux 的第一版 MVP 已進入實作與驗證。** 本分支包含 Tauri／Rust 桌面程式、React 前端、唯讀歷史索引與真正的 PTY；完整 P0 與平台驗收狀態見[驗證紀錄](docs/mvp-validation.md)。
 
@@ -24,9 +24,13 @@ npm run tauri -- build
 
 ## 核心使用流程
 
-選擇專案 → 找到歷史 Session → 預覽最後進度 → 接續工作。
+從「所有工作階段」找到歷史 Session，或選擇自己加入的專案 → 預覽最後進度 → 接續工作。
 
-同一個工作區可以並排執行 Codex、Claude Code、開發伺服器或測試指令。Agent 優先代表預設以專案與工作脈絡組織介面，普通 Shell 仍是完整的一等功能。
+「所有工作階段」（All Sessions）保留自動發現的完整歷史；左側「專案」（Projects）只放自己明確加入的工作目錄。可以加入既有目錄、在指定父目錄下建立新資料夾，或從歷史預覽按「加入專案」。本次使用絕對路徑輸入，尚無原生目錄選擇器。
+
+專案選擇會保留；從清單移出只取消加入與釘選，不刪歷史或檔案，也不結束工作區程序。已開啟的工作區另有入口，未加入專案也能切回。
+
+同一個工作區可以並排執行 Codex、Claude Code、Grok Build、Antigravity CLI、開發伺服器或測試指令。Agent 優先代表預設以專案與工作脈絡組織介面，普通 Shell 仍是完整的一等功能。
 
 ## 文件導覽
 
@@ -48,8 +52,10 @@ npm run tauri -- build
 
 ## 目前範圍
 
-- 首批 Agent 整合以 Codex CLI、Claude Code CLI 為建議範圍。
-- 支援依工作目錄分組、跨工具搜尋、對話預覽與恢復 Session。
+- Agent 啟動涵蓋 Codex CLI、Claude Code CLI、Grok Build 與 Antigravity CLI（`agy`）；歷史搜尋／預覽涵蓋前三者，Antigravity 目前只支援新工作與手動 conversation ID 接續。
+- 支援所有工作階段的跨工具搜尋、對話預覽與恢復；依工作目錄分組，但不將掃描結果自動加入左側專案。
+- 支援自選專案、顯示名稱、加入既有目錄與安全建立單一新資料夾；本次變更的驗證狀態見[驗證紀錄](docs/mvp-validation.md#2026-10-15-自選專案導覽變更紀錄)。
+- 每工具可保存獨立啟動參數與明確勾選的高風險權限模式，預設關閉；保存後不逐次重複確認，啟動前可看後端產生的精確 argv。各工具 bypass／沙箱差異與本批驗證狀態見 [Agent 整合規格](docs/agent-integrations.md)及[變更紀錄](docs/mvp-validation.md#2026-10-15-agent-擴充與自訂參數變更紀錄)。
 - 支援普通 Terminal 分頁，以及至少兩個可同時執行、可見的分割面板。
 - MVP 後加入各 AI Agent 用量與帳號額度總覽，並依來源能力提供 Project／Agent／Session 用量分析。
 - 本次採用 Tauri 2＋Rust＋React／TypeScript 前端＋xterm.js＋SQLite；平台驗收仍按驗證紀錄逐項完成。
@@ -65,3 +71,6 @@ npm run tauri -- build
 
 名稱採用不代表商標或網域已取得；開源授權、商業模式與發行時程尚未決定。
 
+## 試用後續待辦
+
+2026-10-15 新增的 13 項未來需求集中在 [後續待辦](docs/future-backlog.md)，均尚待安排與驗收；此清單不代表已實作。

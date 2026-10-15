@@ -41,6 +41,8 @@ pub struct LaunchSpec {
     pub cwd: PathBuf,
     pub env: HashMap<String, String>,
     pub session_id: Option<String>,
+    /// Internal provider/source identity, separate from an indexed catalog ID.
+    pub resume_key: Option<String>,
     pub pane_id: String,
 }
 
@@ -126,6 +128,7 @@ impl FlowControl {
 
 struct Control {
     info: RuntimeInfo,
+    resume_key: Option<String>,
     flow: FlowControl,
     input: VecDeque<u8>,
     stop_requested: bool,
@@ -192,6 +195,14 @@ impl RuntimeManager {
         Self::default()
     }
 
+    pub fn find_running_resume(&self, resume_key: &str) -> Option<RuntimeInfo> {
+        lock(&self.registry).runtimes.values().find_map(|runtime| {
+            let control = lock(&runtime.control);
+            (!control.done && control.resume_key.as_deref() == Some(resume_key))
+                .then(|| control.info.clone())
+        })
+    }
+
     pub fn launch(
         &self,
         mut spec: LaunchSpec,
@@ -205,12 +216,23 @@ impl RuntimeManager {
         if registry.shutting_down {
             return Err("The application is shutting down".into());
         }
-        if let Some(session_id) = spec.session_id.as_ref() {
-            for runtime in registry.runtimes.values() {
-                let control = lock(&runtime.control);
-                if !control.done && control.info.session_id.as_ref() == Some(session_id) {
-                    return Ok(control.info.clone());
-                }
+        for runtime in registry.runtimes.values() {
+            let control = lock(&runtime.control);
+            let same_catalog = spec
+                .session_id
+                .as_ref()
+                .is_some_and(|id| control.info.session_id.as_ref() == Some(id));
+            let same_provider = spec
+                .resume_key
+                .as_ref()
+                .is_some_and(|id| control.resume_key.as_ref() == Some(id));
+            // A reused catalog ID must never hide a changed source root. New
+            // plans carry provider provenance; catalog-only callers retain the
+            // legacy guard when neither side has that stronger identity.
+            let legacy_catalog =
+                same_catalog && spec.resume_key.is_none() && control.resume_key.is_none();
+            if !control.done && (legacy_catalog || same_provider) {
+                return Ok(control.info.clone());
             }
         }
         let active = registry
@@ -288,6 +310,7 @@ impl RuntimeManager {
         let runtime = Arc::new(Runtime {
             control: Mutex::new(Control {
                 info: info.clone(),
+                resume_key: spec.resume_key,
                 flow: FlowControl::default(),
                 input: VecDeque::new(),
                 stop_requested: false,
@@ -429,6 +452,13 @@ fn validate_spec(spec: &LaunchSpec) -> Result<(), String> {
         .is_some_and(|id| id.is_empty() || id.len() > 1024)
     {
         return Err("Invalid session ID".into());
+    }
+    if spec
+        .resume_key
+        .as_ref()
+        .is_some_and(|key| key.is_empty() || key.len() > 1024 || key.contains('\0'))
+    {
+        return Err("Invalid provider resume identity".into());
     }
     if spec.args.len() > 1024 || spec.args.iter().any(|arg| arg.contains('\0')) {
         return Err("Invalid executable arguments".into());

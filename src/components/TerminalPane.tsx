@@ -228,6 +228,7 @@ export function TerminalPane({
     });
     fitNow();
     const terminal = term.current;
+    let failed = false;
     void api
       .launch(
         {
@@ -235,12 +236,17 @@ export function TerminalPane({
           kind: pane.kind,
           projectId: projectAvailable ? pane.projectId : undefined,
           sessionId: pane.sessionId,
+          resumeId: pane.resumeId,
           cwd: pane.cwd || undefined,
           profileId: pane.profileId,
           cols: Math.max(2, terminal.cols),
           rows: Math.max(2, terminal.rows),
         },
         (event) => {
+          if (token !== launched.current) {
+            if (event.type === 'output') void api.ack(event.runtimeId, event.sequence).catch(() => undefined);
+            return;
+          }
           if (event.type === 'output') {
             if (!mounted.current) {
               void api.ack(event.runtimeId, event.sequence).catch(() => undefined);
@@ -255,20 +261,22 @@ export function TerminalPane({
             ended.current = true;
             runtime.current = undefined;
             if (mounted.current)
-              latest.current.onPatch(pane.id, { state: 'exited', exitCode: event.exitCode });
+              latest.current.onPatch(pane.id, { state: failed ? 'failed' : 'exited', exitCode: event.exitCode });
           } else if (mounted.current) {
+            failed = true;
             ended.current = true;
             latest.current.onPatch(pane.id, { state: 'failed', error: event.message });
           }
         },
       )
       .then((info) => {
-        if (info.paneId !== pane.id) {
-          latest.current.onAlreadyOpen(info);
+        if (!mounted.current || token !== launched.current) {
+          // A duplicate-session response belongs to another pane; never stop its runtime.
+          if (info.paneId === pane.id) void api.stop(info.id).catch(() => undefined);
           return;
         }
-        if (!mounted.current) {
-          void api.stop(info.id).catch(() => undefined);
+        if (info.paneId !== pane.id) {
+          latest.current.onAlreadyOpen(info);
           return;
         }
         if (!ended.current) {
@@ -283,7 +291,7 @@ export function TerminalPane({
         } else latest.current.onPatch(pane.id, { runtimeId: info.id });
       })
       .catch((error) => {
-        if (mounted.current)
+        if (mounted.current && token === launched.current)
           latest.current.onPatch(pane.id, { state: 'failed', error: errorMessage(error) });
       });
     // Start only for an explicit monotonically increasing user action token.

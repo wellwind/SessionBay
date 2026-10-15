@@ -2,7 +2,7 @@ use crate::{
     config::{self, Installation, Settings},
     models::{IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
     runtime::{RuntimeInfo, TerminalEvent},
-    service::{Bootstrap, LaunchRequest, Service},
+    service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
 };
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -71,9 +71,22 @@ async fn list_projects(state: AppState<'_>) -> Result<Vec<Project>, String> {
     blocking(move || s.catalog.projects()).await
 }
 #[tauri::command]
-async fn add_project(state: AppState<'_>, path: String) -> Result<Project, String> {
+async fn add_project(
+    state: AppState<'_>,
+    path: String,
+    name: Option<String>,
+) -> Result<Project, String> {
     let s = state.inner().clone();
-    blocking(move || s.catalog.add_project(&path)).await
+    blocking(move || s.catalog.add_project(&path, name.as_deref())).await
+}
+#[tauri::command]
+async fn create_project(
+    state: AppState<'_>,
+    parent_path: String,
+    name: String,
+) -> Result<Project, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.create_project(&parent_path, &name)).await
 }
 #[tauri::command]
 async fn update_project(
@@ -81,11 +94,18 @@ async fn update_project(
     project_id: String,
     pinned: Option<bool>,
     launch_path: Option<String>,
+    curated: Option<bool>,
+    name: Option<String>,
 ) -> Result<Project, String> {
     let s = state.inner().clone();
     blocking(move || {
-        s.catalog
-            .update_project(&project_id, pinned, launch_path.as_deref())
+        s.catalog.update_project(
+            &project_id,
+            pinned,
+            launch_path.as_deref(),
+            curated,
+            name.as_deref(),
+        )
     })
     .await
 }
@@ -129,6 +149,14 @@ async fn clear_index(state: AppState<'_>) -> Result<(), String> {
 async fn save_workspace(state: AppState<'_>, workspace: serde_json::Value) -> Result<(), String> {
     let s = state.inner().clone();
     blocking(move || s.config.save_workspace(&workspace)).await
+}
+#[tauri::command]
+async fn preview_launch(
+    state: AppState<'_>,
+    request: LaunchRequest,
+) -> Result<LaunchPreview, String> {
+    let s = state.inner().clone();
+    blocking(move || s.preview_launch(&request)).await
 }
 #[tauri::command]
 async fn launch_runtime(
@@ -216,6 +244,7 @@ pub fn run() {
             save_settings,
             list_projects,
             add_project,
+            create_project,
             update_project,
             query_sessions,
             read_transcript,
@@ -224,6 +253,7 @@ pub fn run() {
             cancel_index,
             clear_index,
             save_workspace,
+            preview_launch,
             launch_runtime,
             write_runtime,
             resize_runtime,

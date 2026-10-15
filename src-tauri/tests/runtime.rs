@@ -18,6 +18,7 @@ fn shell(cwd: &Path, script: &str) -> LaunchSpec {
         cwd: cwd.into(),
         env: HashMap::new(),
         session_id: None,
+        resume_key: None,
         pane_id: uuid::Uuid::new_v4().to_string(),
     }
 }
@@ -650,4 +651,49 @@ fn exited_session_leader_still_cleans_up_separate_job_control_groups() {
     assert_eq!(code, Some(19));
     let child = child_pid(&String::from_utf8_lossy(&output));
     wait_until(|| !process_is_running(child));
+}
+
+#[test]
+fn concurrent_provider_resume_deduplicates_manual_and_indexed_calls() {
+    let cwd = tempfile::tempdir().unwrap();
+    let manager = Arc::new(RuntimeManager::new());
+    let barrier = Arc::new(Barrier::new(5));
+    let mut workers = Vec::new();
+    for index in 0..4 {
+        let manager = Arc::clone(&manager);
+        let barrier = Arc::clone(&barrier);
+        let mut spec = shell(cwd.path(), "sleep 60");
+        spec.resume_key = Some("provider:canonical-root:external-id".into());
+        spec.session_id = (index % 2 == 0).then(|| "catalog-id".into());
+        spec.pane_id = format!("provider-pane-{index}");
+        workers.push(thread::spawn(move || {
+            barrier.wait();
+            manager.launch(spec, 80, 24, Arc::new(|_| Ok(()))).unwrap()
+        }));
+    }
+    barrier.wait();
+    let infos: Vec<_> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+    assert!(infos
+        .iter()
+        .all(|i| i.id == infos[0].id && i.pane_id == infos[0].pane_id));
+    assert_eq!(manager.list().len(), 1);
+    manager.shutdown().unwrap();
+}
+
+#[test]
+fn reused_catalog_id_does_not_merge_different_provider_sources() {
+    let cwd = tempfile::tempdir().unwrap();
+    let manager = RuntimeManager::new();
+    let mut first = shell(cwd.path(), "sleep 60");
+    first.session_id = Some("reused-catalog-id".into());
+    first.resume_key = Some("root-a".into());
+    let first = manager.launch(first, 80, 24, Arc::new(|_| Ok(()))).unwrap();
+    let mut second = shell(cwd.path(), "sleep 60");
+    second.session_id = Some("reused-catalog-id".into());
+    second.resume_key = Some("root-b".into());
+    let second = manager
+        .launch(second, 80, 24, Arc::new(|_| Ok(())))
+        .unwrap();
+    assert_ne!(first.id, second.id);
+    manager.shutdown().unwrap();
 }

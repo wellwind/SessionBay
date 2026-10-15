@@ -23,7 +23,7 @@ cleanup() {
 trap cleanup EXIT
 export HOME="$temporary/home" XDG_CONFIG_HOME="$temporary/config" XDG_DATA_HOME="$temporary/data" XDG_CACHE_HOME="$temporary/cache"
 export SESSIONBAY_SMOKE=1
-export CODEX_HOME="$temporary/codex" CLAUDE_CONFIG_DIR="$temporary/claude"
+export CODEX_HOME="$temporary/codex" CLAUDE_CONFIG_DIR="$temporary/claude" GROK_HOME="$temporary/grok"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$CODEX_HOME" "$CLAUDE_CONFIG_DIR"
 "$binary" > "$output/app.log" 2>&1 &
 pid=$!
@@ -48,7 +48,7 @@ for _ in $(seq 1 120); do
 done
 if [[ -z "$ready" ]]; then
   cat "$output/app.log"
-  echo 'Timed out waiting for React DOM, backend bootstrap, and settings interaction.' >&2
+  echo 'Timed out waiting for React DOM, backend bootstrap, and settings and project interaction.' >&2
   exit 1
 fi
-printf 'Native macOS WebView DOM + backend bootstrap + settings open/close/reopen smoke passed with isolated HOME.\nThis does not verify window pixels, IME, actual CLI resume, or terminal interaction.\n' | tee "$output/result.txt"
+printf 'Native macOS WebView DOM + backend bootstrap + settings and project open/close/reopen smoke passed with isolated HOME.\nThis does not verify window pixels, IME, actual CLI resume, or terminal interaction.\n' | tee "$output/result.txt"

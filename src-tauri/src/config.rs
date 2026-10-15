@@ -23,6 +23,44 @@ pub struct ShellProfile {
 pub struct Executables {
     pub codex: String,
     pub claude: String,
+    #[serde(default = "default_grok_executable")]
+    pub grok: String,
+    #[serde(default = "default_antigravity_executable")]
+    pub antigravity: String,
+}
+
+fn default_grok_executable() -> String {
+    "grok".into()
+}
+fn default_antigravity_executable() -> String {
+    "agy".into()
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct AgentLaunchOptions {
+    pub extra_args: Vec<String>,
+    pub bypass_permissions: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct AgentOptions {
+    pub codex: AgentLaunchOptions,
+    pub claude: AgentLaunchOptions,
+    pub grok: AgentLaunchOptions,
+    pub antigravity: AgentLaunchOptions,
+}
+
+impl AgentOptions {
+    pub fn for_kind(&self, kind: AgentKind) -> &AgentLaunchOptions {
+        match kind {
+            AgentKind::Codex => &self.codex,
+            AgentKind::Claude => &self.claude,
+            AgentKind::Grok => &self.grok,
+            AgentKind::Antigravity => &self.antigravity,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +76,8 @@ pub struct Settings {
     pub profiles: Vec<ShellProfile>,
     pub sources: Vec<HistorySource>,
     pub executables: Executables,
+    #[serde(default)]
+    pub agent_options: AgentOptions,
     pub shortcuts: HashMap<String, String>,
     pub onboarding_complete: bool,
 }
@@ -110,11 +150,21 @@ impl Default for Settings {
                         .unwrap_or_else(|_| home.join(".claude").to_string_lossy().into_owned()),
                     enabled: true,
                 },
+                HistorySource {
+                    id: "grok-default".into(),
+                    kind: AgentKind::Grok,
+                    root: std::env::var("GROK_HOME")
+                        .unwrap_or_else(|_| home.join(".grok").to_string_lossy().into_owned()),
+                    enabled: true,
+                },
             ],
             executables: Executables {
                 codex: "codex".into(),
                 claude: "claude".into(),
+                grok: default_grok_executable(),
+                antigravity: default_antigravity_executable(),
             },
+            agent_options: AgentOptions::default(),
             shortcuts,
             onboarding_complete: false,
         }
@@ -185,8 +235,18 @@ impl Settings {
         }
         if !clean_string(&self.executables.codex, 4096)
             || !clean_string(&self.executables.claude, 4096)
+            || !clean_string(&self.executables.grok, 4096)
+            || !clean_string(&self.executables.antigravity, 4096)
         {
             return Err("Agent 執行檔設定不可空白".into());
+        }
+        for kind in [
+            AgentKind::Codex,
+            AgentKind::Claude,
+            AgentKind::Grok,
+            AgentKind::Antigravity,
+        ] {
+            crate::launch_options::validate(kind, self.agent_options.for_kind(kind))?;
         }
         if self.shortcuts.len() > 32 {
             return Err("快捷鍵設定過多".into());
@@ -380,6 +440,8 @@ pub fn detect_paths(settings: &Settings) -> Vec<Installation> {
     [
         (AgentKind::Codex, &settings.executables.codex),
         (AgentKind::Claude, &settings.executables.claude),
+        (AgentKind::Grok, &settings.executables.grok),
+        (AgentKind::Antigravity, &settings.executables.antigravity),
     ]
     .into_iter()
     .map(|(kind, path)| match resolve_executable(path) {
@@ -406,7 +468,7 @@ pub fn detect(settings: &Settings) -> Vec<Installation> {
         .into_iter()
         .map(|mut installation| {
             if let Some(path) = &installation.executable {
-                match version(Path::new(path)) {
+                match version(Path::new(path), installation.kind) {
                     Ok(v) => installation.version = Some(v),
                     Err(e) => installation.error = Some(e),
                 }
@@ -416,7 +478,7 @@ pub fn detect(settings: &Settings) -> Vec<Installation> {
         .collect()
 }
 
-fn version(path: &Path) -> Result<String, String> {
+fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
     use crate::runtime::{LaunchSpec, RuntimeManager, TerminalEvent};
     use std::sync::{mpsc, Arc};
     let runtime = RuntimeManager::new();
@@ -424,10 +486,16 @@ fn version(path: &Path) -> Result<String, String> {
     let info = runtime.launch(
         LaunchSpec {
             executable: path.to_string_lossy().into_owned(),
-            args: vec!["--version".into()],
+            args: vec![if kind == AgentKind::Grok {
+                "version"
+            } else {
+                "--version"
+            }
+            .into()],
             cwd: PathBuf::from("/"),
             env: HashMap::new(),
             session_id: None,
+            resume_key: None,
             pane_id: "version-probe".into(),
         },
         80,
@@ -551,7 +619,9 @@ mod tests {
         .unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
         let start = Instant::now();
-        assert!(version(&executable).unwrap_err().contains("逾時"));
+        assert!(version(&executable, AgentKind::Codex)
+            .unwrap_err()
+            .contains("逾時"));
         assert!(start.elapsed() < Duration::from_secs(6));
         let pid = fs::read_to_string(pidfile).unwrap();
         let path = PathBuf::from(format!("/proc/{}/status", pid.trim()));

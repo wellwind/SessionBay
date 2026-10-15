@@ -4,6 +4,7 @@ import type {
   IndexStatus,
   Installation,
   LaunchRequest,
+  LaunchPreview,
   Project,
   RuntimeInfo,
   SessionPage,
@@ -22,8 +23,9 @@ export const api = {
   detect: () => call<Installation[]>('detect_installations'),
   saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
   projects: () => call<Project[]>('list_projects'),
-  addProject: (path: string) => call<Project>('add_project', { path }),
-  updateProject: (projectId: string, values: { pinned?: boolean; launchPath?: string }) =>
+  addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
+  createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),
+  updateProject: (projectId: string, values: { pinned?: boolean; launchPath?: string; curated?: boolean; name?: string }) =>
     call<Project>('update_project', { projectId, ...values }),
   sessions: (query: SessionQuery) => call<SessionPage>('query_sessions', { query }),
   transcript: (sessionId: string, beforeLine?: number) =>
@@ -33,6 +35,7 @@ export const api = {
   cancelScan: () => call<void>('cancel_index'),
   clearIndex: () => call<void>('clear_index'),
   saveWorkspace: (workspace: unknown) => call<void>('save_workspace', { workspace }),
+  preview: (request: LaunchRequest) => call<LaunchPreview>('preview_launch', { request }),
   launch: (request: LaunchRequest, onMessage: (event: TerminalEvent) => void) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;

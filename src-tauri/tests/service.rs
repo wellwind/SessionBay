@@ -81,6 +81,7 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
             kind: session.kind.as_str().into(),
             project_id: Some(projects[0].id.clone()),
             session_id: Some(session.id.clone()),
+            resume_id: None,
             cwd: None,
             profile_id: None,
             cols: 80,
@@ -132,6 +133,7 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
                 assert!(output.contains("ARG:--resume"));
                 assert!(output.contains(&format!("CLAUDE_CONFIG_DIR:{}", claude.display())));
             }
+            _ => unreachable!("fixture includes Codex and Claude only"),
         }
     }
     let mut request = LaunchRequest {
@@ -139,6 +141,7 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
         kind: "shell".into(),
         project_id: Some(projects[0].id.clone()),
         session_id: None,
+        resume_id: None,
         cwd: None,
         profile_id: None,
         cols: 80,
@@ -175,4 +178,120 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
     service.shutdown().unwrap();
     assert_eq!(fs::read_to_string(codex_file).unwrap(), codex_history);
     assert_eq!(fs::read_to_string(claude_file).unwrap(), claude_history);
+}
+
+#[test]
+fn uncurated_sessions_keep_their_own_cwd_and_relocation_and_live_runtimes() {
+    use std::os::unix::fs::symlink;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let original = root.join("original");
+    let alias = root.join("alias");
+    let relocated = root.join("relocated");
+    fs::create_dir(&original).unwrap();
+    fs::create_dir(&relocated).unwrap();
+    symlink(&original, &alias).unwrap();
+    let history = root.join("history");
+    fs::create_dir_all(history.join("sessions")).unwrap();
+    for (id, cwd) in [("a-alias", &alias), ("b-original", &original)] {
+        fs::write(
+            history.join("sessions").join(format!("{id}.jsonl")),
+            format!(
+                "{}\n",
+                serde_json::json!({"type":"session_meta","payload":{"id":id,"cwd":cwd}})
+            ),
+        )
+        .unwrap();
+    }
+    let service = Service::open(root.join("app")).unwrap();
+    let mut settings = service.settings().unwrap();
+    settings.sources = vec![HistorySource {
+        id: "synthetic-codex".into(),
+        kind: AgentKind::Codex,
+        root: history.to_string_lossy().into_owned(),
+        enabled: true,
+    }];
+    settings.executables.codex = "/bin/true".into();
+    settings.profiles[0].executable = "/bin/sh".into();
+    settings.profiles[0].args = vec!["-c".into(), "exec /bin/sleep 30".into()];
+    service.save_settings(settings.clone()).unwrap();
+    service
+        .catalog
+        .sync(&settings.sources, &AtomicBool::new(false), |_| {})
+        .unwrap();
+    let project = service.catalog.projects().unwrap().remove(0);
+    assert_eq!(project.path.as_deref(), alias.to_str());
+    assert!(!project.curated);
+    let sessions = service.catalog.query(&SessionQuery::default()).unwrap();
+    let session = sessions
+        .items
+        .iter()
+        .find(|s| s.external_id == "b-original")
+        .unwrap();
+    let mut request = LaunchRequest {
+        pane_id: "curation-regression".into(),
+        kind: "codex".into(),
+        project_id: Some(project.id.clone()),
+        session_id: Some(session.id.clone()),
+        resume_id: None,
+        cwd: None,
+        profile_id: None,
+        cols: 80,
+        rows: 24,
+    };
+    assert_eq!(service.plan_launch(&request).unwrap().cwd, original);
+    service
+        .catalog
+        .update_project(
+            &project.id,
+            Some(true),
+            Some(relocated.to_str().unwrap()),
+            None,
+            None,
+        )
+        .unwrap();
+    let before = service.plan_launch(&request).unwrap();
+    assert_eq!(before.cwd, relocated);
+    service
+        .catalog
+        .update_project(&project.id, None, None, Some(false), None)
+        .unwrap();
+    let after = service.plan_launch(&request).unwrap();
+    assert_eq!(after.cwd, before.cwd);
+    assert_eq!(after.args, before.args);
+    assert_eq!(after.env, before.env);
+    assert_eq!(
+        service.catalog.session(&session.id).unwrap().cwd.as_deref(),
+        original.to_str()
+    );
+    let other = service
+        .catalog
+        .add_project(root.to_str().unwrap(), None)
+        .unwrap();
+    request.project_id = Some(other.id);
+    assert!(service.plan_launch(&request).is_err());
+    request.project_id = Some(project.id.clone());
+    request.kind = "shell".into();
+    request.session_id = None;
+    let runtime = service.launch(&request, Arc::new(|_| Ok(()))).unwrap();
+    service
+        .catalog
+        .update_project(&project.id, None, None, Some(true), None)
+        .unwrap();
+    service
+        .catalog
+        .update_project(&project.id, None, None, Some(false), None)
+        .unwrap();
+    let still_running = service
+        .runtime
+        .list()
+        .into_iter()
+        .find(|r| r.id == runtime.id)
+        .unwrap();
+    assert_eq!(still_running.state, "running");
+    assert_eq!(
+        still_running.cwd,
+        relocated.canonicalize().unwrap().to_string_lossy()
+    );
+    service.shutdown().unwrap();
 }

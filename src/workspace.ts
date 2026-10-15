@@ -109,6 +109,17 @@ export function closePane(workspace: Workspace, id: string): Workspace {
     }
   return { ...workspace, panes, tabs, activeTabByProject };
 }
+/** A successful shell exit closes only its pane; errors and Agent transcripts stay inspectable. */
+export function patchWorkspacePane(workspace: Workspace, id: string, patch: Partial<Pane>): Workspace {
+  const pane = workspace.panes[id];
+  if (!pane) return workspace;
+  if (pane.kind === 'shell' && ['starting', 'running'].includes(pane.state) &&
+      patch.state === 'exited' && patch.exitCode === 0 && !pane.error) {
+    return closePane(workspace, id);
+  }
+  return { ...workspace, panes: { ...workspace.panes, [id]: { ...pane, ...patch } } };
+}
+
 export function serializeWorkspace(workspace: Workspace): unknown {
   return {
     ...workspace,
@@ -122,6 +133,7 @@ export function serializeWorkspace(workspace: Workspace): unknown {
           projectId: pane.projectId,
           cwd: pane.cwd,
           sessionId: pane.sessionId,
+          resumeId: pane.resumeId,
           profileId: pane.profileId,
           state: 'placeholder',
         },
@@ -152,7 +164,7 @@ export function restoreWorkspace(value: unknown): Workspace {
       safeString(id, 128) &&
       !['__proto__', 'constructor', 'prototype'].includes(id) &&
       p.id === id &&
-      ['shell', 'codex', 'claude'].includes(p.kind) &&
+      ['shell', 'codex', 'claude', 'grok', 'antigravity'].includes(p.kind) &&
       safeString(p.projectId, 256) &&
       safeString(p.cwd) &&
       safeString(p.title, 512)
@@ -164,6 +176,7 @@ export function restoreWorkspace(value: unknown): Workspace {
         projectId: p.projectId,
         cwd: p.cwd,
         ...(safeString(p.sessionId, 1024) ? { sessionId: p.sessionId } : {}),
+        ...(safeString(p.resumeId, 1024) ? { resumeId: p.resumeId } : {}),
         ...(safeString(p.profileId, 128) ? { profileId: p.profileId } : {}),
         state: 'placeholder',
       };
@@ -255,11 +268,12 @@ export function mergeWorkspaceProjects(
     const cwd = panes.find((pane) => pane.cwd)?.cwd || '';
     result.push({
       id: tab.projectId,
-      name: previous?.name || cwd.split('/').filter(Boolean).at(-1) || '已還原工作區',
+      name: previous?.name || cwd.split(/[\\/]/).filter(Boolean).at(-1) || '已還原工作區',
       path: previous?.path || cwd || null,
       launchPath: previous?.launchPath || null,
       exists: previous?.exists ?? Boolean(cwd),
-      pinned: previous?.pinned ?? false,
+      pinned: false,
+      curated: false,
       sessionCount: 0,
       updatedAt: null,
       agents: [...new Set(panes.flatMap((pane) => (pane.kind === 'shell' ? [] : [pane.kind])))],

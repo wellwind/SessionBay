@@ -27,10 +27,12 @@ import {
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { startup } from './startup';
+import { agentKinds, bypassFlags } from './agents';
 import type {
   AgentKind,
   Bootstrap,
   IndexStatus,
+  LaunchPreview,
   Pane,
   Project,
   Session,
@@ -42,6 +44,7 @@ import {
   emptyWorkspace,
   mergeWorkspaceProjects,
   paneIds,
+  patchWorkspacePane,
   restoreWorkspace,
   serializeWorkspace,
   setRatio,
@@ -51,10 +54,12 @@ import {
 import { matchesShortcut, shortcutConflicts, shortcutDefaults } from './commands';
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
+import { ProjectDialog } from './components/ProjectDialog';
 import { agentName, dateLabel, HistoryView } from './components/History';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 interface Launcher {
+  resumeId?: string;
   kind: 'shell' | AgentKind;
   cwd: string;
   profileId: string;
@@ -64,6 +69,8 @@ interface PathDialog {
   path: string;
   project?: Project;
   resume?: Session;
+  curate?: boolean;
+  launch?: { kind: Launcher['kind']; split?: Launcher['split'] };
 }
 interface Confirmation {
   title: string;
@@ -93,7 +100,14 @@ export default function App() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const [launcher, setLauncher] = useState<Launcher | null>(null);
+  const [launchPreview, setLaunchPreview] = useState<LaunchPreview | null>(null);
+  const [previewError, setPreviewError] = useState('');
+  const [previewPending, setPreviewPending] = useState(false);
   const [pathDialog, setPathDialog] = useState<PathDialog | null>(null);
+  const [projectDialog, setProjectDialog] = useState<{ launchKind?: Launcher['kind'] } | null>(null);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const projectMutation = useRef(false);
+  const projectReadGeneration = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
@@ -113,6 +127,23 @@ export default function App() {
     [projects, workspace],
   );
   const current = visibleProjects.find((p) => p.id === selectedId);
+  const launchProjectId = current && !current.workspaceOnly ? current.id : undefined;
+  useEffect(() => {
+    setLaunchPreview(null);
+    setPreviewError('');
+    if (!launcher || !settings) { setPreviewPending(false); return; }
+    let cancelled = false;
+    setPreviewPending(true);
+    const timer = setTimeout(() => {
+      void api.preview({ paneId: 'launch-preview', kind: launcher.kind, projectId: launchProjectId,
+        cwd: launcher.cwd.trim(), profileId: launcher.profileId, resumeId: launcher.resumeId?.trim() || undefined,
+        cols: 80, rows: 24 })
+        .then((result) => { if (!cancelled) setLaunchPreview(result); })
+        .catch((error) => { if (!cancelled) setPreviewError(errorMessage(error)); })
+        .finally(() => { if (!cancelled) setPreviewPending(false); });
+    }, 150);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [launcher, launchProjectId, settings]);
   const activeTabId = selectedId ? workspace.activeTabByProject[selectedId] : undefined;
   const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   const focusPane = activeTab ? workspace.panes[activeTab.focusedPaneId] : undefined;
@@ -122,6 +153,10 @@ export default function App() {
       setView('history');
     }
   }, [selectedId, visibleProjects]);
+  useEffect(() => {
+    if (view === 'workspace' && !activeTab) setView('history');
+    if (maximizedId && !workspace.panes[maximizedId]) setMaximizedId(null);
+  }, [view, activeTab, workspace.panes, maximizedId]);
   const stateRef = useRef({ workspace, selectedId, boot, view, projects: visibleProjects });
   stateRef.current = { workspace, selectedId, boot, view, projects: visibleProjects };
   const indexRef = useRef(index);
@@ -136,8 +171,12 @@ export default function App() {
   );
   const notify = useCallback((error: unknown) => setToast(errorMessage(error)), []);
   const refresh = useCallback(async () => {
-    setProjects(await api.projects());
-    setRefreshToken((t) => t + 1);
+    const generation = ++projectReadGeneration.current;
+    const result = await api.projects();
+    if (generation === projectReadGeneration.current) {
+      setProjects(result);
+      setRefreshToken((t) => t + 1);
+    }
   }, []);
   const scan = useCallback(async (rebuild: boolean) => {
     setIndex(await api.scan(rebuild));
@@ -276,9 +315,7 @@ export default function App() {
   }, [desktop, closeApplication, notify]);
   const patchPane = useCallback(
     (id: string, patch: Partial<Pane>) =>
-      setWorkspace((w) =>
-        w.panes[id] ? { ...w, panes: { ...w.panes, [id]: { ...w.panes[id], ...patch } } } : w,
-      ),
+      setWorkspace((w) => patchWorkspacePane(w, id, patch)),
     [],
   );
   const focus = useCallback((id: string) => {
@@ -301,7 +338,7 @@ export default function App() {
         const project = stateRef.current.projects.find((p) => p.id === pane.projectId);
         const cwd =
           cwdOverride ??
-          (pane.sessionId ? project?.launchPath || project?.path || pane.cwd : pane.cwd);
+          (pane.sessionId ? project?.launchPath || pane.cwd || project?.path || '' : pane.cwd);
         return {
           ...w,
           panes: { ...w.panes, [id]: { ...pane, cwd, startToken: (pane.startToken ?? 0) + 1 } },
@@ -316,6 +353,7 @@ export default function App() {
     profileId: string,
     session?: Session,
     split?: Launcher['split'],
+    resumeId?: string,
   ) => {
     if (Object.keys(workspace.panes).length >= 128) {
       notify('已達 128 個面板上限。請先關閉不需要的面板。');
@@ -334,6 +372,7 @@ export default function App() {
       cwd,
       profileId,
       sessionId: session?.id,
+      resumeId,
       state: 'placeholder',
       startToken: 1,
     };
@@ -378,31 +417,31 @@ export default function App() {
   const resume = (session: Session, override?: Project) => {
     const existing = Object.values(workspace.panes).find((p) => p.sessionId === session.id);
     const project = override ?? visibleProjects.find((p) => p.id === session.projectId);
-    if (existing) {
-      if (existing.state === 'running' || existing.state === 'starting') {
-        focus(existing.id);
-        return;
-      }
-      if (project && (!project.exists || !(project.launchPath || project.path))) {
+    const resumeCwd = project?.launchPath || session.cwd || existing?.cwd || project?.path || '';
+    const needsLocation = !resumeCwd || (project && !project.path && !project.launchPath) || (project && !project.exists && resumeCwd === (project.launchPath || project.path));
+    // The backend owns provider/source-qualified deduplication. A catalog ID can
+    // survive a source-root change; never focus a live pane by catalog ID alone.
+    if (existing && existing.projectId === project?.id && !['running', 'starting'].includes(existing.state)) {
+      if (project && needsLocation) {
         setPathDialog({ project, path: project.launchPath || project.path || '', resume: session });
         return;
       }
       focus(existing.id);
-      startPane(existing.id, project?.launchPath || project?.path || existing.cwd);
+      startPane(existing.id, resumeCwd);
       return;
     }
     if (!project) {
       notify('找不到 Session 所屬專案，請先重新整理索引。');
       return;
     }
-    if (!project.exists || !(project.launchPath || project.path)) {
+    if (needsLocation) {
       setPathDialog({ project, path: project.launchPath || project.path || '', resume: session });
       return;
     }
     addPane(
       project,
       session.kind,
-      project.launchPath || project.path || session.cwd || '',
+      resumeCwd,
       settings?.defaultProfileId ?? '',
       session,
     );
@@ -410,11 +449,11 @@ export default function App() {
   const openLauncher = (kind: Launcher['kind'], split?: Launcher['split']) => {
     if (!settings) return;
     if (!current) {
-      setPathDialog({ path: '' });
+      setProjectDialog({ launchKind: kind });
       return;
     }
     if (!current.exists || !(current.launchPath || current.path)) {
-      setPathDialog({ project: current, path: current.launchPath || current.path || '' });
+      setPathDialog({ project: current, path: current.launchPath || current.path || '', launch: { kind, split } });
       return;
     }
     setLauncher({
@@ -482,7 +521,7 @@ export default function App() {
     },
     {
       id: 'search-sessions',
-      label: '搜尋所有 Session',
+      label: '搜尋所有工作階段',
       run: () => {
         setSelectedId(undefined);
         setView('history');
@@ -564,7 +603,44 @@ export default function App() {
       .catch(notify);
     if (first) void scan(false).catch(notify);
   };
-  const sortedProjects = [...visibleProjects]
+  const saveMembership = async (project: Project, curated: boolean) => {
+    if (projectMutation.current) return;
+    if (curated && !project.path && !project.launchPath) {
+      setPathDialog({ project, path: '', curate: true });
+      return;
+    }
+    projectMutation.current = true;
+    setProjectBusy(true);
+    try {
+      const result = await api.updateProject(project.id, { curated });
+      projectReadGeneration.current++;
+      setProjects((previous) => previous.map((p) => p.id === result.id ? result : p));
+      if (!curated && stateRef.current.selectedId === project.id &&
+          !stateRef.current.workspace.tabs.some((tab) => tab.projectId === project.id)) {
+        setSelectedId(undefined);
+        setView('history');
+      }
+    } catch (error) { notify(error); }
+    finally { projectMutation.current = false; setProjectBusy(false); }
+  };
+  const setPinned = async (project: Project) => {
+    if (projectMutation.current) return;
+    projectMutation.current = true;
+    setProjectBusy(true);
+    try {
+      const result = await api.updateProject(project.id, { pinned: !project.pinned });
+      projectReadGeneration.current++;
+      setProjects((previous) => previous.map((p) => p.id === result.id ? result : p));
+    } catch (error) { notify(error); }
+    finally { projectMutation.current = false; setProjectBusy(false); }
+  };
+  const curateSession = (session: Session) => {
+    const project = projects.find((p) => p.id === session.projectId);
+    if (project) void saveMembership(project, true);
+    else notify('找不到工作目錄，請先重新整理索引。');
+  };
+  const sortedProjects = [...projects]
+    .filter((p) => p.curated)
     .filter((p) => `${p.name} ${p.path ?? ''}`.toLowerCase().includes(projectSearch.toLowerCase()))
     .sort(
       (a, b) =>
@@ -628,7 +704,7 @@ export default function App() {
               }}
             >
               <Compass size={17} />
-              所有 Session<span>{projects.reduce((sum, p) => sum + p.sessionCount, 0)}</span>
+              所有工作階段<span>{projects.reduce((sum, p) => sum + p.sessionCount, 0)}</span>
             </button>
             <div className="sidebar-section">
               <span>專案</span>
@@ -637,7 +713,7 @@ export default function App() {
                 title="加入專案"
                 aria-label="加入專案"
                 disabled={!boot}
-                onClick={() => setPathDialog({ path: '' })}
+                onClick={() => setProjectDialog({})}
               >
                 <Plus size={16} />
               </button>
@@ -681,18 +757,10 @@ export default function App() {
                   <button
                     className={`project-pin ${project.pinned ? 'pinned' : ''}`}
                     aria-label={
-                      project.pinned ? `取消釘選 ${project.name}` : `釘選 ${project.name}`
+                      project.pinned ? `取消置頂 ${project.name}` : `置頂 ${project.name}`
                     }
-                    onClick={() =>
-                      void api
-                        .updateProject(project.id, { pinned: !project.pinned })
-                        .then((result) =>
-                          setProjects((previous) =>
-                            previous.map((p) => (p.id === result.id ? result : p)),
-                          ),
-                        )
-                        .catch(notify)
-                    }
+                    disabled={projectBusy}
+                    onClick={() => void setPinned(project)}
                   >
                     <Pin size={12} />
                   </button>
@@ -700,18 +768,34 @@ export default function App() {
               ))}
               {!sortedProjects.length && (
                 <p className="sidebar-empty">
-                  {projectSearch ? '沒有符合的專案' : '加入目錄，讓工作有個歸處。'}
+                  {projectSearch ? '沒有符合的專案' : '尚未加入專案。從所有工作階段挑選目錄，或加入／建立專案。'}
                 </p>
               )}
             </nav>
             <button
               className="add-project"
               disabled={!boot}
-              onClick={() => setPathDialog({ path: '' })}
+              onClick={() => setProjectDialog({})}
             >
               <FolderPlus size={16} />
-              加入專案
+              加入／建立專案
             </button>
+            {workspace.tabs.length > 0 && (
+              <section className="open-workspaces" aria-label="開啟中的工作區">
+                <div className="sidebar-section"><span>開啟中的工作區</span><span>{workspace.tabs.length}</span></div>
+                <nav>
+                  {workspace.tabs.map((tab) => {
+                    const project = visibleProjects.find((p) => p.id === tab.projectId);
+                    return <button key={tab.id} className={view === 'workspace' && activeTabId === tab.id ? 'active' : ''}
+                      aria-label={`開啟工作區 ${project?.name || '工作目錄'} ${tab.name}`}
+                      title={project?.launchPath || project?.path || '目錄待確認'} onClick={() => focus(tab.focusedPaneId)}>
+                      <TerminalSquare size={14} /><span><strong>{project?.name || '工作目錄'}</strong>
+                        <small>{tab.name}{project?.workspaceOnly ? ' · 僅工作區' : ''}</small></span>
+                    </button>;
+                  })}
+                </nav>
+              </section>
+            )}
             <div className="sidebar-bottom">
               <span className="eyebrow">你的工作，留在本機</span>
               <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
@@ -738,10 +822,10 @@ export default function App() {
                 )}
                 Session Bay
                 <ChevronRight size={12} />
-                {current ? '專案' : '總覽'}
+                {current ? current.curated ? '專案' : '工作目錄' : '總覽'}
               </div>
               <h1>
-                {current?.name ?? '所有 Session'}
+                {current?.name ?? '所有工作階段'}
                 {current?.pinned && <Pin size={16} />}
               </h1>
               <div className="project-path">
@@ -763,11 +847,16 @@ export default function App() {
                     </button>
                   </>
                 ) : (
-                  '把散落的對話，接回你的工作。'
+                  '所有自動找到的對話都在這裡。專案清單只收錄你選定的目錄。'
                 )}
               </div>
             </div>
             <div className="header-buttons">
+              {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}
+                title={current.curated ? '只移出專案清單，不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
+                onClick={() => void saveMembership(current, !current.curated)}>
+                {current.curated ? '移出專案' : '加入專案'}
+              </button>}
               <button
                 className="secondary"
                 disabled={!boot}
@@ -905,6 +994,8 @@ export default function App() {
                     projects={projects}
                     refreshToken={refreshToken}
                     onResume={resume}
+                    onCurate={curateSession}
+                    curating={projectBusy}
                     onNew={() => openLauncher(settings?.defaultAgent ?? 'codex')}
                   />
                 </div>
@@ -1005,7 +1096,7 @@ export default function App() {
               ? `${focusPane.title} · ${focusPane.cwd}`
               : current
                 ? `最近活動 ${dateLabel(current.updatedAt)}`
-                : 'Codex + Claude Code'}
+                : '本機 Agent 工作台'}
           </span>
         </div>
       </footer>
@@ -1039,6 +1130,14 @@ export default function App() {
           }}
         />
       )}
+      {projectDialog && <ProjectDialog onClose={() => setProjectDialog(null)} onSaved={async (project) => {
+        await refresh();
+        setSelectedId(project.id);
+        setView('history');
+        if (projectDialog.launchKind && settings) setLauncher({ kind: projectDialog.launchKind,
+          cwd: project.launchPath || project.path || '', profileId: settings.defaultProfileId });
+        setProjectDialog(null);
+      }} />}
       {pathDialog && (
         <Dialog
           title={pathDialog.project ? '重新定位專案目錄' : '加入專案'}
@@ -1049,7 +1148,7 @@ export default function App() {
               event.preventDefault();
               setBusy(true);
               const task = pathDialog.project
-                ? api.updateProject(pathDialog.project.id, { launchPath: pathDialog.path.trim() })
+                ? api.updateProject(pathDialog.project.id, { launchPath: pathDialog.path.trim(), ...(pathDialog.curate ? { curated: true } : {}) })
                 : api.addProject(pathDialog.path.trim());
               void task
                 .then(async (project) => {
@@ -1059,6 +1158,8 @@ export default function App() {
                   const session = pathDialog.resume;
                   setPathDialog(null);
                   if (session) resume(session, project);
+                  else if (pathDialog.launch && settings) setLauncher({ ...pathDialog.launch,
+                    cwd: project.launchPath || project.path || '', profileId: settings.defaultProfileId });
                 })
                 .catch(notify)
                 .finally(() => setBusy(false));
@@ -1107,7 +1208,7 @@ export default function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (current) {
+              if (current && launchPreview && !previewPending && !previewError) {
                 addPane(
                   current,
                   launcher.kind,
@@ -1115,6 +1216,7 @@ export default function App() {
                   launcher.profileId,
                   undefined,
                   launcher.split,
+                  launcher.resumeId?.trim() || undefined,
                 );
                 setLauncher(null);
               }
@@ -1124,12 +1226,12 @@ export default function App() {
               在 {current?.name} 開始工作。Agent 沿用 CLI 本身的登入與權限設定。
             </p>
             <div className="launch-options">
-              {(['codex', 'claude', 'shell'] as const).map((kind) => (
+              {([...agentKinds, 'shell'] as const).map((kind) => (
                 <button
                   type="button"
                   className={launcher.kind === kind ? 'selected' : ''}
                   key={kind}
-                  onClick={() => setLauncher({ ...launcher, kind })}
+                  onClick={() => setLauncher({ ...launcher, kind, resumeId: undefined })}
                 >
                   {kind === 'shell' ? <TerminalSquare size={23} /> : <CommandIcon size={23} />}
                   <strong>{kind === 'shell' ? 'Terminal' : agentName(kind)}</strong>
@@ -1152,6 +1254,15 @@ export default function App() {
                 onChange={(event) => setLauncher({ ...launcher, cwd: event.target.value })}
               />
             </label>
+            {(launcher.kind === 'grok' || launcher.kind === 'antigravity') && (
+              <label className="field-label">接續對話 ID（選填）
+                <input value={launcher.resumeId || ''} placeholder="留空開始新對話；填入原工具的對話 ID"
+                  onChange={(event) => setLauncher({ ...launcher, resumeId: event.target.value })} />
+                <span className="small-muted">{launcher.kind === 'antigravity'
+                  ? 'Antigravity CLI 使用 agy --conversation；尚不支援自動索引／預覽其歷史。'
+                  : 'Grok 使用 --resume；不會使用建立新 Session 的 --session-id。'}</span>
+              </label>
+            )}
             {launcher.kind === 'shell' && (
               <label className="field-label">
                 Shell Profile
@@ -1167,12 +1278,21 @@ export default function App() {
                 </select>
               </label>
             )}
+            <div className="launch-preview" aria-label="啟動參數預覽" aria-live="polite">
+              <strong>實際啟動預覽</strong>
+              {previewPending ? <p>正在檢查執行檔與目錄…</p> : previewError ? <p role="alert">{previewError}</p> : launchPreview && <>
+                <pre>{JSON.stringify([launchPreview.executable, ...launchPreview.args], null, 2)}</pre>
+                <p>工作目錄：{launchPreview.cwd}</p>
+              </>}
+            </div>
+            {launcher.kind !== 'shell' && settings.agentOptions?.[launcher.kind]?.bypassPermissions &&
+              <p className="inline-warning">已啟用高風險權限模式。預設 {bypassFlags[launcher.kind]}；實際參數以上方預覽為準。Agent 可能不詢問就讀寫或刪除檔案。</p>}
             <p className="small-muted">外部程序狀態未知。Session Bay 只管理自己啟動的程序。</p>
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
                 取消
               </button>
-              <button className="primary" disabled={!launcher.cwd.trim()}>
+              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError}>
                 開始工作
                 <ArrowRight size={14} />
               </button>
@@ -1236,7 +1356,7 @@ export default function App() {
                   <kbd>{command.shortcut}</kbd>
                 </button>
               ))}
-            {visibleProjects
+            {projects.filter((p) => p.curated)
               .filter((p) =>
                 `${p.name} ${p.path}`.toLowerCase().includes(paletteQuery.toLowerCase()),
               )

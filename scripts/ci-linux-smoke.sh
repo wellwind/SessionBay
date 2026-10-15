@@ -26,7 +26,7 @@ export SESSIONBAY_SMOKE=1
 # Xvfb has no accelerated compositor. This changes graphics only, never sandboxing.
 # https://trac.webkit.org/wiki/EnvironmentVariables
 export WEBKIT_DISABLE_COMPOSITING_MODE=1
-export CODEX_HOME="$temporary/codex" CLAUDE_CONFIG_DIR="$temporary/claude"
+export CODEX_HOME="$temporary/codex" CLAUDE_CONFIG_DIR="$temporary/claude" GROK_HOME="$temporary/grok"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 "$binary" > "$output/app.log" 2>&1 &
@@ -64,7 +64,7 @@ for _ in $(seq 1 120); do
 done
 if [[ -z "$ready" ]]; then
   cat "$output/app.log"
-  echo 'Timed out waiting for React DOM, backend bootstrap, and settings interaction.' >&2
+  echo 'Timed out waiting for React DOM, backend bootstrap, and settings and project interaction.' >&2
   exit 1
 fi
 kill -0 "$pid"
@@ -81,4 +81,4 @@ if grep -q '^SESSIONBAY_FRONTEND .*"phase":"error"' "$output/app.log"; then
   cat "$output/app.log"
   exit 1
 fi
-printf 'Native Linux WebView DOM + backend bootstrap + settings open/close/reopen smoke passed; screenshot captured with Xvfb software compositing.\nScreenshot still requires visual review; DOM readiness alone does not prove painted pixels.\nThis does not verify IME, actual CLI resume, or interactive terminal behavior.\n' | tee "$output/result.txt"
+printf 'Native Linux WebView DOM + backend bootstrap + settings and project open/close/reopen smoke passed; screenshot captured with Xvfb software compositing.\nScreenshot still requires visual review; DOM readiness alone does not prove painted pixels.\nThis does not verify IME, actual CLI resume, or interactive terminal behavior.\n' | tee "$output/result.txt"

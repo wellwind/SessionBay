@@ -5,6 +5,7 @@ use crate::models::*;
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
+    TransactionBehavior,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -15,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial";
 const MAX_ERRORS: usize = 100;
 const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
@@ -115,15 +116,79 @@ fn project_name(path: Option<&str>) -> String {
     }
 }
 
+// Keep historical project IDs stable even if a formerly missing cwd later becomes
+// a real directory or symlink. Aliases are catalog metadata, never history edits.
+fn remember_directory(conn: &Connection, path: &str, id: &str) -> Result<(), String> {
+    for key in [path.to_owned(), directory_key(path)] {
+        conn.execute(
+            "INSERT INTO project_directories(path,project_id) VALUES(?1,?2) ON CONFLICT(path) DO NOTHING",
+            params![key, id],
+        )
+        .map_err(error)?;
+    }
+    Ok(())
+}
+
 fn ensure_project(conn: &Connection, cwd: Option<&str>, manual: bool) -> Result<String, String> {
-    let id = project_identity(cwd);
+    let mut id = project_identity(cwd);
+    if let Some(path) = cwd {
+        let key = directory_key(path);
+        let known: Option<String> = conn.query_row(
+            "SELECT project_id FROM project_directories WHERE path=?1 OR path=?2 ORDER BY path=?1 DESC LIMIT 1",
+            params![path, key], |row| row.get(0),
+        ).optional().map_err(error)?;
+        if let Some(known) = known {
+            id = known;
+        } else if manual {
+            // Explicit addition may use the canonical spelling of a historical
+            // alias that was missing during indexing. Only this uncommon user
+            // action scans old paths; ordinary indexing uses the alias index.
+            let mut stmt = conn
+                .prepare("SELECT id,path FROM projects WHERE path IS NOT NULL ORDER BY id")
+                .map_err(error)?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(error)?;
+            for row in rows {
+                let (existing_id, existing_path) = row.map_err(error)?;
+                if directory_key(&existing_path) == key {
+                    id = existing_id;
+                    break;
+                }
+            }
+        }
+    }
     conn.execute(
         "INSERT INTO projects(id,name,path,pinned,manual) VALUES(?1,?2,?3,0,?4)
         ON CONFLICT(id) DO UPDATE SET manual=MAX(projects.manual,excluded.manual)",
         params![id, project_name(cwd), cwd, manual],
     )
     .map_err(error)?;
+    if let Some(path) = cwd {
+        remember_directory(conn, path, &id)?;
+    }
     Ok(id)
+}
+
+fn validate_project_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() || name.chars().count() > 200 || name.chars().any(char::is_control) {
+        return Err(
+            "Project names must contain 1–200 characters and no control characters.".into(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_folder_name(name: &str) -> Result<(), String> {
+    validate_project_name(name)?;
+    if name.len() > 255 || name == "." || name == ".." || name.contains(['/', '\\']) {
+        return Err(
+            "Choose a single folder name without path separators; . and .. are not allowed.".into(),
+        );
+    }
+    Ok(())
 }
 
 fn validate_absolute_directory(path: &str) -> Result<(), String> {
@@ -205,6 +270,40 @@ impl Catalog {
                 PRAGMA user_version=2;").map_err(error)?;
             tx.commit().map_err(error)?;
         }
+        if version < 3 {
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(error)?;
+            // manual is now explicit Projects membership. Existing manual or
+            // pinned choices remain selected; automatic discovery stays unselected.
+            tx.execute_batch(
+                "UPDATE projects SET manual=1 WHERE pinned=1;
+                UPDATE projects SET manual=0,pinned=0 WHERE path IS NULL AND launch_path IS NULL;
+                CREATE TABLE project_directories(
+                    path TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id));
+                CREATE INDEX project_directories_project ON project_directories(project_id);
+                PRAGMA user_version=3;",
+            )
+            .map_err(error)?;
+            let existing = tx
+                .prepare("SELECT id,path FROM projects WHERE path IS NOT NULL ORDER BY id")
+                .map_err(error)?
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(error)?;
+            // Raw paths win over canonical aliases if an older catalog already
+            // has multiple historical identities for the same current directory.
+            for (id, path) in &existing {
+                tx.execute("INSERT INTO project_directories(path,project_id) VALUES(?1,?2) ON CONFLICT(path) DO NOTHING", params![path,id]).map_err(error)?;
+            }
+            for (id, path) in existing {
+                remember_directory(&tx, &path, &id)?;
+            }
+            tx.commit().map_err(error)?;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -220,59 +319,56 @@ impl Catalog {
         Ok(conn)
     }
 
+    /// All catalog groups, including uncurated history, are returned so session
+    /// queries and resume can continue resolving their original metadata.
     pub fn projects(&self) -> Result<Vec<Project>, String> {
         let conn = self.connect()?;
-        let conn = conn.unchecked_transaction().map_err(error)?;
-        let mut stmt = conn.prepare("SELECT p.id,p.name,p.path,p.launch_path,p.pinned,COUNT(s.id),MAX(s.updated_at)
-            FROM projects p LEFT JOIN sessions s ON s.project_id=p.id
-            GROUP BY p.id HAVING COUNT(s.id)>0 OR p.manual=1 OR p.pinned=1 OR p.launch_path IS NOT NULL
-            ORDER BY p.pinned DESC,MAX(s.updated_at) DESC,p.name,p.id").map_err(error)?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok(Project {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    path: row.get(2)?,
-                    launch_path: row.get(3)?,
-                    pinned: row.get(4)?,
-                    session_count: row.get::<_, i64>(5)? as u64,
-                    updated_at: row.get(6)?,
-                    exists: false,
-                    agents: vec![],
-                })
-            })
-            .map_err(error)?;
-        let mut projects = rows.collect::<Result<Vec<_>, _>>().map_err(error)?;
-        for project in &mut projects {
-            project.exists = project
-                .launch_path
-                .as_ref()
-                .or(project.path.as_ref())
-                .is_some_and(|path| Path::new(path).is_absolute() && Path::new(path).is_dir());
-            let mut agents = conn
-                .prepare("SELECT DISTINCT kind FROM sessions WHERE project_id=?1 ORDER BY kind")
-                .map_err(error)?;
-            let values = agents
-                .query_map([&project.id], |r| r.get::<_, String>(0))
-                .map_err(error)?;
-            project.agents = values
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(error)?
-                .iter()
-                .map(|kind| AgentKind::parse(kind))
-                .collect::<Result<_, _>>()?;
-        }
-        Ok(projects)
+        let tx = conn.unchecked_transaction().map_err(error)?;
+        load_projects(&tx, None)
     }
 
-    pub fn add_project(&self, path: &str) -> Result<Project, String> {
+    pub fn add_project(&self, path: &str, name: Option<&str>) -> Result<Project, String> {
         validate_absolute_directory(path)?;
-        let conn = self.connect()?;
-        let id = ensure_project(&conn, Some(path), true)?;
-        self.projects()?
-            .into_iter()
-            .find(|p| p.id == id)
-            .ok_or_else(|| "Project could not be loaded.".into())
+        if let Some(name) = name {
+            validate_project_name(name)?;
+        }
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(error)?;
+        let id = ensure_project(&tx, Some(path), true)?;
+        if let Some(name) = name {
+            tx.execute("UPDATE projects SET name=?1 WHERE id=?2", params![name, id])
+                .map_err(error)?;
+        }
+        let mut project = load_project(&tx, &id)?;
+        if !project.exists {
+            // A remembered canonical alias may outlive its original path. The
+            // explicitly chosen existing folder must remain usable, without
+            // replacing historical identity/cwd or a still-valid override.
+            tx.execute(
+                "UPDATE projects SET launch_path=?1 WHERE id=?2",
+                params![path, id],
+            )
+            .map_err(error)?;
+            project = load_project(&tx, &id)?;
+        }
+        tx.commit().map_err(error)?;
+        Ok(project)
+    }
+
+    pub fn create_project(&self, parent_path: &str, name: &str) -> Result<Project, String> {
+        validate_absolute_directory(parent_path)?;
+        validate_folder_name(name)?;
+        // Resolve the existing parent before appending exactly one component.
+        // create_dir is exclusive: no overwrite, ancestor creation or shell use.
+        let parent = fs::canonicalize(parent_path).map_err(error)?;
+        let path = parent.join(name);
+        let path_string = path.to_str().ok_or("Project paths must be valid UTF-8.")?;
+        fs::create_dir(&path).map_err(|e| format!("Could not create the project folder: {e}"))?;
+        self.add_project(path_string, Some(name)).map_err(|e| {
+            format!("The folder was created at {}, but could not be added to Projects: {e}. Add the existing folder to retry.", path.display())
+        })
     }
 
     pub fn update_project(
@@ -280,41 +376,103 @@ impl Catalog {
         id: &str,
         pinned: Option<bool>,
         launch_path: Option<&str>,
+        curated: Option<bool>,
+        name: Option<&str>,
     ) -> Result<Project, String> {
         if let Some(path) = launch_path.filter(|p| !p.is_empty()) {
             validate_absolute_directory(path)?;
         }
-        let conn = self.connect()?;
-        let exists: bool = conn
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",
-                [id],
-                |r| r.get(0),
-            )
-            .map_err(error)?;
-        if !exists {
-            return Err("Project not found.".into());
+        if let Some(name) = name {
+            validate_project_name(name)?;
         }
-        conn.execute("UPDATE projects SET manual=1 WHERE id=?1", [id])
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(error)?;
-        if let Some(pinned) = pinned {
-            conn.execute(
-                "UPDATE projects SET pinned=?1 WHERE id=?2",
-                params![pinned, id],
-            )
-            .map_err(error)?;
-        }
+        let mut project = load_project(&tx, id)?;
         if let Some(path) = launch_path {
-            conn.execute(
-                "UPDATE projects SET launch_path=?1 WHERE id=?2",
-                params![if path.is_empty() { None } else { Some(path) }, id],
-            )
-            .map_err(error)?;
+            project.launch_path = (!path.is_empty()).then(|| path.to_owned());
         }
-        self.projects()?
-            .into_iter()
-            .find(|p| p.id == id)
-            .ok_or_else(|| "Project is no longer visible.".into())
+        if let Some(name) = name {
+            project.name = name.to_owned();
+        }
+        if let Some(pinned) = pinned {
+            project.pinned = pinned;
+            if pinned {
+                project.curated = true;
+            }
+        }
+        if let Some(curated) = curated {
+            project.curated = curated;
+            if !curated {
+                project.pinned = false;
+            }
+        }
+        // An unclassified bucket has no directory identity. It can only be
+        // selected after the user supplies a real launch directory.
+        if project.curated && project.path.is_none() {
+            let path = project.launch_path.as_deref().ok_or(
+                "Relocate this unclassified history to a project directory before adding it to Projects.",
+            )?;
+            if curated == Some(true) || pinned == Some(true) || launch_path.is_some() {
+                validate_absolute_directory(path)?;
+            }
+        }
+        tx.execute(
+            "UPDATE projects SET name=?1,launch_path=?2,pinned=?3,manual=?4 WHERE id=?5",
+            params![
+                project.name,
+                project.launch_path,
+                project.pinned,
+                project.curated,
+                id
+            ],
+        )
+        .map_err(error)?;
+        let project = load_project(&tx, id)?;
+        tx.commit().map_err(error)?;
+        Ok(project)
+    }
+
+    /// Read cached source provenance without touching a growing transcript.
+    pub fn history_source(&self, id: &str) -> Result<HistorySource, String> {
+        let conn = self.connect()?;
+        let source: Option<(String, String, String, bool)> = conn
+            .query_row(
+                "SELECT id,kind,root,enabled FROM sources WHERE id=?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(error)?;
+        let (id, kind, root, enabled) = source.ok_or("The history source was removed.")?;
+        Ok(HistorySource {
+            id,
+            kind: AgentKind::parse(&kind)?,
+            root,
+            enabled,
+        })
+    }
+
+    /// An append is compatible with focusing a live runtime; a replaced file or
+    /// repointed source symlink is not proof of the indexed conversation.
+    pub fn indexed_files_still_match(&self, session_id: &str) -> Result<bool, String> {
+        let conn = self.connect()?;
+        let paths = conn
+            .prepare("SELECT path,identity FROM files WHERE session_id=?1")
+            .map_err(error)?
+            .query_map([session_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        Ok(!paths.is_empty()
+            && paths.iter().all(|(path, identity)| {
+                fs::metadata(path).is_ok_and(|metadata| {
+                    metadata.is_file() && file_identity(&metadata) == *identity
+                })
+            }))
     }
 
     pub fn session(&self, id: &str) -> Result<Session, String> {
@@ -468,6 +626,24 @@ impl Catalog {
         {
             return Ok(stale_page("The source transcript changed after indexing. Refresh the index before loading it."));
         }
+        let mut grok_metadata_hash = None;
+        if session.kind == AgentKind::Grok {
+            let state_json: String = conn
+                .query_row("SELECT state FROM files WHERE id=?1", [file_id], |row| {
+                    row.get(0)
+                })
+                .map_err(error)?;
+            let state: ParsedState = serde_json::from_str(&state_json).map_err(error)?;
+            if grok_metadata(Path::new(&path))
+                .map(|metadata| metadata.grok_metadata_hash != state.grok_metadata_hash)
+                .unwrap_or(true)
+            {
+                return Ok(stale_page(
+                    "Grok metadata changed after indexing. Refresh the index before loading it.",
+                ));
+            }
+            grok_metadata_hash = state.grok_metadata_hash;
+        }
         let duplicate_files: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM files WHERE session_id=?1",
@@ -508,32 +684,63 @@ impl Catalog {
         let mut page_bytes = 0usize;
         let mut shortened = false;
         for (line, offset, len, role, timestamp, placeholder) in locators.into_iter().take(limit) {
-            let text = if let Some(placeholder) = placeholder {
-                placeholder
-            } else {
-                if len > MAX_LINE_BYTES {
-                    "[Oversized record omitted]".into()
+            let text =
+                if let Some(placeholder) = placeholder {
+                    placeholder
                 } else {
-                    handle.seek(SeekFrom::Start(offset)).map_err(error)?;
-                    let mut bytes = vec![0; len];
-                    if handle.read_exact(&mut bytes).is_err() {
-                        return Ok(stale_page(
+                    if len > MAX_LINE_BYTES {
+                        "[Oversized record omitted]".into()
+                    } else {
+                        handle.seek(SeekFrom::Start(offset)).map_err(error)?;
+                        let mut bytes = vec![0; len];
+                        if handle.read_exact(&mut bytes).is_err() {
+                            return Ok(stale_page(
                             "The transcript changed while it was being read. Refresh the index.",
                         ));
+                        }
+                        if session.kind == AgentKind::Grok {
+                            // One logical message can span adjacent ACP JSONL chunks.
+                            // The indexed span is bounded and each chunk is parsed with
+                            // the same omissions as indexing, with no invented spaces.
+                            let mut text = String::new();
+                            for line in bytes
+                                .split(|byte| *byte == b'\n')
+                                .filter(|line| !line.is_empty())
+                            {
+                                match serde_json::from_slice::<serde_json::Value>(line) {
+                                    Ok(value) => {
+                                        if let Some(message) = adapters::parse_value(
+                                            AgentKind::Grok,
+                                            &value,
+                                            &mut ParsedState::default(),
+                                            Path::new(&path),
+                                        ) {
+                                            if message.searchable {
+                                                text.push_str(&message.text);
+                                            }
+                                        }
+                                    }
+                                    Err(_) => return Ok(stale_page(
+                                        "The Grok message span is malformed. Refresh the index.",
+                                    )),
+                                }
+                            }
+                            text
+                        } else {
+                            match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                                Ok(value) => adapters::parse_value(
+                                    session.kind,
+                                    &value,
+                                    &mut ParsedState::default(),
+                                    Path::new(&path),
+                                )
+                                .map(|message| message.text)
+                                .unwrap_or_else(|| "[Unsupported event]".into()),
+                                Err(_) => "[Malformed JSON record]".into(),
+                            }
+                        }
                     }
-                    match serde_json::from_slice::<serde_json::Value>(&bytes) {
-                        Ok(value) => adapters::parse_value(
-                            session.kind,
-                            &value,
-                            &mut ParsedState::default(),
-                            Path::new(&path),
-                        )
-                        .map(|message| message.text)
-                        .unwrap_or_else(|| "[Unsupported event]".into()),
-                        Err(_) => "[Malformed JSON record]".into(),
-                    }
-                }
-            };
+                };
             let (text, clipped) = bounded_preview(text);
             // Byte budget complements pagination, keeping desktop IPC bounded.
             if !messages.is_empty() && page_bytes + text.len() > MAX_PREVIEW_PAGE_BYTES {
@@ -564,6 +771,15 @@ impl Catalog {
         {
             return Ok(stale_page(
                 "The transcript changed while it was being read. Refresh the index.",
+            ));
+        }
+        if session.kind == AgentKind::Grok
+            && grok_metadata(Path::new(&path))
+                .map(|metadata| metadata.grok_metadata_hash != grok_metadata_hash)
+                .unwrap_or(true)
+        {
+            return Ok(stale_page(
+                "Grok metadata changed while reading the transcript. Refresh the index.",
             ));
         }
         let mut warning = if duplicate_files > 1 {
@@ -651,13 +867,28 @@ impl Catalog {
                 |row| row.get(0),
             )
             .map_err(error)?;
-        if serde_json::from_str::<ParsedState>(&parser_state)
-            .map_err(error)?
-            .identity_conflict
-        {
+        let parsed_state = serde_json::from_str::<ParsedState>(&parser_state).map_err(error)?;
+        if parsed_state.identity_conflict {
             return Err("This file contains conflicting session identities. Resume is blocked until the source is corrected.".into());
         }
         let (path, identity, size, modified) = &paths[0];
+        if source.kind == AgentKind::Grok {
+            if grok_metadata(Path::new(path))?.grok_metadata_hash != parsed_state.grok_metadata_hash
+            {
+                return Err(
+                    "Grok metadata changed after indexing. Refresh the index before resuming."
+                        .into(),
+                );
+            }
+            if Path::new(path)
+                .file_name()
+                .is_none_or(|name| name != "updates.jsonl")
+            {
+                return Err(
+                    "The Grok update stream is missing; this summary cannot be resumed.".into(),
+                );
+            }
+        }
         let file = File::open(path).map_err(|_| {
             "The source transcript is missing or unreadable. Refresh the index.".to_owned()
         })?;
@@ -796,7 +1027,12 @@ impl Catalog {
                 progress(status.clone());
             }
             if !status.cancelled && complete {
-                let tx = conn.transaction().map_err(error)?;
+                // Acquire the writer before reading reconciliation state. A
+                // concurrent project edit must not invalidate a WAL snapshot
+                // between this read and the deletion/rebuild writes.
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(error)?;
                 let old = tx
                     .prepare("SELECT id,path,session_id FROM files WHERE source_id=?1")
                     .map_err(error)?
@@ -876,6 +1112,57 @@ impl Catalog {
         progress(status.clone());
         Ok(status)
     }
+}
+
+fn load_project(conn: &Connection, id: &str) -> Result<Project, String> {
+    load_projects(conn, Some(id))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Project not found.".into())
+}
+
+fn load_projects(conn: &Connection, id: Option<&str>) -> Result<Vec<Project>, String> {
+    let mut stmt = conn.prepare("SELECT p.id,p.name,p.path,p.launch_path,p.pinned,p.manual,COUNT(s.id),MAX(s.updated_at)
+        FROM projects p LEFT JOIN sessions s ON s.project_id=p.id
+        WHERE (?1 IS NULL OR p.id=?1)
+        GROUP BY p.id ORDER BY p.pinned DESC,MAX(s.updated_at) DESC,p.name,p.id").map_err(error)?;
+    let rows = stmt
+        .query_map([id], |row| {
+            Ok(Project {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                path: row.get(2)?,
+                launch_path: row.get(3)?,
+                pinned: row.get(4)?,
+                curated: row.get(5)?,
+                session_count: row.get::<_, i64>(6)? as u64,
+                updated_at: row.get(7)?,
+                exists: false,
+                agents: vec![],
+            })
+        })
+        .map_err(error)?;
+    let mut projects = rows.collect::<Result<Vec<_>, _>>().map_err(error)?;
+    for project in &mut projects {
+        project.exists = project
+            .launch_path
+            .as_ref()
+            .or(project.path.as_ref())
+            .is_some_and(|path| Path::new(path).is_absolute() && Path::new(path).is_dir());
+        let mut agents = conn
+            .prepare("SELECT DISTINCT kind FROM sessions WHERE project_id=?1 ORDER BY kind")
+            .map_err(error)?;
+        let values = agents
+            .query_map([&project.id], |r| r.get::<_, String>(0))
+            .map_err(error)?;
+        project.agents = values
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?
+            .iter()
+            .map(|kind| AgentKind::parse(kind))
+            .collect::<Result<_, _>>()?;
+    }
+    Ok(projects)
 }
 
 fn session_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -1051,6 +1338,11 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
     if !source.enabled {
         return (vec![], health, true);
     }
+    if source.kind == AgentKind::Antigravity {
+        health.status = "unsupported".into();
+        health.message = Some("Antigravity local history has no verified supported format. History indexing is unsupported; launch and manual conversation-ID resume are available.".into());
+        return (vec![], health, true);
+    }
     let root = Path::new(&source.root);
     match fs::metadata(root) {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -1081,6 +1373,8 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
     let directories = match source.kind {
         AgentKind::Codex => vec!["sessions", "archived_sessions"],
         AgentKind::Claude => vec!["projects"],
+        AgentKind::Grok => vec!["sessions"],
+        AgentKind::Antigravity => vec![],
     };
     let mut files = Vec::new();
     let mut complete = true;
@@ -1098,7 +1392,16 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
             }
             _ => {}
         }
-        for entry in WalkDir::new(&base).follow_links(false).max_open(16) {
+        let max_depth = if source.kind == AgentKind::Grok {
+            3
+        } else {
+            usize::MAX
+        };
+        for entry in WalkDir::new(&base)
+            .follow_links(false)
+            .max_open(16)
+            .max_depth(max_depth)
+        {
             if cancel.load(Ordering::Relaxed) {
                 complete = false;
                 break;
@@ -1106,7 +1409,14 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
             match entry {
                 Ok(entry)
                     if entry.file_type().is_file()
-                        && entry.path().extension().and_then(|s| s.to_str()) == Some("jsonl") =>
+                        && if source.kind == AgentKind::Grok {
+                            entry.depth() == 3
+                                && (entry.file_name() == "updates.jsonl"
+                                    || (entry.file_name() == "summary.json"
+                                        && !entry.path().with_file_name("updates.jsonl").exists()))
+                        } else {
+                            entry.path().extension().and_then(|s| s.to_str()) == Some("jsonl")
+                        } =>
                 {
                     files.push(entry.into_path())
                 }
@@ -1220,6 +1530,130 @@ fn load_record(
     .transpose()
 }
 
+// Grok's summary and hashed-cwd marker are independent of updates.jsonl. Hash
+// their bounded contents so title/cwd-only edits invalidate the checkpoint too.
+fn read_grok_sidecar(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match fs::symlink_metadata(path) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(format!("Cannot read Grok metadata {}.", path.display())),
+        Ok(metadata) if !metadata.is_file() => {
+            return Err("Grok metadata must be a regular, non-symlink file.".into())
+        }
+        _ => {}
+    }
+    let mut file = File::open(path).map_err(error)?;
+    let before = file.metadata().map_err(error)?;
+    if before.len() > MAX_LINE_BYTES as u64 {
+        return Err("Grok metadata exceeds the supported size limit.".into());
+    }
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(MAX_LINE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(error)?;
+    let after = file.metadata().map_err(error)?;
+    if bytes.len() > MAX_LINE_BYTES
+        || before.len() != after.len()
+        || modification(&before) != modification(&after)
+        || fs::symlink_metadata(path)
+            .map(|m| {
+                !m.is_file()
+                    || file_identity(&m) != file_identity(&before)
+                    || modification(&m) != modification(&before)
+            })
+            .unwrap_or(true)
+    {
+        return Err("Grok metadata changed during indexing; refresh to retry.".into());
+    }
+    Ok(Some(bytes))
+}
+
+fn decode_grok_cwd(name: &str) -> Option<String> {
+    let mut decoded = Vec::with_capacity(name.len());
+    let mut input = name.as_bytes().iter().copied();
+    while let Some(byte) = input.next() {
+        if byte == b'%' {
+            let high = char::from(input.next()?).to_digit(16)?;
+            let low = char::from(input.next()?).to_digit(16)?;
+            decoded.push((high * 16 + low) as u8);
+        } else {
+            decoded.push(byte);
+        }
+    }
+    String::from_utf8(decoded)
+        .ok()
+        .filter(|cwd| Path::new(cwd).is_absolute() && !cwd.contains('\0'))
+}
+
+fn grok_metadata(path: &Path) -> Result<ParsedState, String> {
+    let session_dir = path.parent().ok_or("Invalid Grok session directory.")?;
+    let cwd_dir = session_dir
+        .parent()
+        .ok_or("Invalid Grok workspace directory.")?;
+    let summary_bytes = read_grok_sidecar(&session_dir.join("summary.json"))?;
+    let cwd_bytes = read_grok_sidecar(&cwd_dir.join(".cwd"))?;
+    let mut digest = Sha256::new();
+    for bytes in [&summary_bytes, &cwd_bytes] {
+        digest.update([u8::from(bytes.is_some())]);
+        if let Some(bytes) = bytes {
+            digest.update((bytes.len() as u64).to_le_bytes());
+            digest.update(bytes);
+        }
+    }
+    let cwd = cwd_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .and_then(decode_grok_cwd)
+        .or_else(|| {
+            cwd_bytes
+                .as_ref()
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .map(str::trim)
+                .filter(|cwd| Path::new(cwd).is_absolute() && !cwd.contains('\0'))
+                .map(str::to_owned)
+        });
+    let mut state = ParsedState {
+        external_id: Some(adapters::fallback_id(path, AgentKind::Grok)),
+        cwd: cwd.clone(),
+        recognized: true,
+        grok_metadata_hash: Some(format!("{:x}", digest.finalize())),
+        ..ParsedState::default()
+    };
+    match summary_bytes
+        .as_ref()
+        .and_then(|bytes| serde_json::from_slice(bytes).ok())
+    {
+        Some(summary) => adapters::apply_grok_summary(&mut state, &summary, cwd),
+        None => state.bad_lines += 1,
+    }
+    if path.file_name().is_some_and(|name| name == "summary.json")
+        && state.grok_num_messages.unwrap_or(0) > 0
+    {
+        state.bad_lines += 1; // The summary advertises messages, but the durable stream is absent.
+    }
+    Ok(state)
+}
+
+struct GrokAppend {
+    line: u64,
+    byte_offset: u64,
+    byte_len: u64,
+    text: String,
+}
+
+// Updating the external-content FTS trigger once per token is quadratic. Buffer
+// only the current bounded logical span, then update its row once per scan/run.
+fn flush_grok_append(
+    conn: &Connection,
+    file_id: i64,
+    pending: &mut Option<GrokAppend>,
+) -> Result<(), String> {
+    if let Some(append) = pending.take() {
+        conn.execute("UPDATE messages SET byte_len=?1,search_text=search_text||?2 WHERE file_id=?3 AND line=?4", params![append.byte_len as i64,append.text,file_id,append.line as i64]).map_err(error)?;
+    }
+    Ok(())
+}
+
 fn index_file(
     conn: &mut Connection,
     source: &HistorySource,
@@ -1239,8 +1673,22 @@ fn index_file(
     let modified = modification(&metadata);
     let size = metadata.len();
     let old = load_record(conn, source, path_string)?;
+    let grok = if source.kind == AgentKind::Grok {
+        Some(grok_metadata(path)?)
+    } else {
+        None
+    };
+    let metadata_matches = old.as_ref().is_none_or(|old| {
+        old.state.grok_metadata_hash
+            == grok
+                .as_ref()
+                .and_then(|state| state.grok_metadata_hash.clone())
+    });
+    let summary_only = source.kind == AgentKind::Grok
+        && path.file_name().is_some_and(|name| name == "summary.json");
     if let Some(old) = &old {
-        if old.identity == identity
+        if metadata_matches
+            && old.identity == identity
             && old.size == size
             && old.modified == modified
             && old.parser_version == PARSER_VERSION
@@ -1251,7 +1699,9 @@ fn index_file(
         }
     }
     let incremental = if let Some(old) = &old {
-        old.identity == identity
+        metadata_matches
+            && !summary_only
+            && old.identity == identity
             && old.offset <= size
             && old.parser_version == PARSER_VERSION
             && prefix_digest(&mut file, old.offset, cancel)? == old.prefix_hash
@@ -1261,7 +1711,7 @@ fn index_file(
     let mut state = if incremental {
         old.as_ref().unwrap().state.clone()
     } else {
-        ParsedState::default()
+        grok.unwrap_or_default()
     };
     let mut offset = if incremental {
         old.as_ref().unwrap().offset
@@ -1273,6 +1723,9 @@ fn index_file(
     } else {
         0
     };
+    if summary_only {
+        offset = size;
+    }
     let archived = path
         .strip_prefix(&source.root)
         .ok()
@@ -1281,7 +1734,9 @@ fn index_file(
                 .components()
                 .any(|c| c.as_os_str() == "archived_sessions")
         });
-    let tx = conn.transaction().map_err(error)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
     let file_id = if let Some(old) = &old {
         if !incremental {
             tx.execute("DELETE FROM messages WHERE file_id=?1", [old.id])
@@ -1295,6 +1750,7 @@ fn index_file(
     file.seek(SeekFrom::Start(offset)).map_err(error)?;
     let mut reader = BufReader::with_capacity(64 * 1024, file);
     let mut buffer = Vec::new();
+    let mut grok_append: Option<GrokAppend> = None;
     loop {
         if cancel.load(Ordering::Relaxed) {
             return Err("Indexing cancelled.".into());
@@ -1312,10 +1768,14 @@ fn index_file(
         let mut search = String::new();
         let mut fallback = false;
         let mut store = true;
+        let mut grok_prompt_index = None;
+        let mut grok_text_chunk = false;
         if oversized {
+            adapters::grok_end_user_run(&mut state);
             state.bad_lines += 1;
             placeholder = Some("[Oversized JSON record omitted]".to_owned());
         } else if buffer.iter().all(u8::is_ascii_whitespace) {
+            adapters::grok_end_user_run(&mut state);
             store = false;
         } else {
             match serde_json::from_slice::<serde_json::Value>(&buffer) {
@@ -1324,6 +1784,7 @@ fn index_file(
                         adapters::parse_value(source.kind, &value, &mut state, path)
                     {
                         role = message.role.clone();
+                        grok_text_chunk = source.kind == AgentKind::Grok && message.searchable;
                         timestamp = message.timestamp.clone();
                         fallback = message.fallback;
                         search = adapters::search_text(&value, source.kind, &message);
@@ -1334,17 +1795,102 @@ fn index_file(
                     } else {
                         store = false;
                     }
+                    if source.kind == AgentKind::Grok {
+                        grok_prompt_index = value
+                            .get("params")
+                            .unwrap_or(&value)
+                            .pointer("/update/_meta/promptIndex")
+                            .and_then(serde_json::Value::as_u64);
+                        if let Some(boundary) = adapters::grok_timeline(&value, &mut state, lines) {
+                            tx.execute(
+                                "DELETE FROM messages WHERE file_id=?1 AND line>=?2",
+                                params![file_id, boundary as i64],
+                            )
+                            .map_err(error)?;
+                            state.first_user = tx.query_row("SELECT search_text FROM messages WHERE file_id=?1 AND role='user' AND search_text<>'' ORDER BY line LIMIT 1", [file_id], |row| row.get::<_, String>(0))
+                                .optional().map_err(error)?.map(|text| adapters::short_text(&text, 100));
+                        }
+                    }
                 }
                 Err(_) => {
+                    adapters::grok_end_user_run(&mut state);
                     state.bad_lines += 1;
                     placeholder = Some("[Malformed JSON record]".to_owned());
                 }
+            }
+        }
+        if source.kind == AgentKind::Grok {
+            if store
+                && placeholder.is_none()
+                && grok_text_chunk
+                && matches!(role.as_str(), "user" | "assistant")
+            {
+                let merge_start = state
+                    .grok_message_run
+                    .as_ref()
+                    .filter(|run| {
+                        run.last_line.checked_add(1) == Some(lines)
+                            && run.role == role
+                            && run.prompt_index == grok_prompt_index
+                    })
+                    .map(|run| run.start_line);
+                if grok_append.as_ref().map(|pending| pending.line) != merge_start {
+                    flush_grok_append(&tx, file_id, &mut grok_append)?;
+                }
+                let mut start_line = lines;
+                if let Some(start) = merge_start {
+                    let start_offset = if let Some(pending) = &grok_append {
+                        Some(pending.byte_offset)
+                    } else {
+                        tx.query_row(
+                            "SELECT byte_offset FROM messages WHERE file_id=?1 AND line=?2",
+                            params![file_id, start as i64],
+                            |row| row.get::<_, i64>(0).map(|value| value as u64),
+                        )
+                        .optional()
+                        .map_err(error)?
+                    };
+                    if let Some(start_offset) = start_offset {
+                        let span_len = offset - start_offset;
+                        if span_len <= MAX_LINE_BYTES as u64 {
+                            let pending = grok_append.get_or_insert_with(|| GrokAppend {
+                                line: start,
+                                byte_offset: start_offset,
+                                byte_len: span_len,
+                                text: String::new(),
+                            });
+                            pending.byte_len = span_len;
+                            pending.text.push_str(&search);
+                            start_line = start;
+                            store = false;
+                        } else {
+                            flush_grok_append(&tx, file_id, &mut grok_append)?;
+                        }
+                    }
+                }
+                if search.is_empty() && start_line == lines {
+                    // Do not create an empty preview bubble. A subsequent text
+                    // chunk can begin the span; rewind still uses the user run.
+                    state.grok_message_run = None;
+                    store = false;
+                } else {
+                    state.grok_message_run = Some(adapters::GrokMessageRun {
+                        start_line,
+                        last_line: lines,
+                        role: role.clone(),
+                        prompt_index: grok_prompt_index,
+                    });
+                }
+            } else {
+                flush_grok_append(&tx, file_id, &mut grok_append)?;
+                state.grok_message_run = None;
             }
         }
         if store {
             tx.execute("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text,fallback,hidden,placeholder) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9) ON CONFLICT(file_id,line) DO UPDATE SET byte_offset=excluded.byte_offset,byte_len=excluded.byte_len,role=excluded.role,timestamp=excluded.timestamp,search_text=excluded.search_text,fallback=excluded.fallback,hidden=0,placeholder=excluded.placeholder",params![file_id,lines as i64,line_offset as i64,length as i64,role,timestamp,search,fallback,placeholder]).map_err(error)?;
         }
     }
+    flush_grok_append(&tx, file_id, &mut grok_append)?;
     let mut file = reader.into_inner();
     let after = file.metadata().map_err(error)?;
     // Writers may append during a scan. Retry instead of committing inconsistent locators.
@@ -1358,6 +1904,12 @@ fn index_file(
         .unwrap_or(false);
     if !path_still_matches || verified.len() != size || modification(&verified) != modified {
         return Err("Transcript changed while verifying its checkpoint; refresh to retry.".into());
+    }
+    if source.kind == AgentKind::Grok {
+        if grok_metadata(path)?.grok_metadata_hash != state.grok_metadata_hash {
+            return Err("Grok metadata changed during indexing; refresh to retry.".into());
+        }
+        state.first_user = tx.query_row("SELECT search_text FROM messages WHERE file_id=?1 AND role='user' AND search_text<>'' ORDER BY line LIMIT 1", [file_id], |row| row.get::<_,String>(0)).optional().map_err(error)?.map(|text| adapters::short_text(&text, 100));
     }
     let session_id = if state.recognized {
         if state.external_id.is_none() {
@@ -1402,7 +1954,12 @@ fn refresh_source_titles(
     let names = adapters::source_titles(source.kind, Path::new(&source.root))?;
     // Cached parser state restores the fallback when a source name is removed.
     // This also observes renames when every transcript is otherwise unchanged.
-    let sessions = conn
+    // Acquire the writer before reading cached title state, matching indexing
+    // and curation transactions and avoiding a read-to-write WAL upgrade.
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    let sessions = tx
         .prepare(
             "SELECT s.id,s.external_id,s.title,f.state FROM sessions s JOIN files f ON f.id=(
                 SELECT id FROM files WHERE session_id=s.id ORDER BY archived ASC,modified DESC,path LIMIT 1
@@ -1420,7 +1977,6 @@ fn refresh_source_titles(
         .map_err(error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(error)?;
-    let tx = conn.transaction().map_err(error)?;
     for (id, external_id, previous, json) in sessions {
         if cancel.load(Ordering::Relaxed) {
             return Err("Indexing cancelled.".into());
@@ -1469,7 +2025,7 @@ fn rebuild_session(conn: &Connection, source: &HistorySource, id: &str) -> Resul
     let project_id = ensure_project(conn, cwd, false)?;
     let event_at = states
         .iter()
-        .filter_map(|(_, state, _, _)| state.event_at.as_ref())
+        .filter_map(|(_, state, _, _)| state.grok_summary_at.as_ref().or(state.event_at.as_ref()))
         .max()
         .cloned();
     let (updated_at, time_source) = match event_at {

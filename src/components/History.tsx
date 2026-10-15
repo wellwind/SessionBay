@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock3,
   FileText,
+  FolderPlus,
   Filter,
   History as HistoryIcon,
   LoaderCircle,
@@ -13,9 +14,10 @@ import {
   X,
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
+import { agentNames } from '../agents';
 import { localDayBound } from '../workspace';
 import type { AgentKind, Project, Session, SessionPage, TranscriptPage } from '../types';
-export const agentName = (kind: AgentKind) => (kind === 'codex' ? 'Codex' : 'Claude Code');
+export const agentName = (kind: AgentKind) => agentNames[kind];
 export function dateLabel(value: string | null): string {
   if (!value) return '尚無活動';
   const date = new Date(value);
@@ -52,6 +54,8 @@ export function HistoryView({
   refreshToken,
   onResume,
   onNew,
+  onCurate,
+  curating = false,
   disabled = false,
 }: {
   projectId?: string;
@@ -59,6 +63,8 @@ export function HistoryView({
   refreshToken: number;
   onResume: (session: Session) => void;
   onNew: () => void;
+  onCurate?: (session: Session) => void;
+  curating?: boolean;
   disabled?: boolean;
 }) {
   const [saved, setSaved] = useState<Record<string, Filters>>({});
@@ -201,6 +207,7 @@ export function HistoryView({
     !!filters.after ||
     !!filters.before ||
     filters.children;
+  const selectedProject = projects.find((project) => project.id === selected?.projectId);
   return (
     <div className="history-view">
       <div className="history-controls">
@@ -227,6 +234,7 @@ export function HistoryView({
           <option value="">所有 Agent</option>
           <option value="codex">Codex</option>
           <option value="claude">Claude Code</option>
+          <option value="grok">Grok Build</option>
         </select>
         <button
           className={`secondary ${moreFilters ? 'selected' : ''}`}
@@ -310,7 +318,7 @@ export function HistoryView({
               <p>
                 {filtered
                   ? '試試較短關鍵字、放寬日期或顯示封存對話。'
-                  : '這裡會整理 Codex 與 Claude Code 的本機歷史。你也可以直接開始新的工作。'}
+                  : '這裡會整理 Codex、Claude Code 與 Grok Build 的本機歷史。你也可以直接開始新的工作。'}
               </p>
               {filtered ? (
                 <button className="secondary" onClick={() => change(initialFilters)}>
@@ -344,9 +352,7 @@ export function HistoryView({
                   </p>
                   <div className="session-card-meta">
                     <span title={session.cwd ?? ''}>
-                      {projectId
-                        ? (session.cwd ?? '工作目錄未知')
-                        : (projects.find((p) => p.id === session.projectId)?.name ?? '未分類')}
+                      {session.cwd || projects.find((p) => p.id === session.projectId)?.launchPath || '工作目錄未知'}
                     </span>
                     <span>
                       {session.archived && '封存 '}
@@ -420,6 +426,14 @@ export function HistoryView({
                     </>
                   )}
                 </div>
+                {onCurate && selectedProject && (
+                  <div className="history-project-action">
+                    {selectedProject.curated ? <span>已加入專案：{selectedProject.name}</span> :
+                      <button className="secondary" disabled={disabled || curating} onClick={() => onCurate(selected)}>
+                        <FolderPlus size={14} />{selectedProject.path || selectedProject.launchPath ? '將此目錄加入專案' : '選擇目錄並加入專案'}
+                      </button>}
+                  </div>
+                )}
                 {(transcript?.stale || transcript?.warning || selected.partial) && (
                   <div className="inline-warning">
                     {transcript?.stale

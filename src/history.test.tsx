@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { api } from './api';
-import { HistoryView } from './components/History';
+import { agentName, HistoryView } from './components/History';
 import type { Project, Session, SessionPage, TranscriptPage } from './types';
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -24,6 +24,7 @@ const project: Project = {
   launchPath: null,
   exists: true,
   pinned: false,
+  curated: true,
   sessionCount: 2,
   updatedAt: '2026-10-15T01:00:00Z',
   agents: ['codex'],
@@ -136,6 +137,45 @@ describe('HistoryView read-only rendering', () => {
     setup();
     await tick();
     expect(screen.getByText(/目前沒有可預覽的文字內容/)).toBeInTheDocument();
+  });
+});
+
+describe('HistoryView project selection', () => {
+  it('shows the full original cwd and only curates after an explicit click', async () => {
+    const cwd = '/synthetic/projects/full/original/worktree';
+    const selected = session('alpha', { cwd });
+    vi.mocked(api.sessions).mockResolvedValue({ items: [selected], total: 1 });
+    const onCurate = vi.fn();
+    const { props, rerender } = setup({ projects: [{ ...project, curated: false, launchPath: '/synthetic/relocated' }], onCurate });
+    await tick();
+    expect(screen.getByRole('region', { name: '對話預覽' })).toHaveTextContent(cwd);
+    expect(onCurate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '將此目錄加入專案' }));
+    expect(onCurate).toHaveBeenCalledExactlyOnceWith(selected);
+    expect(props.onResume).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    rerender(<HistoryView {...props} projects={[project]} />);
+    expect(screen.getByText('已加入專案：Synthetic project')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '將此目錄加入專案' })).not.toBeInTheDocument();
+  });
+  it('offers an explicit directory choice for a session without a recorded cwd', async () => {
+    const selected = session('alpha', { cwd: null });
+    vi.mocked(api.sessions).mockResolvedValue({ items: [selected], total: 1 });
+    const onCurate = vi.fn();
+    setup({ projects: [{ ...project, curated: false, path: null, launchPath: null }], onCurate });
+    await tick();
+    expect(screen.getByRole('region', { name: '對話預覽' })).toHaveTextContent('未記錄工作目錄');
+    fireEvent.click(screen.getByRole('button', { name: '選擇目錄並加入專案' }));
+    expect(onCurate).toHaveBeenCalledExactlyOnceWith(selected);
+  });
+  it('disables project selection while a membership mutation is pending', async () => {
+    const onCurate = vi.fn();
+    setup({ projects: [{ ...project, curated: false }], onCurate, curating: true });
+    await tick();
+    const button = screen.getByRole('button', { name: '將此目錄加入專案' });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onCurate).not.toHaveBeenCalled();
   });
 });
 
@@ -403,6 +443,34 @@ describe('browser-only safety', () => {
     await expect(
       realApi.api.launch({ paneId: 'synthetic-pane', kind: 'shell', cols: 80, rows: 24 }, () => {}),
     ).rejects.toThrow('桌面執行環境未連線');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('additional agent history capabilities', () => {
+  it('labels all four tools without implying Antigravity has an indexed history filter', async () => {
+    expect(agentName('grok')).toBe('Grok Build');
+    expect(agentName('antigravity')).toBe('Antigravity CLI');
+    setup();
+    await tick();
+    const filter = screen.getByRole('combobox', { name: '篩選 Agent' });
+    expect(within(filter).getAllByRole('option').map((option) => (option as HTMLOptionElement).value))
+      .toEqual(['', 'codex', 'claude', 'grok']);
+    expect(within(filter).queryByRole('option', { name: 'Antigravity CLI' })).not.toBeInTheDocument();
+  });
+  it('queries Grok history and forwards its catalog session only on explicit resume', async () => {
+    const grokSession = session('grok-session', { kind: 'grok', externalId: 'grok-external', title: 'Synthetic Grok conversation' });
+    vi.mocked(api.sessions).mockResolvedValue({ items: [grokSession], total: 1 });
+    const { props } = setup();
+    await tick();
+    fireEvent.change(screen.getByRole('combobox', { name: '篩選 Agent' }), { target: { value: 'grok' } });
+    await tick(300);
+    expect(api.sessions).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'grok' }));
+    expect(screen.getAllByText('Grok Build').length).toBeGreaterThan(1);
+    expect(props.onResume).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '接續工作' }));
+    expect(props.onResume).toHaveBeenCalledExactlyOnceWith(grokSession);
     expect(invoke).not.toHaveBeenCalled();
   });
 });

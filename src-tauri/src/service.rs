@@ -5,6 +5,7 @@ use crate::{
     runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -22,10 +23,19 @@ pub struct LaunchRequest {
     pub kind: String,
     pub project_id: Option<String>,
     pub session_id: Option<String>,
+    pub resume_id: Option<String>,
     pub cwd: Option<String>,
     pub profile_id: Option<String>,
     pub cols: u16,
     pub rows: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchPreview {
+    pub executable: String,
+    pub args: Vec<String>,
+    pub cwd: String,
 }
 
 #[derive(Serialize)]
@@ -212,9 +222,13 @@ impl Service {
         if request.cols < 2 || request.cols > 1000 || request.rows < 1 || request.rows > 1000 {
             return Err("終端尺寸無效".into());
         }
+        if request.session_id.is_some() && request.resume_id.is_some() {
+            return Err("Choose an indexed session or a manual resume ID, not both.".into());
+        }
         let settings = self.settings()?;
         let mut env = HashMap::new();
         let mut args = vec![];
+        let mut resume_key = None;
         let mut cwd = request.cwd.clone();
         if let Some(project_id) = &request.project_id {
             let project = self
@@ -223,72 +237,107 @@ impl Service {
                 .into_iter()
                 .find(|p| &p.id == project_id)
                 .ok_or("找不到專案，請重新選擇")?;
-            if cwd.is_none() {
+            if cwd.is_none() && request.session_id.is_none() {
                 cwd = project.launch_path.or(project.path);
             }
         }
         let agent = match request.kind.as_str() {
             "codex" => Some(AgentKind::Codex),
             "claude" => Some(AgentKind::Claude),
+            "grok" => Some(AgentKind::Grok),
+            "antigravity" => Some(AgentKind::Antigravity),
             "shell" => None,
             _ => return Err("不支援的工具種類".into()),
         };
+        if let Some(resume_id) = &request.resume_id {
+            if !matches!(agent, Some(AgentKind::Grok | AgentKind::Antigravity)) {
+                return Err(
+                    "Manual resume IDs are supported for Grok Build and Antigravity CLI only."
+                        .into(),
+                );
+            }
+            validate_resume_id(resume_id)?;
+        }
         if let Some(session_id) = &request.session_id {
             let (session, source) = self.catalog.resume_source(session_id)?;
+            if request
+                .project_id
+                .as_ref()
+                .is_some_and(|id| id != &session.project_id)
+            {
+                return Err("Session does not belong to the selected project.".into());
+            }
             if agent.as_ref() != Some(&session.kind) {
                 return Err("Session 的工具與啟動選項不一致".into());
             }
-            if !settings
-                .sources
-                .iter()
-                .any(|s| s.id == source.id && s.enabled && s.root == source.root)
-            {
+            if !settings.sources.iter().any(|s| {
+                s.id == source.id && s.enabled && s.root == source.root && s.kind == session.kind
+            }) {
                 return Err("Session 的來源已停用或變更，請重新索引".into());
             }
             let id = &session.external_id;
-            if id.is_empty()
-                || id.len() > 256
-                || !id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
-                || !id
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "-_ .".contains(c))
-                || id.contains(' ')
-            {
-                return Err("Session ID 格式不支援安全恢復".into());
-            }
+            validate_resume_id(id)?;
             if cwd.is_none() {
                 let project = self
                     .catalog
                     .projects()?
                     .into_iter()
                     .find(|p| p.id == session.project_id);
-                cwd = project
-                    .and_then(|p| p.launch_path.or(p.path))
-                    .or(session.cwd);
+                // Grouping canonical aliases must not replace a session's own
+                // historical cwd. Only an explicit launch override takes priority.
+                cwd = project.and_then(|p| p.launch_path).or(session.cwd);
             }
-            let key = match session.kind {
-                AgentKind::Codex => "CODEX_HOME",
-                AgentKind::Claude => "CLAUDE_CONFIG_DIR",
-            };
-            env.insert(key.into(), source.root);
-            args = match session.kind {
-                AgentKind::Codex => vec!["resume".into(), id.clone()],
-                AgentKind::Claude => vec!["--resume".into(), id.clone()],
-            };
-        } else if let Some(kind) = &agent {
-            if let Some(source) = settings
-                .sources
-                .iter()
-                .find(|s| s.enabled && &s.kind == kind)
-            {
-                env.insert(
-                    match kind {
-                        AgentKind::Codex => "CODEX_HOME",
-                        AgentKind::Claude => "CLAUDE_CONFIG_DIR",
-                    }
-                    .into(),
-                    source.root.clone(),
+            if let Some(key) = history_environment(session.kind) {
+                resume_key = Some(provider_resume_key(session.kind, &source.root, id));
+                env.insert(key.into(), source.root);
+            } else {
+                return Err(
+                    "Indexed Antigravity history is unsupported; use a manual conversation ID."
+                        .into(),
                 );
+            }
+            args = resume_arguments(session.kind, id);
+        } else if let Some(kind) = agent {
+            if let Some(key) = history_environment(kind) {
+                if request.resume_id.is_some()
+                    && settings
+                        .sources
+                        .iter()
+                        .filter(|s| s.enabled && s.kind == kind)
+                        .count()
+                        > 1
+                {
+                    return Err("Manual resume is ambiguous with multiple enabled history sources. Choose an indexed session or enable only the intended source.".into());
+                }
+                if let Some(source) = settings
+                    .sources
+                    .iter()
+                    .find(|s| s.enabled && s.kind == kind)
+                {
+                    env.insert(key.into(), source.root.clone());
+                }
+            }
+            if let Some(id) = &request.resume_id {
+                args = resume_arguments(kind, id);
+                let source_root = if kind == AgentKind::Grok {
+                    env.get("GROK_HOME")
+                        .cloned()
+                        .or_else(|| std::env::var("GROK_HOME").ok())
+                        .unwrap_or_else(|| {
+                            dirs::home_dir()
+                                .unwrap_or_else(|| PathBuf::from("/"))
+                                .join(".grok")
+                                .to_string_lossy()
+                                .into_owned()
+                        })
+                } else {
+                    dirs::home_dir()
+                        .unwrap_or_else(|| PathBuf::from("/"))
+                        .join(".gemini/antigravity-cli")
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                resume_key = Some(provider_resume_key(kind, &source_root, id));
             }
         }
         let cwd = cwd.ok_or("請先選擇專案或指定工作目錄；未分類歷史不會猜測目前目錄")?;
@@ -297,12 +346,18 @@ impl Service {
             return Err("工作目錄不存在或不是絕對路徑；請重新定位專案".into());
         }
         let executable = if let Some(kind) = &agent {
+            args.extend(crate::launch_options::arguments(
+                *kind,
+                settings.agent_options.for_kind(*kind),
+            )?);
             if matches!(kind, AgentKind::Codex) {
                 args.extend(["--cd".into(), cwd.to_string_lossy().into_owned()]);
             }
             config::resolve_executable(match kind {
                 AgentKind::Codex => &settings.executables.codex,
                 AgentKind::Claude => &settings.executables.claude,
+                AgentKind::Grok => &settings.executables.grok,
+                AgentKind::Antigravity => &settings.executables.antigravity,
             })?
         } else {
             let profile_id = request
@@ -347,7 +402,16 @@ impl Service {
             cwd,
             env,
             session_id: request.session_id.clone(),
+            resume_key,
             pane_id: request.pane_id.clone(),
+        })
+    }
+    pub fn preview_launch(&self, request: &LaunchRequest) -> Result<LaunchPreview, String> {
+        let spec = self.plan_launch(request)?;
+        Ok(LaunchPreview {
+            executable: spec.executable,
+            args: spec.args,
+            cwd: spec.cwd.to_string_lossy().into_owned(),
         })
     }
     pub fn launch(
@@ -355,13 +419,46 @@ impl Service {
         request: &LaunchRequest,
         emit: Arc<dyn Fn(TerminalEvent) -> Result<(), String> + Send + Sync>,
     ) -> Result<RuntimeInfo, String> {
-        // Check duplicate identity before preflight: an existing managed runtime can be focused even if its source was moved.
-        if let Some(id) = &request.session_id {
-            if let Some(existing) = self.runtime.list().into_iter().find(|r| {
-                r.session_id.as_ref() == Some(id)
-                    && ["starting", "running"].contains(&r.state.as_str())
-            }) {
-                return Ok(existing);
+        // Focus a live source-qualified conversation even when its transcript
+        // has grown. A catalog ID alone is insufficient: source IDs can
+        // be repointed to another root while an older runtime is still active.
+        if let Some(id) = request
+            .session_id
+            .as_ref()
+            .filter(|_| request.resume_id.is_none())
+        {
+            if let Ok(session) = self.catalog.session(id) {
+                if session.kind.as_str() == request.kind
+                    && request
+                        .project_id
+                        .as_ref()
+                        .is_none_or(|id| id == &session.project_id)
+                {
+                    if let Some(source) = self.settings()?.sources.iter().find(|source| {
+                        source.id == session.source_id
+                            && source.kind == session.kind
+                            && source.enabled
+                    }) {
+                        let source_unchanged = self
+                            .catalog
+                            .history_source(&session.source_id)
+                            .is_ok_and(|cached| {
+                                cached.enabled
+                                    && cached.kind == source.kind
+                                    && cached.root == source.root
+                            });
+                        if source_unchanged && self.catalog.indexed_files_still_match(id)? {
+                            let key = provider_resume_key(
+                                session.kind,
+                                &source.root,
+                                &session.external_id,
+                            );
+                            if let Some(existing) = self.runtime.find_running_resume(&key) {
+                                return Ok(existing);
+                            }
+                        }
+                    }
+                }
             }
         }
         let spec = self.plan_launch(request)?;
@@ -376,6 +473,50 @@ impl Service {
         self.closed.store(true, Ordering::Release);
         Ok(())
     }
+}
+
+fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> String {
+    let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
+    let mut hash = Sha256::new();
+    for part in [kind.as_str(), canonical.to_str().unwrap_or(root), id] {
+        hash.update((part.len() as u64).to_le_bytes());
+        hash.update(part.as_bytes());
+    }
+    format!("provider-{:x}", hash.finalize())
+}
+
+fn validate_resume_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 256
+        || !id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
+        return Err("Session ID must start with a letter or number and contain only letters, numbers, hyphens, underscores or dots (maximum 256 characters).".into());
+    }
+    Ok(())
+}
+
+fn history_environment(kind: AgentKind) -> Option<&'static str> {
+    match kind {
+        AgentKind::Codex => Some("CODEX_HOME"),
+        AgentKind::Claude => Some("CLAUDE_CONFIG_DIR"),
+        AgentKind::Grok => Some("GROK_HOME"),
+        AgentKind::Antigravity => None,
+    }
+}
+
+fn resume_arguments(kind: AgentKind, id: &str) -> Vec<String> {
+    vec![
+        match kind {
+            AgentKind::Codex => "resume",
+            AgentKind::Claude | AgentKind::Grok => "--resume",
+            AgentKind::Antigravity => "--conversation",
+        }
+        .into(),
+        id.into(),
+    ]
 }
 
 fn empty_index() -> IndexStatus {
@@ -399,6 +540,7 @@ mod tests {
             kind: "shell".into(),
             project_id: None,
             session_id: None,
+            resume_id: None,
             cwd,
             profile_id: None,
             cols: 80,

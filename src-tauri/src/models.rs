@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum AgentKind {
     Codex,
     Claude,
+    Grok,
+    Antigravity,
 }
 
 impl AgentKind {
@@ -13,6 +15,8 @@ impl AgentKind {
         match self {
             Self::Codex => "codex",
             Self::Claude => "claude",
+            Self::Grok => "grok",
+            Self::Antigravity => "antigravity",
         }
     }
 
@@ -20,6 +24,8 @@ impl AgentKind {
         match value {
             "codex" => Ok(Self::Codex),
             "claude" => Ok(Self::Claude),
+            "grok" => Ok(Self::Grok),
+            "antigravity" => Ok(Self::Antigravity),
             _ => Err(format!("Unsupported agent kind: {value}")),
         }
     }
@@ -62,6 +68,7 @@ pub struct Project {
     pub launch_path: Option<String>,
     pub exists: bool,
     pub pinned: bool,
+    pub curated: bool,
     pub session_count: u64,
     pub updated_at: Option<String>,
     pub agents: Vec<AgentKind>,

@@ -1570,3 +1570,26 @@ kbd {
     transition: none !important;
   }
 }
+
+/* Curated project membership is separate from open runtime workspaces. */
+.open-workspaces { flex-shrink: 0; min-height: 0; }
+.open-workspaces .sidebar-section { padding-top: 8px; }
+.open-workspaces nav { overflow: auto; max-height: 170px; }
+.open-workspaces nav button { width: 100%; gap: 9px; padding: 8px 10px; text-align: left; justify-content: flex-start; border-radius: 5px; }
+.open-workspaces nav button.active { background: var(--accent-bg); color: var(--accent); }
+.open-workspaces nav button span { min-width: 0; }
+.open-workspaces strong, .open-workspaces small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-workspaces strong { font-size: 11px; font-weight: 500; }
+.open-workspaces small { font-size: 10px; color: var(--subtle); margin-top: 3px; }
+.project-mode { display: flex; gap: 8px; margin: 12px 0; }
+.project-mode button { flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 6px; }
+.project-mode button.selected { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
+.history-project-action { padding: 0 20px 12px; color: var(--subtle); font-size: 11px; }
+.header-buttons { flex-wrap: wrap; }
+.launch-options { flex-wrap: wrap; }
+.launch-options > button { min-width: 100px; }
+.launch-preview { margin: 16px 0; padding: 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; }
+.launch-preview pre { max-height: 170px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+.launch-preview p { overflow-wrap: anywhere; color: var(--subtle); margin: 8px 0 0; }
+.agent-badge.grok { background: #243a51; color: #b2cde8; }
+.agent-badge.antigravity { background: #3c3151; color: #d5bff2; }

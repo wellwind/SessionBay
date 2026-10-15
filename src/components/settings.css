@@ -823,3 +823,8 @@
     flex-basis: 100%;
   }
 }
+.settings-risk-toggle { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; font-size: 11px; line-height: 1.6; }
+.settings-risk-toggle input { flex-shrink: 0; margin-top: 3px; }
+.settings-installation .settings-subtle-warning { overflow-wrap: anywhere; }
+/* Leave the full text line inside the fixed-height native form controls. */
+.settings-panel input:not([type='checkbox']), .settings-panel select { padding-top: 6px; padding-bottom: 6px; }

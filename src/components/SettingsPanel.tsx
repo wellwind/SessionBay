@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { AgentKind, IndexStatus, Installation, Settings, ShellProfile } from '../types';
 import { normalizedShortcut, shortcutDefaults } from '../commands';
+import { agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, normalizedAgentOptions } from '../agents';
 import './settings.css';
 
 export interface SettingsPanelProps {
@@ -36,7 +37,6 @@ export interface SettingsPanelProps {
 type Section = 'sources' | 'profiles' | 'appearance' | 'shortcuts';
 type ValidationErrors = Record<string, string>;
 type JsonFields = Record<string, { args: string; env: string }>;
-const agentNames: Record<AgentKind, string> = { codex: 'Codex', claude: 'Claude Code' };
 const shortcutNames: Record<string, string> = {
   'new-terminal': '開啟終端機',
   'new-agent': '開始 Agent 工作',
@@ -65,7 +65,8 @@ function cloneSettings(settings: Settings): Settings {
       env: { ...profile.env },
     })),
     sources: settings.sources.map((source) => ({ ...source })),
-    executables: { ...settings.executables },
+    executables: { ...executableDefaults, ...settings.executables },
+    agentOptions: normalizedAgentOptions(settings),
     shortcuts: { ...shortcutDefaults, ...settings.shortcuts },
   };
 }
@@ -118,6 +119,12 @@ export function parseProfileArgs(text: string): { value?: string[]; error?: stri
   }
 }
 
+export function parseAgentArgs(text: string): { value?: string[]; error?: string } {
+  const parsed = parseProfileArgs(text);
+  if (parsed.value?.some((arg) => arg.length === 0)) return { error: 'Agent 參數不可包含空字串。' };
+  return parsed;
+}
+
 export function parseProfileEnv(text: string): { value?: Record<string, string>; error?: string } {
   try {
     const value: unknown = JSON.parse(text);
@@ -161,7 +168,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
     errors.fontFamily = '請填寫有效的字型名稱，最多 256 bytes。';
   if (!Number.isInteger(settings.fontSize) || settings.fontSize < 9 || settings.fontSize > 32)
     errors.fontSize = '字型大小請填寫 9 到 32 的整數。';
-  if (!['codex', 'claude'].includes(settings.defaultAgent))
+  if (!agentKinds.includes(settings.defaultAgent))
     errors.defaultAgent = '請選擇預設 Agent。';
   if (!settings.profiles.length || settings.profiles.length > 32)
     errors.profiles = '請保留 1 到 32 個 Shell Profiles。';
@@ -203,7 +210,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
     if (!validText(source.id, 128) || sourceIds.has(source.id))
       errors[`sources.${i}.id`] = '資料來源識別碼必須唯一。';
     sourceIds.add(source.id);
-    if (!['codex', 'claude'].includes(source.kind))
+    if (!(historyAgentKinds as readonly string[]).includes(source.kind))
       errors[`sources.${i}.kind`] = '請選擇支援的 Agent 類型。';
     if (!validText(source.root, 4096) || !source.root.startsWith('/'))
       errors[`sources.${i}.root`] = '請填寫完整的絕對路徑，例如 /Users/you/.codex。';
@@ -211,10 +218,20 @@ export function validateSettings(settings: Settings): ValidationErrors {
     if (sourceRoots.has(rootKey)) errors[`sources.${i}.root`] = '此 Agent 的相同資料目錄已經加入。';
     sourceRoots.add(rootKey);
   });
-  (['codex', 'claude'] as const).forEach((kind) => {
+  agentKinds.forEach((kind) => {
     if (!validText(settings.executables[kind], 4096))
       errors[`executables.${kind}`] = `請填寫執行檔路徑，或填入 ${kind} 由 PATH 偵測。`;
   });
+  for (const kind of agentKinds) {
+    const options = settings.agentOptions?.[kind];
+    if (!options) continue; // Older settings are normalized before editing/saving.
+    const parsed = parseAgentArgs(JSON.stringify(options.extraArgs));
+    if (parsed.error) errors[`agentOptions.${kind}`] = parsed.error;
+    if (typeof options.bypassPermissions !== 'boolean') errors[`agentOptions.${kind}`] = '請確認工具權限設定。';
+    if (!options.bypassPermissions && options.extraArgs.some((arg) =>
+      /^(--yolo|--always-approve|--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--allow-dangerously-skip-permissions)(=|$)/.test(arg)))
+      errors[`agentOptions.${kind}`] = '高風險參數需要先明確勾選下方的略過權限確認選項。';
+  }
   const bindings = new Map<string, string[]>();
   if (Object.keys(settings.shortcuts).length > 32) errors.shortcuts = '最多可設定 32 個快捷鍵。';
   for (const [action, binding] of Object.entries({ ...shortcutDefaults, ...settings.shortcuts })) {
@@ -262,7 +279,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
 }
 
 function sectionForError(key: string): Section {
-  if (key.startsWith('sources') || key.startsWith('executables.')) return 'sources';
+  if (key.startsWith('sources') || key.startsWith('executables.') || key.startsWith('agentOptions.')) return 'sources';
   if (key.startsWith('profiles')) return 'profiles';
   if (key.startsWith('shortcuts')) return 'shortcuts';
   return 'appearance';
@@ -292,6 +309,8 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const [draft, setDraft] = useState(() => cloneSettings(settings));
   const [jsonFields, setJsonFields] = useState(() => profileFields(settings));
+  const [agentJson, setAgentJson] = useState(() => Object.fromEntries(agentKinds.map((kind) =>
+    [kind, JSON.stringify(normalizedAgentOptions(settings)[kind].extraArgs)])));
   const [section, setSection] = useState<Section>('sources');
   const [working, setWorking] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
@@ -304,6 +323,7 @@ export function SettingsPanel({
   useEffect(() => {
     setDraft(cloneSettings(settings));
     setJsonFields(profileFields(settings));
+    setAgentJson(Object.fromEntries(agentKinds.map((kind) => [kind, JSON.stringify(normalizedAgentOptions(settings)[kind].extraArgs)])));
     setShowErrors(false);
   }, [settings]);
 
@@ -337,11 +357,16 @@ export function SettingsPanel({
       if (env.error) jsonErrors[`profiles.${i}.env`] = env.error;
       else profile.env = env.value!;
     });
+    for (const kind of agentKinds) {
+      const args = parseAgentArgs(agentJson[kind]);
+      if (args.error) jsonErrors[`agentOptions.${kind}`] = args.error;
+      else next.agentOptions[kind].extraArgs = args.value!;
+    }
     return { settings: next, errors: { ...validateSettings(next), ...jsonErrors } };
-  }, [draft, jsonFields]);
+  }, [draft, jsonFields, agentJson]);
   const dirty =
     JSON.stringify(prepared.settings) !== JSON.stringify(cloneSettings(settings)) ||
-    Object.keys(prepared.errors).some((key) => key.endsWith('.args') || key.endsWith('.env'));
+    Object.keys(prepared.errors).some((key) => key.endsWith('.args') || key.endsWith('.env') || key.startsWith('agentOptions.'));
   const errors = showErrors
     ? prepared.errors
     : Object.fromEntries(
@@ -541,13 +566,13 @@ export function SettingsPanel({
                       </button>
                     </div>
                     <div className="settings-installations">
-                      {(['codex', 'claude'] as const).map((kind) => {
+                      {agentKinds.map((kind) => {
                         const installation = installations.find((item) => item.kind === kind);
                         return (
                           <div className="settings-installation" key={kind}>
                             <div className="settings-installation-top">
                               <span className={`settings-agent-logo ${kind}`} aria-hidden="true">
-                                {kind === 'codex' ? 'C' : '✳'}
+                                {kind === 'codex' ? 'C' : kind === 'claude' ? '✳' : kind === 'grok' ? 'G' : 'A'}
                               </span>
                               <strong>{agentNames[kind]}</strong>
                               <span
@@ -568,14 +593,14 @@ export function SettingsPanel({
                             <p className="settings-version">
                               {installation?.available
                                 ? installation.version || '已找到執行檔'
-                                : '仍可瀏覽已存在的歷史紀錄'}
+                                : kind === 'antigravity' ? '支援啟動／指定對話 ID 恢復，尚不索引歷史' : '仍可瀏覽已存在的歷史紀錄'}
                             </p>
                             <label className="settings-field">
                               <span>執行檔路徑</span>
                               <input
                                 aria-label={`${agentNames[kind]} 執行檔路徑`}
                                 value={draft.executables[kind]}
-                                placeholder={`${kind} 或完整執行檔路徑`}
+                                placeholder={`${executableDefaults[kind]} 或完整執行檔路徑`}
                                 onChange={(event) =>
                                   update('executables', {
                                     ...draft.executables,
@@ -599,6 +624,28 @@ export function SettingsPanel({
                             {installation?.error && (
                               <p className="settings-subtle-warning">{installation.error}</p>
                             )}
+                            <p className="settings-help">{kind === 'antigravity'
+                              ? 'CLI 工具 agy；與 Antigravity 桌面／IDE 歷史分開。尚不提供歷史搜尋。'
+                              : '支援唯讀歷史索引、搜尋及接續。'}</p>
+                            <label className="settings-field">
+                              <span>自訂啟動參數 <small>JSON 字串陣列</small></span>
+                              <textarea rows={3} aria-label={`${agentNames[kind]} 自訂啟動參數`}
+                                value={agentJson[kind]} spellCheck={false}
+                                onChange={(event) => setAgentJson((current) => ({ ...current, [kind]: event.target.value }))}
+                                aria-invalid={Boolean(errors[`agentOptions.${kind}`])} />
+                              <FieldError id={`settings-${kind}-args-error`} message={errors[`agentOptions.${kind}`]} />
+                            </label>
+                            <p className="settings-help">例如 ["--model", "模型名稱"]。每項為一個參數，不需 Shell 引號；不接受覆寫工作目錄／來源／Session 的參數。儲存為本機明文，勿填密碼或金鑰。</p>
+                            <label className="settings-risk-toggle">
+                              <input type="checkbox" checked={draft.agentOptions[kind].bypassPermissions}
+                                aria-label={`${agentNames[kind]} 略過權限確認`}
+                                onChange={(event) => update('agentOptions', { ...draft.agentOptions,
+                                  [kind]: { ...draft.agentOptions[kind], bypassPermissions: event.target.checked } })} />
+                              <span>我了解風險，為 {agentNames[kind]} 略過工具權限確認</span>
+                            </label>
+                            <p className="settings-subtle-warning">啟用預設加入 {bypassFlags[kind]}；自訂權限選項以啟動預覽為準。Agent 可能不再詢問就執行命令、讀寫或刪除檔案。{kind === 'codex'
+                              ? 'Codex 此模式也會停用 sandbox。'
+                              : '這不代表停用 sandbox，隔離仍依原工具設定。'}僅在可信目錄使用；儲存後套用後續新啟動與恢復，現有程序不變。</p>
                           </div>
                         );
                       })}
@@ -634,7 +681,7 @@ export function SettingsPanel({
                       <div className="settings-empty">
                         <Folder size={24} />
                         <strong>尚未加入歷史來源</strong>
-                        <p>新增 Codex 或 Claude Code 資料目錄，或先使用一般終端機。</p>
+                        <p>新增 Codex、Claude Code 或 Grok Build 資料目錄，或先使用一般終端機。</p>
                       </div>
                     )}
                     <div className="settings-source-list">
@@ -707,20 +754,21 @@ export function SettingsPanel({
                                 >
                                   <option value="codex">Codex</option>
                                   <option value="claude">Claude Code</option>
+                                  <option value="grok">Grok Build</option>
                                 </select>
                               </label>
                               <label className="settings-field">
                                 <span>
                                   {source.kind === 'codex'
                                     ? 'CODEX_HOME 資料目錄'
-                                    : 'CLAUDE_CONFIG_DIR 資料目錄'}
+                                    : source.kind === 'grok' ? 'GROK_HOME 資料目錄' : 'CLAUDE_CONFIG_DIR 資料目錄'}
                                 </span>
                                 <input
                                   value={source.root}
                                   placeholder={
                                     source.kind === 'codex'
                                       ? '/Users/you/.codex'
-                                      : '/Users/you/.claude'
+                                      : source.kind === 'grok' ? '/Users/you/.grok' : '/Users/you/.claude'
                                   }
                                   onChange={(event) =>
                                     update(
@@ -1109,6 +1157,8 @@ export function SettingsPanel({
                         >
                           <option value="codex">Codex</option>
                           <option value="claude">Claude Code</option>
+                                  <option value="grok">Grok Build</option>
+                          <option value="antigravity">Antigravity CLI</option>
                         </select>
                         <FieldError id="default-agent-error" message={errors.defaultAgent} />
                       </label>

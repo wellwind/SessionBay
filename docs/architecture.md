@@ -78,6 +78,7 @@ Terminal 輸出不進入一般 UI 全域狀態。隱藏分頁可以減少繪製�
 - 檔案刪除或封存移動時更新來源映射、主表與全文索引。
 - 限制同時開啟檔案數、解析工作數與資料庫寫入批次。
 - 查詢使用分頁與穩定排序，對話正文按需載入。
+- 掃描只維護歷史與 cwd 分組，不自動將目錄加入側欄專案，也不覆寫使用者選擇與顯示名稱。
 
 ## 資料模型提案
 
@@ -85,7 +86,7 @@ Terminal 輸出不進入一般 UI 全域狀態。隱藏分頁可以減少繪製�
 | --- | --- | --- |
 | AgentInstallation | id、kind、executable、version、capabilities | 工具可用性與啟動能力 |
 | HistorySource | id、agentKind、root、health | 歷史資料來源身份 |
-| Project | id、displayName、directoryKey、originalPath、launchOverride | 目錄分組與執行位置 |
+| Project | id、name、path、launchPath、curated、pinned、sessionCount | 目錄分組、執行位置與使用者明確選擇的側欄資格；實際傳輸欄位見 IPC 契約 |
 | Session | id、sourceId、externalId、projectId、title、updatedAt、parentId、archived | 統一歷史 metadata |
 | TranscriptSource | id、sessionId、path、fingerprint、offset、parserVersion | 來源檔案追蹤與去重 |
 | MessageIndex | sessionId、sourceLocator、role、timestamp、searchText | 可重建的搜尋片段 |
@@ -95,6 +96,21 @@ Terminal 輸出不進入一般 UI 全域狀態。隱藏分頁可以減少繪製�
 Session 的唯一性以 agent、source 與 external ID 為基礎，不用標題或 cwd 作唯一鍵。來源移動由 mapping 協調；不同來源同 ID 保留歧義，不任意恢復。
 
 Runtime handle 不寫成可在重開後直接附接的 PID。PID 可以重用；儲存布局不代表儲存活的程序。
+
+### 自選專案與完整歷史分離
+
+`Project` 同時承載 cwd 的穩定分組身份與 Session Bay 自有專案設定。新增 `curated: boolean` 明確表示使用者是否將此目錄加入左側專案；`pinned` 僅表示清單內的排序偏好，不能用是否有歷史推導加入狀態。
+
+- `list_projects`／bootstrap 保留完整 catalog 分組，前端以 `curated` 篩出專案清單，保留未加入項的名稱、路徑與 Session 關聯。
+- 所有工作階段使用不帶 `projectId` 的既有查詢；不以 `curated` join 或側欄清單限縮全域搜尋。既有 Agent、日期、封存與子代理篩選不變。
+- 初始掃描與新增 cwd 分組預設 `curated = false`。加入既有目錄、明確建立專案或預覽中的「加入專案」才改為 `true`；重新掃描／重建保留已保存狀態。
+- schema migration 僅在升級時將舊版手動加入或 `pinned = true` 的項目設為自選，保留其名稱及 launch override；其他既有掃描項不自動加入。完成遷移後，不得在每次開庫或補掃時再次提升項目。
+- 移出只設定 `curated = false` 並清除 `pinned`，不刪 Project 身份、Session／FTS 資料或工作區，不呼叫 Runtime 停止。後續掃描不得重建加入狀態。
+- 已開啟工作區以其 project ID 保留獨立導覽入口；即使對應目錄未加入、已移出或來源失效，也不能因側欄篩選而無法切回。來源失效仍按原有恢復預檢阻擋新啟動。
+
+新增 `add_project` 的可選顯示名稱、`create_project` 與 `update_project` 的 `curated`／`name` 欄位。Rust 端驗證絕對目錄與單一新名稱，建立只對已存在的父目錄執行單層 `create_dir`；不得 `create_dir_all`、覆寫既有檔案／目錄或把名稱當 Shell 指令。加入既有 canonical 目錄沿用原 Project ID。顯示名稱變更只寫 Session Bay 的自有資料，不由 indexer 覆寫。
+
+這些導覽操作不改 Session 原始 cwd、來源 transcript 或既有 `launchPath` 重新定位規則。測試僅使用隔離雲端的合成來源及暫存目錄，另驗證 schema 升級、重開、重掃、移出後查詢與 Runtime／工作區保留。
 
 ### 面板與布局
 
@@ -122,11 +138,23 @@ SQLite 保存 metadata 與可重建的全文索引。FTS5 是候選能力，但�
 
 MVP 至少支援中文子字串搜尋與常見程式碼識別字。評估 trigram 或其他 tokenizer；過短查詢可用受限範圍的參數化匹配 fallback。先量測召回率與延遲，再決定是否需要更複雜的搜尋引擎。第一版不依賴向量資料庫或模型 API。
 
+## Agent 啟動計畫與選項邊界
+
+四個 Agent kind 共用 Runtime；`grok` 對應 Grok Build，`antigravity` 對應 `agy` CLI。歷史能力另分開：Codex／Claude／Grok 進 catalog，Antigravity 僅提供啟動與手動 ID，不能因 enum 擴充就假定支援所有 transcript。
+
+`Settings.agentOptions` 按工具保存 argv 與 opt-in，舊設定透過 serde 預設安全補齊。`launch_options` 集中驗證白名單、值、長度與危險選項；不接受任意 config、cwd、來源、身份或子命令覆寫。明確權限模式優先於危險預設，源頭仍由使用者勾選同意。
+
+`preview_launch` 與 Runtime 啟動都呼叫 `Service::plan_launch`；預覽只回傳 executable、args、cwd，真正啟動重新預檢，再將完整 LaunchSpec 交給 PTY。索引 Session 以來源 env 隔離，手動 `resumeId` 與 catalog ID 互斥；不把手動 ID 誤標為已關聯歷史。argv 不經 Shell 解析，既有 cwd／launch override、程序所有權及退出清理規則保持一致。
+
+Grok adapter 以 summary 與 authoritative updates stream 配對；跨檔 metadata 變動也需失效／重算，rewind 撤銷內容不得留在搜尋索引。來源唯讀，解析限制及缺檔／身份衝突降級見 [Agent 整合規格](agent-integrations.md)。
+
 ## 程序生命週期
 
 Runtime Manager 擁有 PTY handle 與子程序監督責任；UI 元件 mount 或 unmount 不決定程序生死。狀態至少包括 starting、running、exited、failed、unknown。
 
 MVP 的切換分頁保留程序；關閉面板則明確結束其受管程序。整個應用退出時，先列出活躍面板並要求使用者選擇取消或結束後退出，實作需驗證程序樹清理與超時處理。
+
+前端收到 exit event 後，只有普通 Shell 且前一狀態為 starting／running、結束碼為 `0`，才移除面板及可能空出的最後分頁。Agent、非零／未知退出或 error 保留可診斷狀態；還原占位及已退出 pane 不重播自動關閉。這是程序已正常結束後的視圖清理，不由移出專案或切換導覽觸發。
 
 跨應用退出後仍能存活需要獨立 daemon 或外部 multiplexer。這會帶來認證、重新附接、輸出保留與版本管理，列為 P2，不能透過單純記住 PID 達成。
 
@@ -150,6 +178,7 @@ Agent、provider、模型與帳號分開保存。事件以可靠來源 ID、requ
 - Transcript Markdown 與超連結以不可信內容處理，禁用任意 HTML 執行與自動外部資源載入。
 - 終端輸出不能自行取得任意檔案或執行權限；剪貼簿控制序列等功能有明確政策。
 - 來源刪除、取消索引與清除快取時，同步移除對話衍生資料。
+- 自選專案屬自有設定；清除可重建索引保留其會員資格、名稱、釘選與重新定位。移出專案不是刪除來源或清除索引。
 - 摘要、交接若需外部模型，另行設定並預覽傳送範圍。
 
 ## 建議模組邊界

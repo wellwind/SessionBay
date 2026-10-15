@@ -519,11 +519,20 @@ fn project_overrides_and_clear_never_modify_original_history() {
     fs::create_dir(&relocated).unwrap();
     let updated = h
         .catalog
-        .update_project(&project.id, Some(true), Some(relocated.to_str().unwrap()))
+        .update_project(
+            &project.id,
+            Some(true),
+            Some(relocated.to_str().unwrap()),
+            None,
+            None,
+        )
         .unwrap();
     assert!(updated.exists);
     assert_eq!(updated.path.as_deref(), Some("/synthetic/shared"));
-    let manual = h.catalog.add_project(h.root.to_str().unwrap()).unwrap();
+    let manual = h
+        .catalog
+        .add_project(h.root.to_str().unwrap(), None)
+        .unwrap();
     assert_eq!(manual.session_count, 0);
     h.catalog.clear().unwrap();
     assert_eq!(h.total("original"), 0);
@@ -942,11 +951,11 @@ fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
     h.sync(&[source]);
     let project = h.catalog.projects().unwrap().remove(0);
     h.catalog
-        .update_project(&project.id, Some(true), None)
+        .update_project(&project.id, Some(true), None, None, None)
         .unwrap();
     let path = h.root.join("app/index.sqlite");
     let conn = rusqlite::Connection::open(&path).unwrap();
-    conn.execute_batch("UPDATE sessions SET title='Neutral title'; DROP TRIGGER messages_fts_insert; DROP TRIGGER messages_fts_delete; DROP TRIGGER messages_fts_update; DROP TABLE messages_fts; PRAGMA user_version=1;").unwrap();
+    conn.execute_batch("UPDATE sessions SET title='Neutral title'; DROP TRIGGER messages_fts_insert; DROP TRIGGER messages_fts_delete; DROP TRIGGER messages_fts_update; DROP TABLE messages_fts; DROP TABLE project_directories; PRAGMA user_version=1;").unwrap();
     drop(conn);
     let migrated = Catalog::open(&path).unwrap();
     assert_eq!(
@@ -964,7 +973,7 @@ fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
     drop(conn);
     fts_integrity(&path);
 }

@@ -2,17 +2,20 @@
 
 每個 Agent 透過 adapter 提供工具偵測、歷史列舉、對話解析與啟動規格。各家沒有可假定通用的本機歷史格式，支援範圍必須明列。
 
-## 首批與候選範圍
+## Agent 能力矩陣
 
-| 工具 | 規劃狀態 | 範圍 |
-| --- | --- | --- |
-| Codex CLI | 建議 MVP | 本機可讀 Session、預覽、新建與恢復 |
-| Claude Code CLI | 建議 MVP | 本機可讀 Session、預覽、新建與恢復 |
-| agy | 後續候選 | 先研究其正式歷史格式與恢復能力 |
-| Gemini CLI、OpenCode、Aider 等 | 後續候選 | 個別研究與能力聲明，不預先承諾支援 |
-| 各工具桌面版、IDE 與雲端紀錄 | 分別評估 | 不因 CLI 支援就假定全數涵蓋 |
+2026-10-15 需求追加 Grok Build、Antigravity CLI 與每工具啟動選項；本表描述本批實作範圍，不等於真實 CLI 或原生平台驗收已通過。結果見 [驗證紀錄](mvp-validation.md#2026-10-15-agent-擴充與自訂參數變更紀錄)。
 
-agy 曾用於命名發想，其歷史儲存整合尚未研究。執行過工具不等於具備穩定的歷史 adapter。
+| 工具／kind | 預設執行檔 | 歷史搜尋與預覽 | 新工作／恢復 |
+| --- | --- | --- | --- |
+| Codex CLI／`codex` | `codex` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
+| Claude Code CLI／`claude` | `claude` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
+| Grok Build／`grok` | `grok` | 本批新增唯讀 summary／updates adapter | 新工作、索引 Session 或手動 ID 恢復 |
+| Antigravity CLI／`antigravity` | `agy` | **尚不支援**，不提供該工具的歷史來源設定 | 新工作、手動 conversation ID 恢復 |
+| Gemini CLI、OpenCode、Aider 等 | 未整合 | 個別研究 | 後續候選 |
+| 各工具桌面版、IDE 與雲端紀錄 | 分別評估 | 不因 CLI 支援就假定涵蓋 | 不自動附接外部程序 |
+
+工具名稱、可執行檔與模型供應商不同。此處 Grok 指 xAI 的 Grok Build CLI；Antigravity 指 `agy` CLI，並非同品牌 App 或 IDE 的通用歷史整合。
 
 ## Adapter 能力契約
 
@@ -36,7 +39,7 @@ interface LaunchSpec {
 
 此為邊界示意，未列型別在實作時補齊。adapter 產生啟動規格，Runtime Manager 才實際執行。能力欄位分別表示是否支援歷史、預覽、resume、fork 與 attach，不以單一 supported 布林值概括。
 
-工具偵測考慮桌面 GUI 與互動式 Shell 的 PATH 差異。版本查詢有 timeout，使用者可手動指定執行檔；登入、金鑰與權限交由原 CLI 管理。
+工具偵測考慮桌面 GUI 與互動式 Shell 的 PATH 差異。Grok 版本探測使用 `version`，其餘使用 `--version`，不帶自訂參數或危險旗標。版本查詢有 timeout，使用者可手動指定執行檔；登入、金鑰與權限交由原 CLI 管理。
 
 ## Codex 本機來源
 
@@ -55,6 +58,43 @@ project 資料夾名稱可能來自路徑編碼，但編碼不保證可逆；優
 `history.jsonl` 與 transcript 用途不同，前者支援輸入歷史回溯，不能直接代替對話解析。[Claude Code 目錄說明](https://code.claude.com/docs/en/claude-directory)
 
 基本恢復形式為 `claude --resume <session-id>`。跨目錄解析、重複 ID 與背景 Session 行為依版本與原工具規則處理；不手動改寫 transcript 來強迫恢復。[Claude Code 恢復文件](https://code.claude.com/docs/en/sessions)
+
+## Grok Build 本機來源
+
+預設資料 root 尊重 `GROK_HOME`，否則為 `~/.grok`。本批 adapter 依官方原始碼讀取 `sessions/<encoded-cwd>/<session-id>/summary.json` 與 `updates.jsonl`：summary 提供身份及 cwd，updates 的 ACP 訊息 chunk 提供對話文字；支援的 rewind marker 撤銷相應後續訊息，避免已撤回內容仍出現在搜尋／預覽。目錄編碼不能代替可信 cwd，未知或不完整資料依 partial／錯誤狀態呈現。[官方 session 原始碼](https://github.com/xai-org/grok-build/tree/main/crates/codegen/xai-grok-shell/src/session)
+
+實作只將支援的 user／agent 文字 chunk 納入搜尋／預覽，不索引工具輸出、推理或附件，也不把 `chat_history`／feedback 當作另一份對話。同一邏輯訊息的相鄰文字 chunk 會合併，保留跨 chunk 的詞句搜尋及完整預覽；批次更新索引，避免每個 token 重建整段 FTS。訊息角色／非文字事件與 rewind 邊界分開處理，空 chunk 不切斷詞句。標題優先取 `generated_title`，活動時間優先取 `last_active_at`；支援的 legacy raw ACP 與 Unix 秒數 envelope 另有合成測試。summary cwd 與目錄解碼或 hashed 目錄的 `.cwd` 核對，衝突時不顯示衝突正文且阻擋恢復。僅有 summary 的列可顯示，但缺少 stream 不可恢復；summary／`.cwd` 改變須刷新，刷新前 stale 預覽／恢復被阻擋。
+
+這是版本相關的儲存實作，並非穩定公開 transcript API。不解析登入資料，不修改來源。恢復為 `grok --resume <id>`，cwd 獨立設定；索引來源以 `GROK_HOME` 傳入。手動 ID 不建立虛構 catalog Session；同工具、canonical 來源及外部 ID 的執行中恢復仍會去重，包含同來源 Grok 手動／索引兩種入口。多個已啟用 Grok 來源時拒絕手動恢復歧義，應改選索引 Session 或僅啟用目標來源。[Grok CLI reference](https://docs.x.ai/build/cli/reference)
+
+## Antigravity CLI 的明確邊界
+
+啟動執行檔為 `agy`，指定對話使用 `agy --conversation <id>`。新增工作可留空 ID；有 ID 時交由原 CLI 載入。手動 ID 與 catalog 的 `sessionId` 不同，不保證本機存在、已登入帳號可讀或成功恢復。[官方 resume 文件](https://antigravity.google/docs/cli/commands/resume/)
+
+官方 hooks 文件提供 `transcriptPath`，也區分 CLI、App 與 IDE 的資料位置；但這不足以確認 transcript 事件 schema、分支與完整恢復語意。本批不據此聲稱已支援 Antigravity 歷史索引、搜尋、預覽或桌面／IDE 整合，亦不讀取其憑證。[官方 hooks 文件](https://antigravity.google/docs/hooks)
+
+## 每個 Agent 的自訂參數與危險模式
+
+`Settings.agentOptions` 以四個 kind 分別保存 `{ extraArgs: string[], bypassPermissions: boolean }`。舊設定缺少選項時補為空陣列與 `false`；新增執行檔欄位補成 `grok`／`agy`，不變更使用者既有權限選擇或已保存的來源清單；既有設定需自行新增 Grok 來源，全新設定才預置 `grok-default`。
+
+設定中的參數使用 JSON 字串陣列，例如 `["--model", "your-model-id"]`；每個元素就是一個 argv，含空白的值仍是一個元素，不需要 Shell 引號。最多 64 個非空參數，每項最多 8 KiB，不允許 NUL。模型 ID 需依安裝的 CLI 與帳號能力選擇。
+
+後端採工具專屬白名單，檢查 switch／帶值參數及已知權限值；未知參數、任意子命令、位置參數、工作目錄、來源、Session ID 與 config override 均不能繞過啟動計畫。這不是可任意填入整條 Shell 命令的欄位；完整白名單以 `src-tauri/src/launch_options.rs` 的 `supported_options` 為準，驗證錯誤也會列出可用選項。常用選項包括四工具的 `--model`、Claude／Grok／Antigravity 的 `--effort`，以及各工具自己的權限／沙箱選項。
+
+危險選項必須先明確勾選該 Agent 的高風險選項。預設不追加跳過權限旗標，不會只因填入 `--yolo` 就繞過同意；原 CLI 自己的設定仍可能影響實際權限，Session Bay 不強制覆蓋它。勾選並保存一次後，之後啟動沿用，Session Bay 不再逐次彈出確認；啟動器仍標示風險。CLI 登入、工作區信任或管理政策可能另外要求操作。
+
+| Agent | 沒有明確自訂權限模式時追加的預設 | 實際意義 |
+| --- | --- | --- |
+| Codex | `--dangerously-bypass-approvals-and-sandbox` | 取消 CLI 審批與沙箱；`--yolo` 是同義旗標 |
+| Claude Code | `--dangerously-skip-permissions` | 使用 CLI 的略過權限模式；不承諾略過所有外部政策 |
+| Grok Build | `--always-approve` | 自動核准工具；`--yolo` 同義，**沙箱是獨立設定** |
+| Antigravity CLI | `--dangerously-skip-permissions` | 自動核准工具權限請求；不宣稱等同 Codex 的移除沙箱 |
+
+旗標依據：[Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli)、[Claude](https://code.claude.com/docs/en/cli-reference)、[Grok](https://docs.x.ai/build/cli/reference)、[Antigravity](https://antigravity.google/docs/cli/headless/)。不同工具的危險模式不能互換解讀。
+
+自訂明確權限模式優先：例如勾選後為 Codex 指定 `["--ask-for-approval", "never", "--sandbox", "workspace-write"]`，不再自動追加全域 bypass；Claude 的 `--permission-mode plan`、allow／deny 工具清單等明確受限設定也不被全域 bypass 預設覆蓋。危險旗標、放寬權限／額外可寫目錄等仍需 opt-in。Grok 的 `--sandbox` 本身不取代 auto-approve 設定；Antigravity 的 `--sandbox` 可與其權限模式分開指定。取消勾選後，若陣列仍有需同意的選項，保存會被拒絕，需同時移除或調整。
+
+`preview_launch` 與 `launch_runtime` 共用後端 `plan_launch`，預覽回傳 executable、精確 argv 與 cwd，不啟動程序，也不回傳環境變數或憑證。真正啟動會再做預檢；來源與 cwd 在其間改變仍可能使啟動失敗。執行使用獨立 executable、argv、cwd 與受管 env，絕不把顯示文字送進 Shell 解析。設定明文保存於本機，參數欄位不應放入金鑰、密碼或 token。
 
 ## 統一 metadata
 
@@ -82,6 +122,8 @@ Claude 的 `custom-title`／`customTitle` 優先於 `summary`。兩工具均在�
 6. Repo、子目錄與 worktree 的合併列為 P1；同 Repo 不代表同一工作環境。
 7. 若對話中途換目錄，保留時間脈絡。分組採明確的主要 cwd 規則，啟動 cwd 由 adapter 恢復行為決定，不能任選第一筆或最後一筆。
 8. 使用者重新定位只建立 Session Bay 的 launch override，不移動或修改原紀錄。
+9. 目錄分組只用於 catalog 身份與歷史查詢，不自動加入左側專案；`curated` 由使用者選擇維護。所有工作階段保留未加入目錄的歷史。
+10. 加入、移出與更名不改原始 cwd、恢復參數或來源資料；直接接續未加入專案的 Session 也不隱含加入。
 
 ## Session 與程序關聯
 

@@ -1,4 +1,5 @@
-export type AgentKind = 'codex' | 'claude';
+export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity';
+export interface AgentOptions { extraArgs: string[]; bypassPermissions: boolean; }
 export interface HistorySource {
   id: string;
   kind: AgentKind;
@@ -26,6 +27,7 @@ export interface Project {
   launchPath: string | null;
   exists: boolean;
   pinned: boolean;
+  curated: boolean;
   sessionCount: number;
   updatedAt: string | null;
   agents: AgentKind[];
@@ -100,6 +102,7 @@ export interface Settings {
   profiles: ShellProfile[];
   sources: HistorySource[];
   executables: Record<AgentKind, string>;
+  agentOptions: Record<AgentKind, AgentOptions>;
   shortcuts: Record<string, string>;
   onboardingComplete: boolean;
 }
@@ -116,11 +119,13 @@ export interface LaunchRequest {
   kind: 'shell' | AgentKind;
   projectId?: string;
   sessionId?: string;
+  resumeId?: string;
   cwd?: string;
   profileId?: string;
   cols: number;
   rows: number;
 }
+export interface LaunchPreview { executable: string; args: string[]; cwd: string; }
 export interface RuntimeInfo {
   id: string;
   paneId: string;
@@ -141,6 +146,7 @@ export interface Pane {
   projectId: string;
   cwd: string;
   sessionId?: string;
+  resumeId?: string;
   profileId?: string;
   runtimeId?: string;
   state: PaneState;

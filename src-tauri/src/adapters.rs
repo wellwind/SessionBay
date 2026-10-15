@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-pub const PARSER_VERSION: i64 = 2;
+pub const PARSER_VERSION: i64 = 3;
 pub const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TITLE_INDEX_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -33,6 +33,34 @@ pub struct ParsedState {
     pub identity_conflict: bool,
     #[serde(default)]
     pub conflicting_context: bool,
+    #[serde(default)]
+    pub grok_metadata_hash: Option<String>,
+    #[serde(default)]
+    pub grok_summary_at: Option<String>,
+    #[serde(default)]
+    pub grok_created_at: Option<String>,
+    #[serde(default)]
+    pub grok_model: Option<String>,
+    #[serde(default)]
+    pub grok_num_messages: Option<u64>,
+    #[serde(default)]
+    pub grok_prompt_starts: Vec<u64>,
+    #[serde(default)]
+    pub grok_seen_prompt_index: bool,
+    #[serde(default)]
+    pub grok_in_user: bool,
+    #[serde(default)]
+    pub grok_current_prompt_index: Option<u64>,
+    #[serde(default)]
+    pub grok_message_run: Option<GrokMessageRun>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrokMessageRun {
+    pub start_line: u64,
+    pub last_line: u64,
+    pub role: String,
+    pub prompt_index: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,6 +188,14 @@ pub fn source_titles(kind: AgentKind, root: &Path) -> Result<HashMap<String, Str
 }
 
 pub fn fallback_id(path: &Path, kind: AgentKind) -> String {
+    if kind == AgentKind::Grok {
+        return path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_owned();
+    }
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -300,6 +336,8 @@ pub fn search_text(value: &Value, kind: AgentKind, parsed: &ParsedMessage) -> St
                 .or_else(|| value.get("content"))
                 .unwrap_or(&Value::Null),
         ),
+        AgentKind::Grok => parsed.text.clone(),
+        AgentKind::Antigravity => String::new(),
     }
 }
 
@@ -323,6 +361,8 @@ pub fn parse_value(
     match kind {
         AgentKind::Codex => parse_codex(value, state, timestamp),
         AgentKind::Claude => parse_claude(value, state, timestamp, path),
+        AgentKind::Grok => parse_grok(value, state),
+        AgentKind::Antigravity => None,
     }
 }
 
@@ -554,6 +594,243 @@ fn parse_claude(
             Some(placeholder("[Unsupported Claude event]", timestamp))
         }
     }
+}
+
+// ACP's durable envelope has Unix seconds; legacy records are raw notifications.
+fn grok_params(value: &Value) -> Option<(&Value, bool)> {
+    match value.get("method").and_then(Value::as_str) {
+        Some("session/update") => Some((value.get("params")?, false)),
+        Some("_x.ai/session/update") => Some((value.get("params")?, true)),
+        None if value.get("method").is_none() => Some((value, false)),
+        _ => None,
+    }
+}
+
+fn parse_grok(value: &Value, state: &mut ParsedState) -> Option<ParsedMessage> {
+    let timestamp = value
+        .get("timestamp")
+        .and_then(Value::as_i64)
+        .and_then(|seconds| DateTime::from_timestamp(seconds, 0))
+        .map(|time| time.to_rfc3339_opts(SecondsFormat::Millis, true));
+    if let Some(time) = &timestamp {
+        if state.event_at.as_ref().is_none_or(|old| time > old) {
+            state.event_at = Some(time.clone());
+        }
+    }
+    let Some((params, extension)) = grok_params(value) else {
+        state.unknown_events += 1;
+        return Some(placeholder("[Unsupported Grok notification]", timestamp));
+    };
+    let Some(id) = string(params, "sessionId") else {
+        state.bad_lines += 1;
+        return Some(placeholder(
+            "[Grok notification without session identity]",
+            timestamp,
+        ));
+    };
+    if state
+        .external_id
+        .as_ref()
+        .is_some_and(|expected| expected != &id)
+    {
+        state.identity_conflict = true;
+        state.bad_lines += 1;
+        return Some(placeholder(
+            "[Conflicting session identity; record omitted]",
+            timestamp,
+        ));
+    }
+    state.external_id = Some(id);
+    state.recognized = true;
+    if state.conflicting_context {
+        return None;
+    }
+    let Some(update) = params.get("update") else {
+        state.bad_lines += 1;
+        return Some(placeholder("[Malformed Grok update]", timestamp));
+    };
+    let tag = update
+        .get("sessionUpdate")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match (extension, tag) {
+        (false, "user_message_chunk" | "agent_message_chunk") => {
+            if update.pointer("/_meta/hostTurn").and_then(Value::as_bool) == Some(true) {
+                return Some(placeholder("[Host-generated context omitted]", timestamp));
+            }
+            let content = update.get("content").unwrap_or(&Value::Null);
+            if content.pointer("/_meta/bashCommand").is_some() {
+                return Some(placeholder("[Shell output omitted from search]", timestamp));
+            }
+            match content.get("type").and_then(Value::as_str) {
+                Some("text") => {
+                    let Some(text) = content.get("text").filter(|text| text.is_string()) else {
+                        state.bad_lines += 1;
+                        return Some(placeholder("[Malformed Grok text chunk]", timestamp));
+                    };
+                    let role = if tag == "user_message_chunk" {
+                        "user"
+                    } else {
+                        "assistant"
+                    };
+                    if text.as_str() == Some("") {
+                        // Valid empty chunks are no-ops within a streaming run.
+                        return Some(ParsedMessage {
+                            role: role.into(),
+                            text: String::new(),
+                            timestamp,
+                            searchable: true,
+                            fallback: false,
+                        });
+                    }
+                    message(role, text, timestamp, false, state)
+                }
+                Some("image" | "audio" | "resource" | "resource_link") => {
+                    Some(placeholder("[Attachment; preview unavailable]", timestamp))
+                }
+                _ => {
+                    state.unknown_events += 1;
+                    Some(placeholder("[Unsupported Grok content block]", timestamp))
+                }
+            }
+        }
+        (false, "agent_thought_chunk") => {
+            Some(placeholder("[Internal reasoning omitted]", timestamp))
+        }
+        (false, "tool_call" | "tool_call_update") => {
+            Some(placeholder("[Tool output omitted from search]", timestamp))
+        }
+        (true, "rewind_marker") => {
+            if update
+                .get("target_prompt_index")
+                .and_then(Value::as_u64)
+                .is_none()
+            {
+                state.bad_lines += 1;
+                return Some(placeholder("[Malformed Grok rewind marker]", timestamp));
+            }
+            None
+        }
+        (true, "compaction_checkpoint") => Some(placeholder(
+            "[Conversation compacted; earlier context may be unavailable]",
+            timestamp,
+        )),
+        (
+            false,
+            "plan"
+            | "available_commands_update"
+            | "current_mode_update"
+            | "config_option_update"
+            | "session_info_update"
+            | "usage_update",
+        ) => None,
+        _ => {
+            state.unknown_events += 1;
+            Some(placeholder("[Unsupported Grok update]", timestamp))
+        }
+    }
+}
+
+// The saved physical-line boundaries let appended rewind markers delete an old
+// branch without reparsing it. Match upstream's progressive promptIndex counting.
+pub fn grok_timeline(value: &Value, state: &mut ParsedState, line: u64) -> Option<u64> {
+    let Some((params, extension)) = grok_params(value) else {
+        grok_end_user_run(state);
+        return None;
+    };
+    if state.conflicting_context
+        || params.get("sessionId").and_then(Value::as_str) != state.external_id.as_deref()
+    {
+        grok_end_user_run(state);
+        return None;
+    }
+    let update = params.get("update").unwrap_or(&Value::Null);
+    let tag = update
+        .get("sessionUpdate")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if extension && tag == "rewind_marker" {
+        let boundary = update
+            .get("target_prompt_index")
+            .and_then(Value::as_u64)
+            .and_then(|target| {
+                let index = usize::try_from(target).ok()?;
+                let boundary = state.grok_prompt_starts.get(index).copied();
+                state.grok_prompt_starts.truncate(index);
+                boundary
+            });
+        grok_end_user_run(state);
+        return boundary;
+    }
+    if !extension
+        && tag == "user_message_chunk"
+        && update.pointer("/_meta/hostTurn").and_then(Value::as_bool) != Some(true)
+    {
+        let index = update.pointer("/_meta/promptIndex").and_then(Value::as_u64);
+        state.grok_seen_prompt_index |= index.is_some();
+        let new_run = !state.grok_in_user
+            || (state.grok_seen_prompt_index && index != state.grok_current_prompt_index);
+        if new_run {
+            state.grok_current_prompt_index = index;
+            if !state.grok_seen_prompt_index || index.is_some() {
+                state.grok_prompt_starts.push(line);
+            }
+        }
+        state.grok_in_user = true;
+    } else {
+        grok_end_user_run(state);
+    }
+    None
+}
+
+pub fn grok_end_user_run(state: &mut ParsedState) {
+    state.grok_in_user = false;
+    state.grok_current_prompt_index = None;
+}
+
+pub fn apply_grok_summary(state: &mut ParsedState, summary: &Value, directory_cwd: Option<String>) {
+    let info = summary.get("info").unwrap_or(&Value::Null);
+    let id = string(info, "id");
+    if id.is_none() || id != state.external_id {
+        state.bad_lines += 1;
+        state.identity_conflict = true;
+        state.conflicting_context = true;
+        return;
+    }
+    let cwd = string(info, "cwd").filter(|cwd| Path::new(cwd).is_absolute() && !cwd.contains('\0'));
+    if cwd
+        .as_ref()
+        .zip(directory_cwd.as_ref())
+        .is_some_and(|(a, b)| a != b)
+    {
+        state.bad_lines += 1;
+        state.identity_conflict = true;
+        state.conflicting_context = true;
+        state.cwd = None;
+        return;
+    }
+    state.authoritative_cwd = cwd.is_some();
+    state.cwd = cwd.or(directory_cwd);
+    state.title = string(summary, "generated_title").or_else(|| string(summary, "session_summary"));
+    state.grok_summary_at = ["last_active_at", "updated_at", "created_at"]
+        .iter()
+        .find_map(|key| {
+            summary
+                .get(key)
+                .and_then(Value::as_str)
+                .and_then(normalized_time)
+        });
+    state.grok_created_at = summary
+        .get("created_at")
+        .and_then(Value::as_str)
+        .and_then(normalized_time);
+    state.grok_num_messages = summary.get("num_messages").and_then(Value::as_u64);
+    state.grok_model = string(summary, "current_model_id");
+    state.parent_external = string(summary, "parent_session_id");
+    state.child = summary
+        .get("session_kind")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind.starts_with("subagent"));
 }
 
 #[cfg(test)]

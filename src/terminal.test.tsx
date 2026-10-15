@@ -1,3 +1,4 @@
+import { defaultAgentOptions } from './agents';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPane } from './components/TerminalPane';
@@ -60,7 +61,8 @@ const settings: Settings = {
   defaultProfileId: 'shell',
   profiles: [],
   sources: [],
-  executables: { codex: 'codex', claude: 'claude' },
+  agentOptions: defaultAgentOptions(),
+  executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
   shortcuts: {},
   onboardingComplete: true,
 };
@@ -160,6 +162,74 @@ describe('terminal lifetime and flow control', () => {
     expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'exited', exitCode: 7 });
     expect(p.onPatch.mock.calls.some(([, patch]) => patch.state === 'running')).toBe(false);
   });
+  it('preserves a successful exit before launch response and ignores repeated runtime metadata', async () => {
+    let resolve!: (value: RuntimeInfo) => void;
+    mocks.launch.mockImplementation(() => new Promise<RuntimeInfo>((done) => { resolve = done; }));
+    const p = props(makePane({ startToken: 1 }));
+    render(<TerminalPane {...p} />);
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => {
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+    });
+    await act(async () => resolve(info));
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'exited', exitCode: 0 });
+    expect(p.onPatch.mock.calls.some(([, patch]) => patch.state === 'running')).toBe(false);
+    await act(async () => { mocks.input?.('do not write after exit'); });
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it('retains a failure when an exit with code zero follows it before launch response', async () => {
+    let resolve!: (value: RuntimeInfo) => void;
+    mocks.launch.mockImplementation(() => new Promise<RuntimeInfo>((done) => { resolve = done; }));
+    const p = props(makePane({ startToken: 1 }));
+    render(<TerminalPane {...p} />);
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => {
+      channel({ type: 'error', runtimeId: 'runtime', message: 'PTY reader failed' });
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+    });
+    await act(async () => resolve(info));
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'failed', error: 'PTY reader failed' });
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'failed', exitCode: 0 });
+    expect(p.onPatch.mock.calls.some(([, patch]) => ['running', 'exited'].includes(patch.state))).toBe(false);
+  });
+  it('ignores stale launch token events and ACKs stale output without writing it', async () => {
+    const p = props(makePane({ startToken: 1 }));
+    const view = render(<TerminalPane {...p} />);
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith('pane', expect.objectContaining({ state: 'running' })));
+    const oldChannel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    mocks.launch.mockResolvedValueOnce({ ...info, id: 'new-runtime' });
+    view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 2 })} />);
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith('pane', expect.objectContaining({ runtimeId: 'new-runtime' })));
+    const currentChannel = mocks.launch.mock.calls[1][1] as (event: TerminalEvent) => void;
+    p.onPatch.mockClear();
+    act(() => {
+      oldChannel({ type: 'error', runtimeId: 'runtime', message: 'Old failure' });
+      oldChannel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      oldChannel({ type: 'output', runtimeId: 'runtime', sequence: 92, data: [65] });
+    });
+    expect(p.onPatch).not.toHaveBeenCalled();
+    expect(mocks.termWrite).not.toHaveBeenCalled();
+    expect(mocks.ack).toHaveBeenCalledWith('runtime', 92);
+    act(() => currentChannel({ type: 'exit', runtimeId: 'new-runtime', exitCode: 3 }));
+    expect(p.onPatch).toHaveBeenCalledExactlyOnceWith('pane', { state: 'exited', exitCode: 3 });
+  });
+  it('stops an obsolete launch response without changing the latest runtime', async () => {
+    let resolveOld!: (value: RuntimeInfo) => void;
+    mocks.launch.mockImplementationOnce(() => new Promise<RuntimeInfo>((done) => { resolveOld = done; }));
+    const p = props(makePane({ startToken: 1 }));
+    const view = render(<TerminalPane {...p} />);
+    mocks.launch.mockResolvedValueOnce({ ...info, id: 'new-runtime' });
+    view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 2 })} />);
+    await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith('pane', expect.objectContaining({ runtimeId: 'new-runtime' })));
+    p.onPatch.mockClear();
+    await act(async () => resolveOld(info));
+    expect(mocks.stop).toHaveBeenCalledWith('runtime');
+    expect(p.onPatch).not.toHaveBeenCalled();
+    await act(async () => { mocks.input?.('latest'); });
+    expect(mocks.write).toHaveBeenCalledWith('new-runtime', 'latest');
+  });
   it('stops a launch completed after its pane was removed', async () => {
     let resolve!: (value: RuntimeInfo) => void;
     mocks.launch.mockImplementation(
@@ -182,6 +252,23 @@ describe('terminal lifetime and flow control', () => {
     );
     expect(mocks.stop).not.toHaveBeenCalled();
   });
+  it.each(['stale', 'unmounted'] as const)('does not focus or stop an existing runtime from an %s duplicate-launch response', async (condition) => {
+    let resolve!: (value: RuntimeInfo) => void;
+    mocks.launch.mockImplementationOnce(() => new Promise<RuntimeInfo>((done) => { resolve = done; }));
+    const p = props(makePane({ startToken: 1 }));
+    const view = render(<TerminalPane {...p} />);
+    if (condition === 'unmounted') view.unmount();
+    else {
+      mocks.launch.mockResolvedValueOnce({ ...info, id: 'new-runtime' });
+      view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 2 })} />);
+      await waitFor(() => expect(p.onPatch).toHaveBeenCalledWith('pane', expect.objectContaining({ runtimeId: 'new-runtime' })));
+    }
+    p.onPatch.mockClear();
+    await act(async () => resolve({ ...info, id: 'existing-runtime', paneId: 'other-pane' }));
+    expect(p.onAlreadyOpen).not.toHaveBeenCalled();
+    expect(mocks.stop).not.toHaveBeenCalledWith('existing-runtime');
+    expect(p.onPatch).not.toHaveBeenCalled();
+  });
   it('serializes typed input through the IPC queue', async () => {
     render(<TerminalPane {...props(makePane({ startToken: 1 }))} />);
     await waitFor(() => expect(mocks.launch).toHaveBeenCalled());
@@ -195,5 +282,33 @@ describe('terminal lifetime and flow control', () => {
       ['runtime', '中'],
       ['runtime', '\r'],
     ]);
+  });
+});
+
+
+describe('additional agent terminal requests', () => {
+  it.each(['grok', 'antigravity'] as const)('never launches a restored %s conversation without an explicit start token', (kind) => {
+    render(<TerminalPane {...props(makePane({ kind, resumeId: 'synthetic-conversation' }))} />);
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
+  it.each(['grok', 'antigravity'] as const)('passes the %s manual ID as a separate launch field after explicit start', async (kind) => {
+    const pane = makePane({ kind, resumeId: 'synthetic-conversation', cwd: '/synthetic/work tree', startToken: 1 });
+    const config = props(pane);
+    const view = render(<TerminalPane {...config} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
+    expect(mocks.launch).toHaveBeenCalledWith({
+      paneId: 'pane', kind, projectId: 'project', sessionId: undefined, resumeId: 'synthetic-conversation',
+      cwd: '/synthetic/work tree', profileId: undefined, cols: 80, rows: 24,
+    }, expect.any(Function));
+    view.rerender(<TerminalPane {...config} visible={false} />);
+    view.rerender(<TerminalPane {...config} settings={{ ...settings, agentOptions: {
+      ...defaultAgentOptions(), [kind]: { extraArgs: ['--model', 'changed'], bypassPermissions: true },
+    } }} />);
+    expect(mocks.launch).toHaveBeenCalledTimes(1);
+  });
+  it('keeps a Grok catalog session ID distinct from a manual external resume ID', async () => {
+    render(<TerminalPane {...props(makePane({ kind: 'grok', sessionId: 'catalog-session', startToken: 1 }))} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
+    expect(mocks.launch.mock.calls[0][0]).toMatchObject({ kind: 'grok', sessionId: 'catalog-session', resumeId: undefined });
   });
 });

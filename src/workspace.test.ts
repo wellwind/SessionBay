@@ -5,6 +5,7 @@ import {
   layoutRects,
   localDayBound,
   paneIds,
+  patchWorkspacePane,
   restoreWorkspace,
   serializeWorkspace,
   setRatio,
@@ -138,6 +139,67 @@ describe('workspace layout', () => {
     expect(new Date(localDayBound('2026-10-15', true)!).getMilliseconds()).toBe(999);
   });
 });
+describe('successful shell exit cleanup', () => {
+  it.each(['starting', 'running'] as const)('closes only a %s shell pane and preserves its split sibling', (state) => {
+    const previous = workspace();
+    previous.panes.a.state = state;
+    const next = patchWorkspacePane(previous, 'a', { state: 'exited', exitCode: 0 });
+    expect(next.panes.a).toBeUndefined();
+    expect(next.tabs[0]).toMatchObject({ focusedPaneId: 'b', layout: { kind: 'pane', paneId: 'b' } });
+    expect(next.panes.b).toEqual(previous.panes.b);
+    expect(next.panes.c).toEqual(previous.panes.c);
+    expect(next.tabs[1]).toEqual(previous.tabs[1]);
+    expect(next.activeTabByProject).toEqual(previous.activeTabByProject);
+    expect(previous.panes.a).toBeDefined();
+  });
+  it('removes an exited last pane and tab, then focuses the surviving tab', () => {
+    const previous = closePane(workspace(), 'a');
+    const next = patchWorkspacePane(previous, 'b', { state: 'exited', exitCode: 0 });
+    expect(next.tabs.map((tab) => tab.id)).toEqual(['second']);
+    expect(next.activeTabByProject.project).toBe('second');
+    expect(next.panes.c).toEqual(previous.panes.c);
+    const empty = patchWorkspacePane(next, 'c', { state: 'exited', exitCode: 0 });
+    expect(empty).toEqual(emptyWorkspace());
+    expect(patchWorkspacePane(empty, 'c', { state: 'exited', exitCode: 0 })).toBe(empty);
+  });
+  it('keeps the active tab and another project unchanged when a background shell exits', () => {
+    const previous = workspace();
+    previous.panes.d = { ...pane('d'), projectId: 'other-project' };
+    previous.tabs.push({ id: 'foreign-tab', projectId: 'other-project', name: 'Elsewhere', focusedPaneId: 'd', layout: { kind: 'pane', paneId: 'd' } });
+    previous.activeTabByProject['other-project'] = 'foreign-tab';
+    const next = patchWorkspacePane(previous, 'c', { state: 'exited', exitCode: 0 });
+    expect(next.tabs.map((tab) => tab.id)).toEqual(['tab', 'foreign-tab']);
+    expect(next.activeTabByProject).toEqual(previous.activeTabByProject);
+    expect(next.panes.a).toEqual(previous.panes.a);
+    expect(next.panes.d).toEqual(previous.panes.d);
+  });
+  it.each([
+    { name: 'Codex', pane: { kind: 'codex' }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'Claude', pane: { kind: 'claude' }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'Grok', pane: { kind: 'grok' }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'Antigravity', pane: { kind: 'antigravity' }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'nonzero exit', pane: {}, patch: { state: 'exited', exitCode: 7 } },
+    { name: 'unknown exit', pane: {}, patch: { state: 'exited', exitCode: null } },
+    { name: 'missing exit code', pane: {}, patch: { state: 'exited' } },
+    { name: 'restored placeholder', pane: { state: 'placeholder' }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'failed shell', pane: { state: 'failed' }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'shell with an error', pane: { error: 'PTY failed' }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'previous unsuccessful exit', pane: { state: 'exited', exitCode: 1 }, patch: { state: 'exited', exitCode: 0 } },
+    { name: 'failure event', pane: {}, patch: { state: 'failed', error: 'PTY failed' } },
+  ] satisfies { name: string; pane: Partial<Pane>; patch: Partial<Pane> }[])('retains $name for inspection', ({ pane: overrides, patch }) => {
+    const previous = workspace();
+    previous.panes.a = { ...previous.panes.a, ...overrides };
+    const next = patchWorkspacePane(previous, 'a', patch);
+    expect(next.panes.a).toEqual({ ...previous.panes.a, ...patch });
+    expect(next.tabs).toEqual(previous.tabs);
+    expect(next.activeTabByProject).toEqual(previous.activeTabByProject);
+  });
+  it('does not resurrect an already removed pane after duplicate exits or late runtime responses', () => {
+    const closed = patchWorkspacePane(workspace(), 'a', { state: 'exited', exitCode: 0 });
+    expect(patchWorkspacePane(closed, 'a', { state: 'exited', exitCode: 0 })).toBe(closed);
+    expect(patchWorkspacePane(closed, 'a', { runtimeId: 'late-runtime' })).toBe(closed);
+  });
+});
 describe('shared command registry', () => {
   it('has no default shortcut conflicts', () =>
     expect(shortcutConflicts(shortcutDefaults).size).toBe(0));
@@ -244,5 +306,28 @@ describe('bounded terminal input queue', () => {
     expect(queue.enqueue('r', 'ok')).toBe(true);
     await queue.drained();
     expect(queue.pending).toBe(0);
+  });
+});
+
+
+describe('additional agent workspace persistence', () => {
+  it.each(['grok', 'antigravity'] as const)('round-trips a %s conversation ID without its runtime or automatic start token', (kind) => {
+    const saved = workspace();
+    saved.panes.a = { ...saved.panes.a, kind, resumeId: 'synthetic-conversation' };
+    const serialized = serializeWorkspace(saved) as Workspace;
+    const restored = restoreWorkspace(JSON.parse(JSON.stringify(serialized)));
+    expect(serialized.panes.a).toMatchObject({ kind, resumeId: 'synthetic-conversation', state: 'placeholder' });
+    expect(restored.panes.a).toMatchObject({ kind, resumeId: 'synthetic-conversation', state: 'placeholder' });
+    expect(restored.panes.a.runtimeId).toBeUndefined();
+    expect(restored.panes.a.startToken).toBeUndefined();
+    expect(restored.panes.a.sessionId).toBeUndefined();
+    expect(restored.tabs).toEqual(saved.tabs);
+  });
+  it.each([42, {}, ['synthetic'], 'x'.repeat(1025)])('discards malformed or oversized resume metadata without losing the pane: %j', (resumeId) => {
+    const saved = workspace();
+    saved.panes.a = { ...saved.panes.a, kind: 'grok', resumeId: resumeId as string };
+    const restored = restoreWorkspace(saved);
+    expect(restored.panes.a).toMatchObject({ kind: 'grok', state: 'placeholder' });
+    expect(restored.panes.a.resumeId).toBeUndefined();
   });
 });
