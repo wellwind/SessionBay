@@ -14,7 +14,7 @@
 | 完整 Linux crate | 預設 desktop features 的 cargo test 85 測試通過（含 3 個桌面生命週期／診斷測試）；all-target Clippy `-D warnings` 與 native cargo build 通過 |
 | Linux executable | debug executable 成功連結；Ubuntu 24.04 CI 已產出 release .deb 並啟動原生視窗；安裝流程未測，不宣稱跨 distro 通用 |
 | macOS | 首輪 macOS 15 ARM64／Intel 原生編譯成功；CI 找出 Darwin zombie leader 的 session 查詢差異，已加入修正與回歸測試；最新平台結果請查下方 PR Checks |
-| Native GUI／截圖 | 第三輪 Linux 程序／視窗 smoke 通過，但人工檢視 PNG 為純色，不能當作 UI 可用證據。已加入 pre-module 錯誤觀測、DOM＋IPC readiness、設定對話框操作、純色防護及 Xvfb graphics-only 修正；後續結果以 PR Checks／artifact 複核為準 |
+| Native GUI／截圖 | 第三輪 Linux 程序／視窗 smoke 通過，但人工檢視 PNG 為純色，不能當作 UI 可用證據。已加入 pre-module 錯誤觀測、DOM＋IPC readiness、設定對話框操作、純色防護及 Xvfb graphics-only 修正；第四輪 DOM／操作與繪製通過，但 PNG 揭露缺少 CJK 字型；已加入 Ubuntu 字型依賴及 coverage 檢查，後續結果以 PR Checks／artifact 複核為準 |
 | CI | 已啟動 Ubuntu 24.04 x64、macOS 15 ARM64／Intel 工作流程；首輪 Linux tests／Clippy／.deb bundle 通過，但 window smoke 找出 setup 前的 state 存取 panic，已加入防護與兩項回歸；兩 OS 另增隔離 HOME 的 DOM／bootstrap／設定對話框開關檢查。Linux 包含 Xvfb 原生視窗／截圖 smoke；建置與後續修正結果以 PR Checks 的 exact commit 為準 |
 | 獨立程式審查 | 已通過修正後的資料唯讀、IPC、注入防護、程序所有權、關閉競態與布局恢復檢查；不等同平台驗收 |
 
@@ -49,6 +49,7 @@ Service 整合測試涵蓋：同專案 Codex＋Claude 合成歷史 → 中文搜
 - Darwin zombie leader：以私有 OwnedChild 與 fresh waitid(WNOWAIT) 證明未回收的子程序所有權，不依賴 Darwin 對 zombie 失效的 getsid；ECHILD、live session mismatch 仍拒絕，對仍持有 child 但尚在退出中的短暫 ESRCH 只做有界重試，後代 process group 持續驗證成員。
 - WebView 驗證：載入主模組前觀測 JS／CSP／資產錯誤，React 與 backend bootstrap 就緒後才跑 CI-only 設定對話框開關；正常啟動不自動操作。Bootstrap 可恢復失敗不鎖死 Retry。
 - Darwin 空群組：發訊號前確認 live member；若最後成員退出造成 EPERM，必須 fresh 完整掃描證明已無 live member 才視為完成。真正權限、ownership 或列舉錯誤仍回報。
+- Linux 繁中字型：原生截圖發現最小 Ubuntu 環境缺 CJK 字型，`.deb` 與 CI 加入官方 fonts-noto-cjk，CSS 明確 fallback 至 Noto Sans CJK TC，CI 檢查 zh-tw coverage。
 - Darwin PTY 背壓關閉：session leader 退出時的 ttywait 仍需 master 排空；明確停止後保留每輪最多 16 KiB 非阻塞讀取並丟棄，不等待 ACK、不產生新 Output／credit，維持 3 秒期限。新增達到實際 credit exhaustion、忽略 HUP／TERM、Ctrl-S／XOFF 暫停的回歸；Darwin 停止時對自有 master 一次 TIOCSTART 恢復排空，不注入鍵盤輸入。
 - 跨平台測試：預期 cwd 與產品同樣 canonicalize，避免 macOS /var → /private/var symlink 造成假失敗。
 

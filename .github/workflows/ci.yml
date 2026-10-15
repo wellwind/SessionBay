@@ -33,7 +33,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev patchelf xvfb xauth x11-utils imagemagick
+          sudo apt-get install --no-install-recommends -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev patchelf xvfb xauth x11-utils imagemagick fonts-noto-cjk fontconfig
+          fc-list :lang=zh-tw family | grep -F 'Noto Sans CJK TC'
+          fc-match 'Noto Sans CJK TC:lang=zh-tw'
       - name: Rust components
         run: rustup show && rustup component add rustfmt clippy
       - run: npm ci

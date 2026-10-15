@@ -15,8 +15,10 @@ Ubuntu 24.04 桌面相依套件：
 sudo apt-get update
 sudo apt-get install --no-install-recommends \
   libwebkit2gtk-4.1-dev build-essential curl wget file \
-  libxdo-dev libssl-dev librsvg2-dev patchelf
+  libxdo-dev libssl-dev librsvg2-dev patchelf fonts-noto-cjk
 ```
+
+繁體中文介面需要 CJK 字型。Ubuntu 24.04 的 CI 與 `.deb` 安裝相依套件包含官方 `fonts-noto-cjk`，介面使用本機 `Noto Sans CJK TC` fallback，不下載網路字型。請用 `sudo apt install ./Session\ Bay_0.1.0_amd64.deb` 安裝可信建置的套件，讓 apt 一併處理字型與 WebKitGTK 等相依套件；直接解壓或單獨啟動 binary 不會安裝相依套件。Tauri 會保留預設桌面相依套件並加入額外的 `deb.depends`，見 [官方 Debian 打包說明](https://v2.tauri.app/distribute/debian/) 與 [Ubuntu Noto CJK 套件](https://packages.ubuntu.com/source/noble/fonts-noto-cjk)。
 
 其他發行版請對照 [Tauri 官方 prerequisites](https://v2.tauri.app/start/prerequisites/)。不能把任意 Linux distro 視為已驗證。
 
