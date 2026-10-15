@@ -1,0 +1,39 @@
+name: Linux checks
+# Push-only avoids a second pull_request run and uses the push diff for docs filtering.
+# Checks remain attached to the commit visible in same-repository PRs.
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - README.md
+      - docs/*.md
+permissions:
+  contents: read
+concurrency:
+  group: linux-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux:
+    name: Linux lightweight
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Rust components
+        run: rustup show && rustup component add rustfmt clippy
+      - run: npm ci
+      - name: Frontend checks
+        run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: Validate visual assets and semantic contrast
+        run: python3 scripts/validate-ui-design.py && python3 scripts/validate-macos-icon.py
+      - name: Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Rust core tests (no desktop)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --no-default-features
+      - name: Rust core lint (no desktop)
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --no-default-features --all-targets -- -D warnings

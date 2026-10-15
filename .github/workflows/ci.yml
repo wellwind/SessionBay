@@ -1,17 +1,9 @@
-name: Desktop checks
+name: Desktop acceptance (manual)
+# Complete acceptance is intentionally manual; a skipped/unrun matrix is not a pass.
 on:
   workflow_dispatch:
-  pull_request:
-    paths-ignore:
-      - README.md
-      - docs/*.md
-  push:
-    branches: [main]
 permissions:
   contents: read
-concurrency:
-  group: checks-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   desktop:
     strategy:

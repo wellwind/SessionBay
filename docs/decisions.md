@@ -231,3 +231,14 @@
 採持久化 step 與 metadata 防禦 reader，來源／schema 證據與未完成的 1.3.5 實機驗收見 [Antigravity CLI 歷史](antigravity-cli-history.md)。備份只預覽；原生 CLI root 的索引接續仍需身份與 cwd 預檢。SQLite 僅讀應用私密暫存副本，不觸碰原始資料 sidecars。未知格式要顯示原因，不以空清單冒充成功。
 
 新增的主題、臨時 Terminal、遠端管理與 Web 客戶端仍是未來待辦，合計 17 項；第 09 項持續 Runtime／重新附接維持下一階段最高優先。
+
+## 2026-10-15 CI 省額度模式
+
+使用者在 GitHub Annotations 確認帳務／支出限制後，同意本 PR 改為日常 Linux 輕量檢查，完整 macOS ARM64／Intel 與 Linux 打包、原生 smoke 改為手動驗收。本決定取代先前每次 PR 更新自動跑三平台的策略；未授權變更帳務、提高上限、合併或代為手動觸發。
+
+- 自動 `light-checks.yml` 僅監聽本 repo 的 branch push，不另監聽 pull_request，避免同一提交重複執行；同 branch 新程式提交取消舊自動 run。
+- 僅忽略根目錄 README.md 與 docs/ 直屬 Markdown。push 的兩點 diff 可在排程前略過一般純文件更新；程式、fixtures、scripts、skills、設定與 workflow 變更仍檢查。GitHub 大型 diff／逾時等例外不能承諾永遠零 run。
+- Linux 輕量包含前端品質與 build、靜態視覺資產驗證、Rust fmt／無 desktop features 的核心 tests／Clippy；不安裝 GUI 套件、不 release 打包、不跑原生 smoke。
+- 原 `ci.yml` 保留完整三平台流程，只接受 workflow_dispatch；不設會被日常 push 或另一個 pending run 取代的共用 concurrency group。
+- push 檢查的是 branch head，不是 GitHub 合成的 PR merge commit；fork PR、只有 base branch 更新的相容性不由此自動覆蓋。被略過／尚未手動跑的驗收不是 passed，required-check 設定未改。
+- 手動 workflow 的 UI 入口依 GitHub default-branch 規則；目前 main 尚無 workflow，不保證未合併 PR 可以派送。保留配置不等於已執行，不能為了讓按鈕出現自行合併或觸發。操作與來源見 [開發與試用](development.md#ci-省額度模式)。

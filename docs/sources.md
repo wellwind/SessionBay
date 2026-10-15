@@ -124,3 +124,13 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 ## Antigravity CLI 持久化格式補充（2026-10-15）
 
 本輪後續取得公開持久化 row 與版本化 metadata reader 證據，取代上表當時「本批不建歷史 adapter」的暫定範圍。完整來源、原始 capture 版本／社群實作的證據強度、SQLite 唯讀設計及尚缺的 1.3.5 驗收，見 [Antigravity CLI 歷史相容性](antigravity-cli-history.md)。不把官方路徑文件、stdout stream-json 或社群聲稱的版本範圍當穩定 schema 保證。
+
+## CI 省額度模式
+
+查閱日期：2026-10-15。自動檢查只用 branch push，手動保留完整三平台；沒有變更帳務或 required checks。
+
+- [GitHub workflow syntax：Git diff comparisons](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#git-diff-comparisons)：push 兩點與 PR 三點 diff、路徑篩選與大型 diff 例外。
+- [GitHub：Manually running a workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)：default-branch 要求與 branch/ref 選擇；未合併時不能保證派送可用。
+- [GitHub：Control workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)：同群 queued run 的取代語意；完整手動流程不共用自動取消群組。
+- [GitHub：Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)：未跑／略過不能作為本專案實際平台驗收證據。
+- [actionlint v1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)：本機以官方 release digest 核對後檢查 workflow 語法與 expressions；沒有新增第三方 CI action。

@@ -79,7 +79,7 @@
 | [x] | ADD-11 | 唯讀 Shell 候選與已存 Profile canonical 排除 | shells 14 個回歸；不執行／不讀 rc／不覆寫 settings，候選與 saved-resolution 均有界 |
 | [x] | ADD-12 | macOS 專用 ICNS 留白與可重現腳本 | 10 representations 透明邊界、兩次 byte-identical、7 個原資產雜湊保護；非 Cmd+Tab 人工驗收 |
 | [ ] | ADD-13 | 完整 UI／UX 重設與新控制項 | tokens／卡片與清單／設定 details／兩段啟動器已實作，最終 frontend 324／324 與 build 通過；等 native 畫面複核後再勾選 |
-| [ ] | ADD-14 | 最新提交三 runner checks／unsigned bundle／native smoke | 等 exact commit CI 完成；先前提交的成功不能代替 |
+| [ ] | ADD-14 | 最新提交手動三 runner checks／unsigned bundle／native smoke | 省額度模式保留手動完整驗收；帳務限制尚未解除、最新 exact commit 尚未通過，Linux 輕量或舊提交成功不能代替 |
 | [ ] | ADD-15 | macOS Cmd+Tab／Dock 實際視覺比較 | 檔案 alpha／預覽與 build 已驗證；尚無使用者 Mac 原生畫面證據 |
 | [ ] | ADD-16 | CapsLock 切換輸入法的特定重複組字修正 | 已加入 xterm key handler 與合成組字回歸；真實 macOS 輸入法／CapsLock 操作仍待驗收，不能由合成事件宣稱已完成 |
 | [ ] | ADD-17 | Chrome-style 工作區分頁快捷鍵 | 目前目錄的數字選頁／雙向循環、IME 與對話框保護、保留鍵攔截及舊 pane 預設遷移已實作；包含於 377 個前端回歸，本批 exact-commit CI 尚待確認 |
@@ -155,7 +155,7 @@ P0 的來源與索引在本機運作；Agent 自身仍沿用原工具的帳號�
 | [x] | BASE-02 | 定義原型 IPC 與共用型別 | Commands、串流、runtime ID、錯誤及取消契約可往返 | BASE-01 | [IPC 契約](ipc-contract.md)、models／providers／adapters／catalog／service／runtime／config 與 workspace.ts 分層；API／整合測試通過。 |
 | [x] | BASE-03 | 建立程式格式與靜態檢查 | 設定前端／Rust 對應工具，列出實際執行指令 | BASE-01 | package.json、Cargo.toml、Vitest、rustfmt／Clippy 與合成 fixtures／測試入口已落地並實跑。 |
 | [x] | BASE-04 | 建立測試與 fixture 基礎 | 可執行單元、整合與 UI 測試入口；fixtures 不含真實敏感資料 | BASE-01 | package.json、Cargo.toml、Vitest、rustfmt／Clippy 與合成 fixtures／測試入口已落地並實跑。 |
-| [x] | BASE-05 | 建立持續整合與貢獻流程 | 版本固定、乾淨環境可檢查與建置；更新 README、AGENTS 與忽略規則 | BASE-03、BASE-04 | ci.yml 三 runner、lockfiles、rust-toolchain.toml、AGENTS／README／忽略規則齊備；最新提交結果另列，不沿用舊 CI。 |
+| [x] | BASE-05 | 建立持續整合與貢獻流程 | 版本固定、乾淨環境可檢查與建置；更新 README、AGENTS 與忽略規則 | BASE-03、BASE-04 | light-checks.yml 單 Linux 自動檢查、ci.yml 手動三 runner、lockfiles、rust-toolchain.toml、AGENTS／README／忽略規則齊備；最新提交結果另列，不沿用舊 CI。 |
 | [x] | BASE-06 | 整理正式模組與契約 | 分離 adapters、catalog、indexer、runtime、workspace、storage；契約依選型定案 | PRE-03、BASE-02 | [IPC 契約](ipc-contract.md)、models／providers／adapters／catalog／service／runtime／config 與 workspace.ts 分層；API／整合測試通過。 |
 
 ## P0 技術原型與選型門檻

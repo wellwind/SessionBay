@@ -2,6 +2,14 @@
 
 日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
+## 2026-10-15 CI 帳務阻擋與省額度策略
+
+使用者已提供 GitHub Annotations：job 未開始是因 Billing & plans 的帳務／spending limit 限制。下方先前「原因待 annotations」是當時紀錄，原因現已確認；沒有測試執行結果，不能推測是哪一筆付款或擅自變更帳務。
+
+依使用者新同意，日常改為一個 Linux 輕量 push workflow；完整三平台打包／原生 smoke 保留手動 workflow_dispatch。僅忽略 README.md 與 docs/ 直屬 Markdown，其他程式／測試資產不跳過；不重複 push＋pull_request、不使用 skip-ci。原始 143 項仍 77／66，追加 20 項仍 12／8；完整平台驗收不因策略切換改成通過。具體內容與未合併時的手動入口限制見 [CI 操作說明](development.md#ci-省額度模式)。
+
+2026-10-15 11:34 UTC 本機重跑輕量檢查：**398 個前端、241 個 Rust core 測試**通過；typecheck／lint／production build／fmt／core all-target strict Clippy、44 組語意對比及 10 個 ICNS representations 通過。官方 actionlint 1.7.12 檢查兩份 workflow 的 YAML／expressions 通過；另核對 triggers、唯讀權限、concurrency、13 組路徑情境及完整三平台 jobs 與原版完全相同。獨立 reviewer 已確認配置與保留性；這些本機結果不包含全新 hosted runner 的相依下載，也不代表尚未觸發的完整平台驗收。
+
 ## 2026-10-15 最新提交與 Antigravity CLI 驗證限制
 
 程式已於 10:16 UTC 推至 **1475f19d83f4d5218fcaae1be71bb9109a7bd71a**（本機 e8d7a0d，受測 tree `1f34c8a6c9357951b22be5182aa863cb96b634fa` 完全相同），保留父提交 a1fecb63 與 main `e5b85ddb` 的 17 項未來待辦 ancestry。後續驗證紀錄提交僅變更 Markdown，不更動此程式 tree 的產品／測試／設定內容。

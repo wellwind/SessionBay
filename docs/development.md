@@ -159,7 +159,25 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 第一個參數為 Session 數，第二個為每個 Session 的近似 KiB。結果含實際來源 bytes、索引耗時、未變更補掃、20 次查詢 p50／p95；不是 WebView 互動或整體記憶體量測。
 
-`.github/workflows/ci.yml` 會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。兩 OS 的 smoke 使用空白暫存 HOME、明確的 SESSIONBAY_SMOKE=1，等待 React DOM、backend bootstrap 與實際設定對話框開關／重開的訊號；啟動前模組錯誤、CSP 違規與未處理例外會使測試失敗。Linux Xvfb 無 GPU，僅在 CI 設 WEBKIT_DISABLE_COMPOSITING_MODE=1 使用軟體合成，沒有停用 WebKit sandbox 或放寬 CSP。Linux 再擷取 PNG 並拒絕純色畫面，仍需人工檢視截圖。macOS 不申請螢幕錄製／Accessibility 權限，DOM 操作通過也不宣稱已驗證畫面像素。這些 smoke 不取代 IME／真實 CLI／完整終端互動驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
+## CI 省額度模式
+
+日常自動檢查由 `.github/workflows/light-checks.yml` 執行：本 repo 的 branch push 只跑一個 Ubuntu 24.04 job，不同時監聽 pull_request。結果仍附在同 repo PR 的 commit 上；同 branch 較新的程式提交會取消較舊的自動檢查。它驗證 branch head，不是合成 merge commit；fork PR 或只有 base branch 更新的整合相容性需另外安排，不假裝已覆蓋。
+
+輕量工作包含 `npm ci`、typecheck／lint／前端 tests／build、兩個 Python 靜態 validator、Rust fmt 與 `--locked --no-default-features` 的核心 tests／Clippy。不安裝桌面 GUI 相依套件，不執行 Tauri release build、macOS runner 或原生 smoke；首次 Rust 工具鏈／依賴下載仍會使用時間，輕量不代表免費或完整桌面驗收。
+
+自動 push 的 `paths-ignore` 僅包含 `README.md` 和 `docs/*.md`。一般僅修改這些文件時，在配置 runner 前略過；`docs/` 內其他格式／更深路徑、scripts、fixtures、skills、設定、workflow 都不忽略。GitHub 對大量 commits、diff 逾時或檔案列表上限有特殊規則，不能保證每種大型變更都零 run。純文件被略過不會產生新的通過證據；若把這個檢查設成 required，缺少 check 可能讓合併保持 pending。此 PR 不改 branch protection 或 required checks。
+
+完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；手動觸發會使用三個 runner，請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
+
+GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026-10-15 唯讀確認 main 尚無 `.github/workflows`；本 PR 尚未合併，因此不保證目前已有手動按鈕或 API／CLI 可派送。待之後正常採納到 default branch 且帳務限制處理好，才可選擇目標 branch/ref 執行完整驗收；此 CI 修改不會合併 PR、代為觸發、調整帳務或提高額度。
+
+目前 Annotations 已確認 Billing & plans 的帳務／spending limit 限制。這表示工作未開始，並非測試通過或程式測試失敗；新的 Linux workflow 仍可能因同一限制無法啟動。未跑的三平台打包／原生 smoke 維持待驗收，不能用 Linux 核心通過替代。
+
+官方行為與限制：[Git diff 與 path filters](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#git-diff-comparisons)、[手動執行 workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)、[Concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)。
+
+### 完整手動驗收產物
+
+`.github/workflows/ci.yml` 手動執行時會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。兩 OS 的 smoke 使用空白暫存 HOME、明確的 SESSIONBAY_SMOKE=1，等待 React DOM、backend bootstrap 與實際設定對話框開關／重開的訊號；啟動前模組錯誤、CSP 違規與未處理例外會使測試失敗。Linux Xvfb 無 GPU，僅在 CI 設 WEBKIT_DISABLE_COMPOSITING_MODE=1 使用軟體合成，沒有停用 WebKit sandbox 或放寬 CSP。Linux 再擷取 PNG 並拒絕純色畫面，仍需人工檢視截圖。macOS 不申請螢幕錄製／Accessibility 權限，DOM 操作通過也不宣稱已驗證畫面像素。這些 smoke 不取代 IME／真實 CLI／完整終端互動驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
 
 Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](https://github.com/actions/upload-artifact/blob/v4/README.md#permission-loss)。
 
