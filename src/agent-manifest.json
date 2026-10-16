@@ -34,6 +34,12 @@
           "--cd",
           "{cwd}"
         ]
+      },
+      "keyboard": {
+        "shiftEnter": {
+          "posix": "csi-u",
+          "windows": "native"
+        }
       }
     },
     {
@@ -66,6 +72,12 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "keyboard": {
+        "shiftEnter": {
+          "posix": "csi-u",
+          "windows": "csi-u"
+        }
       }
     },
     {
@@ -98,6 +110,12 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "keyboard": {
+        "shiftEnter": {
+          "posix": "native",
+          "windows": "native"
+        }
       }
     },
     {
@@ -130,6 +148,12 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "keyboard": {
+        "shiftEnter": {
+          "posix": "native",
+          "windows": "native"
+        }
       }
     },
     {
@@ -162,6 +186,12 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "keyboard": {
+        "shiftEnter": {
+          "posix": "csi-u",
+          "windows": "csi-u"
+        }
       }
     }
   ]

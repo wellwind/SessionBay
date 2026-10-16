@@ -1,7 +1,7 @@
 # Session Bay 技術架構
 
 > 2026-10-16 實作更新：本次加入 Windows 原生支援；平台前提與待驗項目見[三平台支援](platform-support.md)。既有 macOS＋Linux P0 程式碼保留；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
-目前建議採用 Tauri 2＋Rust 後端、TypeScript 前端、xterm.js、跨平台 PTY 與 SQLite。這是依本機索引、程序管理與可客製化 UI 需求提出的方案，需先通過效能與終端相容性原型。
+目前實作採用 Tauri 2＋Rust 後端、React／TypeScript 前端、xterm.js、跨平台 PTY 與 SQLite。效能目標與各平台終端相容性仍按驗收清單逐項確認。
 
 > 持續執行變更：PTY 所有權移至獨立本機 broker。桌面退出只 detach；輸出由 broker 有界消費，UI ACK 只限制 renderer。下方早期 UI-owned runtime／通道關閉即清理說明，以[持續 Runtime](persistent-runtime.md)與最新決策為準。
 
@@ -148,7 +148,7 @@ Agent 安裝／版本重新偵測與歷史索引分離，Shell 偵測也只回�
 
 ## Agent 啟動計畫與選項邊界
 
-四個 Agent kind 共用 Runtime；`grok` 對應 Grok Build，`antigravity` 對應 `agy` CLI。歷史能力另分開：四者以各自 adapter 進 catalog；Antigravity 只解析 CLI 已觀察的持久化 step 與 metadata，未知格式以警告降級。Session 的 resumeDisabledReason 與 backend preflight 獨立控制可否接續；不能因 enum／history supported 就假定所有記錄都可恢復。
+五個 Agent kind 共用 Runtime；`grok` 對應 Grok Build，`antigravity` 對應 `agy` CLI。歷史能力另分開：五者以各自 adapter 進 catalog，OpenCode 的 SQLite 格式與限制見[整合說明](opencode-integration.md)；Antigravity 只解析 CLI 已觀察的持久化 step 與 metadata，未知格式以警告降級。Session 的 resumeDisabledReason 與 backend preflight 獨立控制可否接續；不能因 enum／history supported 就假定所有記錄都可恢復。
 
 `Settings.agentOptions` 按工具保存 argv 與 opt-in，舊設定透過 serde 預設安全補齊。`launch_options` 集中驗證白名單、值、長度與危險選項；不接受任意 config、cwd、來源、身份或子命令覆寫。明確權限模式優先於危險預設，源頭仍由使用者勾選同意。
 
@@ -160,11 +160,11 @@ Grok adapter 以 summary 與 authoritative updates stream 配對；跨檔 metada
 
 Runtime Manager 擁有 PTY handle 與子程序監督責任；UI 元件 mount 或 unmount 不決定程序生死。狀態至少包括 starting、running、exited、failed、unknown。
 
-MVP 的切換分頁保留程序；關閉面板則明確結束其受管程序。整個應用退出時，先列出活躍面板並要求使用者選擇取消或結束後退出，實作需驗證程序樹清理與超時處理。
+切換分頁與退出 UI 保留 broker 擁有的程序；關閉面板則明確結束其受管程序。UI 關窗、重載或 channel 消失僅 detach，原生程序樹清理與超時處理仍需平台驗收。
 
-前端收到 exit event 後，只有普通 Shell 且前一狀態為 starting／running、結束碼為 `0`，才移除面板及可能空出的最後分頁。Agent、非零／未知退出或 error 保留可診斷狀態；還原占位及已退出 pane 不重播自動關閉。這是程序已正常結束後的視圖清理，不由移出專案或切換導覽觸發。
+前端收到 exit event 後更新 exited／failed 與結束碼，保留面板及有界最後畫面，包含結束碼 `0` 的普通 Shell。明確關閉面板才 stop／forget；移出專案與切換導覽不停止程序。
 
-跨應用退出後仍能存活需要獨立 daemon 或外部 multiplexer。這會帶來認證、重新附接、輸出保留與版本管理，列為 P2，不能透過單純記住 PID 達成。
+本批採內建 headless broker，使用 owner-only Unix socket／Windows named pipe，並以 attachment lease、snapshot-first replay 與有界輸出分離 UI 及程序生命週期。這項最高優先實作的原生驗收仍待完成；broker／OS 重啟後 metadata 為 interrupted，不憑舊 PID 收養程序。詳見[持續 Runtime](persistent-runtime.md)。
 
 ## MVP 後的用量資料流
 

@@ -42,7 +42,7 @@ Session Bay 的名稱取工作階段停靠站的意象。對外說明可使用�
 
 ### 各工具保留慣用啟動方式
 
-Codex、Claude Code、Grok Build 與 Antigravity CLI 可保存各自的啟動參數。使用者明確啟用危險模式後，不必每次在 Session Bay 重複確認；預設不加 bypass，啟動前顯示實際 argv 與風險。歷史格式按工具分開；Antigravity CLI 的防禦 reader、metadata 與接續條件見[相容性邊界](antigravity-cli-history.md)，1.3.5 真實樣本仍待驗證。
+Codex、Claude Code、Grok Build、Antigravity CLI 與 OpenCode 可保存各自的啟動參數。使用者明確啟用危險模式後，不必每次在 Session Bay 重複確認；預設不加 bypass，啟動前顯示實際 argv 與風險。歷史格式按工具分開；Antigravity CLI 的防禦 reader、metadata 與接續條件見[相容性邊界](antigravity-cli-history.md)，1.3.5 真實樣本仍待驗證。
 
 ### 在專案內開始新任務
 
@@ -62,7 +62,7 @@ Codex、Claude Code、Grok Build 與 Antigravity CLI 可保存各自的啟動參
 
 - **專案由使用者選擇**：工作目錄是歷史分組基礎，側欄只放明確加入的專案；Agent 是工作區內的工具。
 - **歷史入口完整**：所有目錄的分組不受專案加入、移出或釘選影響；選組後再查看對話。
-- **能力入口一致**：四 Agent 的設定卡片固定可見，啟動與歷史能力分開說明，不以是否曾啟動決定能否設定來源。
+- **能力入口一致**：五 Agent 的設定卡片固定可見，啟動與歷史能力分開說明，不以是否曾啟動決定能否設定來源。
 - **接續優先**：清單、搜尋與預覽都服務於重新開始工作。
 - **本機優先**：基本索引、搜尋與設定不需要 Session Bay 雲端帳號。
 - **沿用既有工具**：以原 Agent 的正式啟動與恢復能力執行工作。

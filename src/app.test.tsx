@@ -213,6 +213,7 @@ async function nativeClose() {
 beforeEach(() => {
   vi.mocked(canPickDirectory).mockReturnValue(false);
   vi.mocked(pickDirectory).mockReset();
+
   vi.mocked(api.setWorkspaceZoom).mockReset().mockResolvedValue(undefined);
   vi.useFakeTimers();
   native.handlers.clear();

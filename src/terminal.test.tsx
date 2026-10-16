@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
+
 import { workspaceZoomEvent } from './workspace-zoom';
 import { defaultAgentOptions } from './agents';
-import { shouldHandleTerminalKey } from './terminal-ime';
+import { shiftEnterSequence } from './terminal-keyboard';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPane } from './components/TerminalPane';
@@ -54,6 +55,7 @@ vi.mock('@xterm/xterm', () => ({
       return '';
     }
     paste(text: string) { mocks.termPaste(text); }
+    input(text: string) { mocks.input?.(text); }
     dispose() {
       mocks.disposed();
     }
@@ -152,7 +154,10 @@ beforeEach(() => {
 describe('terminal lifetime and flow control', () => {
   it('installs the semantic CapsLock guard through the public xterm hook', () => {
     render(<TerminalPane {...props()} />);
-    expect(mocks.keyHandler).toHaveBeenCalledExactlyOnceWith(shouldHandleTerminalKey);
+    expect(mocks.keyHandler).toHaveBeenCalledTimes(1);
+    const handler = mocks.keyHandler.mock.calls[0][0];
+    expect(handler(new KeyboardEvent('keydown', { key: 'CapsLock' }))).toBe(false);
+    expect(handler(new KeyboardEvent('keydown', { key: 'a' }))).toBe(true);
   });
 
   it('can reopen a workspace-only shell without a deleted catalog project reference', async () => {
@@ -616,6 +621,44 @@ describe('live terminal palette updates', () => {
   });
 });
 
+describe('live terminal font sizing', () => {
+  it('fits and resizes visible panes, updates hidden panes, and retains runtime input and output', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
+    try {
+      const first = props(makePane({ startToken: 1 }));
+      const second = props(makePane({ id: 'second', startToken: 1 }));
+      mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
+      const panes = (fontSize: number, showSecond = false) => <>
+        <TerminalPane {...first} settings={{ ...settings, fontSize }} />
+        <TerminalPane {...second} settings={{ ...settings, fontSize }} visible={showSecond} focused={false} />
+      </>;
+      const view = render(panes(14));
+      await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+      for (const [request, channel] of mocks.launch.mock.calls) completeSnapshot(channel, request.paneId);
+      await act(async () => { await Promise.resolve(); });
+      const baseline = { fit: mocks.fit.mock.calls.length, reset: mocks.reset.mock.calls.length, focus: mocks.focus.mock.calls.length };
+      view.rerender(panes(20));
+      expect(mocks.options.map((options) => options.fontSize)).toEqual([20, 20]);
+      expect(mocks.fit).toHaveBeenCalledTimes(baseline.fit + 1);
+      expect(mocks.resize).toHaveBeenCalledWith('pane', 80, 24);
+      expect(mocks.focus).toHaveBeenCalledTimes(baseline.focus);
+      view.rerender(panes(20, true));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+      expect(mocks.resize).toHaveBeenCalledWith('second', 80, 24);
+      const event = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+      act(() => event({ type: 'output', runtimeId: 'pane', sequence: 1, data: [111, 107] }));
+      expect(mocks.termWrite).toHaveBeenCalledWith(new Uint8Array([111, 107]), expect.any(Function));
+      act(() => mocks.input?.('still typing'));
+      await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('second', 'still typing'));
+      expect(mocks.launch).toHaveBeenCalledTimes(2); expect(mocks.options).toHaveLength(2);
+      expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
+      expect(mocks.reset).toHaveBeenCalledTimes(baseline.reset);
+    } finally { width.mockRestore(); height.mockRestore(); }
+  });
+});
+
 it('renames a running pane without remount, stop, relaunch or input interruption', async () => {
   const pane = makePane({ startToken: 1 });
   const original = props(pane);
@@ -835,42 +878,185 @@ describe('real plugin asynchronous confirmation safety', () => {
     expect(mocks.termPaste).not.toHaveBeenCalled();
   });
 });
-describe('live terminal font sizing', () => {
-  it('fits and resizes visible panes, updates hidden panes, and retains runtime input and output', async () => {
-    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
-    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
-    try {
-      const first = props(makePane({ startToken: 1 }));
-      const second = props(makePane({ id: 'second', startToken: 1 }));
-      mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
-      const panes = (fontSize: number, showSecond = false) => <>
-        <TerminalPane {...first} settings={{ ...settings, fontSize }} />
-        <TerminalPane {...second} settings={{ ...settings, fontSize }} visible={showSecond} focused={false} />
-      </>;
-      const view = render(panes(14));
-      await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
-      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
-      for (const [request, channel] of mocks.launch.mock.calls) completeSnapshot(channel, request.paneId);
-      await act(async () => { await Promise.resolve(); });
-      const baseline = { fit: mocks.fit.mock.calls.length, reset: mocks.reset.mock.calls.length, focus: mocks.focus.mock.calls.length };
-      view.rerender(panes(20));
-      expect(mocks.options.map((options) => options.fontSize)).toEqual([20, 20]);
-      expect(mocks.fit).toHaveBeenCalledTimes(baseline.fit + 1);
-      expect(mocks.resize).toHaveBeenCalledWith('pane', 80, 24);
-      expect(mocks.focus).toHaveBeenCalledTimes(baseline.focus);
-      view.rerender(panes(20, true));
-      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
-      expect(mocks.resize).toHaveBeenCalledWith('second', 80, 24);
-      const event = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
-      act(() => event({ type: 'output', runtimeId: 'pane', sequence: 1, data: [111, 107] }));
-      expect(mocks.termWrite).toHaveBeenCalledWith(new Uint8Array([111, 107]), expect.any(Function));
-      act(() => mocks.input?.('still typing'));
-      await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('second', 'still typing'));
-      expect(mocks.launch).toHaveBeenCalledTimes(2); expect(mocks.options).toHaveLength(2);
-      expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
-      expect(mocks.reset).toHaveBeenCalledTimes(baseline.reset);
-    } finally { width.mockRestore(); height.mockRestore(); }
+
+describe('inline Shift+Enter routing', () => {
+  async function ready(kind: Pane['kind'] = 'codex') {
+    const p = props(makePane({ kind, state: 'running', runtimeId: 'runtime', startToken: 1 }));
+    const view = render(<TerminalPane {...p} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+    const channel = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(channel);
+    const textarea = screen.getByRole('textbox', { name: 'Mock xterm input' });
+    textarea.focus();
+    const handler = mocks.keyHandler.mock.calls[0][0] as (event: KeyboardEvent) => boolean;
+    const press = (type = 'keydown', init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent(type, { key: 'Enter', keyCode: 13, shiftKey: true, cancelable: true, ...init });
+      let result = true;
+      act(() => { result = handler(event); });
+      return result;
+    };
+    return { p, view, channel, textarea, press };
+  }
+  it.each(['codex', 'claude', 'opencode'] as const)('routes %s directly through xterm onData and the existing queue', async (kind) => {
+    const h = await ready(kind);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    for (const type of ['keydown', 'keypress', 'keyup']) expect(h.press(type)).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.launch).not.toHaveBeenCalled();
+    expect(h.textarea).toHaveFocus();
   });
+  it.each(['shell', 'grok', 'antigravity'] as const)('does not map %s based on guesses about its foreground mode', async (kind) => {
+    const h = await ready(kind);
+    expect(h.press()).toBe(true);
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' })).toHaveValue('default');
+  });
+  it('lets a shell user opt in and return to native without restarting or writing on selection', async () => {
+    const h = await ready('shell');
+    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
+    fireEvent.change(select, { target: { value: 'csi-u' } });
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(h.press()).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
+    fireEvent.change(select, { target: { value: 'native' } });
+    expect(h.press()).toBe(true);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(mocks.attach).toHaveBeenCalledTimes(1);
+  });
+  it('keeps ordinary Enter, Ctrl+Enter, paste and bracketed paste bytes unchanged', async () => {
+    const h = await ready();
+    expect(h.press('keydown', { shiftKey: false })).toBe(true);
+    expect(h.press('keydown', { ctrlKey: true })).toBe(true);
+    const data = ['\r', '\x1b[200~first\n第二行\n\x1b[201~', '\x03'];
+    act(() => { for (const item of data) mocks.input!(item); });
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(data.length));
+    expect(mocks.write.mock.calls.map(([, value]) => value)).toEqual(data);
+  });
+  it('ignores Shift+Enter throughout composition including a missing isComposing flag', async () => {
+    const h = await ready();
+    fireEvent.compositionStart(h.textarea);
+    expect(h.press()).toBe(true);
+    fireEvent.compositionEnd(h.textarea);
+    expect(h.press('keydown', { isComposing: true })).toBe(true);
+    expect(h.press('keydown', { keyCode: 229 })).toBe(true);
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(h.press()).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(1));
+  });
+  it('does not emit before snapshot readiness or after disconnect/exit', async () => {
+    const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));
+    render(<TerminalPane {...p} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+    const handler = mocks.keyHandler.mock.calls[0][0];
+    const event = () => new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true });
+    expect(handler(event())).toBe(false);
+    const channel = mocks.attach.mock.calls[0][1];
+    completeSnapshot(channel);
+    act(() => channel({ type: 'disconnected', runtimeId: 'runtime', message: 'offline' }));
+    expect(handler(event())).toBe(false);
+    act(() => channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 }));
+    expect(handler(event())).toBe(false);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it('blocks hidden/unfocused panes and blocking dialogs', async () => {
+    const h = await ready();
+    h.view.rerender(<TerminalPane {...h.p} visible={false} />);
+    expect(h.press()).toBe(false);
+    h.view.rerender(<TerminalPane {...h.p} focused={false} />);
+    expect(h.press()).toBe(false);
+    h.view.rerender(<TerminalPane {...h.p} />);
+    fireEvent.click(screen.getByRole('button', { name: /重新命名面板/ }));
+    expect(h.press()).toBe(false);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it('preserves manual mode for same-runtime reconnect but resets it for a new start token', async () => {
+    const h = await ready('shell');
+    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
+    fireEvent.change(select, { target: { value: 'csi-u' } });
+    act(() => h.channel({ type: 'disconnected', runtimeId: 'runtime', message: 'offline' }));
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, state: 'disconnected' }} />);
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    completeSnapshot(mocks.attach.mock.calls[1][1]);
+    h.view.rerender(<TerminalPane {...h.p} />);
+    expect(select).toHaveValue('csi-u');
+    expect(h.press()).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(1));
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, startToken: 2 }} />);
+    expect(select).toHaveValue('default');
+    expect(h.press()).toBe(true);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+  });
+  it('does not carry a manual mode onto a different runtime ID', async () => {
+    const h = await ready('shell');
+    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
+    fireEvent.change(select, { target: { value: 'csi-u' } });
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, runtimeId: 'different-runtime' }} />);
+    expect(select).toHaveValue('default');
+    expect(h.press()).toBe(true);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it('never emits from a key callback after DOM focus moves or the pane unmounts', async () => {
+    const h = await ready();
+    screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' }).focus();
+    expect(h.press()).toBe(false);
+    h.view.unmount();
+    expect(h.press()).toBe(false);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it('reports a failed key write without replaying it or appending Enter', async () => {
+    const h = await ready();
+    mocks.write.mockRejectedValueOnce(new Error('synthetic write failure'));
+    h.press();
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('synthetic write failure'));
+    h.press('keyup');
+    expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence);
+  });
+  it('displays scope and the Grok mode warning without opening a modal', async () => {
+    await ready();
+    fireEvent.click(screen.getByText('按鍵說明'));
+    expect(screen.getByText(/Grok 多行模式的 Shift\+Enter 是送出/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+it('keyboard focus into an inactive xterm pane transfers input ownership before Shift+Enter', async () => {
+  const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime', startToken: 1 }));
+  const onFocus = vi.fn();
+  function FocusHarness() {
+    const [focused, setFocused] = useState(false);
+    return <TerminalPane {...p} focused={focused} onFocus={() => { onFocus(); setFocused(true); }} />;
+  }
+  render(<FocusHarness />);
+  await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+  completeSnapshot(mocks.attach.mock.calls[0][1]);
+  const textarea = screen.getByRole('textbox', { name: 'Mock xterm input' });
+  act(() => textarea.focus());
+  expect(textarea).toHaveFocus();
+  const handler = mocks.keyHandler.mock.calls[0][0];
+  act(() => handler(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, shiftKey: true, cancelable: true })));
+  await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
+  expect(onFocus).toHaveBeenCalled();
+});
+
+it('non-terminal controls do not claim terminal keyboard focus', async () => {
+  const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));
+  render(<TerminalPane {...p} focused={false} />);
+  await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+  completeSnapshot(mocks.attach.mock.calls[0][1]);
+  act(() => screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' }).focus());
+  expect(p.onFocus).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
+  expect(screen.getByRole('textbox', { name: '終端搜尋' })).toHaveFocus();
+  expect(p.onFocus).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /重新命名面板/ }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(p.onFocus).not.toHaveBeenCalled();
+  const terminalInput = screen.getByRole('textbox', { name: 'Mock xterm input' });
+  act(() => terminalInput.focus());
+  expect(p.onFocus).not.toHaveBeenCalled();
+  expect(mocks.write).not.toHaveBeenCalled();
 });
 
 it('refits after native page zoom without changing terminal font or runtime, and fits hidden panes on reveal', async () => {

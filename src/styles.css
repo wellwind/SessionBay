@@ -1207,6 +1207,7 @@ kbd {
 }
 .pane-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   background: var(--panel);
@@ -1630,3 +1631,22 @@ kbd {
   .directory-path-controls { flex-wrap: wrap; }
   .directory-path-controls > input { flex-basis: 100%; }
 }
+
+.terminal-keyboard-mode {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+}
+.terminal-keyboard-mode select {
+  min-width: 0;
+  max-width: 190px;
+  padding: 3px;
+  font-size: 11px;
+}
+.terminal-keyboard-help { font-size: 11px; }
+.terminal-keyboard-help summary { cursor: pointer; }
+.terminal-keyboard-help[open] { flex-basis: 100%; }
+.terminal-keyboard-help p { color: var(--muted); line-height: 1.5; max-width: 70ch; }

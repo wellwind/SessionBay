@@ -1,6 +1,6 @@
 # Session Bay
 
-Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它集中整理 Codex、Claude Code、Grok Build 等受支援工具的歷史對話，讓開發者找到正確脈絡，在正確目錄接續工作，並透過分頁與分割面板同時使用 Agent 和普通 Terminal。
+Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它集中整理 Codex、Claude Code、Grok Build、Antigravity CLI 與 OpenCode 等受支援工具的歷史對話，讓開發者找到正確脈絡，在正確目錄接續工作，並透過分頁與分割面板同時使用 Agent 和普通 Terminal。
 
 **Windows／macOS／Linux 原生支援正在驗證。** 本分支包含 Tauri／Rust 桌面程式、React 前端、唯讀歷史索引與真正的 PTY；完整 P0 與平台驗收狀態見[驗證紀錄](docs/mvp-validation.md)。
 
@@ -30,7 +30,7 @@ npm run tauri -- build
 
 專案選擇會保留；從清單移出只取消加入與釘選，不刪歷史或檔案，也不結束工作區程序。已開啟的工作區在兩頁皆有入口，未加入專案也能切回。
 
-同一個工作區可以並排執行 Codex、Claude Code、Grok Build、Antigravity CLI、開發伺服器或測試指令。Agent 優先代表預設以專案與工作脈絡組織介面，普通 Shell 仍是完整的一等功能。
+同一個工作區可以並排執行 Codex、Claude Code、Grok Build、Antigravity CLI、OpenCode、開發伺服器或測試指令。Agent 優先代表預設以專案與工作脈絡組織介面，普通 Shell 仍是完整的一等功能。
 
 也可從頂列「臨時 Terminal」直接在家目錄開啟預設 Shell，不必選取或新增專案；多分頁與重開附接沿用同一工作區／Runtime。操作及驗證邊界見[全域臨時 Terminal](docs/temporary-terminal.md)。
 
@@ -45,6 +45,10 @@ npm run tauri -- build
 | [全工作台縮放](docs/terminal-font-zoom.md) | UI／Terminal 同步縮放、保存／預覽及待驗收範圍 |
 | [桌面介面設計系統](docs/ui-design-system.md) | 全介面資訊架構、流程、語意主題、控制項與驗證標準 |
 | [技術架構](docs/architecture.md) | Tauri、Rust、PTY、資料流、索引與效能設計 |
+| [持續 Runtime](docs/persistent-runtime.md) | 背景 broker、同程序重新附接與原生待驗項目 |
+| [OpenCode 整合](docs/opencode-integration.md) | 唯讀 SQLite 歷史、安全接續與版本限制 |
+| [Terminal Shift＋Enter](docs/terminal-keyboard.md) | 原位輸入、工具預設與 Shell 手動模式 |
+| [批次整合驗證](docs/batch-integration-validation.md) | 修訂後來源、自動化證據與原生待驗項目 |
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
 | [Antigravity CLI 歷史相容性](docs/antigravity-cli-history.md) | 持久化格式依據、唯讀安全、接續限制與 1.3.5 待驗條件 |
 | [Agent 用量與分析規格](docs/usage-spec.md) | MVP 後的帳號額度總覽、Project／Agent／Session 用量與費用語意 |
@@ -56,16 +60,17 @@ npm run tauri -- build
 | [開發與試用](docs/development.md) | 實際安裝、啟動、測試、建置與資料邊界 |
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
 | [全域臨時 Terminal](docs/temporary-terminal.md) | 無專案 home Shell、舊 cwd 相容與驗證邊界 |
-
 | [索引效能量測](docs/index-performance.md) | 1k／10k／長對話的可重複合成 before／after、資料安全與未解瓶頸 |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
 
 ## 目前範圍
 
-- Agent 啟動涵蓋 Codex CLI、Claude Code CLI、Grok Build 與 Antigravity CLI（`agy`）；四者均有本機歷史 adapter。Antigravity 限 CLI 持久化格式，1.3.5 真實樣本與互動接續仍待驗證，詳見[相容性邊界](docs/antigravity-cli-history.md)。
+本批包含原生資料夾選擇器、Windows 後端、持續 Runtime、OpenCode、索引熱路徑改善、獨立主題與命令面板選色、名稱／分頁排序、全工作台縮放、臨時 home Terminal 與原位 Shift＋Enter。Code Modern／Code 2026 各提供深／淺色 UI 和 Terminal 選項，原有十個色系仍保留。實測與未驗項目見[批次整合驗證](docs/batch-integration-validation.md)。
+
+- Agent 啟動涵蓋 Codex CLI、Claude Code CLI、Grok Build、Antigravity CLI（`agy`）與 OpenCode；五者均有本機歷史 adapter。Antigravity 限 CLI 持久化格式，1.3.5 真實樣本與互動接續仍待驗證，詳見[相容性邊界](docs/antigravity-cli-history.md)。
 - 預設專案首頁與獨立所有目錄頁保留分組總覽；選目錄後可跨工具搜尋該組歷史、預覽與恢復，掃描不自動加入專案。
-- 設定固定顯示五個 Agent 的歷史能力與來源入口，不因是否啟動過而隱藏；可明確偵測官方已知來源位置並加入草稿，舊設定可明確新增 Grok／Antigravity CLI 來源，不自動修改保存的來源。
+- 設定固定顯示五個 Agent 的歷史能力與來源入口，不因是否啟動過而隱藏；可明確偵測官方已知來源位置並加入草稿，舊設定可明確新增 Grok／Antigravity CLI／OpenCode 來源，不自動修改保存的來源。
 - 支援自選專案、顯示名稱、加入既有目錄與安全建立單一新資料夾；本次變更的驗證狀態見[驗證紀錄](docs/mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)。
 - 每工具可保存獨立啟動參數與明確勾選的高風險權限模式，預設關閉；保存後不逐次重複確認，啟動前可看後端產生的精確 argv。各工具 bypass／沙箱差異與本批驗證狀態見 [Agent 整合規格](docs/agent-integrations.md)及[變更紀錄](docs/mvp-validation.md#2026-10-15-agent-擴充與自訂參數變更紀錄)。
 - 新增工作先選 Shell／Agent，再從統一工具清單選 Agent；安裝／版本可重新偵測，Shell 候選需明確加入且保留自訂 Profiles。
@@ -82,12 +87,14 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 ## 文件狀態
 
-整理日期：2026-10-15。文件中的 MVP 切分、架構與效能數字是開發提案；使用者已明確指定的需求與尚待決策事項，集中列於[決策與待確認事項](docs/decisions.md)。
+更新日期：2026-10-16。保留原始規劃與歷史 checkpoint；目前實作、實測結果與未達成目標分開標示。使用者已明確指定的需求與尚待決策事項，集中列於[決策與待確認事項](docs/decisions.md)。
 
 名稱採用不代表商標或網域已取得；開源授權、商業模式與發行時程尚未決定。
 
 ## 試用後續待辦
 
-2026-10-15 新增的 17 項未來需求集中在 [後續待辦](docs/future-backlog.md)，均尚待安排與驗收；此清單不代表已實作。
+2026-10-15 新增的 17 項未來需求集中在 [後續待辦](docs/future-backlog.md)，其中部分已有獨立實作與自動回歸；已驗結果及原生待驗項目分開列示，不因整合全部勾選。
 
 - [持續執行與重新附接](docs/persistent-runtime.md)：獨立 broker、關閉介面保留程序、狀態恢復與原生待驗項目。
+
+- [Terminal Shift＋Enter](docs/terminal-keyboard.md)：原位輸入模式、Shell 手動選擇、查核版本與平台限制。

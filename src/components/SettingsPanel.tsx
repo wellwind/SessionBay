@@ -257,7 +257,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
       continue;
     }
     if (!binding.trim()) continue;
-    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換或全工作台縮放，請選擇其他快捷鍵。';
+    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換、全工作台縮放或 Terminal Shift+Enter，請選擇其他快捷鍵。';
     const parts = binding
       .trim()
       .split('+')

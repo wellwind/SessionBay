@@ -1,0 +1,13 @@
+{
+  "checked": "2026-10-16",
+  "encoding": "\u001b[13;2u",
+  "hex": "1b5b31333b3275",
+  "expectedKey": "Enter",
+  "expectedModifier": "Shift",
+  "evidence": [
+    { "provider": "codex", "version": "0.163.0", "applicationCommit": "83086188ae0614bd882818ff1aa23f3194962012", "decoderCommit": "ed1cdab335221515706178d68495bba2aed1924f", "verification": "Unix decoder and default keymap source; not a full CLI run; Windows console path excluded" },
+    { "provider": "claude", "version": "2.1.301", "artifact": "@anthropic-ai/claude-code-linux-x64", "archiveSha256": "a7ffd61e7784e6dda864a31e934cececc050f106015201cb3db4abb59c781c57", "verification": "Isolated official decoder and prompt branch executed: inserted newline, zero submissions; no full CLI run" },
+    { "provider": "opencode", "version": "1.19.3", "applicationCommit": "e3c4eb242585dcd77be1a867391b7c25fd47ce52", "decoderVersion": "OpenTUI 0.4.5", "decoderCommit": "0c8c4f7cff2927e3df63a9757a45eff9a343611c", "verification": "Official pure decoder and streaming parser executed without capability reply, including byte-at-a-time input: one Shift+Enter event" }
+  ],
+  "notNativeAcceptance": ["macOS WKWebView", "Linux WebKitGTK", "Windows ConPTY", "full agent application", "custom keymaps", "tmux", "SSH"]
+}
