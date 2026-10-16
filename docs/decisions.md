@@ -259,3 +259,13 @@
 - Terminal 只更新 xterm options，不重建 xterm、不重新啟動 PTY、不重設畫面；純換色不做 fit／resize 或搶焦點。自動化與原生桌面視覺驗收分開記錄。
 
 - 純外觀寫入可在索引期間完成；後端比對所有非外觀欄位，只有 theme／themePalette／terminalTheme／fontFamily／fontSize 可略過掃描鎖。其餘設定仍遵守原限制；寫入失敗不更新記憶體中的已儲存設定。
+
+## 2026-10-16 日常體驗：Terminal 字級快捷鍵
+
+使用者授權日常體驗分成小型 PR。本組對應待辦 01，只調整全域 Terminal 字級，所有面板共用；不改介面文字或瀏覽器縮放，也不新增逐面板字級 schema。
+
+- 以主題 PR 的 Appearance 預覽與設定保存機制為基礎，Cmd（macOS）／Ctrl（Linux）加 `=` 或 `+` 放大、`-` 縮小、`0` 還原設定預設 14 px。範圍沿用 9–32 px，每次 1 px。
+- 工作區開啟時接受快捷鍵；一般輸入欄位、對話框與 IME 組字期間不處理。保留組合於 capture 階段攔截，避免送入 xterm／PTY；其餘按鍵維持原樣。
+- 快捷鍵即時預覽並自動保存；快速連按合併等待中的最新值，寫入依序進行，不讓舊結果覆蓋新的預覽。失敗還原至上次確認保存值，顯示錯誤並允許重試。設定內字級編輯仍遵守預覽、儲存保留、取消捨棄還原。
+- 更新既有 xterm options 與 fit／resize，不重建終端、不修改 runtime／PTY 生命週期。持續 Runtime PR 仍最高優先；原生驗收及與 Windows 設定驗證修正的整合回歸另行執行。
+- Shift＋Enter 不併入本組；各工具及模式對 LF、Ctrl＋J、modified Enter 的語意不同，未確認時不能保證只換行而不送出。另立協定／模式驗收範圍，不直接對所有 PTY 送 LF。

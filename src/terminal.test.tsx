@@ -355,3 +355,39 @@ describe('live terminal palette updates', () => {
     expect(mocks.focus).toHaveBeenCalledTimes(snapshots.focus);
   });
 });
+
+describe('live terminal font sizing', () => {
+  it('fits and resizes visible panes, updates hidden panes, and retains runtime input and output', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
+    try {
+      const first = props(makePane({ startToken: 1 }));
+      const second = props(makePane({ id: 'second', startToken: 1 }));
+      mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
+      const panes = (fontSize: number, showSecond = false) => <>
+        <TerminalPane {...first} settings={{ ...settings, fontSize }} />
+        <TerminalPane {...second} settings={{ ...settings, fontSize }} visible={showSecond} focused={false} />
+      </>;
+      const view = render(panes(14));
+      await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+      const baseline = { fit: mocks.fit.mock.calls.length, reset: mocks.reset.mock.calls.length, focus: mocks.focus.mock.calls.length };
+      view.rerender(panes(20));
+      expect(mocks.options.map((options) => options.fontSize)).toEqual([20, 20]);
+      expect(mocks.fit).toHaveBeenCalledTimes(baseline.fit + 1);
+      expect(mocks.resize).toHaveBeenCalledWith('pane', 80, 24);
+      expect(mocks.focus).toHaveBeenCalledTimes(baseline.focus);
+      view.rerender(panes(20, true));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+      expect(mocks.resize).toHaveBeenCalledWith('second', 80, 24);
+      const event = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+      act(() => event({ type: 'output', runtimeId: 'pane', sequence: 1, data: [111, 107] }));
+      expect(mocks.termWrite).toHaveBeenCalledWith(new Uint8Array([111, 107]), expect.any(Function));
+      act(() => mocks.input?.('still typing'));
+      await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('second', 'still typing'));
+      expect(mocks.launch).toHaveBeenCalledTimes(2); expect(mocks.options).toHaveLength(2);
+      expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
+      expect(mocks.reset).toHaveBeenCalledTimes(baseline.reset);
+    } finally { width.mockRestore(); height.mockRestore(); }
+  });
+});

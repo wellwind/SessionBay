@@ -1,3 +1,4 @@
+import { terminalFontShortcutHelp } from '../terminal-font';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
@@ -252,7 +253,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
       continue;
     }
     if (!binding.trim()) continue;
-    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換，請選擇其他快捷鍵。';
+    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換或終端字級，請選擇其他快捷鍵。';
     const parts = binding
       .trim()
       .split('+')
@@ -1126,6 +1127,7 @@ export function SettingsPanel({
                           aria-describedby="font-size-error"
                         />
                         <FieldError id="font-size-error" message={errors.fontSize} />
+                        <p className="settings-help">{terminalFontShortcutHelp} 設定內請用此欄位預覽，儲存保留、取消捨棄還原。</p>
                       </label>
                     </div>
                     <label className="settings-field">

@@ -1722,7 +1722,7 @@ describe('App live theme integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
     await act(async () => fail(new Error('Disk full')));
     expect(document.documentElement.dataset.theme).toBe('dark');
-    expect(screen.getByRole('alert')).toHaveTextContent('主題未能儲存，已還原');
+    expect(screen.getByRole('alert')).toHaveTextContent('外觀未能儲存，已還原至上次儲存');
     expect(screen.getByRole('button', { name: '快速切換主題' })).not.toBeDisabled();
   });
   it('Settings previews without a save call, then cancel restores and a later save persists', async () => {
@@ -1744,4 +1744,115 @@ describe('App live theme integration', () => {
     expect(api.saveSettings).toHaveBeenCalledTimes(1);
     expect(native.canvasUnmounted).not.toHaveBeenCalled();
   });
+});
+
+describe('Terminal font zoom integration', () => {
+  const zoom = (key: string, patch: KeyboardEventInit = {}, target: Window | Document | Element = window) => fireEvent(target, new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true, ...patch }));
+  const start = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal 1' }));
+  };
+  const fontStatus = () => screen.getByText(/^終端 \d+ px/);
+  it('previews every repeat immediately, coalesces serialized saves, and resets without changing UI or workspace', async () => {
+    await start();
+    const before = workspaceSnapshot();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    expect(zoom('=')).toBe(false);
+    zoom('+', { shiftKey: true }); zoom('=');
+    expect(fontStatus()).toHaveTextContent('終端 17 px');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.saveSettings).mock.calls[0][0].fontSize).toBe(15);
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(api.saveSettings).toHaveBeenCalledTimes(2);
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...bootstrap().settings, fontSize: 17 });
+    expect(fontStatus()).toHaveTextContent('終端 17 px');
+    expect(fontStatus()).not.toHaveTextContent('儲存中');
+    await act(async () => zoom('-'));
+    expect(fontStatus()).toHaveTextContent('終端 16 px');
+    await act(async () => zoom('0'));
+    expect(fontStatus()).toHaveTextContent('終端 14 px');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(workspaceSnapshot()).toEqual(before);
+    expect(native.canvasUnmounted).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled(); expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('rolls failed persistence back to the last confirmed size, drops queued changes and allows retry', async () => {
+    await start(); await act(async () => zoom('='));
+    let fail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    zoom('='); zoom('=');
+    expect(fontStatus()).toHaveTextContent('終端 17 px');
+    await act(async () => fail(new Error('Disk full')));
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+    expect(screen.getByRole('alert')).toHaveTextContent('已還原至上次儲存');
+    await act(async () => zoom('='));
+    expect(fontStatus()).toHaveTextContent('終端 16 px');
+  });
+  it('does not capture ordinary fields, modal dialogs, IME or unrelated PTY keys', async () => {
+    await start();
+    const field = document.getElementById('session-search')!;
+    expect(zoom('=', {}, field)).toBe(true);
+    expect(zoom('=', { isComposing: true })).toBe(true);
+    fireEvent.compositionStart(window.document);
+    expect(zoom('=')).toBe(true);
+    fireEvent.compositionEnd(window.document);
+    expect(zoom('c')).toBe(true);
+    expect(zoom('Enter', { shiftKey: true })).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    expect(zoom('=')).toBe(true);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(fontStatus()).toHaveTextContent('終端 14 px');
+  });
+  it('settings preview cancels to the zoomed size and save persists the new size', async () => {
+    await start(); await act(async () => zoom('='));
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /終端字型大小/ }), { target: { value: '21' } });
+    expect(fontStatus()).toHaveTextContent('終端 21 px');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /終端字型大小/ }), { target: { value: '21' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(fontStatus()).toHaveTextContent('終端 21 px');
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].fontSize).toBe(21);
+  });
+  it('captures zoom before the xterm input target, consumes bounds, and leaves normal input untouched', async () => {
+    await start();
+    const pane = document.createElement('div'); pane.className = 'terminal-pane';
+    const input = document.createElement('textarea'); input.className = 'xterm-helper-textarea';
+    pane.append(input); screen.getByTestId('workspace-canvas').append(pane);
+    const terminalKey = vi.fn(); input.addEventListener('keydown', terminalKey);
+    for (let i = 0; i < 40; i++) expect(zoom('=', {}, input)).toBe(false);
+    expect(fontStatus()).toHaveTextContent('終端 32 px');
+    expect(terminalKey).not.toHaveBeenCalled();
+    await tick();
+    for (let i = 0; i < 40; i++) expect(zoom('-', {}, input)).toBe(false);
+    expect(fontStatus()).toHaveTextContent('終端 9 px');
+    await tick();
+    expect(zoom('c', {}, input)).toBe(true);
+    expect(terminalKey).toHaveBeenCalledOnce();
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].fontSize).toBe(9);
+  });
+  it('keeps a pending quick theme when a subsequent zoom is queued after its menu closes', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    zoom('=');
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...bootstrap().settings, theme: 'light', fontSize: 15 });
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+  });
+
 });

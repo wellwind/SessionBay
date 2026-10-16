@@ -45,7 +45,7 @@ export function workspaceTabIndex(event: KeyboardEvent, count: number, current: 
   return (current + direction + count) % count;
 }
 export function reservedWorkspaceShortcut(shortcut: string, mac = isMac()): boolean {
-  const fixed = ['Ctrl+Tab', 'Ctrl+Shift+Tab', ...Array.from({ length: 9 }, (_, i) => `${mac ? 'Meta' : 'Ctrl'}+${i + 1}`)];
+  const fixed = ['Mod+=', 'Mod++', 'Mod+Shift+=', 'Mod+Shift++', 'Mod+-', 'Mod+Shift+-', 'Mod+0', 'Mod+Shift+0', 'Ctrl+Tab', 'Ctrl+Shift+Tab', ...Array.from({ length: 9 }, (_, i) => `${mac ? 'Meta' : 'Ctrl'}+${i + 1}`)];
   if (mac) fixed.push('Meta+Shift+[', 'Meta+Shift+]', 'Meta+Alt+ArrowLeft', 'Meta+Alt+ArrowRight');
   return fixed.some((binding) => normalizedShortcut(binding, mac) === normalizedShortcut(shortcut, mac));
 }

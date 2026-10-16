@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { startup } from './startup';
+import { acceptsTerminalFontShortcut, nextTerminalFontSize, terminalFontShortcut, terminalFontShortcutHelp } from './terminal-font';
 import { agentCapabilities, agentKinds, bypassFlags, installationState } from './agents';
 import { AgentIcon } from './components/AgentIcon';
 import { Select } from './components/controls';
@@ -108,6 +109,8 @@ export default function App() {
   const [themeSaving, setThemeSaving] = useState(false);
   const [themeSaveError, setThemeSaveError] = useState('');
   const themeSaveInFlight = useRef(false);
+  const quickAppearancePending = useRef<Appearance | null>(null);
+  const quickAppearanceCurrent = useRef<Appearance | null>(null);
   const quickThemeOpenRef = useRef(false);
   quickThemeOpenRef.current = quickThemeOpen;
   const detectionGeneration = useRef(0);
@@ -658,24 +661,53 @@ export default function App() {
     if (first) void scan(false).catch(notify);
   };
   const quickSaveTheme = async (patch: Partial<Appearance>) => {
-    if (!settings || settingsOpen || themeSaveInFlight.current) return;
+    if (!settings || settingsOpen) return;
+    const next = { ...(quickAppearanceCurrent.current ?? appearanceOf(settings)), ...patch };
+    quickAppearanceCurrent.current = next;
+    quickAppearancePending.current = next;
+    setAppearancePreview(next);
+    if (themeSaveInFlight.current) return;
     themeSaveInFlight.current = true;
     setThemeSaving(true);
     setThemeSaveError('');
-    setAppearancePreview({ ...appearanceOf(settings), ...patch });
+    let saved = settings;
     try {
-      const saved = await api.saveSettings({ ...settings, ...patch });
-      setBoot((current) => current ? { ...current, settings: saved } : current);
+      // Serialize writes and coalesce repeats; every new key still previews immediately.
+      while (quickAppearancePending.current) {
+        const appearance = quickAppearancePending.current;
+        quickAppearancePending.current = null;
+        saved = await api.saveSettings({ ...saved, ...appearance });
+        setBoot((current) => current ? { ...current, settings: saved } : current);
+      }
     } catch (error) {
-      const message = `主題未能儲存，已還原：${errorMessage(error)}`;
+      quickAppearancePending.current = null;
+      const message = `外觀未能儲存，已還原至上次儲存：${errorMessage(error)}`;
       setThemeSaveError(message);
       if (!quickThemeOpenRef.current) notify(message);
     } finally {
+      quickAppearanceCurrent.current = null;
       setAppearancePreview(null);
       themeSaveInFlight.current = false;
       setThemeSaving(false);
     }
   };
+  const fontShortcutRef = useRef((event: KeyboardEvent) => { void event; });
+  fontShortcutRef.current = (event) => {
+    if (!settings || settingsOpen || view !== 'workspace' || !activeTab || composing.current || document.querySelector('[role="dialog"]') || !acceptsTerminalFontShortcut(event.target)) return;
+    const action = terminalFontShortcut(event);
+    if (!action) return;
+    // Capture before xterm so reserved zoom keys, including boundary no-ops, never reach PTY.
+    event.preventDefault();
+    event.stopPropagation();
+    const size = quickAppearanceCurrent.current?.fontSize ?? settings.fontSize;
+    const next = nextTerminalFontSize(size, action);
+    if (next !== size) void quickSaveTheme({ fontSize: next });
+  };
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => fontShortcutRef.current(event);
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, []);
   const saveMembership = async (project: Project, curated: boolean) => {
     if (projectMutation.current) return;
     if (curated && !project.path && !project.launchPath) {
@@ -1206,6 +1238,7 @@ export default function App() {
         </div>
         <div>
           <span>{activeCount} 個執行中程序</span>
+          {visibleSettings && <span role="status" aria-live="polite" title={terminalFontShortcutHelp}>終端 {visibleSettings.fontSize} px{themeSaving ? ' · 儲存中' : ''}</span>}
           <span className="status-separator">│</span>
           <span>
             {focusPane && view === 'workspace'
