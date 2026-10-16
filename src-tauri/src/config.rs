@@ -108,6 +108,8 @@ impl AgentOptions {
 pub struct Settings {
     pub version: u32,
     pub theme: String,
+    #[serde(default = "default_theme_palette")]
+    pub theme_palette: String,
     pub terminal_theme: String,
     pub font_family: String,
     pub font_size: u16,
@@ -144,6 +146,7 @@ impl Default for Settings {
         Self {
             version: 1,
             theme: "dark".into(),
+            theme_palette: default_theme_palette(),
             terminal_theme: "bay".into(),
             font_family: "ui-monospace, SFMono-Regular, Menlo, monospace".into(),
             font_size: 14,
@@ -178,13 +181,28 @@ fn clean_string(s: &str, max: usize) -> bool {
     !s.is_empty() && s.len() <= max && !s.contains('\0')
 }
 
+fn default_theme_palette() -> String {
+    "bay".into()
+}
+
+// Preserve future catalog IDs so a theme addition cannot reset unrelated settings.
+fn valid_theme_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.as_bytes()[0].is_ascii_alphanumeric()
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+}
+
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
             return Err("不支援的設定版本；請保留原檔並更新應用程式".into());
         }
         if !["dark", "light", "system"].contains(&self.theme.as_str())
-            || !["bay", "classic"].contains(&self.terminal_theme.as_str())
+            || !valid_theme_id(&self.theme_palette)
+            || !valid_theme_id(&self.terminal_theme)
         {
             return Err("主題設定無效".into());
         }
@@ -835,6 +853,58 @@ mod tests {
         assert!(!store.load_settings().1.is_empty());
         assert_eq!(fs::read(&path).unwrap(), b"broken");
     }
+    #[test]
+    fn legacy_settings_gain_palette_without_changing_the_terminal_or_other_fields() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("themePalette");
+        old["terminalTheme"] = "classic".into();
+        old["fontFamily"] = "Synthetic custom font".into();
+        let migrated: Settings = serde_json::from_value(old).unwrap();
+        assert_eq!(migrated.theme_palette, "bay");
+        assert_eq!(migrated.terminal_theme, "classic");
+        assert_eq!(migrated.font_family, "Synthetic custom font");
+        assert!(migrated.validate().is_ok());
+    }
+
+    #[test]
+    fn future_theme_ids_roundtrip_without_resetting_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ConfigStore::open(dir.path().join("app")).unwrap();
+        let mut settings = Settings {
+            theme_palette: "future-ui".into(),
+            terminal_theme: "future-terminal".into(),
+            font_size: 19,
+            ..Settings::default()
+        };
+        settings.profiles[0].name = "Keep my custom profile".into();
+        store.save_settings(&settings).unwrap();
+        let (loaded, warnings) = store.load_settings();
+        assert!(warnings.is_empty());
+        assert_eq!(loaded.theme_palette, "future-ui");
+        assert_eq!(loaded.terminal_theme, "future-terminal");
+        assert_eq!(loaded.font_size, 19);
+        assert_eq!(loaded.profiles[0].name, "Keep my custom profile");
+    }
+
+    #[test]
+    fn theme_ids_are_bounded_plain_identifiers() {
+        for id in ["bay", "classic", "ocean-dark", "rose-light", "future-42"] {
+            assert!(valid_theme_id(id));
+        }
+        for id in ["", "-bad", "UPPER", "url(example)", "has space", "bad\0"] {
+            assert!(!valid_theme_id(id));
+        }
+        assert!(!valid_theme_id(&"a".repeat(65)));
+        for field in ["themePalette", "terminalTheme"] {
+            let mut value = serde_json::to_value(Settings::default()).unwrap();
+            value[field] = "invalid value".into();
+            assert!(serde_json::from_value::<Settings>(value)
+                .unwrap()
+                .validate()
+                .is_err());
+        }
+    }
+
     #[test]
     fn workspace_rejects_persisted_runtime() {
         assert!(

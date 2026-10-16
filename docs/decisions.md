@@ -14,6 +14,13 @@
 
 官方依據：[Tauri Dialog](https://v2.tauri.app/plugin/dialog/)，查閱 2026-10-16。
 
+## 2026-10-16 Code 配色與命令面板主題切換
+
+- 使用者追加 Modern 與 2026 深／淺色兩組配色，介面與 Terminal 都提供對應選項；保留原有十個色系及所有 ID。名稱採 Code Modern、Code 2026，屬 Session Bay 的配色改編，不代表 VS Code 官方產品或合作關係。
+- 官方來源固定到 Microsoft VS Code commit 3588843f05a21bfdeada83a9799d87f19de0fadd，讀取主題 include 鏈與 Terminal ANSI 預設值，保留 MIT 著作權與授權告知。側欄、編輯區、面板、分頁、控制項及焦點採語意對應；低對比文字、ANSI 色與必要邊界作可及性調整，明列差異而非宣稱像素一致。
+- 命令面板提供獨立「切換介面主題」「切換 Terminal 主題」入口：搜尋名稱、鍵盤移動即預覽、Enter 套用保存、Escape／返回取消。與設定及快速切換的預覽擁有權互斥，延遲保存不可覆蓋後來設定或縮放。
+- 保留既有設定立即預覽／取消還原、快速切換與 Terminal 實例生命週期；原生桌面視覺驗收仍需另行完成。
+
 ## 2026-10-15 工具登錄、啟動器與輸入操作一致性
 
 本節記錄原功能批次；後續使用者追加的 Antigravity CLI 歷史、IME／快捷鍵與來源偵測依本文件後段決策執行，未來待辦仍不納入實作。
@@ -314,3 +321,13 @@
 初步診斷找到 Codex canonical／fallback 重複訊息的 correlated SQL 平方掃描。改善採操作本機的 SQLite TEMP digest lookup，hash 只縮小候選，仍核對原文字與角色，不以 hash 相同直接隱藏訊息。連線要求 FILE 暫存與約 2 MiB page-cache 目標，並非全程序記憶體硬上限；不把整份對話保留在 Rust HashMap，也不新增持久 schema。另重用 message INSERT 與 checkpoint 查詢的 prepared statements。
 
 原來源唯讀、來源與檔案身份、prefix hash、寫入前後校驗、重寫／compaction、取消與交易 rollback、stale／snapshot generation 均維持。同一 harness／環境的 before／after、全部核心回歸與未達標的高命中率搜尋見[索引效能量測](index-performance.md)；合成改善不等於使用者真實來源或全部效能驗收完成。
+## 2026-10-16 獨立主題與即時預覽
+
+- 本次獨立功能 PR 實作 UI 深／淺色各 10 種，Terminal 深／淺色各 10 種；兩者獨立選擇。既有 Bay／Classic 終端色票保留，不強制轉換。
+- 設定內的外觀變更立即套用到整個工作台與所有開啟的 Terminal；只有儲存成功才持久化。取消、關閉、Escape 後確認捨棄、瀏覽器上一頁或元件卸載會移除預覽。儲存中暫停編輯與取消，避免已送出的寫入與回復互相競爭；儲存失敗保留預覽與草稿並顯示錯誤。
+- 工具列的快速主題選單每次選擇立即預覽並儲存，關閉不回復；寫入失敗回到已儲存外觀並提示。寫入中禁止重複變更；設定視窗開啟時不開放快速切換，避免兩個編輯來源互相覆寫。
+- 設定預覽只覆蓋外觀欄位，不改啟動命令／來源／工作區。若開啟期間收到外部已儲存設定，採用最新設定作為新基準，捨棄舊草稿，取消不回寫過期快照。
+- 保留 settings version 1，新增可省略且有預設值的 themePalette；未知但格式合法的主題 ID 保留原值、顯示安全 fallback，不因新增主題導致整份設定回到預設。任意 CSS 或自訂色票編輯器不在本次範圍。
+- Terminal 只更新 xterm options，不重建 xterm、不重新啟動 PTY、不重設畫面；純換色不做 fit／resize 或搶焦點。自動化與原生桌面視覺驗收分開記錄。
+
+- 純外觀寫入可在索引期間完成；後端比對所有非外觀欄位，只有 theme／themePalette／terminalTheme／fontFamily／fontSize 可略過掃描鎖。其餘設定仍遵守原限制；寫入失敗不更新記憶體中的已儲存設定。

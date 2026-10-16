@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   termWrite: vi.fn(),
   disposed: vi.fn(),
   keyHandler: vi.fn(),
+  reset: vi.fn(),
+  focus: vi.fn(),
+  options: [] as Record<string, unknown>[],
   input: undefined as undefined | ((value: string) => void),
 }));
 vi.mock('./api', () => ({ errorMessage: (e: unknown) => String(e), api: mocks }));
@@ -30,14 +33,15 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     cols = mocks.initialCols;
     rows = mocks.initialRows;
-    options = {};
+    options: Record<string, unknown> = {};
+    constructor() { mocks.options.push(this.options); }
     parser = { registerOscHandler: () => ({ dispose() {} }) };
     loadAddon() {}
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { mocks.keyHandler(handler); }
     open() {}
-    reset() { mocks.termReset(); }
+    reset() { mocks.termReset(); mocks.reset(); }
     resize(cols: number, rows: number) { this.cols = cols; this.rows = rows; mocks.termResize(cols, rows); }
-    focus() {}
+    focus() { mocks.focus(); }
     getSelection() {
       return '';
     }
@@ -120,6 +124,8 @@ function completeSnapshot(channel: (event: TerminalEvent) => void, runtimeId = '
 beforeEach(() => {
   mocks.initialCols = 80;
   mocks.initialRows = 24;
+
+  mocks.options.length = 0;
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -571,6 +577,35 @@ it('restarts a recovered legacy projectless shell in its broker-confirmed direct
   render(<TerminalPane {...props({ ...restored.panes.pane, startToken: 1 })} projectAvailable={false} />);
   await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
   expect(mocks.launch.mock.calls[0][0]).toMatchObject({ projectId: undefined, cwd: '/synthetic/confirmed-project' });
+});
+
+
+describe('live terminal palette updates', () => {
+  it('updates every open pane, including hidden panes, without resetting, fitting, focusing or restarting', async () => {
+    const first = props(makePane({ startToken: 1 }));
+    const second = props(makePane({ id: 'second', startToken: 1 }));
+    mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
+    const panes = (terminalTheme: string) => <>
+      <TerminalPane {...first} settings={{ ...settings, terminalTheme }} />
+      <TerminalPane {...second} settings={{ ...settings, terminalTheme }} visible={false} focused={false} />
+    </>;
+    const view = render(panes('classic'));
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+    const snapshots = { reset: mocks.reset.mock.calls.length, fit: mocks.fit.mock.calls.length, focus: mocks.focus.mock.calls.length };
+    for (const id of ['rose-light', 'ocean-dark', 'classic']) {
+      view.rerender(panes(id));
+      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : '#0d1929';
+      for (const options of mocks.options) expect(options.theme).toMatchObject({ background: expected });
+    }
+    expect(mocks.options).toHaveLength(2);
+    expect(mocks.launch).toHaveBeenCalledTimes(2);
+    expect(mocks.stop).not.toHaveBeenCalled();
+    expect(mocks.disposed).not.toHaveBeenCalled();
+    expect(mocks.reset).toHaveBeenCalledTimes(snapshots.reset);
+    expect(mocks.fit).toHaveBeenCalledTimes(snapshots.fit);
+    expect(mocks.focus).toHaveBeenCalledTimes(snapshots.focus);
+  });
 });
 
 describe('real plugin asynchronous confirmation safety', () => {

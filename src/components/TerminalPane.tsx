@@ -33,52 +33,8 @@ interface Attachment {
   lastAcknowledged: number;
   info?: RuntimeInfo;
 }
-const themes = {
-  bay: {
-    background: '#11151a',
-    foreground: '#d9e1e8',
-    cursor: '#9bd9bd',
-    selectionBackground: '#3b5f5580',
-    black: '#19222a',
-    red: '#ef8794',
-    green: '#9bd9bd',
-    yellow: '#e2c58f',
-    blue: '#92b8e0',
-    magenta: '#c4a0d9',
-    cyan: '#8bced5',
-    white: '#d9e1e8',
-    brightBlack: '#72808e',
-    brightRed: '#ff9caa',
-    brightGreen: '#b4efd3',
-    brightYellow: '#f0d6a3',
-    brightBlue: '#b5d4f7',
-    brightMagenta: '#dfbdec',
-    brightCyan: '#abe6ec',
-    brightWhite: '#ffffff',
-  },
-  classic: {
-    background: '#090909',
-    foreground: '#e0e0e0',
-    cursor: '#f2f2f2',
-    selectionBackground: '#66666680',
-    black: '#000000',
-    red: '#cd3131',
-    green: '#0dbc79',
-    yellow: '#e5e510',
-    blue: '#2472c8',
-    magenta: '#bc3fbc',
-    cyan: '#11a8cd',
-    white: '#e5e5e5',
-    brightBlack: '#666666',
-    brightRed: '#f14c4c',
-    brightGreen: '#23d18b',
-    brightYellow: '#f5f543',
-    brightBlue: '#3b8eea',
-    brightMagenta: '#d670d6',
-    brightCyan: '#29b8db',
-    brightWhite: '#ffffff',
-  },
-};
+import { terminalTheme } from '../themes';
+
 export function TerminalPane({
   pane,
   projectAvailable = true,
@@ -180,7 +136,7 @@ export function TerminalPane({
       scrollback: 5000,
       fontSize: settings.fontSize,
       fontFamily: settings.fontFamily,
-      theme: themes[settings.terminalTheme],
+      theme: terminalTheme(settings.terminalTheme),
       cursorBlink: true,
       allowProposedApi: false,
       convertEol: false,
@@ -234,10 +190,13 @@ export function TerminalPane({
     if (term.current) {
       term.current.options.fontSize = settings.fontSize;
       term.current.options.fontFamily = settings.fontFamily;
-      term.current.options.theme = themes[settings.terminalTheme];
       fitNow();
     }
-  }, [settings.fontSize, settings.fontFamily, settings.terminalTheme, fitNow]);
+  }, [settings.fontSize, settings.fontFamily, fitNow]);
+  useEffect(() => {
+    // Colors never resize, reset, refocus or reconnect a running terminal.
+    if (term.current) term.current.options.theme = terminalTheme(settings.terminalTheme);
+  }, [settings.terminalTheme]);
   useEffect(() => {
     if (visible) {
       const frame = requestAnimationFrame(() => {

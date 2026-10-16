@@ -1923,3 +1923,183 @@ describe('directory pickers in workspace flows', () => {
     expect(api.scan).not.toHaveBeenCalled();
   });
 });
+
+describe('App live theme integration', () => {
+  const start = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    render(<App />);
+    await tick();
+  };
+  it('quick switching previews before persistence resolves and keeps the committed theme after closing', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '深色' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '設定與資料來源' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    // Theme-only quick saves preserve all other committed settings verbatim.
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...bootstrap().settings, theme: 'light' });
+  });
+  it('restores the committed theme after a failed quick save, even if the menu already closed', async () => {
+    await start();
+    let fail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    await act(async () => fail(new Error('Disk full')));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(screen.getByRole('alert')).toHaveTextContent('主題未能儲存，已還原');
+    expect(screen.getByRole('button', { name: '快速切換主題' })).not.toBeDisabled();
+  });
+  it('Settings previews without a save call, then cancel restores and a later save persists', async () => {
+    await start();
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '快速切換主題' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+  });
+});
+
+describe('command palette theme transactions', () => {
+  async function start() {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async next => next);
+    render(<App />);
+    await tick();
+  }
+  function open(target = '切換介面主題') {
+    fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
+    const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    fireEvent.change(search, { target: { value: target } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    return screen.getByRole('combobox', { name: '搜尋主題' });
+  }
+  it('searches commands and previews with arrows without writing, Escape returns and restores', async () => {
+    await start();
+    for (let i = 0; i < 2; i++) {
+      const input = open();
+      fireEvent.keyDown(input, { key: 'ArrowDown' });
+      expect(document.documentElement.dataset.themePalette).toBe('graphite');
+      expect(api.saveSettings).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'Escape' });
+      expect(screen.getByRole('textbox', { name: '搜尋命令或專案' })).toHaveFocus();
+      expect(document.documentElement.dataset.themePalette).toBe('bay');
+      fireEvent.keyDown(screen.getByRole('textbox', { name: '搜尋命令或專案' }), { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    }
+  });
+  it('commits only the selected UI fields with Enter and does not restart runtime', async () => {
+    await start();
+    const input = open();
+    fireEvent.change(input, { target: { value: 'Ocean · 海洋 · 淺色' } });
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...bootstrap().settings, theme: 'light', themePalette: 'ocean' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.documentElement.dataset.themePalette).toBe('ocean');
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+  });
+  it('Terminal selection preserves UI mode, font and unrelated settings', async () => {
+    await start();
+    const input = open('切換 Terminal 主題');
+    fireEvent.change(input, { target: { value: '淺色 · Rose' } });
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...bootstrap().settings, terminalTheme: 'rose-light' });
+  });
+  it('save failure rolls back, retains selected retry, and Escape never writes', async () => {
+    await start();
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error('Disk full'));
+    const input = open();
+    fireEvent.change(input, { target: { value: 'Ocean · 海洋 · 淺色' } });
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(screen.getByRole('alert')).toHaveTextContent('Disk full');
+    expect(screen.getByRole('option', { name: /Ocean/ })).toHaveAttribute('aria-selected', 'true');
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(api.saveSettings).toHaveBeenCalledTimes(2);
+    expect(document.documentElement.dataset.theme).toBe('light');
+    const again = open();
+    fireEvent.change(again, { target: { value: 'Forest · 森林 · 深色' } });
+    fireEvent.keyDown(again, { key: 'Escape' });
+    expect(document.documentElement.dataset.themePalette).toBe('ocean');
+    expect(api.saveSettings).toHaveBeenCalledTimes(2);
+  });
+  it('single write gate prevents repeats and stale save completion does not close a returned command screen', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const input = open();
+    fireEvent.change(input, { target: { value: 'Ocean · 海洋 · 淺色' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '返回命令' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(screen.getByRole('button', { name: '切換介面主題' })).toBeDisabled();
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(screen.getByRole('textbox', { name: '搜尋命令或專案' })).toBeInTheDocument();
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(screen.getByRole('button', { name: '切換介面主題' })).not.toBeDisabled();
+  });
+  it('IME confirmation and Escape do not save or dismiss, empty search has no actionable choice', async () => {
+    await start();
+    const input = open();
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input).toBeInTheDocument();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
+    fireEvent.change(input, { target: { value: 'not-a-theme-zzz' } });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '儲存選取主題' })).toBeDisabled();
+  });
+  it('settings and quick switcher cannot acquire preview while command picker owns it', async () => {
+    await start();
+    open();
+    expect(screen.getByRole('button', { name: '快速切換主題' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '設定與資料來源' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
+    expect(screen.queryByRole('dialog', { name: '命令面板' })).not.toBeInTheDocument();
+  });
+  it('ordinary commands still run from filtered search', async () => {
+    await start();
+    fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
+    const input = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    fireEvent.change(input, { target: { value: '顯示／隱藏側欄' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+});
