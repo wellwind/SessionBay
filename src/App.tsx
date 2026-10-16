@@ -13,6 +13,7 @@ import {
   LoaderCircle,
   PanelLeftClose,
   Pin,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -46,6 +47,8 @@ import {
   paneIds,
   patchWorkspacePane,
   restoreWorkspace,
+  renameWorkspaceTab,
+  reorderWorkspaceTab,
   serializeWorkspace,
   setRatio,
   splitNode,
@@ -55,6 +58,8 @@ import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspace
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
+import { RenameDialog } from './components/RenameDialog';
+import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -109,6 +114,7 @@ export default function App() {
   const [previewPending, setPreviewPending] = useState(false);
   const [pathDialog, setPathDialog] = useState<PathDialog | null>(null);
   const [projectDialog, setProjectDialog] = useState<{ launchKind?: Launcher['kind'] } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ kind: 'tab' | 'project'; id: string; name: string } | null>(null);
   const [projectBusy, setProjectBusy] = useState(false);
   const projectMutation = useRef(false);
   const projectReadGeneration = useRef(0);
@@ -944,6 +950,10 @@ export default function App() {
                 {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
               </button>}
               {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}
+                onClick={() => setRenameTarget({ kind: 'project', id: current.id, name: current.name })}>
+                <Pencil size={14} />重新命名專案
+              </button>}
+              {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}
                 title={current.curated ? '只移出專案清單，不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
                 onClick={() => void saveMembership(current, !current.curated)}>
                 {current.curated ? '移出專案' : '加入專案'}
@@ -1030,38 +1040,16 @@ export default function App() {
                   <History size={14} />
                   歷史 Session
                 </button>
-                {workspace.tabs
-                  .filter((t) => t.projectId === selectedId)
-                  .map((tab) => (
-                    <div
-                      className={`workspace-tab ${view === 'workspace' && tab.id === activeTabId ? 'active' : ''}`}
-                      key={tab.id}
-                    >
-                      <button
-                        onClick={() => {
-                          setWorkspace((w) => ({
-                            ...w,
-                            activeTabByProject: {
-                              ...w.activeTabByProject,
-                              [tab.projectId]: tab.id,
-                            },
-                          }));
-                          setView('workspace');
-                          setMaximizedId(null);
-                        }}
-                      >
-                        <TerminalSquare size={13} />
-                        {tab.name}
-                        <span>{paneIds(tab.layout).length}</span>
-                      </button>
-                      <button
-                        aria-label={`關閉分頁 ${tab.name}`}
-                        onClick={() => removePanes(paneIds(tab.layout))}
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
+                <WorkspaceTabs tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
+                  activeId={view === 'workspace' ? activeTabId : undefined}
+                  onSelect={(tab) => {
+                    setWorkspace((w) => ({ ...w, activeTabByProject: { ...w.activeTabByProject, [tab.projectId]: tab.id } }));
+                    setView('workspace');
+                    setMaximizedId(null);
+                  }}
+                  onRename={(tab) => setRenameTarget({ kind: 'tab', id: tab.id, name: tab.name })}
+                  onClose={(tab) => removePanes(paneIds(tab.layout))}
+                  onReorder={(id, targetId, after) => setWorkspace((w) => reorderWorkspaceTab(w, id, targetId, after))} />
                 {current && (
                   <button
                     className="icon-button"
@@ -1387,6 +1375,24 @@ export default function App() {
           </form>
         </Dialog>
       )}
+      {renameTarget && <RenameDialog key={`${renameTarget.kind}:${renameTarget.id}`}
+        title={renameTarget.kind === 'tab' ? '重新命名分頁' : '重新命名專案'} name={renameTarget.name}
+        description={renameTarget.kind === 'tab' ? '只修改分頁顯示名稱，保留面板、程序與工作位置。' : '只修改顯示名稱，實際資料夾、路徑與對話歷史維持原樣。'}
+        onClose={() => setRenameTarget(null)} onSave={async (name) => {
+          if (renameTarget.kind === 'tab') {
+            if (!stateRef.current.workspace.tabs.some((tab) => tab.id === renameTarget.id)) throw new Error('此分頁已關閉，請重新選擇。');
+            setWorkspace((w) => renameWorkspaceTab(w, renameTarget.id, name));
+            return;
+          }
+          if (projectMutation.current) throw new Error('專案正在更新，請稍後再試。');
+          projectMutation.current = true;
+          setProjectBusy(true);
+          try {
+            const result = await api.updateProject(renameTarget.id, { name });
+            projectReadGeneration.current++;
+            setProjects((previous) => previous.map((project) => project.id === result.id ? result : project));
+          } finally { projectMutation.current = false; setProjectBusy(false); }
+        }} />}
       {confirmation && (
         <Dialog title={confirmation.title} onClose={() => !busy && setConfirmation(null)}>
           <p className="dialog-description">{confirmation.text}</p>

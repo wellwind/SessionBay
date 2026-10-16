@@ -1,6 +1,6 @@
 import { defaultAgentOptions } from './agents';
 import { shouldHandleTerminalKey } from './terminal-ime';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPane } from './components/TerminalPane';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from './types';
@@ -319,4 +319,24 @@ describe('additional agent terminal requests', () => {
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
     expect(mocks.launch.mock.calls[0][0]).toMatchObject({ kind: 'grok', sessionId: 'catalog-session', resumeId: undefined });
   });
+});
+
+it('renames a running pane without remount, stop, relaunch or input interruption', async () => {
+  const pane = makePane({ startToken: 1 });
+  const original = props(pane);
+  const { rerender } = render(<TerminalPane {...original} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  const disposed = mocks.disposed.mock.calls.length;
+  const stopped = mocks.stop.mock.calls.length;
+  fireEvent.click(screen.getByRole('button', { name: '重新命名面板 Shell' }));
+  fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Named console' } });
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存名稱' })));
+  expect(original.onPatch).toHaveBeenCalledWith(pane.id, { title: 'Named console' });
+  rerender(<TerminalPane {...original} pane={{ ...pane, title: 'Named console', state: 'running', runtimeId: 'runtime' }} />);
+  expect(screen.getByRole('region', { name: 'Named console 終端面板' })).toBeInTheDocument();
+  expect(mocks.launch).toHaveBeenCalledOnce();
+  expect(mocks.disposed).toHaveBeenCalledTimes(disposed);
+  expect(mocks.stop).toHaveBeenCalledTimes(stopped);
+  await act(async () => mocks.input?.('echo still alive\r'));
+  await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'echo still alive\r'));
 });

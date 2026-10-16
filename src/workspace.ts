@@ -1,4 +1,26 @@
 import type { LayoutNode, Pane, Project, Workspace, WorkspaceTab } from './types';
+import { displayNameError } from './display-name';
+
+/** Display-only edits never change IDs, layout, runtime identity or start tokens. */
+export function renameWorkspaceTab(workspace: Workspace, id: string, value: string): Workspace {
+  if (displayNameError(value)) return workspace;
+  const name = value.trim();
+  if (!workspace.tabs.some((tab) => tab.id === id && tab.name !== name)) return workspace;
+  return { ...workspace, tabs: workspace.tabs.map((tab) => tab.id === id ? { ...tab, name } : tab) };
+}
+
+/** Reorder within one project, preserving other projects' slots and active/focused IDs. */
+export function reorderWorkspaceTab(workspace: Workspace, id: string, targetId: string, after = false): Workspace {
+  const source = workspace.tabs.find((tab) => tab.id === id);
+  const target = workspace.tabs.find((tab) => tab.id === targetId);
+  if (!source || !target || source === target || source.projectId !== target.projectId) return workspace;
+  const ordered = workspace.tabs.filter((tab) => tab.projectId === source.projectId && tab.id !== id);
+  const position = ordered.findIndex((tab) => tab.id === targetId) + Number(after);
+  ordered.splice(position, 0, source);
+  let index = 0;
+  const tabs = workspace.tabs.map((tab) => tab.projectId === source.projectId ? ordered[index++] : tab);
+  return tabs.every((tab, i) => tab === workspace.tabs[i]) ? workspace : { ...workspace, tabs };
+}
 export const emptyWorkspace = (): Workspace => ({
   version: 1,
   tabs: [],

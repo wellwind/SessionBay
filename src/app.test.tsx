@@ -1686,3 +1686,60 @@ it('refuses a preview-only session even when a stale history callback attempts r
   expect(api.preview).not.toHaveBeenCalled();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+describe('workspace display organization', () => {
+  it('renames and persists a tab without remounting the canvas or stopping its runtime', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
+    const original = workspaceSnapshot();
+    const mounts = native.canvasMounted.mock.calls.length;
+    const unmounts = native.canvasUnmounted.mock.calls.length;
+    const stops = vi.mocked(api.stop).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '重新命名分頁 Terminal' }));
+    fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Build console' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存名稱' }));
+    await tick(); await tick(450);
+    expect(workspaceSnapshot().tabs[0].name).toBe('Build console');
+    expect(workspaceSnapshot().panes).toEqual(original.panes);
+    expect(native.canvasMounted).toHaveBeenCalledTimes(mounts);
+    expect(native.canvasUnmounted).toHaveBeenCalledTimes(unmounts);
+    expect(api.stop).toHaveBeenCalledTimes(stops);
+    expect(vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0]).toMatchObject({ tabs: [{ name: 'Build console' }] });
+  });
+  it('cancels project rename without writes and saves display-only metadata without path/membership changes', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const project = bootstrap().projects[0];
+    vi.mocked(api.updateProject).mockResolvedValue({ ...project, name: 'Friendly project' });
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: '重新命名專案' }));
+    fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Cancelled' } });
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(api.updateProject).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '重新命名專案' }));
+    expect(screen.getByLabelText('顯示名稱')).toHaveValue(project.name);
+    fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: '  Friendly project  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存名稱' })); await tick();
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith(project.id, { name: 'Friendly project' });
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Friendly project');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(workspaceSnapshot().panes['pane-a'].cwd).toBe(project.path);
+    expect(api.createProject).not.toHaveBeenCalled(); expect(api.addProject).not.toHaveBeenCalled();
+  });
+  it('reorders the rendered tabs and numeric navigation follows the persisted order', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap(); const workspace = data.workspace as Workspace;
+    workspace.tabs.push({ ...workspace.tabs[0], id: 'tab-b', name: 'Second', focusedPaneId: 'pane-b', layout: { kind: 'pane', paneId: 'pane-b' } });
+    workspace.panes['pane-b'] = { ...workspace.panes['pane-a'], id: 'pane-b' };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />); await tick(); selectGroup();
+    const tab = screen.getByRole('button', { name: 'Second 1' });
+    fireEvent.keyDown(tab, { key: 'ArrowLeft', altKey: true });
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    fireEvent.keyDown(window, { key: '1', code: 'Digit1', metaKey: mac, ctrlKey: !mac });
+    expect(workspaceSnapshot().tabs.map((item) => item.id)).toEqual(['tab-b', 'tab-a']);
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-b');
+    await tick(450);
+    expect((vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0] as Workspace).tabs.map((item) => item.id)).toEqual(['tab-b', 'tab-a']);
+  });
+});
