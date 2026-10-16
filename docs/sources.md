@@ -134,3 +134,19 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [GitHub：Control workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)：同群 queued run 的取代語意；完整手動流程不共用自動取消群組。
 - [GitHub：Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)：未跑／略過不能作為本專案實際平台驗收證據。
 - [actionlint v1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)：本機以官方 release digest 核對後檢查 workflow 語法與 expressions；沒有新增第三方 CI action。
+
+## Windows 原生支援（2026-10-16）
+
+查閱日期：2026-10-16；來源描述上游 API／安裝支援，不作為 Session Bay 原生驗收結果。
+
+- [Microsoft：建立 ConPTY session](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session)：獨立 I/O threads、初始 cursor handshake 與 attached-child teardown。
+- [Microsoft：ClosePseudoConsole](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)：Windows 10 1809 起提供；舊版本關閉須持續排空輸出，不能在 reader 本身等待關閉。
+- [portable-pty 0.9 原始碼](https://docs.rs/crate/portable-pty/0.9.0/source/src/win/conpty.rs)：本地 lockfile 使用 0.9.0；另外核對 `psuedocon.rs` 的 cursor flag 與 child HANDLE 行為，不將 API 表面跨平台視為 lifecycle 已驗。
+- [Microsoft：GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex) 與 [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info)：volume／128-bit ID 可識別檔案替換；時間戳不能代替身分。
+- [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) 與 [Windows installer](https://v2.tauri.app/distribute/windows-installer/)：MSVC、WebView2、NSIS／MSI 差異；本 PR 使用 current-user NSIS，沒有替使用者安裝／發布。
+- 四個 CLI 的 Windows 官方安裝依據與限制集中於[三平台支援](platform-support.md#cli-相容性與限制)。
+
+### 2026-10-16 GitHub Actions Node 24
+
+- [Node 20 removal](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/)：2026-09-23 已移除，專案 Node 與 action runtime 不同。
+- [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1)、[setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0)、[upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2)：以 release tag 的 Git ref SHA 與 action.yml 核對 Node 24，並閱讀移轉限制。現有設定未使用 registry-url／always-auth／unsafe PR checkout，不受這些新增限制影響。

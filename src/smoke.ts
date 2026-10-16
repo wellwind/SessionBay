@@ -202,6 +202,14 @@ export async function runSmokeInteraction(): Promise<void> {
       'history Agent filter did not open');
     click(Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
       .find((option) => option.querySelector('.select-option-copy > span')?.textContent === 'Antigravity CLI') ?? null);
+    // The newest native fixture is already Antigravity, so its preview can be
+    // present before filtering. Wait for the asynchronous list commit as well.
+    await waitFor(() => {
+      const list = document.querySelector('[aria-label="Session 清單"]');
+      const badges = Array.from(list?.querySelectorAll('.session-card .agent-badge') ?? []);
+      return list?.getAttribute('aria-busy') === 'false' && badges.length > 0 &&
+        badges.every((badge) => badge.textContent === 'Antigravity CLI');
+    }, 'Antigravity CLI filter did not commit a nonempty CLI-only session list');
     await waitFor(() => document.querySelector('[aria-label="對話預覽"]')?.textContent?.includes('SESSIONBAY_SYNTHETIC_AG_USER') === true &&
       document.querySelector('[aria-label="對話預覽"]')?.textContent?.includes('SESSIONBAY_SYNTHETIC_AG_ASSISTANT') === true,
     'Antigravity CLI persisted transcript did not reach the read-only UI preview');

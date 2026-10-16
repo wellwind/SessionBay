@@ -329,7 +329,7 @@ impl Service {
                     .and_then(|key| env.get(key).cloned())
                     .unwrap_or_else(|| {
                         provider
-                            .state_root(&dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")))
+                            .state_root(&config::default_home())
                             .to_string_lossy()
                             .into_owned()
                     });
@@ -363,7 +363,13 @@ impl Service {
             config::resolve_executable(&profile.executable)?
         };
         // GUI launches often omit Homebrew and user-local bins. Never invoke a login shell to evaluate a command string.
-        if !env.contains_key("PATH") {
+        if !env.keys().any(|key| {
+            if cfg!(windows) {
+                key.eq_ignore_ascii_case("PATH")
+            } else {
+                key == "PATH"
+            }
+        }) {
             let mut paths: Vec<PathBuf> =
                 std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
                     .filter(|p| p.is_absolute())
@@ -371,15 +377,10 @@ impl Service {
             if let Some(parent) = executable.parent() {
                 paths.insert(0, parent.to_path_buf());
             }
-            for p in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
-                let p = PathBuf::from(p);
-                if !paths.contains(&p) {
-                    paths.push(p);
+            for path in config::executable_fallback_directories() {
+                if !paths.contains(&path) {
+                    paths.push(path);
                 }
-            }
-            if let Some(home) = dirs::home_dir() {
-                paths.push(home.join(".local/bin"));
-                paths.push(home.join(".cargo/bin"));
             }
             if let Ok(path) = std::env::join_paths(paths) {
                 env.insert("PATH".into(), path.to_string_lossy().into_owned());

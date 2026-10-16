@@ -7,9 +7,11 @@
 use chrono::{DateTime, SecondsFormat};
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 use sha2::{Digest, Sha256};
+#[cfg(any(not(windows), test))]
+use std::fs;
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, File, Metadata, OpenOptions},
+    fs::{File, Metadata, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
@@ -67,6 +69,8 @@ impl Default for Limits {
 struct Stamp {
     len: u64,
     modified: SystemTime,
+    #[cfg(windows)]
+    identity: String,
     #[cfg(unix)]
     device: u64,
     #[cfg(unix)]
@@ -78,7 +82,10 @@ struct Stamp {
 }
 
 impl Stamp {
-    fn from_metadata(metadata: &Metadata) -> Result<Self, String> {
+    fn from_metadata(
+        metadata: &Metadata,
+        #[cfg(windows)] identity: String,
+    ) -> Result<Self, String> {
         if !metadata.file_type().is_file() {
             return Err("Antigravity metadata source must be a regular, non-symlink file".into());
         }
@@ -89,6 +96,8 @@ impl Stamp {
             modified: metadata.modified().map_err(|error| {
                 format!("Cannot inspect Antigravity metadata modification time: {error}")
             })?,
+            #[cfg(windows)]
+            identity,
             #[cfg(unix)]
             device: metadata.dev(),
             #[cfg(unix)]
@@ -118,8 +127,7 @@ enum SnapshotStage {
 /// Returns a complete bounded index or an error. Missing metadata is explicitly
 /// distinguished from unreadable, changing, oversized, or unsupported metadata.
 pub fn read_metadata(root: &Path, cancel: &AtomicBool) -> Result<MetadataIndex, String> {
-    // File identity verification currently uses the supported macOS/Linux APIs.
-    if !cfg!(unix) {
+    if !cfg!(any(unix, windows)) {
         return Err("Safe Antigravity metadata snapshots are unsupported on this platform".into());
     }
     read_metadata_inner(root, cancel, Limits::default(), &mut |_| {}).map_err(bound_error)
@@ -247,9 +255,16 @@ fn sidecar(root: &Path, suffix: &str) -> PathBuf {
 }
 
 fn inspect_file(path: &Path, limits: Limits) -> Result<Option<Stamp>, String> {
-    match fs::symlink_metadata(path) {
+    #[cfg(windows)]
+    let inspected = crate::windows_fs::open_regular_readonly_nofollow(path);
+    #[cfg(not(windows))]
+    let inspected = fs::symlink_metadata(path);
+    match inspected {
         Ok(metadata) => {
+            #[cfg(not(windows))]
             let stamp = Stamp::from_metadata(&metadata)?;
+            #[cfg(windows)]
+            let stamp = windows_stamp(&metadata)?;
             if stamp.len > limits.file_bytes {
                 return Err("Antigravity metadata file exceeds the snapshot byte limit".into());
             }
@@ -292,30 +307,61 @@ fn ensure_sources(root: &Path, expected: &Sources, limits: Limits) -> Result<(),
 }
 
 fn open_source(path: &Path, expected: &Stamp) -> Result<File, String> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        // Reject symlink races and do not block if a regular file became a FIFO.
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let file = options
-        .open(path)
+    #[cfg(not(windows))]
+    let file = {
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            // Reject symlink races and do not block if a regular file became a FIFO.
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        let file = options.open(path).map_err(|error| {
+            format!("Cannot open Antigravity metadata source read-only: {error}")
+        })?;
+        file
+    };
+    #[cfg(windows)]
+    let file = crate::windows_fs::open_regular_readonly_nofollow(path)
         .map_err(|error| format!("Cannot open Antigravity metadata source read-only: {error}"))?;
     verify_file_identity(path, &file, expected)?;
     Ok(file)
 }
 
-fn verify_file_identity(path: &Path, file: &File, expected: &Stamp) -> Result<(), String> {
-    let descriptor = file
+#[cfg(windows)]
+fn windows_stamp(file: &File) -> Result<Stamp, String> {
+    let metadata = file
         .metadata()
-        .map_err(|error| format!("Cannot inspect open Antigravity metadata source: {error}"))?;
-    let pathname = fs::symlink_metadata(path)
-        .map_err(|error| format!("Antigravity metadata source changed or disappeared: {error}"))?;
-    if Stamp::from_metadata(&descriptor)? != *expected
-        || Stamp::from_metadata(&pathname)? != *expected
-    {
+        .map_err(|error| format!("Cannot inspect Antigravity source: {error}"))?;
+    let identity = crate::windows_fs::identity_from_file(file)
+        .map_err(|error| format!("Cannot verify Antigravity source identity: {error}"))?;
+    Stamp::from_metadata(&metadata, identity)
+}
+
+fn verify_file_identity(path: &Path, file: &File, expected: &Stamp) -> Result<(), String> {
+    #[cfg(not(windows))]
+    let (descriptor, pathname) = {
+        let descriptor = file
+            .metadata()
+            .map_err(|error| format!("Cannot inspect open Antigravity metadata source: {error}"))?;
+        let pathname = fs::symlink_metadata(path).map_err(|error| {
+            format!("Antigravity metadata source changed or disappeared: {error}")
+        })?;
+        (
+            Stamp::from_metadata(&descriptor)?,
+            Stamp::from_metadata(&pathname)?,
+        )
+    };
+    #[cfg(windows)]
+    let (descriptor, pathname) = {
+        let pathname =
+            crate::windows_fs::open_regular_readonly_nofollow(path).map_err(|error| {
+                format!("Antigravity metadata source changed or disappeared: {error}")
+            })?;
+        (windows_stamp(file)?, windows_stamp(&pathname)?)
+    };
+    if descriptor != *expected || pathname != *expected {
         return Err(
             "Antigravity metadata source identity, size, or timestamps changed while reading"
                 .into(),
@@ -886,6 +932,26 @@ fn local_file_uri(uri: &str) -> Option<String> {
         }
     }
     let path = String::from_utf8(decoded).ok()?;
+    #[cfg(windows)]
+    let path = {
+        let bytes = path.as_bytes();
+        if bytes.len() < 4
+            || bytes[0] != b'/'
+            || !bytes[1].is_ascii_alphabetic()
+            || bytes[2] != b':'
+            || bytes[3] != b'/'
+            || path[3..].contains([':', '*', '?', '"', '<', '>', '|'])
+        {
+            return None;
+        }
+        // file:///C:/... is a local absolute drive path. Keep forward slashes:
+        // Rust/Windows accepts them and URI text is never passed to a shell.
+        let native = path[1..].to_owned();
+        if !crate::windows_fs::valid_filesystem_path(Path::new(&native)) {
+            return None;
+        }
+        native
+    };
     if path.len() > MAX_PATH_BYTES
         || path.starts_with("//")
         || path
@@ -1621,5 +1687,123 @@ mod tests {
         let error = bound_error("合成錯誤".repeat(MAX_ERROR_BYTES));
         assert!(error.len() <= MAX_ERROR_BYTES);
         assert!(error.ends_with("..."));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    const ID: &str = "11111111-2222-4333-8444-555555555555";
+
+    fn fixture() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let connection = Connection::open(root.path().join(DATABASE_NAME)).unwrap();
+        connection.execute_batch("CREATE TABLE conversation_summaries (conversation_id TEXT, title TEXT, preview TEXT, last_modified_time TEXT, workspace_uris TEXT, parent_conversation_id TEXT);").unwrap();
+        connection.execute("INSERT INTO conversation_summaries VALUES (?1, 'Synthetic title', 'Synthetic preview', '2026-10-01T00:00:00Z', ?2, NULL)",
+            [ID, r#"["file:///C:/Synthetic%20Project/%E4%B8%AD%E6%96%87"]"#]).unwrap();
+        connection.close().unwrap();
+        root
+    }
+
+    fn inventory(root: &Path) -> BTreeMap<String, (Stamp, Vec<u8>)> {
+        fs::read_dir(root)
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let file =
+                    crate::windows_fs::open_regular_readonly_nofollow(&entry.path()).unwrap();
+                (
+                    entry.file_name().to_string_lossy().into_owned(),
+                    (
+                        windows_stamp(&file).unwrap(),
+                        fs::read(entry.path()).unwrap(),
+                    ),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn windows_metadata_snapshot_preserves_source_bytes_identity_and_sidecars() {
+        let root = fixture();
+        fs::write(sidecar(root.path(), "shm"), "synthetic untouched sidecar").unwrap();
+        let before = inventory(root.path());
+        let result = read_metadata(root.path(), &AtomicBool::new(false)).unwrap();
+        assert_eq!(
+            result.records[ID].cwd.as_deref(),
+            Some("C:/Synthetic Project/中文")
+        );
+        assert_eq!(result.records[ID].title.as_deref(), Some("Synthetic title"));
+        assert_eq!(before, inventory(root.path()));
+        assert_eq!(
+            result.fingerprint,
+            read_metadata(root.path(), &AtomicBool::new(false))
+                .unwrap()
+                .fingerprint
+        );
+    }
+
+    #[test]
+    fn windows_local_drive_uri_rejects_network_devices_ads_and_relative_paths() {
+        assert_eq!(
+            local_file_uri("file:///C:/Space%20and%20%E4%B8%AD%E6%96%87").as_deref(),
+            Some("C:/Space and 中文")
+        );
+        for invalid in [
+            "file://server/share/project",
+            "file:////server/share",
+            "file:///tmp/project",
+            "file:///C:relative",
+            "file:///C:/../other",
+            "file:///C:/%2e%2e/other",
+            "file:///C:/project:stream",
+            "file:///C:/a%5cb",
+            "file:///C:/a%00b",
+            "file:///C:/a%3Fb",
+            "file:///C:/a?query",
+            "file:///C:/a#fragment",
+        ] {
+            assert!(local_file_uri(invalid).is_none(), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn windows_snapshot_rejects_replacement_with_identical_bytes_and_timestamps() {
+        let root = fixture();
+        let path = root.path().join(DATABASE_NAME);
+        let replacement = root.path().join("replacement.db");
+        fs::copy(&path, &replacement).unwrap();
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        File::options()
+            .write(true)
+            .open(&replacement)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        let result = read_metadata_inner(
+            root.path(),
+            &AtomicBool::new(false),
+            Limits::default(),
+            &mut |stage| {
+                if matches!(stage, SnapshotStage::Copied) {
+                    fs::rename(&path, root.path().join("old.db")).unwrap();
+                    fs::rename(&replacement, &path).unwrap();
+                }
+            },
+        );
+        assert!(result.unwrap_err().contains("changed"));
+    }
+
+    #[test]
+    fn windows_missing_and_cancelled_metadata_fail_without_creating_source_files() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(read_metadata(root.path(), &AtomicBool::new(false))
+            .unwrap()
+            .records
+            .is_empty());
+        assert!(read_metadata(root.path(), &AtomicBool::new(true)).is_err());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
     }
 }

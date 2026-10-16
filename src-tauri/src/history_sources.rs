@@ -169,6 +169,10 @@ fn unsupported(kind: AgentKind) -> HistorySourceDiscovery {
 }
 
 fn valid_root(path: &Path) -> bool {
+    #[cfg(windows)]
+    if !crate::windows_fs::valid_filesystem_path(path) {
+        return false;
+    }
     path.is_absolute()
         && path.to_str().is_some_and(|value| {
             value.len() <= MAX_ROOT_PATH_BYTES && !value.chars().any(char::is_control)

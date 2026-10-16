@@ -2,11 +2,11 @@
 
 Session Bay 是以專案為中心、Agent 優先的本機開發工作台。它集中整理 Codex、Claude Code、Grok Build 等受支援工具的歷史對話，讓開發者找到正確脈絡，在正確目錄接續工作，並透過分頁與分割面板同時使用 Agent 和普通 Terminal。
 
-**macOS＋Linux 的第一版 MVP 已進入實作與驗證。** 本分支包含 Tauri／Rust 桌面程式、React 前端、唯讀歷史索引與真正的 PTY；完整 P0 與平台驗收狀態見[驗證紀錄](docs/mvp-validation.md)。
+**Windows／macOS／Linux 原生支援正在驗證。** 本分支包含 Tauri／Rust 桌面程式、React 前端、唯讀歷史索引與真正的 PTY；完整 P0 與平台驗收狀態見[驗證紀錄](docs/mvp-validation.md)。
 
 ## 開發啟動
 
-需要 Node.js 24、Rust（依 rust-toolchain.toml）、macOS Xcode Command Line Tools；Linux 另需 WebKitGTK 4.1 開發套件。
+需要 Node.js 24 與 Rust（依 rust-toolchain.toml）。Windows 使用 MSVC Build Tools 與 WebView2；macOS 使用 Xcode Command Line Tools；Linux 需要 WebKitGTK 4.1 開發套件。原生驗收與 CLI 安裝限制見[三平台支援](docs/platform-support.md)。
 
 ```bash
 npm ci
@@ -47,6 +47,7 @@ npm run tauri -- build
 | [開發路線圖](docs/roadmap.md) | 分階段交付、相依性與效能原型驗證 |
 | [完整功能與開發任務](docs/development-tasks.md) | P0／P1／P2 功能清單、任務相依、完成條件與開工順序 |
 | [決策與待確認事項](docs/decisions.md) | 使用者已確定方向、建議方案與未定事項 |
+| [三平台支援與驗收](docs/platform-support.md) | 原生平台前提、Windows ConPTY／路徑邊界、可重複驗收與未驗證項目 |
 | [開發與試用](docs/development.md) | 實際安裝、啟動、測試、建置與資料邊界 |
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |

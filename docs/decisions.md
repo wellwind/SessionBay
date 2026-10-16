@@ -248,3 +248,16 @@
 使用者明確表示「ok, 驗收完成, 確保 PR 標題內容描述等都正確後就可以 merge 了」，並補充「噢，還要把完成的都勾起來」。本次接受已交付 PR 的功能與介面，授權校正描述、勾選實際完成項目後合併；不新增功能或將未完成的規劃改為完成。
 
 已實作並有本機回歸的 UI／UX、工作分頁快捷鍵、來源候選偵測與 breadcrumb，依這次使用者驗收更新 ADD-13／17／18／20。完整三平台 CI、精確 macOS 圖示／IME 情境及 Antigravity CLI 1.3.5 磁碟樣本／互動接續沒有新增逐項證據，仍未勾選；原始任務完整條件與 17 項未來待辦不因合併自動完成。退出 UI 後持續執行／重新附接仍是下一階段最高優先。
+
+## 2026-10-16 原生三平台與獨立 PR
+
+使用者要求兩個獨立 PR：本 PR 處理 Windows／macOS／Linux 原生可用性；目錄選擇 dialog 另開 PR，不互相依賴，也不擴大為 17 項未來需求。
+
+- 保留 Tauri 2、React、xterm.js、SQLite、唯讀歷史與現有 UI／索引架構；Windows 使用 portable-pty 的原生 ConPTY，Unix 的 session／process-group 清理保持原有安全邊界。
+- Windows 最低目標為 Windows 10 1809（ConPTY）及 WebView2；本次驗收流程以 Windows x64 為主。macOS ARM64／Intel、Linux x64 仍各自驗收，跨編譯不等於原生通過。
+- Windows 啟動不把不可信 cwd、Session ID 或參數拼成 Shell 字串。優先原生 `.exe`；僅有 `.cmd`／`.bat` 的安裝需提供明確診斷與原生安裝指引，不將檔案存在冒充可啟動。
+- 歷史來源維持唯讀；Windows 使用檔案 handle 身分與 reparse-point 檢查，不能因移除 Unix 編譯限制而弱化來源替換／連結防護。
+- 延續省額度模式：自動檢查仍只有 Linux 輕量流程，完整驗收仍是手動 workflow；本次只增加 Windows 原生驗收定義，不代為觸發、不調整帳務或停用 checks。
+- 新 PR 維持 Draft，沒有合併、部署或發行授權；所有測試結果以此 PR 的實際執行證據記錄，缺少原生 Windows／macOS 證據時明確保留待驗。
+
+- 2026-10-16 CI follow-up：JavaScript actions 與專案 Node 分開版本化。官方 Node 20 action runtime 移除後，兩份 workflows 改用 Node 24 的 checkout 7.0.1／setup-node 7.1.0／upload-artifact 7.0.2 完整 SHA。三 OS 完整 gate 需要同提交四個 jobs 成功；Linux lightweight 綠燈不替代平台驗收，不增加自動 matrix。

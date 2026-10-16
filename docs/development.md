@@ -1,13 +1,14 @@
 # Session Bay 開發與試用
 
-本機優先的 macOS／Linux 工作台。可啟動你原先已安裝並登入的 Codex CLI、Claude Code、Grok Build 或 Antigravity CLI（`agy`）；即使未安裝 Agent，普通 Shell 與已存在的歷史仍可分開使用。
+本機優先的 Windows／macOS／Linux 工作台。可啟動你原先已安裝並登入的 Codex CLI、Claude Code、Grok Build 或 Antigravity CLI（`agy`）；即使未安裝 Agent，普通 Shell 與已存在的歷史仍可分開使用。
 
 ## 平台與工具
 
+- Windows 10 1809+ x64／Windows 11，需要 Visual Studio 的 Desktop development with C++、MSVC Rust 與 WebView2；原生 build／ConPTY smoke 仍需驗收。詳見[三平台支援](platform-support.md)。
 - macOS 最低建置目標設定為 12+（尚待原生驗收）；Apple Silicon 與 Intel 分開建置。安裝 Xcode Command Line Tools：`xcode-select --install`。
 - Linux 以 Ubuntu 24.04 x64 作 CI／打包基準；開發驗證環境另見驗收紀錄。需要圖形工作階段（X11 或 Wayland）及 WebKitGTK 4.1。
 - Node.js 24／npm；Rust 使用根目錄 `rust-toolchain.toml` 固定版本。第一次 Cargo 執行會由 rustup 取得工具鏈。
-- `npm run tauri` 會在目前支援的 macOS／Linux 上，將 `${CARGO_HOME:-$HOME/.cargo}/bin` 放到子程序 PATH 前端，使用 rustup 的專案工具鏈；此設定僅作用於該次指令。
+- `npm run tauri` 使用跨平台 Node launcher，將 `CARGO_HOME/bin`（預設家目錄 `.cargo/bin`）放到本次程序 PATH 前端，直接執行 npm 套件的 JS entry，不依賴 POSIX 指派語法或 Windows `.cmd` quoting。
 - Git clone 後在 repo 根目錄執行，不需要修改 Agent 的資料庫或登入設定。
 
 Ubuntu 24.04 桌面相依套件：
@@ -35,6 +36,8 @@ npm run tauri -- build
 npm run tauri -- build --bundles deb
 # macOS 僅建立 app bundle
 npm run tauri -- build --bundles app
+# Windows 僅建立目前使用者的 NSIS installer
+npm run tauri -- build --bundles nsis
 ```
 
 產物在 `src-tauri/target/release/bundle/`。未簽章／未公證開發產物不等同公開發行，勿停用系統安全檢查來安裝來源不明的檔案。自行從可信原始碼建置適合這一階段試用。
@@ -167,7 +170,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 自動 push 的 `paths-ignore` 僅包含 `README.md` 和 `docs/*.md`。一般僅修改這些文件時，在配置 runner 前略過；`docs/` 內其他格式／更深路徑、scripts、fixtures、skills、設定、workflow 都不忽略。GitHub 對大量 commits、diff 逾時或檔案列表上限有特殊規則，不能保證每種大型變更都零 run。純文件被略過不會產生新的通過證據；若把這個檢查設成 required，缺少 check 可能讓合併保持 pending。此 PR 不改 branch protection 或 required checks。
 
-完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；手動觸發會使用三個 runner，請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
+完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；手動觸發會使用四個 runner（Linux、macOS ARM64／Intel、Windows x64），請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
 
 GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026-10-15 本次合併授權前的唯讀檢查確認 main 尚無 `.github/workflows`，當時不能保證未合併 PR 已有手動按鈕或 API／CLI 可派送。流程檔正常納入 default branch 後，仍須帳務可用並明確選擇目標 branch/ref，才執行完整驗收。使用者後續已接受 PR 並授權合併；不會因此代為觸發完整流程、調整帳務或提高額度。
 
@@ -177,7 +180,7 @@ GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026
 
 ### 完整手動驗收產物
 
-`.github/workflows/ci.yml` 手動執行時會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。兩 OS 的 smoke 使用空白暫存 HOME、明確的 SESSIONBAY_SMOKE=1，等待 React DOM、backend bootstrap 與實際設定對話框開關／重開的訊號；啟動前模組錯誤、CSP 違規與未處理例外會使測試失敗。Linux Xvfb 無 GPU，僅在 CI 設 WEBKIT_DISABLE_COMPOSITING_MODE=1 使用軟體合成，沒有停用 WebKit sandbox 或放寬 CSP。Linux 再擷取 PNG 並拒絕純色畫面，仍需人工檢視截圖。macOS 不申請螢幕錄製／Accessibility 權限，DOM 操作通過也不宣稱已驗證畫面像素。這些 smoke 不取代 IME／真實 CLI／完整終端互動驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
+`.github/workflows/ci.yml` 手動執行時會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel、Windows 2022 x64，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`，Windows 保存 NSIS `.exe`；Windows 隔離空來源 smoke 的限制見[三平台支援](platform-support.md)。兩 OS 的 smoke 使用空白暫存 HOME、明確的 SESSIONBAY_SMOKE=1，等待 React DOM、backend bootstrap 與實際設定對話框開關／重開的訊號；啟動前模組錯誤、CSP 違規與未處理例外會使測試失敗。Linux Xvfb 無 GPU，僅在 CI 設 WEBKIT_DISABLE_COMPOSITING_MODE=1 使用軟體合成，沒有停用 WebKit sandbox 或放寬 CSP。Linux 再擷取 PNG 並拒絕純色畫面，仍需人工檢視截圖。macOS 不申請螢幕錄製／Accessibility 權限，DOM 操作通過也不宣稱已驗證畫面像素。這些 smoke 不取代 IME／真實 CLI／完整終端互動驗收。Actions 是否計費依 repository／runner／帳戶方案而定；只有相同提交的完整四個 matrix jobs 都成功，才算三 OS CI 通過。日常 Linux lightweight 綠燈不代表三平台驗收。
 
 Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](https://github.com/actions/upload-artifact/blob/v4/README.md#permission-loss)。
 
@@ -198,3 +201,7 @@ Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](
 - 設定／布局損壞：使用預設值並顯示警告，原檔保留；修復後再手動保存。較新 schema 不會被開啟／未變更退出自動覆寫；在恢復後改動布局或明確保存設定會建立目前支援版本，請先保留原檔備份。
 - PTY 超過 30 秒未收到前端消費 ACK：停止該程序並報錯，防止失控輸出累積；正常背景分頁仍會解析與 ACK。
 - Linux 缺 WebKit／GTK：安裝上面的官方 distro 套件；不要停用系統沙箱來繞過啟動錯誤。
+
+### Actions JavaScript runtime
+
+專案測試用的 `node-version: 24` 與 JavaScript action 自己的 `runs.using` 是兩層設定。GitHub 已在 [2026-09-23 移除 Node 20 action runtime](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/)；兩份 workflows 改用經官方 `action.yml` 確認為 Node 24 的 checkout 7.0.1、setup-node 7.1.0、upload-artifact 7.0.2，固定完整 commit SHA。沒有獨立 cache action；npm cache 由 setup-node 的 Node 24 runtime 處理。沒有設定舊 runtime opt-out 或改動專案 Node major。最低 Actions Runner 2.327.1；本案皆使用 GitHub hosted runners，macOS 15／Linux x64／Windows x64 符合 Node 24 平台條件。

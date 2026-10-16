@@ -112,17 +112,8 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-        let shell = std::env::var("SHELL")
-            .ok()
-            .filter(|s| Path::new(s).is_absolute() && Path::new(s).is_file())
-            .unwrap_or_else(|| {
-                if cfg!(target_os = "macos") {
-                    "/bin/zsh".into()
-                } else {
-                    "/bin/bash".into()
-                }
-            });
+        let home = default_home();
+        let (shell, shell_args) = default_shell();
         let mut shortcuts = HashMap::new();
         for (id, key) in [
             ("command-palette", "Mod+Shift+P"),
@@ -150,7 +141,7 @@ impl Default for Settings {
                 id: "default".into(),
                 name: "預設 Shell".into(),
                 executable: shell,
-                args: vec!["-l".into()],
+                args: shell_args,
                 env: HashMap::new(),
             }],
             sources: providers::definitions()
@@ -214,6 +205,16 @@ impl Settings {
             {
                 return Err("環境變數格式無效".into());
             }
+            #[cfg(windows)]
+            if p.env
+                .keys()
+                .map(|key| key.to_ascii_uppercase())
+                .collect::<HashSet<_>>()
+                .len()
+                != p.env.len()
+            {
+                return Err("Windows 環境變數名稱不區分大小寫，不可重複設定".into());
+            }
         }
         if !profiles.contains(&self.default_profile_id) {
             return Err("預設 Shell Profile 不存在".into());
@@ -227,6 +228,10 @@ impl Settings {
                 || !Path::new(&s.root).is_absolute()
             {
                 return Err("來源 ID 不可重複，資料根目錄必須是絕對路徑".into());
+            }
+            #[cfg(windows)]
+            if !crate::windows_fs::valid_filesystem_path(Path::new(&s.root)) {
+                return Err("來源根目錄必須是完整檔案系統路徑，不可使用裝置名稱或資料串流".into());
             }
             let root = fs::canonicalize(&s.root).unwrap_or_else(|_| PathBuf::from(&s.root));
             if !roots.insert((format!("{:?}", s.kind), root)) {
@@ -387,8 +392,199 @@ pub fn validate_workspace(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Platform-native fallback directories used by discovery and launch planning.
+/// Only absolute paths participate: an empty/relative PATH entry never opts in
+/// to searching an untrusted working directory.
+pub fn executable_fallback_directories() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join(".local/bin"));
+        paths.push(home.join(".cargo/bin"));
+        #[cfg(windows)]
+        paths.push(home.join(".grok/bin"));
+    }
+    #[cfg(windows)]
+    {
+        for (key, suffixes) in [
+            (
+                "LOCALAPPDATA",
+                &[
+                    "Microsoft/WinGet/Links",
+                    "Programs/OpenAI/Codex/bin",
+                    "agy/bin",
+                ][..],
+            ),
+            ("APPDATA", &["npm"][..]),
+            ("ProgramFiles", &["PowerShell/7", "Git/bin"][..]),
+            (
+                "SystemRoot",
+                &["System32", "System32/WindowsPowerShell/v1.0"][..],
+            ),
+        ] {
+            if let Some(root) = std::env::var_os(key)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+            {
+                paths.extend(suffixes.iter().map(|suffix| root.join(suffix)));
+            }
+        }
+    }
+    #[cfg(unix)]
+    paths.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].map(PathBuf::from));
+    paths.retain(|path| path.is_absolute());
+    paths
+}
+
+pub fn default_home() -> PathBuf {
+    dirs::home_dir()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { r"C:\" } else { "/" }))
+}
+
+fn default_shell() -> (String, Vec<String>) {
+    #[cfg(windows)]
+    {
+        // Prefer native PowerShell; do not pass Unix login-shell flags to it.
+        for name in ["pwsh.exe", "powershell.exe"] {
+            if let Ok(path) = resolve_executable(name) {
+                return (path.to_string_lossy().into_owned(), vec!["-NoLogo".into()]);
+            }
+        }
+        let shell = std::env::var("COMSPEC")
+            .ok()
+            .filter(|value| Path::new(value).is_absolute())
+            .and_then(|value| resolve_executable(&value).ok())
+            .or_else(|| resolve_executable("cmd.exe").ok())
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "cmd.exe".into());
+        (shell, vec!["/D".into()])
+    }
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var("SHELL")
+            .ok()
+            .filter(|s| Path::new(s).is_absolute() && Path::new(s).is_file())
+            .unwrap_or_else(|| {
+                if cfg!(target_os = "macos") {
+                    "/bin/zsh"
+                } else {
+                    "/bin/bash"
+                }
+                .into()
+            });
+        (shell, vec!["-l".into()])
+    }
+}
+
+/// Windows PATHEXT discovery is bounded to launchable native executables and
+/// batch wrappers. Never use file associations for arbitrary extensions.
+#[cfg(windows)]
+pub(crate) fn windows_extensions(value: Option<&std::ffi::OsStr>) -> Vec<String> {
+    let mut extensions = Vec::new();
+    let value = value
+        .and_then(|value| value.to_str())
+        .filter(|value| value.len() <= 4096)
+        .unwrap_or(".COM;.EXE;.BAT;.CMD");
+    for extension in value.split(';') {
+        let extension = extension.to_ascii_lowercase();
+        if [".exe", ".com", ".cmd", ".bat"].contains(&extension.as_str())
+            && !extensions.contains(&extension)
+        {
+            extensions.push(extension);
+        }
+    }
+    extensions
+}
+
+pub(crate) fn executable_candidates(path: &Path, extensions: &[String]) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        if path.extension().is_some() {
+            return vec![path.to_owned()];
+        }
+        extensions
+            .iter()
+            .map(|extension| {
+                let mut name = path.as_os_str().to_os_string();
+                name.push(extension);
+                PathBuf::from(name)
+            })
+            .collect()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = extensions;
+        vec![path.to_owned()]
+    }
+}
+
+pub(crate) fn executable_extensions() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        windows_extensions(std::env::var_os("PATHEXT").as_deref())
+    }
+    #[cfg(not(windows))]
+    {
+        Vec::new()
+    }
+}
+
+pub fn is_windows_native_executable(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("com")
+        })
+}
+
+pub fn is_windows_batch_script(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat")
+        })
+}
+
+pub(crate) fn executable_file(path: &Path) -> bool {
+    #[cfg(windows)]
+    if !crate::windows_fs::valid_filesystem_path(path) {
+        return false;
+    }
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(windows)]
+    {
+        is_windows_native_executable(path) || is_windows_batch_script(path)
+    }
+    #[cfg(not(any(unix, windows)))]
+    false
+}
+
 pub fn resolve_executable(value: &str) -> Result<PathBuf, String> {
-    if !clean_string(value, 4096) {
+    resolve_executable_with_paths(
+        value,
+        std::env::var_os("PATH").as_deref(),
+        &executable_fallback_directories(),
+        &executable_extensions(),
+    )
+}
+
+fn resolve_executable_with_paths(
+    value: &str,
+    path: Option<&std::ffi::OsStr>,
+    fallbacks: &[PathBuf],
+    extensions: &[String],
+) -> Result<PathBuf, String> {
+    if !clean_string(value, 4096) || value.chars().any(char::is_control) {
         return Err("執行檔名稱無效".into());
     }
     let value = Path::new(value);
@@ -396,30 +592,21 @@ pub fn resolve_executable(value: &str) -> Result<PathBuf, String> {
         if !value.is_absolute() {
             return Err("自訂執行檔請填寫絕對路徑".into());
         }
-        vec![value.to_path_buf()]
+        executable_candidates(value, extensions)
     } else {
-        let mut paths: Vec<PathBuf> =
-            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-                .filter(|p| p.is_absolute())
-                .collect();
-        if let Some(home) = dirs::home_dir() {
-            paths.push(home.join(".local/bin"));
-            paths.push(home.join(".cargo/bin"));
-        }
-        for p in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
-            paths.push(PathBuf::from(p));
-        }
-        paths.into_iter().map(|p| p.join(value)).collect()
+        std::env::split_paths(path.unwrap_or_default())
+            .chain(fallbacks.iter().cloned())
+            .filter(|directory| directory.is_absolute())
+            .flat_map(|directory| executable_candidates(&directory.join(value), extensions))
+            .collect()
     };
-    for p in candidates {
-        if let Ok(m) = fs::metadata(&p) {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if m.is_file() && m.permissions().mode() & 0o111 != 0 {
-                    return Ok(p);
-                }
+    for path in candidates {
+        if executable_file(&path) {
+            #[cfg(windows)]
+            if is_windows_batch_script(&path) {
+                return Err(format!("找到 Windows 批次包裝檔 {}；為保留參數邊界，請改用官方原生 .exe 執行檔，或設定直接執行程式的 Shell Profile。Session Bay 不會將參數拼接為 cmd.exe 指令。", path.display()));
             }
+            return Ok(path);
         }
     }
     Err(format!(
@@ -484,7 +671,11 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
         LaunchSpec {
             executable: path.to_string_lossy().into_owned(),
             args: providers::definition(kind).launch.version_args.clone(),
-            cwd: PathBuf::from("/"),
+            cwd: dirs::home_dir()
+                .filter(|path| path.is_dir())
+                .or_else(|| std::env::current_dir().ok())
+                .or_else(|| path.parent().map(Path::to_owned))
+                .ok_or("無法取得版本查詢的工作目錄")?,
             env: HashMap::new(),
             session_id: None,
             resume_key: None,
@@ -519,7 +710,7 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
             }
             Ok(TerminalEvent::Exit { exit_code, .. }) => {
                 runtime.shutdown()?;
-                let value = String::from_utf8_lossy(&bytes).trim().to_owned();
+                let value = version_text(&bytes);
                 return if exit_code == Some(0) && !value.is_empty() {
                     Ok(value)
                 } else {
@@ -538,9 +729,66 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
     }
 }
 
+// Version probes use a PTY, so even a silent child can produce ConPTY setup and
+// teardown traffic. Decode only this bounded, non-interactive consumer; terminal
+// sessions still receive the original bytes. Unterminated control strings are
+// discarded rather than exposing titles, hyperlinks or partial protocol text.
+fn version_text(bytes: &[u8]) -> String {
+    #[derive(Clone, Copy)]
+    enum State {
+        Text,
+        Escape,
+        EscapeIntermediate,
+        Csi,
+        String,
+        StringEscape,
+    }
+    let mut state = State::Text;
+    let mut text = String::new();
+    for ch in String::from_utf8_lossy(bytes).chars() {
+        state = match (state, ch) {
+            (State::Text, '\u{1b}') => State::Escape,
+            (State::Text, '\u{9b}') => State::Csi,
+            (State::Text, '\u{90}' | '\u{98}' | '\u{9d}' | '\u{9e}' | '\u{9f}') => State::String,
+            (State::Text, ch) => {
+                if !ch.is_control() || matches!(ch, '\r' | '\n' | '\t') {
+                    text.push(ch);
+                }
+                State::Text
+            }
+            (State::Escape, '[') => State::Csi,
+            (State::Escape, 'P' | 'X' | ']' | '^' | '_') => State::String,
+            (State::Escape | State::EscapeIntermediate, '\u{20}'..='\u{2f}') => {
+                State::EscapeIntermediate
+            }
+            (State::Escape | State::EscapeIntermediate, _) => State::Text,
+            (State::Csi, '\u{40}'..='\u{7e}') => State::Text,
+            (State::Csi, _) => State::Csi,
+            (State::String | State::StringEscape, '\u{7}' | '\u{9c}')
+            | (State::StringEscape, '\\') => State::Text,
+            (State::String | State::StringEscape, '\u{1b}') => State::StringEscape,
+            (State::String | State::StringEscape, _) => State::String,
+        };
+    }
+    text.trim().to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn version_text_strips_terminal_protocol_without_losing_unicode() {
+        assert_eq!(version_text(b"\x1b[?9001h\x1b[6n\x1b[?25l\x1b[0m\r\n"), "");
+        assert_eq!(
+            version_text("\x1b]0;title\x07\x1b[32mAgent 1.2 中文\x1b[0m\r\n\x1b[?9001l".as_bytes()),
+            "Agent 1.2 中文"
+        );
+        assert_eq!(version_text(b"\x1bPdiscard\x1b\\ok\x1b]unterminated"), "ok");
+        assert_eq!(
+            version_text("\u{9b}?9001h\u{9d}discard\u{9c}v1".as_bytes()),
+            "v1"
+        );
+    }
     #[test]
     fn defaults_validate() {
         let settings = Settings::default();
@@ -563,6 +811,12 @@ mod tests {
         let s = Settings::default();
         store.save_settings(&s).unwrap();
         assert!(store.load_settings().1.is_empty());
+        let mut updated = s.clone();
+        updated.theme = "light".into();
+        store.save_settings(&updated).unwrap();
+        assert_eq!(store.load_settings().0.theme, "light");
+        assert!(store.load_settings().1.is_empty());
+        assert_eq!(fs::read_dir(&store.directory).unwrap().count(), 1);
         let path = store.directory.join("settings.json");
         fs::write(&path, b"broken").unwrap();
         assert!(!store.load_settings().1.is_empty());
@@ -579,7 +833,10 @@ mod tests {
     #[test]
     fn executable_resolution_does_not_evaluate_shell() {
         assert!(resolve_executable("sh; touch /tmp/pwned").is_err());
+        #[cfg(unix)]
         assert!(resolve_executable("/bin/sh").is_ok());
+        #[cfg(windows)]
+        assert!(resolve_executable("cmd.exe").is_ok());
     }
     #[cfg(unix)]
     #[test]
@@ -653,5 +910,190 @@ mod tests {
             state.is_empty() || state.contains("State:\tZ"),
             "Probe child remains alive: {state}"
         );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn conpty_version_probe_returns_clean_text_and_rejects_silent_success() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("probe.rs");
+        fs::write(
+            &source,
+            r#"fn main() {
+            let path = std::env::current_exe().unwrap();
+            if path.file_stem().unwrap() == "visible version 中文" {
+                print!("\x1b[32mSynthetic 1.2 中文\x1b[0m\r\n");
+            }
+        }"#,
+        )
+        .unwrap();
+        let visible = temp.path().join("visible version 中文.exe");
+        let output = std::process::Command::new("rustc")
+            .args([
+                "--crate-name",
+                "sessionbay_version_fixture",
+                "--edition",
+                "2021",
+            ])
+            .arg(&source)
+            .arg("-o")
+            .arg(&visible)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let silent = temp.path().join("silent.exe");
+        fs::copy(&visible, &silent).unwrap();
+        assert_eq!(
+            version(&visible, AgentKind::Codex).unwrap(),
+            "Synthetic 1.2 中文"
+        );
+        assert!(version(&silent, AgentKind::Codex)
+            .unwrap_err()
+            .contains("失敗"));
+    }
+
+    fn fixture(root: &Path, name: &str) -> PathBuf {
+        let path = root.join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"synthetic discovery-only file").unwrap();
+        path
+    }
+
+    #[test]
+    fn native_defaults_do_not_use_unix_paths_or_login_flags() {
+        let settings = Settings::default();
+        settings.validate().unwrap();
+        assert!(!settings.profiles[0].args.iter().any(|arg| arg == "-l"));
+        assert!(is_windows_native_executable(Path::new(
+            &settings.profiles[0].executable
+        )));
+        assert!(settings
+            .sources
+            .iter()
+            .all(|source| Path::new(&source.root).is_absolute()));
+        assert!(executable_fallback_directories()
+            .iter()
+            .all(|path| path.is_absolute()));
+    }
+
+    #[test]
+    fn settings_reject_windows_device_stream_and_relative_source_roots() {
+        let mut settings = Settings::default();
+        for invalid in [
+            r"C:relative",
+            r"\root-relative",
+            "/root-relative",
+            r"C:\history\file:stream",
+            r"C:\history\NUL.txt",
+            r"\\.\pipe\name",
+            r"\\server\pipe\name",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\history",
+        ] {
+            settings.sources[0].root = invalid.into();
+            assert!(settings.validate().is_err(), "accepted {invalid}");
+        }
+        let temp = tempfile::tempdir().unwrap();
+        settings.sources[0].root = temp.path().to_string_lossy().into_owned();
+        settings.validate().unwrap();
+        settings.sources[0].root = temp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        settings.validate().unwrap();
+    }
+
+    #[test]
+    fn pathext_is_case_insensitive_bounded_and_does_not_enable_file_associations() {
+        assert_eq!(
+            windows_extensions(Some(OsStr::new(".EXE;.exe;.COM;.PS1;.;.CMD;.BAT;../EXE"))),
+            [".exe", ".com", ".cmd", ".bat"]
+        );
+        assert!(windows_extensions(Some(OsStr::new(".PS1;.JS"))).is_empty());
+        assert_eq!(windows_extensions(None), [".com", ".exe", ".bat", ".cmd"]);
+    }
+
+    #[test]
+    fn resolves_literal_executable_with_spaces_unicode_and_metacharacters() {
+        let temp = tempfile::tempdir().unwrap();
+        let binary = fixture(temp.path(), "工具 & %VALUE%.EXE");
+        assert_eq!(
+            resolve_executable_with_paths(binary.to_str().unwrap(), None, &[], &[]).unwrap(),
+            binary
+        );
+        assert_eq!(fs::read(&binary).unwrap(), b"synthetic discovery-only file");
+        for invalid in [r"C:relative.exe", r"\relative.exe", r".\relative.exe"] {
+            assert!(resolve_executable_with_paths(invalid, None, &[], &[]).is_err());
+        }
+    }
+
+    #[test]
+    fn path_order_and_pathext_order_are_respected_without_current_directory_search() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first path");
+        let second = temp.path().join("second path");
+        let binary = fixture(&first, "agent.exe");
+        fixture(&second, "agent.com");
+        let path = std::env::join_paths([Path::new("."), &first, &second]).unwrap();
+        let extensions = windows_extensions(Some(OsStr::new(".COM;.EXE")));
+        assert_eq!(
+            resolve_executable_with_paths("agent", Some(&path), &[], &extensions).unwrap(),
+            binary
+        );
+        let explicit = binary.with_extension("");
+        assert_eq!(
+            resolve_executable_with_paths(explicit.to_str().unwrap(), None, &[], &extensions)
+                .unwrap(),
+            binary
+        );
+    }
+
+    #[test]
+    fn batch_shadows_fail_safely_instead_of_becoming_healthy_or_running_shell_text() {
+        let temp = tempfile::tempdir().unwrap();
+        for suffix in ["cmd", "bat"] {
+            let wrapper = fixture(temp.path(), &format!("agent.{suffix}"));
+            fixture(temp.path(), "agent.exe");
+            let extensions = windows_extensions(Some(OsStr::new(&format!(".{suffix};.EXE"))));
+            let path = std::env::join_paths([temp.path()]).unwrap();
+            let error =
+                resolve_executable_with_paths("agent", Some(&path), &[], &extensions).unwrap_err();
+            assert!(error.contains("原生 .exe"));
+            assert!(resolve_executable_with_paths(
+                wrapper.to_str().unwrap(),
+                None,
+                &[],
+                &extensions
+            )
+            .is_err());
+            let mut settings = Settings::default();
+            settings.executables.codex = wrapper.to_string_lossy().into_owned();
+            let installation = detect_paths(&settings)
+                .into_iter()
+                .find(|item| item.kind == AgentKind::Codex)
+                .unwrap();
+            assert!(!installation.available);
+            assert!(installation.executable.is_none());
+        }
+    }
+
+    #[test]
+    fn directories_and_script_associations_are_not_executables() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("directory.exe");
+        fs::create_dir(&folder).unwrap();
+        assert!(!executable_file(&folder));
+        assert!(!executable_file(&fixture(temp.path(), "agent.ps1")));
+        assert!(!executable_file(&fixture(temp.path(), "agent.js")));
     }
 }
