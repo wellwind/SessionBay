@@ -23,6 +23,28 @@ GitHub Node 20 action runtime 已於 2026-09-23 移除。本 PR 更新兩份 wor
 本環境沒有 Windows／macOS native executor，也缺 Linux WebKitGTK 開發套件。本輪未跑 native desktop build／NSIS installer／WebView／真實 CLI／IME，ADD-14 與相關原生清單保持未完成。驗收步驟及限制見[三平台支援](platform-support.md)。以下舊紀錄保留其當時範圍，不能取代本批 native 結果。
 
 
+## 2026-10-16 原生資料夾選擇器（獨立變更）
+
+本批從 main `a609f041` 分支，僅加入本機目錄選擇器；與三平台移植分開，不把 plugin 的 Windows API 支援視為應用程式的 Windows 驗收。
+
+- 加入既有專案、建立專案的上層目錄、歷史來源根目錄、重新定位與啟動工作目錄使用共同欄位元件；手動輸入、原本儲存／驗證／canonicalization 流程保留。
+- Tauri Rust 與 npm dialog plugin 固定為 `2.8.3`，兩份 lockfile 已更新；僅啟用 `dialog:allow-open` 與既有安全確認所需的 `dialog:allow-message`，不新增 filesystem／save API 權限。上游 dialog crate 依賴 filesystem crate，但應用未註冊 filesystem plugin 或授予其命令權限。對話框設定 `directory: true`、`multiple: false`、`recursive: false`。
+- 選取／取消均不自動提交、建立目錄、掃描或啟動；重複點擊、選取失敗、較新手動輸入（包含改回原值）、關閉／重新開啟、模式／設定區段切換、來源移除、儲存鎖定與焦點回復均有回歸測試。
+
+- PR review 修正官方 plugin 將 `window.confirm` 改為 Promise 的跨功能影響。測試執行固定版本原始 `init-iife.js`，核對真正 `Cancel`／`Ok`、IPC 拒絕與未處理 rejection；多行貼上與停止程序皆 fail closed，等待期間重新啟動、退出、切換分頁、關閉面板或較晚的剪貼簿結果不作用於新目標。這是合成 IPC 回歸，不冒充原生 OS modal 實機驗收。
+
+| 驗證 | 本批結果與限制 |
+| --- | --- |
+| 前端 aggregate | typecheck、ESLint、Vitest **16 檔 465 測試**與 production build 通過；包含官方 initializer 的 async confirmation 回歸。共用雲端預設並行曾出現測試逾時／worker SIGKILL，改以 `--maxWorkers=2` 完整重跑通過，沒有略過測試或放寬 timeout |
+| Rust 核心 | `cargo test --locked --no-default-features` **241 通過、1 個既有 ignore**；strict all-target core Clippy 與 rustfmt 通過 |
+| 靜態視覺資產 | 44 組語意色彩與 10 個 ICNS representations 檢查通過；不代表 painted-pixel／原生視窗驗收 |
+| 桌面 feature 檢查 | 已嘗試 `cargo check --locked`，在 `gobject-sys` 建置時因缺少 `gobject-2.0.pc`（GTK／WebKit 開發依賴）受阻，未通過，亦未宣稱原生 bundle 成功 |
+| 畫面截圖 | 雲端 Chromium 在啟動時因 `socket() failed: Operation not permitted` 退出，尚未載入頁面；沒有可作為驗收的截圖，未停用瀏覽器 sandbox 繞過 |
+| 三個 OS 原生選取 | macOS／Windows／Linux 實際系統對話框、OS 權限拒絕、隱藏資料夾及螢幕閱讀器互動尚待實機驗收；單元測試以合成回傳值驗證路徑／取消／錯誤契約 |
+| CI／發行 | 保持既有省成本工作流程；未手動觸發完整矩陣，未變更帳務、合併或發布。遠端 exact-commit 狀態以 PR Checks 為準 |
+
+原生驗收仍應涵蓋：各 OS 的選擇／取消、手動隱藏目錄、含空白／中文路徑、不可存取或已移除目錄、連續開關與焦點回到欄位，以及明確儲存前沒有新增專案／索引／程序。以下較舊檢查點只代表當時提交。
+
 日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
 ## 2026-10-15 使用者驗收與合併前紀錄

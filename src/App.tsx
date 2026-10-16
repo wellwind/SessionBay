@@ -58,6 +58,7 @@ import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspace
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
+import { DirectoryPathField } from './components/DirectoryPathField';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -1285,16 +1286,11 @@ export default function App() {
             {pathDialog.project?.path && (
               <p className="original-path">原始路徑：{pathDialog.project.path}</p>
             )}
-            <label className="field-label">
-              目錄路徑
-              <input
-                autoFocus
-                required
-                placeholder="/Users/you/projects/my-app 或 /home/you/projects/my-app"
-                value={pathDialog.path}
-                onChange={(event) => setPathDialog({ ...pathDialog, path: event.target.value })}
-              />
-            </label>
+            <DirectoryPathField key={pathDialog.project?.id ?? 'new'} label="目錄路徑"
+              autoFocus required disabled={busy}
+              placeholder="/Users/you/projects/my-app 或 /home/you/projects/my-app"
+              value={pathDialog.path}
+              onChange={(path) => setPathDialog((current) => current ? { ...current, path } : null)} />
             <div className="dialog-actions">
               <button
                 type="button"
@@ -1360,14 +1356,9 @@ export default function App() {
               {boot?.installations.find((item) => item.kind === launcher.kind)?.available === false &&
                 <span className="inline-warning">未偵測到這個 Agent，請先在設定中指定執行檔並重新偵測。</span>}
             </label>}
-            <label className="field-label">
-              工作目錄
-              <input
-                required
-                value={launcher.cwd}
-                onChange={(event) => setLauncher({ ...launcher, cwd: event.target.value })}
-              />
-            </label>
+            <DirectoryPathField key={`${current?.id}:${launcher.kind}`} label="工作目錄"
+              required value={launcher.cwd}
+              onChange={(cwd) => setLauncher((current) => current ? { ...current, cwd } : null)} />
             {launcher.kind !== 'shell' && agentCapabilities[launcher.kind].resume.manualId && (
               <label className="field-label">接續對話 ID（選填）
                 <input value={launcher.resumeId || ''} placeholder="留空開始新對話；填入原工具的對話 ID"
