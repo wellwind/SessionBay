@@ -15,3 +15,6 @@ pub mod shells;
 mod desktop;
 #[cfg(feature = "desktop")]
 pub use desktop::run;
+
+#[cfg(windows)]
+mod windows_fs;

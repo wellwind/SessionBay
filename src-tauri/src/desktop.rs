@@ -263,7 +263,7 @@ async fn close_application(app: tauri::AppHandle, state: AppState<'_>) -> Result
 pub fn run() {
     let app = tauri::Builder::default()
         .setup(|app| {
-            let directory = app.path().app_data_dir()?;
+            let directory = smoke_data_directory()?.unwrap_or(app.path().app_data_dir()?);
             let service = Service::open(directory).map_err(std::io::Error::other)?;
             app.manage(service.clone());
             service.begin_reconcile();
@@ -331,6 +331,34 @@ pub fn run() {
             _ => {}
         }
     });
+}
+
+// Native smoke must never read/write the signed-in runner's catalog or history.
+// Windows Known Folders do not reliably honor USERPROFILE/APPDATA overrides.
+// Accept an existing absolute directory only in explicit smoke mode; the runner
+// seeds a complete settings.json with every external history source disabled.
+fn smoke_data_directory() -> std::io::Result<Option<std::path::PathBuf>> {
+    if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
+        return Ok(None);
+    }
+    let Some(path) = std::env::var_os("SESSIONBAY_SMOKE_APP_DATA") else {
+        return Ok(None);
+    };
+    let path = std::path::PathBuf::from(path);
+    if !path.is_absolute() || !path.is_dir() || !path.join("settings.json").is_file() {
+        return Err(std::io::Error::other(
+            "Smoke data directory must contain isolated settings",
+        ));
+    }
+    let settings: Settings =
+        serde_json::from_reader(std::fs::File::open(path.join("settings.json"))?)?;
+    settings.validate().map_err(std::io::Error::other)?;
+    if !settings.sources.is_empty() {
+        return Err(std::io::Error::other(
+            "Smoke data directory must have no external history sources",
+        ));
+    }
+    Ok(Some(path))
 }
 
 // The runtime emits some native events before setup manages Service. Only exit

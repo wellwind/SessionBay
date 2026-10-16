@@ -366,6 +366,10 @@ impl Catalog {
         // create_dir is exclusive: no overwrite, ancestor creation or shell use.
         let parent = fs::canonicalize(parent_path).map_err(error)?;
         let path = parent.join(name);
+        #[cfg(windows)]
+        if !crate::windows_fs::valid_filesystem_path(&path) {
+            return Err("Choose a Windows folder name without reserved device names, alternate streams, or ambiguous trailing dots/spaces.".into());
+        }
         let path_string = path.to_str().ok_or("Project paths must be valid UTF-8.")?;
         fs::create_dir(&path).map_err(|e| format!("Could not create the project folder: {e}"))?;
         self.add_project(path_string, Some(name)).map_err(|e| {
@@ -472,7 +476,9 @@ impl Catalog {
         Ok(!paths.is_empty()
             && paths.iter().all(|(path, identity)| {
                 fs::metadata(path).is_ok_and(|metadata| {
-                    metadata.is_file() && file_identity(&metadata) == *identity
+                    metadata.is_file()
+                        && path_identity(Path::new(path), &metadata)
+                            .is_ok_and(|value| value == *identity)
                 })
             }))
     }
@@ -678,7 +684,7 @@ impl Catalog {
             }
         };
         // A changed file can invalidate byte locators. Do not display cached text as current.
-        if file_identity(&metadata) != identity
+        if !path_identity(Path::new(&path), &metadata).is_ok_and(|value| value == identity)
             || metadata.len() != size
             || modification(&metadata) != modified
         {
@@ -705,7 +711,7 @@ impl Catalog {
         let mut handle = open_transcript(Path::new(&path), session.kind)
             .map_err(|_| "The transcript is not readable. Check source permissions.".to_owned())?;
         let opened = handle.metadata().map_err(error)?;
-        if file_identity(&opened) != identity
+        if handle_identity(&handle, &opened).map_err(error)? != identity
             || opened.len() != size
             || modification(&opened) != modified
         {
@@ -819,11 +825,13 @@ impl Catalog {
         let after_read = handle.metadata().map_err(error)?;
         let path_still_matches = fs::metadata(&path)
             .map(|m| {
-                file_identity(&m) == identity && m.len() == size && modification(&m) == modified
+                path_identity(Path::new(&path), &m).is_ok_and(|value| value == identity)
+                    && m.len() == size
+                    && modification(&m) == modified
             })
             .unwrap_or(false);
         if !path_still_matches
-            || file_identity(&after_read) != identity
+            || handle_identity(&handle, &after_read).map_err(error)? != identity
             || after_read.len() != size
             || modification(&after_read) != modified
         {
@@ -991,7 +999,7 @@ impl Catalog {
             "The source transcript is missing or unreadable. Refresh the index.".to_owned()
         })?;
         let metadata = file.metadata().map_err(error)?;
-        if file_identity(&metadata) != *identity
+        if handle_identity(&file, &metadata).map_err(error)? != *identity
             || metadata.len() != *size
             || modification(&metadata) != *modified
         {
@@ -1497,6 +1505,7 @@ fn stale_page(message: &str) -> TranscriptPage {
     }
 }
 
+#[cfg(not(windows))]
 fn file_identity(metadata: &Metadata) -> String {
     #[cfg(unix)]
     {
@@ -1513,6 +1522,35 @@ fn file_identity(metadata: &Metadata) -> String {
             .unwrap_or_default()
     }
 }
+// Windows Metadata timestamps are not a file identity. Compare the open handle's
+// volume/file ID to the freshly opened path before trusting cached byte locators.
+fn handle_identity(file: &File, metadata: &Metadata) -> std::io::Result<String> {
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        crate::windows_fs::identity_from_file(file)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = file;
+        Ok(file_identity(metadata))
+    }
+}
+
+fn path_identity(path: &Path, metadata: &Metadata) -> std::io::Result<String> {
+    #[cfg(windows)]
+    {
+        let _ = metadata;
+        let file = crate::windows_fs::open_regular_readonly_nofollow(path)?;
+        crate::windows_fs::identity_from_file(&file)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Ok(file_identity(metadata))
+    }
+}
+
 fn modification(metadata: &Metadata) -> String {
     metadata
         .modified()
@@ -1551,15 +1589,23 @@ fn valid_antigravity_id(id: &str) -> bool {
 }
 
 fn open_transcript(path: &Path, kind: AgentKind) -> std::io::Result<File> {
+    #[cfg(windows)]
+    {
+        let _ = kind;
+        crate::windows_fs::open_regular_readonly_nofollow(path)
+    }
+    #[cfg(not(windows))]
     let mut options = fs::OpenOptions::new();
+    #[cfg(not(windows))]
     options.read(true);
     #[cfg(unix)]
     if kind == AgentKind::Antigravity {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     let _ = kind;
+    #[cfg(not(windows))]
     options.open(path)
 }
 
@@ -1922,8 +1968,9 @@ fn read_grok_sidecar(path: &Path) -> Result<Option<Vec<u8>>, String> {
         }
         _ => {}
     }
-    let mut file = File::open(path).map_err(error)?;
+    let mut file = open_transcript(path, AgentKind::Grok).map_err(error)?;
     let before = file.metadata().map_err(error)?;
+    let identity = handle_identity(&file, &before).map_err(error)?;
     if before.len() > MAX_LINE_BYTES as u64 {
         return Err("Grok metadata exceeds the supported size limit.".into());
     }
@@ -1939,7 +1986,7 @@ fn read_grok_sidecar(path: &Path) -> Result<Option<Vec<u8>>, String> {
         || fs::symlink_metadata(path)
             .map(|m| {
                 !m.is_file()
-                    || file_identity(&m) != file_identity(&before)
+                    || !path_identity(path, &m).is_ok_and(|value| value == identity)
                     || modification(&m) != modification(&before)
             })
             .unwrap_or(true)
@@ -2079,7 +2126,7 @@ fn index_file(
             "Antigravity transcript must remain in its exact non-symlink brain layout.".into(),
         );
     }
-    let identity = file_identity(&metadata);
+    let identity = handle_identity(&file, &metadata).map_err(error)?;
     let modified = modification(&metadata);
     let size = metadata.len();
     if source.kind == AgentKind::Antigravity && size > 128 * 1024 * 1024 {
@@ -2392,7 +2439,11 @@ fn index_file(
     }
     let verified = file.metadata().map_err(error)?;
     let path_still_matches = fs::metadata(path)
-        .map(|m| file_identity(&m) == identity && m.len() == size && modification(&m) == modified)
+        .map(|m| {
+            path_identity(path, &m).is_ok_and(|value| value == identity)
+                && m.len() == size
+                && modification(&m) == modified
+        })
         .unwrap_or(false);
     if !path_still_matches || verified.len() != size || modification(&verified) != modified {
         return Err("Transcript changed while verifying its checkpoint; refresh to retry.".into());

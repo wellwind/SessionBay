@@ -63,11 +63,28 @@ pub struct ProviderDefinition {
 
 impl ProviderDefinition {
     pub fn state_root(&self, home: &Path) -> PathBuf {
-        self.history
-            .source_env
-            .as_ref()
-            .and_then(|key| std::env::var(key).ok())
-            .map(PathBuf::from)
+        self.state_root_with_override(
+            home,
+            self.history
+                .source_env
+                .as_ref()
+                .and_then(std::env::var_os)
+                .map(PathBuf::from),
+        )
+    }
+
+    fn state_root_with_override(&self, home: &Path, source: Option<PathBuf>) -> PathBuf {
+        source
+            .filter(|path| {
+                #[cfg(windows)]
+                if !crate::windows_fs::valid_filesystem_path(path) {
+                    return false;
+                }
+                path.is_absolute()
+                    && path.to_str().is_some_and(|value| {
+                        value.len() <= 4096 && !value.chars().any(char::is_control)
+                    })
+            })
             .unwrap_or_else(|| home.join(&self.history.default_directory))
     }
 
@@ -318,6 +335,28 @@ mod tests {
         let mut value = original;
         value["providers"][3]["history"]["supported"] = serde_json::json!(false);
         assert!(Manifest::parse(&value.to_string()).is_err());
+    }
+
+    #[test]
+    fn invalid_source_environment_cannot_poison_default_settings_roots() {
+        let home = tempfile::tempdir().unwrap();
+        let provider = definition(AgentKind::Codex);
+        let default = home.path().join(".codex");
+        for invalid in [
+            PathBuf::from("relative-home"),
+            PathBuf::new(),
+            home.path().join("invalid\0root"),
+        ] {
+            assert_eq!(
+                provider.state_root_with_override(home.path(), Some(invalid)),
+                default
+            );
+        }
+        let source = home.path().join("explicit source 中文");
+        assert_eq!(
+            provider.state_root_with_override(home.path(), Some(source.clone())),
+            source
+        );
     }
 
     #[test]

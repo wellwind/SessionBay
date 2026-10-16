@@ -17,6 +17,10 @@ Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋�
 
 工具名稱、可執行檔與模型供應商不同。此處 Grok 指 xAI 的 Grok Build CLI；Antigravity 指 `agy` CLI，並非同品牌 App 或 IDE 的通用歷史整合。
 
+## Windows 原生安裝邊界（2026-10-16）
+
+四個 CLI 的目前官方安裝文件均提供原生 Windows 安裝；這只確立上游平台能力，不代表 Session Bay 已通過各版本的新建、歷史與接續驗收。Windows 偵測 PATH／PATHEXT 與已知使用者安裝目錄，優先原生 `.exe`，不執行任意 `.cmd`／`.bat` shim。只找到 batch 時會提供改選官方 native binary 的診斷，不將探測存在視為可啟動；npm 管理的 wrapper 可能包含更新／環境語意，故不猜測拆解其內部腳本。來源、前提與測試清單見[三平台支援](platform-support.md)。
+
 ## 統一來源入口與升級
 
 設定以 TypeScript／Rust 共用的 `src/agent-manifest.json` 內建能力登錄固定列出四工具卡片，不依執行檔偵測、是否曾啟動或來源數量決定可見性。工具是否可執行、是否有歷史 adapter、來源是否已設定／啟用及來源健康各自呈現；多個自訂來源仍按工具管理，不合併來源身份。

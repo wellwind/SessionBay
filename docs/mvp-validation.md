@@ -1,5 +1,20 @@
 # MVP 實作與驗收紀錄
 
+## 2026-10-16 三平台獨立 PR 驗證
+
+基線為 main `a609f04101604501895186f14dad9ad77d44989c`。新增 Windows ConPTY backend、原生 Shell／執行檔／路徑偵測、安全唯讀歷史 handle identity、跨平台 Tauri launcher、NSIS 設定及手動 Windows CI。此 PR 與目錄選擇 dialog 獨立；不包含背景持續執行 broker。
+
+Linux cloud 最終執行：**前端 14 檔 401／401、Rust core 248／248** 通過；typecheck、lint、production build、fmt、core all-target strict Clippy、44 組語意色彩對比及 10 個 ICNS representations 通過。原有隔離 HOME helper 為 1 個 ignored 子程序入口，由 wrapper 實際呼叫；Windows-only 測試在 Linux 不執行，不能算進原生通過數。
+
+使用官方 Rust target 與 Debian 簽章索引／SHA-256 驗證後的 workspace MinGW，正式 repo **`x86_64-pc-windows-gnu` 的 core＋所有 test targets、包含 Tauri desktop 的 all-target check／strict Clippy 均通過**；bundled SQLite 使用真實 MinGW 編譯，沒有切換依賴或以 stub 取代。`cargo test --locked --no-default-features --target x86_64-pc-windows-gnu --no-run` 已成功連結全部 Windows test executables；這些 `.exe` 未執行，GNU 交叉編譯不等於 MSVC／NSIS 原生 build 通過。
+
+獨立 source review 找到並修復兩項：portable-pty 裸 `conpty.dll` 載入的 CWD／PATH 搜尋風險，以 checked process-local DLL search policy 封閉；ConPTY 控制字元污染版本結果，以版本專用 decoder 過濾。已加入 Windows CWD／PATH shadow DLL 與乾淨／silent version 合成 regression，修正後獨立複查沒有剩餘具體缺陷；原生執行仍待驗。ConPTY 所有權限於附著的 console descendants，不承諾清理刻意 detached／new-console 程序。
+
+GitHub Node 20 action runtime 已於 2026-09-23 移除。本 PR 更新兩份 workflows 的 checkout／setup-node／upload-artifact 至官方 Node 24 release 並固定完整 SHA；專案 Node 24 不變。日常仍只有 Linux lightweight；完整手動 matrix 為 Linux、macOS ARM64、macOS Intel、Windows x64，**四個 jobs 必須在同一提交全部成功才算三 OS CI 通過**。沒有手動觸發完整 matrix、修改帳務或 required checks。
+
+本環境沒有 Windows／macOS native executor，也缺 Linux WebKitGTK 開發套件。本輪未跑 native desktop build／NSIS installer／WebView／真實 CLI／IME，ADD-14 與相關原生清單保持未完成。驗收步驟及限制見[三平台支援](platform-support.md)。以下舊紀錄保留其當時範圍，不能取代本批 native 結果。
+
+
 日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
 ## 2026-10-15 使用者驗收與合併前紀錄
