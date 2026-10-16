@@ -159,6 +159,15 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 第一個參數為 Session 數，第二個為每個 Session 的近似 KiB。結果含實際來源 bytes、索引耗時、未變更補掃、20 次查詢 p50／p95；不是 WebView 互動或整體記憶體量測。
 
+較完整的多訊息／生命週期基準使用 `index_lifecycle_benchmark`，參數依序為 Session 數、每個 Session 近似 KiB、訊息數，可加 `duplicates` 產生 Codex fallback／canonical 雙份紀錄。它分測空索引、三次未變更補掃、單檔追加、同大小重寫與五類搜尋，並檢查來源內容及可見訊息數。大型資料請把 `TMPDIR` 指向空間充足的磁碟，而非小型 tmpfs；建議至少預留 8 GiB。
+
+```bash
+cargo run --release --locked --manifest-path src-tauri/Cargo.toml \
+  --no-default-features --example index_lifecycle_benchmark -- 1000 100 20
+```
+
+同環境 before／after、10k／長對話指令、記憶體欄位與尚未達標的搜尋情境見[索引效能量測](index-performance.md)。這些資料不能代替使用者真實來源與原生 UI 驗收。
+
 ## CI 省額度模式
 
 日常自動檢查由 `.github/workflows/light-checks.yml` 執行：本 repo 的 branch push 只跑一個 Ubuntu 24.04 job，不同時監聽 pull_request。結果仍附在同 repo PR 的 commit 上；同 branch 較新的程式提交會取消較舊的自動檢查。它驗證 branch head，不是合成 merge commit；fork PR 或只有 base branch 更新的整合相容性需另外安排，不假裝已覆蓋。
