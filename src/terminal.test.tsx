@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   termWrite: vi.fn(),
   disposed: vi.fn(),
   keyHandler: vi.fn(),
+  reset: vi.fn(),
+  focus: vi.fn(),
+  fit: vi.fn(),
+  options: [] as Record<string, unknown>[],
   input: undefined as undefined | ((value: string) => void),
 }));
 vi.mock('./api', () => ({ errorMessage: (e: unknown) => String(e), api: mocks }));
@@ -20,13 +24,14 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
-    options = {};
+    options: Record<string, unknown> = {};
+    constructor() { mocks.options.push(this.options); }
     parser = { registerOscHandler: () => ({ dispose() {} }) };
     loadAddon() {}
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { mocks.keyHandler(handler); }
     open() {}
-    reset() {}
-    focus() {}
+    reset() { mocks.reset(); }
+    focus() { mocks.focus(); }
     getSelection() {
       return '';
     }
@@ -45,7 +50,7 @@ vi.mock('@xterm/xterm', () => ({
 }));
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
-    fit() {}
+    fit() { mocks.fit(); }
   },
 }));
 vi.mock('@xterm/addon-search', () => ({
@@ -103,6 +108,7 @@ function props(pane = makePane()) {
   };
 }
 beforeEach(() => {
+  mocks.options.length = 0;
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -318,5 +324,34 @@ describe('additional agent terminal requests', () => {
     render(<TerminalPane {...props(makePane({ kind: 'grok', sessionId: 'catalog-session', startToken: 1 }))} />);
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
     expect(mocks.launch.mock.calls[0][0]).toMatchObject({ kind: 'grok', sessionId: 'catalog-session', resumeId: undefined });
+  });
+});
+
+
+describe('live terminal palette updates', () => {
+  it('updates every open pane, including hidden panes, without resetting, fitting, focusing or restarting', async () => {
+    const first = props(makePane({ startToken: 1 }));
+    const second = props(makePane({ id: 'second', startToken: 1 }));
+    mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
+    const panes = (terminalTheme: string) => <>
+      <TerminalPane {...first} settings={{ ...settings, terminalTheme }} />
+      <TerminalPane {...second} settings={{ ...settings, terminalTheme }} visible={false} focused={false} />
+    </>;
+    const view = render(panes('classic'));
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+    const snapshots = { reset: mocks.reset.mock.calls.length, fit: mocks.fit.mock.calls.length, focus: mocks.focus.mock.calls.length };
+    for (const id of ['rose-light', 'ocean-dark', 'classic']) {
+      view.rerender(panes(id));
+      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : '#0d1929';
+      for (const options of mocks.options) expect(options.theme).toMatchObject({ background: expected });
+    }
+    expect(mocks.options).toHaveLength(2);
+    expect(mocks.launch).toHaveBeenCalledTimes(2);
+    expect(mocks.stop).not.toHaveBeenCalled();
+    expect(mocks.disposed).not.toHaveBeenCalled();
+    expect(mocks.reset).toHaveBeenCalledTimes(snapshots.reset);
+    expect(mocks.fit).toHaveBeenCalledTimes(snapshots.fit);
+    expect(mocks.focus).toHaveBeenCalledTimes(snapshots.focus);
   });
 });

@@ -22,6 +22,9 @@ import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executabl
 import type { HistoryAgentKind } from '../agents';
 import { Select } from './controls';
 import { AgentIcon } from './AgentIcon';
+import { ThemeControls, TerminalPreview } from './ThemeControls';
+import { appearanceOf, validThemeId } from '../themes';
+import type { Appearance } from '../themes';
 import './settings.css';
 
 export interface SettingsPanelProps {
@@ -32,6 +35,7 @@ export interface SettingsPanelProps {
   busy?: boolean;
   onSave: (settings: Settings) => Promise<void>;
   onClose: () => void;
+  onPreviewAppearance?: (appearance: Appearance | null) => void;
   onScan: (rebuild: boolean) => Promise<void>;
   onCancelScan: () => Promise<void>;
   onClearIndex: () => Promise<void>;
@@ -168,7 +172,9 @@ export function validateSettings(settings: Settings): ValidationErrors {
   if (settings.version !== 1) errors.version = '不支援的設定版本。';
   if (!['dark', 'light', 'system'].includes(settings.theme))
     errors.theme = '請選擇有效的介面主題。';
-  if (!['bay', 'classic'].includes(settings.terminalTheme))
+  if (!validThemeId(settings.themePalette ?? 'bay'))
+    errors.themePalette = '請選擇有效的介面色系。';
+  if (!validThemeId(settings.terminalTheme))
     errors.terminalTheme = '請選擇有效的終端色票。';
   if (!validText(settings.fontFamily, 256))
     errors.fontFamily = '請填寫有效的字型名稱，最多 256 bytes。';
@@ -309,6 +315,7 @@ export function SettingsPanel({
   busy = false,
   onSave,
   onClose,
+  onPreviewAppearance,
   onScan,
   onCancelScan,
   onClearIndex,
@@ -340,6 +347,21 @@ export function SettingsPanel({
     setShowErrors(false);
     setSourceDiscoveries({});
   }, [settings]);
+
+  useEffect(() => {
+    // Preview only valid appearance fields; unrelated draft edits never reach running panes.
+    const appearance = appearanceOf(draft);
+    if (!Number.isInteger(appearance.fontSize) || appearance.fontSize < 9 || appearance.fontSize > 32)
+      appearance.fontSize = settings.fontSize;
+    if (!validText(appearance.fontFamily, 256)) appearance.fontFamily = settings.fontFamily;
+    onPreviewAppearance?.(appearance);
+  }, [draft, settings.fontSize, settings.fontFamily, onPreviewAppearance]);
+  useEffect(() => () => onPreviewAppearance?.(null), [onPreviewAppearance]);
+  useEffect(() => {
+    const back = () => { if (!operationInFlight.current && !busy) onClose(); };
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, [onClose, busy]);
 
   useEffect(() => {
     if (!focusSourceId) return;
@@ -403,7 +425,7 @@ export function SettingsPanel({
       ),
     }));
   const close = () => {
-    if (locked) return;
+    if (locked || operationInFlight.current) return;
     if (dirty) setConfirmation('discard');
     else onClose();
   };
@@ -1078,39 +1100,12 @@ export function SettingsPanel({
                         <p>選一個適合專注工作的環境。</p>
                       </div>
                     </div>
-                    <div className="settings-field">
-                      <span>介面主題</span>
-                      <div className="settings-theme-options">
-                        {(
-                          [
-                            { value: 'dark', label: '深色', symbol: '◐' },
-                            { value: 'light', label: '淺色', symbol: '☼' },
-                            { value: 'system', label: '跟隨系統', symbol: '◒' },
-                          ] as const
-                        ).map((theme) => (
-                          <button
-                            type="button"
-                            key={theme.value}
-                            className={`settings-theme-option ${theme.value}${draft.theme === theme.value ? ' selected' : ''}`}
-                            aria-pressed={draft.theme === theme.value}
-                            onClick={() => update('theme', theme.value)}
-                          >
-                            <span aria-hidden="true">{theme.symbol}</span>
-                            <strong>{theme.label}</strong>
-                            {draft.theme === theme.value && <Check size={14} aria-hidden="true" />}
-                          </button>
-                        ))}
-                      </div>
-                      <FieldError id="theme-error" message={errors.theme} />
-                    </div>
+                    <p className="settings-help theme-quick-help">立即預覽整個工作台與所有終端；儲存後保留，取消並捨棄則還原。</p>
+                    <ThemeControls value={appearanceOf(draft)} disabled={locked}
+                      onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
+                    <FieldError id="theme-error" message={errors.theme || errors.themePalette} />
+                    <FieldError id="terminal-theme-error" message={errors.terminalTheme} />
                     <div className="settings-two-columns settings-section-space">
-                      <label className="settings-field">
-                        <span>終端色票</span>
-                        <Select aria-label="終端色票" value={draft.terminalTheme} disabled={locked}
-                          onChange={(value) => update('terminalTheme', value as Settings['terminalTheme'])}
-                          options={[{ value: 'bay', label: 'Bay · 柔和暖色' }, { value: 'classic', label: 'Classic · 經典對比' }]} />
-                        <FieldError id="terminal-theme-error" message={errors.terminalTheme} />
-                      </label>
                       <label className="settings-field">
                         <span>
                           終端字型大小 <small>px</small>
@@ -1148,22 +1143,7 @@ export function SettingsPanel({
                         使用這台電腦已安裝的字型，可用逗號指定備用字型。
                       </span>
                     </label>
-                    <div
-                      className={`settings-terminal-preview ${draft.terminalTheme}`}
-                      style={{
-                        fontFamily: draft.fontFamily || 'monospace',
-                        fontSize: Number.isFinite(draft.fontSize)
-                          ? Math.min(Math.max(draft.fontSize, 9), 32)
-                          : 14,
-                      }}
-                    >
-                      <span className="settings-preview-label">Aa · 字型預覽</span>
-                      <p>
-                        <span>❯</span> Session Bay
-                      </p>
-                      <p>讓每一次工作，都能接續。</p>
-                      <span className="settings-preview-cursor" aria-hidden="true" />
-                    </div>
+                    <TerminalPreview value={appearanceOf(draft)} />
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
                         <h3>開始新工作時</h3>

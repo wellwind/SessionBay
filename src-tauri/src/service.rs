@@ -106,15 +106,35 @@ impl Service {
         })
     }
     pub fn save_settings(self: &Arc<Self>, settings: Settings) -> Result<Settings, String> {
-        if self.index_status()?.running {
-            return Err("請先取消索引並等待完成，再修改來源設定".into());
+        let mut current = self.settings.lock().map_err(|_| "設定鎖定失敗")?;
+        // Palette/font changes do not change the scan's immutable source snapshot.
+        // Compare all other fields so this exception cannot silently widen to source edits.
+        let mut previous = serde_json::to_value(&*current).map_err(|e| e.to_string())?;
+        let mut next = serde_json::to_value(&settings).map_err(|e| e.to_string())?;
+        for field in [
+            "theme",
+            "themePalette",
+            "terminalTheme",
+            "fontFamily",
+            "fontSize",
+        ] {
+            previous.as_object_mut().unwrap().remove(field);
+            next.as_object_mut().unwrap().remove(field);
         }
-        let _guard = self
-            .scan_guard
-            .try_lock()
-            .map_err(|_| "請先取消索引並等待完成，再修改來源設定")?;
+        let _guard = if previous == next {
+            None
+        } else {
+            if self.index_status()?.running {
+                return Err("請先取消索引並等待完成，再修改來源設定".into());
+            }
+            Some(
+                self.scan_guard
+                    .try_lock()
+                    .map_err(|_| "請先取消索引並等待完成，再修改來源設定")?,
+            )
+        };
         self.config.save_settings(&settings)?;
-        *self.settings.lock().map_err(|_| "設定鎖定失敗")? = settings.clone();
+        *current = settings.clone();
         Ok(settings)
     }
     pub fn index_status(&self) -> Result<IndexStatus, String> {
@@ -521,6 +541,40 @@ fn empty_index() -> IndexStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn appearance_saves_during_indexing_but_other_changes_remain_blocked() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = Service::open(temp.path().join("app")).unwrap();
+        let mut next = service.settings().unwrap();
+        service.index.lock().unwrap().running = true;
+        let _scan = service.scan_guard.lock().unwrap();
+        next.theme_palette = "rose".into();
+        next.terminal_theme = "ocean-light".into();
+        let saved = service.save_settings(next.clone()).unwrap();
+        assert_eq!(saved.theme_palette, "rose");
+        assert_eq!(
+            service.config.load_settings().0.terminal_theme,
+            "ocean-light"
+        );
+        next.sources.clear();
+        assert!(service.save_settings(next).is_err());
+        let mut other = service.settings().unwrap();
+        other.profiles[0].name = "Unrelated edit".into();
+        assert!(service.save_settings(other).is_err());
+        assert_eq!(service.settings().unwrap().theme_palette, "rose");
+    }
+
+    #[test]
+    fn failed_appearance_write_does_not_change_in_memory_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = Service::open(temp.path().join("app")).unwrap();
+        std::fs::create_dir(service.config.directory.join("settings.json")).unwrap();
+        let mut next = service.settings().unwrap();
+        next.theme_palette = "forest".into();
+        assert!(service.save_settings(next).is_err());
+        assert_eq!(service.settings().unwrap().theme_palette, "bay");
+    }
+
     #[test]
     fn antigravity_runtime_identity_normalizes_uuid_case_without_rewriting_argv() {
         let id = "07EB4413-E2D7-4D1D-9E39-85AD75ECFF49";

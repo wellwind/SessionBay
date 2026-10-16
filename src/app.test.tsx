@@ -1686,3 +1686,62 @@ it('refuses a preview-only session even when a stale history callback attempts r
   expect(api.preview).not.toHaveBeenCalled();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+describe('App live theme integration', () => {
+  const start = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    render(<App />);
+    await tick();
+  };
+  it('quick switching previews before persistence resolves and keeps the committed theme after closing', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '深色' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '設定與資料來源' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    // Theme-only quick saves preserve all other committed settings verbatim.
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...bootstrap().settings, theme: 'light' });
+  });
+  it('restores the committed theme after a failed quick save, even if the menu already closed', async () => {
+    await start();
+    let fail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    await act(async () => fail(new Error('Disk full')));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(screen.getByRole('alert')).toHaveTextContent('主題未能儲存，已還原');
+    expect(screen.getByRole('button', { name: '快速切換主題' })).not.toBeDisabled();
+  });
+  it('Settings previews without a save call, then cancel restores and a later save persists', async () => {
+    await start();
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '快速切換主題' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+  });
+});

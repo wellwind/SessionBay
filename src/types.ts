@@ -116,7 +116,9 @@ export interface ShellProfile {
 export interface Settings {
   version: 1;
   theme: 'dark' | 'light' | 'system';
-  terminalTheme: 'bay' | 'classic';
+  /** Optional for pre-palette version 1 settings; omitted means Bay. */
+  themePalette?: string;
+  terminalTheme: string;
   fontFamily: string;
   fontSize: number;
   defaultAgent: AgentKind;

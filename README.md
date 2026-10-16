@@ -39,6 +39,7 @@ npm run tauri -- build
 | [產品企劃](docs/product-plan.md) | 定位、痛點、目標使用者、價值主張與驗證方式 |
 | [產品功能規格](docs/product-spec.md) | MVP 功能、行為、例外情境與驗收條件 |
 | [介面與操作規格](docs/ux-spec.md) | 專案、分頁、面板、搜尋與工作恢復流程 |
+| [獨立主題與即時預覽](docs/theme-preview.md) | 快速切換、設定預覽／取消、色票與驗證限制 |
 | [桌面介面設計系統](docs/ui-design-system.md) | 全介面資訊架構、流程、語意主題、控制項與驗證標準 |
 | [技術架構](docs/architecture.md) | Tauri、Rust、PTY、資料流、索引與效能設計 |
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
