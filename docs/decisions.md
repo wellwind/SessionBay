@@ -272,3 +272,5 @@
 - 重開以 broker 的 runtime／pane／project metadata 為權威，保存的 layout 仍不接受 Runtime ID、PID、指令或 auto-start token。遺失 layout 的活躍面板會重建，不會悄悄藏起來。
 - 程序已退出時保留最後畫面與 exit code。Broker 或作業系統重啟後，上次執行中的 metadata 改為 `interrupted`；不冒稱仍在執行、不採用舊 PID、不自動重啟 Shell／Agent。終端輸出不落盤，broker 重啟後無法還原舊畫面。
 - 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。
+
+- 2026-10-16 macOS 啟動修正：interprocess 2.4.5 的 listener `.mode(0600)` 在 Darwin 回傳 `Unsupported`。macOS 改在已驗證的 0700 socket 目錄內 bind，再設定 socket 路徑為 0600；保留 peer UID 驗證與 broker 所有權鎖。Linux 維持 bind 前設定權限，Windows ACL 不變。
