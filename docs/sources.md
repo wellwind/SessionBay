@@ -6,6 +6,7 @@
 
 | 主題 | 來源 | 適用內容 |
 | --- | --- | --- |
+| Tauri 原生對話框 | [Dialog plugin](https://v2.tauri.app/plugin/dialog/)／[JavaScript API](https://v2.tauri.app/reference/javascript/dialog/) | 2026-10-16 查閱；單一資料夾選擇、取消回傳 null、macOS／Windows／Linux 支援及 `dialog:allow-open`／安全確認用 `dialog:allow-message` 權限；不代表整個應用已通過各平台驗收 |
 | Tauri 程序模型 | [Process Model](https://v2.tauri.app/concept/process-model/) | Core、WebView 與平台差異 |
 | Tauri 串流傳輸 | [Calling the Frontend from Rust](https://v2.tauri.app/develop/calling-frontend/) | Events 限制與 Channels |
 | xterm.js | [官方儲存庫](https://github.com/xtermjs/xterm.js) | 終端元件、addons 與可選 renderer |
@@ -134,3 +135,63 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [GitHub：Control workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)：同群 queued run 的取代語意；完整手動流程不共用自動取消群組。
 - [GitHub：Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)：未跑／略過不能作為本專案實際平台驗收證據。
 - [actionlint v1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)：本機以官方 release digest 核對後檢查 workflow 語法與 expressions；沒有新增第三方 CI action。
+
+## Windows 原生支援（2026-10-16）
+
+查閱日期：2026-10-16；來源描述上游 API／安裝支援，不作為 Session Bay 原生驗收結果。
+
+- [Microsoft：建立 ConPTY session](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session)：獨立 I/O threads、初始 cursor handshake 與 attached-child teardown。
+- [Microsoft：ClosePseudoConsole](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)：Windows 10 1809 起提供；舊版本關閉須持續排空輸出，不能在 reader 本身等待關閉。
+- [portable-pty 0.9 原始碼](https://docs.rs/crate/portable-pty/0.9.0/source/src/win/conpty.rs)：本地 lockfile 使用 0.9.0；另外核對 `psuedocon.rs` 的 cursor flag 與 child HANDLE 行為，不將 API 表面跨平台視為 lifecycle 已驗。
+- [Microsoft：GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex) 與 [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info)：volume／128-bit ID 可識別檔案替換；時間戳不能代替身分。
+- [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) 與 [Windows installer](https://v2.tauri.app/distribute/windows-installer/)：MSVC、WebView2、NSIS／MSI 差異；本 PR 使用 current-user NSIS，沒有替使用者安裝／發布。
+- 四個 CLI 的 Windows 官方安裝依據與限制集中於[三平台支援](platform-support.md#cli-相容性與限制)。
+
+### 2026-10-16 GitHub Actions Node 24
+
+- [Node 20 removal](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/)：2026-09-23 已移除，專案 Node 與 action runtime 不同。
+- [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1)、[setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0)、[upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2)：以 release tag 的 Git ref SHA 與 action.yml 核對 Node 24，並閱讀移轉限制。現有設定未使用 registry-url／always-auth／unsafe PR checkout，不受這些新增限制影響。
+
+## 2026-10-16 持續 Runtime
+
+- [interprocess 2.4.5 local sockets](https://docs.rs/interprocess/2.4.5/interprocess/local_socket/index.html)：Unix socket／Windows named pipe 抽象、peer credentials；實作仍需 private directory／SID ACL，不能把本機名稱當身分驗證。
+- [Windows named pipe listener options](https://docs.rs/interprocess/2.4.5/interprocess/os/windows/named_pipe/struct.PipeListenerOptions.html)：remote acceptance 預設 false，first-instance 與 security descriptor 行為以固定 lockfile 版本核對。
+- [vt100 0.16.2 Screen](https://docs.rs/vt100/0.16.2/vt100/struct.Screen.html)：有界 terminal state、formatted screen 與 input modes；不代表完整 xterm／所有 Agent TUI 相容。
+- [interprocess 2.4.5 Unix listener mode](https://docs.rs/interprocess/2.4.5/interprocess/os/unix/local_socket/trait.ListenerOptionsExt.html)：2026-10-16 核對本機 lockfile 對應原始碼；`.mode()` 在 bind 前執行 `fchmod`，不支援時回傳 `Unsupported`。本機 macOS 已重現；改用 0700 父目錄保護 bind 後的 0600 設定，其他平台未因此宣稱完成驗收。
+
+## OpenCode（查閱 2026-10-16）
+
+- [CLI 官方選項](https://opencode.ai/docs/cli/) 與 [Windows 原生安裝](https://opencode.ai/docs/windows/)：--version、--session、--auto 與平台安裝；文件會更新，不代表實機驗證。
+- [v1.19.2 release](https://github.com/anomalyco/opencode/releases/tag/v1.19.2)：本次固定參照版本。
+- [SQLite schema](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session/sql.ts)、[v1 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/v1/session.ts)、[v2 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/session-message.ts)：reader 與獨立合成 fixture 欄位依據，非穩定外部 API 保證。
+- [Global XDG paths](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/global.ts)、[DB override](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/database.ts)、[TUI argv](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/cli/cmd/tui.ts)、[global --pure](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/index.ts)：路徑、精確來源與權限選項依據。
+
+- OpenCode v2 reset 與原生讀取權威性（2026-10-16，固定 v1.19.2 source）：[reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts)、[V2Session reader](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session.ts)、[v2 experimental specification](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/specs/v2/session.md)。v2 state reset 不代表 v1 rows 仍屬現行 transcript；無權威標記的混合狀態採 metadata-only partial，不自動 fallback。
+
+## 索引效能與暫存候選索引
+
+查閱日期：2026-10-16。實測與限制見[索引效能量測](index-performance.md)。
+
+- [SQLite temp_store](https://www.sqlite.org/pragma.html#pragma_temp_store)：連線要求 FILE 暫存儲存；編譯期 `SQLITE_TEMP_STORE` 仍可影響行為，不將 pragma 當所有發行環境的硬性保證。
+- [SQLite cache_size](https://www.sqlite.org/pragma.html#pragma_cache_size)：負值以 KiB 指定建議 page-cache 大小；本次 TEMP 設為約 2 MiB，並非程序總記憶體上限。
+- [SQLite temporary files](https://www.sqlite.org/tempfiles.html)：TEMP table／index 屬連線本機暫存，可能先由 page cache 承載；不把它加入持久 schema，也不額外複製對話正文。
+## 原生確認的非同步相容性
+
+2026-10-16 查核官方 [tauri-plugin-dialog 2.8.3 crate](https://crates.io/crates/tauri-plugin-dialog/2.8.3) 的 `src/init-iife.js` 與 `permissions/autogenerated/commands/message.toml`：初始化將 `window.confirm` 覆寫為 Promise，透過 `plugin:dialog|message` 的 `OkCancel` 結果判斷；需要 `dialog:allow-message`。測試保存未改寫的 initializer 與 MIT 授權，SHA-256 及用途見 [`src/test/fixtures/README.md`](../src/test/fixtures/README.md)。不得將 Promise 的 truthiness 當使用者同意，也不以全域同步 shim 掩蓋 API 變化。
+## 全工作台原生縮放（2026-10-16）
+
+以本 PR lockfile 的 Tauri 2.12.4、tauri-runtime-wry 2.12.2、Wry 0.57.0 與 xterm 5.5.0 查核；文件與原始碼不是實機驗收。
+
+- [Tauri setZoom](https://v2.tauri.app/reference/javascript/api/namespacewebview/#setzoom) 與 [核心權限](https://v2.tauri.app/reference/acl/core-permissions/#webview)：使用目前 WebView 的 page zoom，1 代表 100%；需明確授權 allow-set-webview-zoom，core:default 不包含此 setter。
+- [Tauri window configuration](https://v2.tauri.app/reference/config/#windowconfig)：zoomHotkeysEnabled 在 Windows 控制 WebView2 zoom controls，macOS／Linux 會注入另套倍率與範圍的 polyfill；本 PR 明確設 false，由可保存的單一快捷鍵處理器負責。
+- [Wry 0.57 macOS](https://github.com/tauri-apps/wry/blob/wry-v0.57.0/src/wkwebview/mod.rs)、[Linux](https://github.com/tauri-apps/wry/blob/wry-v0.57.0/src/webkitgtk/mod.rs)、[Windows](https://github.com/tauri-apps/wry/blob/wry-v0.57.0/src/webview2/mod.rs)：分別使用 WKWebView pageZoom（macOS 11+）、WebKitGTK zoom level 與 WebView2 ZoomFactor；專案最低 macOS 12 符合 API 條件。
+- [WebKitGTK zoom-text-only](https://webkitgtk.org/reference/webkit2gtk/stable/property.Settings.zoom-text-only.html)：預設 false，正常頁面縮放包含內容與文字。
+- [WebView2 ZoomFactor](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controller?view=webview2-1.0.3537.50#get_zoomfactor)：倍率會影響頁面布局；host 設定值也是原生 Ctrl+0 的預設，故本應用自行處理明確的 100% reset。
+- [xterm 5.5 CoreBrowserService](https://github.com/xtermjs/xterm.js/blob/5.5.0/src/browser/services/CoreBrowserService.ts)：既有 DPR／resize 追蹤保留；不可把 DPR 當作已保存的 appZoom。
+- [MDN CSS zoom](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/zoom)：CSS zoom 與 transform scale 的布局語意不同；本 PR 使用原生 page zoom，未以 transform 模擬，並補縮小 CSS viewport 後的可達性。
+
+## Code 配色來源（2026-10-16）
+
+- Microsoft VS Code 固定 commit 3588843f05a21bfdeada83a9799d87f19de0fadd 的 [default themes](https://github.com/microsoft/vscode/tree/3588843f05a21bfdeada83a9799d87f19de0fadd/extensions/theme-defaults/themes)：Modern 與 2026 深／淺色及完整 include 鏈的語意配色。
+- 同一版本的 [Terminal color registry](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/src/vs/workbench/contrib/terminal/common/terminalColorRegistry.ts) 與 [editor selection defaults](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/src/vs/platform/theme/common/colors/editorColors.ts)：未被主題覆蓋的 ANSI／選取色來源。
+- [MIT license](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/LICENSE.txt) 隨 public/third-party/VSCode-LICENSE.txt 保留。適用範圍、可及性調整與非官方合作聲明見 [主題說明](theme-preview.md)。

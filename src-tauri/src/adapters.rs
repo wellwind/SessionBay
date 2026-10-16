@@ -343,7 +343,7 @@ pub fn search_text(value: &Value, kind: AgentKind, parsed: &ParsedMessage) -> St
                 .or_else(|| value.get("content"))
                 .unwrap_or(&Value::Null),
         ),
-        Some(ParserId::Grok | ParserId::Antigravity) => parsed.text.clone(),
+        Some(ParserId::Grok | ParserId::Antigravity | ParserId::OpenCode) => parsed.text.clone(),
         None => String::new(),
     }
 }
@@ -391,7 +391,7 @@ pub fn parse_value(
                 None
             }
         },
-        None => None,
+        Some(ParserId::OpenCode) | None => None,
     }
 }
 

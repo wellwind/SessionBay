@@ -1,0 +1,16 @@
+.theme-controls { display: grid; gap: 18px; }
+.theme-field, .theme-mode-field { display: grid; gap: 8px; min-width: 0; font-size: 13px; }
+.theme-field > span { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.theme-field small { color: var(--muted); font-size: 12px; }
+.theme-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.theme-modes > button { min-height: 44px; padding: 10px 14px; border: 1px solid var(--control-border); border-radius: 7px; }
+.theme-field .control-select-trigger { min-height: 44px; }
+.theme-terminal-preview { margin-top: 18px; padding: 16px; border: 1px solid var(--control-border); border-radius: 8px; overflow-wrap: anywhere; line-height: 1.7; }
+.theme-preview-caption { display: block; margin-bottom: 8px; font-size: 12px; }
+.theme-preview-cursor { display: inline-block; width: 8px; height: 1em; margin-top: 4px; }
+.theme-quick-content { display: grid; gap: 18px; }
+.theme-quick-help { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.theme-quick-status { color: var(--muted); font-size: 13px; min-height: 1.5em; }
+.theme-quick-error { color: var(--danger); font-size: 13px; line-height: 1.7; }
+
+.theme-quick-trigger { min-width: 44px; min-height: 44px; }

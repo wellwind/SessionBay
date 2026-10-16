@@ -84,7 +84,7 @@ export function WorkspaceCanvas({
           <div className="pane-position" key={pane.id} style={style}>
             <TerminalPane
               pane={pane}
-              projectAvailable={knownProjectIds.includes(pane.projectId)}
+              projectAvailable={pane.projectId !== null && knownProjectIds.includes(pane.projectId)}
               settings={settings}
               visible={show}
               focused={tab?.focusedPaneId === pane.id}

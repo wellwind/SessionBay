@@ -1,4 +1,5 @@
 use crate::{
+    broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
     models::{AgentKind, IndexStatus, Project},
@@ -30,6 +31,16 @@ pub struct LaunchRequest {
     pub rows: u16,
 }
 
+impl LaunchRequest {
+    pub(crate) fn uses_home_directory(&self) -> bool {
+        self.kind == "shell"
+            && self.project_id.is_none()
+            && self.session_id.is_none()
+            && self.resume_id.is_none()
+            && self.cwd.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchPreview {
@@ -47,12 +58,14 @@ pub struct Bootstrap {
     pub index: IndexStatus,
     pub workspace: serde_json::Value,
     pub warnings: Vec<String>,
+    pub runtimes: Vec<RuntimeRecord>,
 }
 
 pub struct Service {
     pub catalog: Catalog,
     pub config: ConfigStore,
     pub runtime: RuntimeManager,
+    broker: Option<BrokerClient>,
     settings: Mutex<Settings>,
     index: Mutex<IndexStatus>,
     scan_guard: Mutex<()>,
@@ -65,6 +78,19 @@ pub struct Service {
 
 impl Service {
     pub fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
+        Self::open_internal(directory, None)
+    }
+    pub fn open_desktop(directory: PathBuf) -> Result<Arc<Self>, String> {
+        // Establish local configuration storage before creating its private IPC child.
+        let config = ConfigStore::open(directory.clone())?;
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        let broker = BrokerClient::connect(&config.directory, &executable)?;
+        Self::open_internal(directory, Some(broker))
+    }
+    fn open_internal(
+        directory: PathBuf,
+        broker: Option<BrokerClient>,
+    ) -> Result<Arc<Self>, String> {
         let config = ConfigStore::open(directory)?;
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
@@ -72,6 +98,7 @@ impl Service {
             catalog,
             config,
             runtime: RuntimeManager::new(),
+            broker,
             settings: Mutex::new(settings),
             index: Mutex::new(empty_index()),
             scan_guard: Mutex::new(()),
@@ -103,18 +130,45 @@ impl Service {
             index: self.index_status()?,
             workspace,
             warnings,
+            runtimes: self
+                .broker
+                .as_ref()
+                .map(|broker| broker.list())
+                .transpose()?
+                .unwrap_or_default(),
         })
     }
     pub fn save_settings(self: &Arc<Self>, settings: Settings) -> Result<Settings, String> {
-        if self.index_status()?.running {
-            return Err("請先取消索引並等待完成，再修改來源設定".into());
+        let mut current = self.settings.lock().map_err(|_| "設定鎖定失敗")?;
+        // Palette/font changes do not change the scan's immutable source snapshot.
+        // Compare all other fields so this exception cannot silently widen to source edits.
+        let mut previous = serde_json::to_value(&*current).map_err(|e| e.to_string())?;
+        let mut next = serde_json::to_value(&settings).map_err(|e| e.to_string())?;
+        for field in [
+            "theme",
+            "themePalette",
+            "terminalTheme",
+            "fontFamily",
+            "fontSize",
+            "appZoom",
+        ] {
+            previous.as_object_mut().unwrap().remove(field);
+            next.as_object_mut().unwrap().remove(field);
         }
-        let _guard = self
-            .scan_guard
-            .try_lock()
-            .map_err(|_| "請先取消索引並等待完成，再修改來源設定")?;
+        let _guard = if previous == next {
+            None
+        } else {
+            if self.index_status()?.running {
+                return Err("請先取消索引並等待完成，再修改來源設定".into());
+            }
+            Some(
+                self.scan_guard
+                    .try_lock()
+                    .map_err(|_| "請先取消索引並等待完成，再修改來源設定")?,
+            )
+        };
         self.config.save_settings(&settings)?;
-        *self.settings.lock().map_err(|_| "設定鎖定失敗")? = settings.clone();
+        *current = settings.clone();
         Ok(settings)
     }
     pub fn index_status(&self) -> Result<IndexStatus, String> {
@@ -230,6 +284,16 @@ impl Service {
         let mut args = vec![];
         let mut resume_key = None;
         let mut cwd = request.cwd.clone();
+        if request.uses_home_directory() {
+            // An unscoped shell is a temporary terminal. Resolve its home in
+            // Rust, before applying profile environment; never trust a UI guess.
+            let home = temporary_terminal_home(dirs::home_dir())?;
+            cwd = Some(
+                home.to_str()
+                    .ok_or("家目錄路徑不是有效的 Unicode")?
+                    .to_owned(),
+            );
+        }
         if let Some(project_id) = &request.project_id {
             let project = self
                 .catalog
@@ -248,12 +312,12 @@ impl Service {
         };
         if let Some(resume_id) = &request.resume_id {
             if !agent.is_some_and(|kind| crate::providers::definition(kind).resume.manual_id) {
-                return Err(
-                    "Manual resume IDs are supported for Grok Build and Antigravity CLI only."
-                        .into(),
-                );
+                return Err("Manual resume IDs are not supported by this provider.".into());
             }
             validate_resume_id(resume_id)?;
+            if agent == Some(AgentKind::OpenCode) && !crate::opencode::valid_session_id(resume_id) {
+                return Err("OpenCode resume IDs must use the native ses_ identifier.".into());
+            }
         }
         if let Some(session_id) = &request.session_id {
             let (session, source) = self.catalog.resume_source(session_id)?;
@@ -285,15 +349,18 @@ impl Service {
                 cwd = project.and_then(|p| p.launch_path).or(session.cwd);
             }
             if let Some(key) = history_environment(session.kind) {
-                resume_key = Some(provider_resume_key(session.kind, &source.root, id));
-                env.insert(key.into(), source.root);
+                resume_key = Some(provider_resume_key(session.kind, &source.root, id)?);
+                env.insert(
+                    key.into(),
+                    history_environment_value(session.kind, &source.root),
+                );
             } else if session.kind == AgentKind::Antigravity {
                 if let Some(reason) =
                     crate::catalog::antigravity_resume_disabled_reason(&source.root, id)
                 {
                     return Err(reason);
                 }
-                resume_key = Some(provider_resume_key(session.kind, &source.root, id));
+                resume_key = Some(provider_resume_key(session.kind, &source.root, id)?);
             } else {
                 return Err("This provider has no supported indexed resume source.".into());
             }
@@ -316,24 +383,40 @@ impl Service {
                     .iter()
                     .find(|s| s.enabled && s.kind == kind)
                 {
-                    env.insert(key.into(), source.root.clone());
+                    env.insert(key.into(), history_environment_value(kind, &source.root));
                 }
+            }
+            if kind == AgentKind::OpenCode && !env.contains_key("OPENCODE_DB") {
+                let root = crate::providers::definition(kind)
+                    .state_root(&dirs::home_dir().ok_or("Home directory unavailable")?);
+                env.insert(
+                    "OPENCODE_DB".into(),
+                    history_environment_value(kind, &root.to_string_lossy()),
+                );
             }
             if let Some(id) = &request.resume_id {
                 args = resume_arguments(kind, id);
                 let provider = crate::providers::definition(kind);
-                let source_root = provider
-                    .history
-                    .source_env
-                    .as_ref()
+                let source_root = history_environment(kind)
                     .and_then(|key| env.get(key).cloned())
+                    .map(|value| {
+                        if kind == AgentKind::OpenCode {
+                            PathBuf::from(&value)
+                                .parent()
+                                .unwrap()
+                                .to_string_lossy()
+                                .into_owned()
+                        } else {
+                            value
+                        }
+                    })
                     .unwrap_or_else(|| {
                         provider
-                            .state_root(&dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")))
+                            .state_root(&config::default_home())
                             .to_string_lossy()
                             .into_owned()
                     });
-                resume_key = Some(provider_resume_key(kind, &source_root, id));
+                resume_key = Some(provider_resume_key(kind, &source_root, id)?);
             }
         }
         let cwd = cwd.ok_or("請先選擇專案或指定工作目錄；未分類歷史不會猜測目前目錄")?;
@@ -363,7 +446,13 @@ impl Service {
             config::resolve_executable(&profile.executable)?
         };
         // GUI launches often omit Homebrew and user-local bins. Never invoke a login shell to evaluate a command string.
-        if !env.contains_key("PATH") {
+        if !env.keys().any(|key| {
+            if cfg!(windows) {
+                key.eq_ignore_ascii_case("PATH")
+            } else {
+                key == "PATH"
+            }
+        }) {
             let mut paths: Vec<PathBuf> =
                 std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
                     .filter(|p| p.is_absolute())
@@ -371,15 +460,10 @@ impl Service {
             if let Some(parent) = executable.parent() {
                 paths.insert(0, parent.to_path_buf());
             }
-            for p in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
-                let p = PathBuf::from(p);
-                if !paths.contains(&p) {
-                    paths.push(p);
+            for path in config::executable_fallback_directories() {
+                if !paths.contains(&path) {
+                    paths.push(path);
                 }
-            }
-            if let Some(home) = dirs::home_dir() {
-                paths.push(home.join(".local/bin"));
-                paths.push(home.join(".cargo/bin"));
             }
             if let Ok(path) = std::env::join_paths(paths) {
                 env.insert("PATH".into(), path.to_string_lossy().into_owned());
@@ -442,7 +526,7 @@ impl Service {
                                 session.kind,
                                 &source.root,
                                 &session.external_id,
-                            );
+                            )?;
                             if let Some(existing) = self.runtime.find_running_resume(&key) {
                                 return Ok(existing);
                             }
@@ -454,18 +538,43 @@ impl Service {
         let spec = self.plan_launch(request)?;
         self.runtime.launch(spec, request.cols, request.rows, emit)
     }
+    pub fn broker(&self) -> Result<&BrokerClient, String> {
+        self.broker
+            .as_ref()
+            .ok_or_else(|| "Persistent runtime broker is not connected".into())
+    }
+    pub fn launch_persistent(
+        &self,
+        request: &LaunchRequest,
+        attachment_id: String,
+        emit: UiEmitter,
+    ) -> Result<RuntimeInfo, String> {
+        let spec = self.plan_launch(request)?;
+        self.broker()?.launch(spec, request, attachment_id, emit)
+    }
     pub fn is_shutdown(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
     pub fn shutdown(&self) -> Result<(), String> {
         self.cancel.store(true, Ordering::Release);
+        if let Some(broker) = &self.broker {
+            broker.detach_all();
+        }
         self.runtime.shutdown()?;
         self.closed.store(true, Ordering::Release);
         Ok(())
     }
 }
 
-fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> String {
+fn temporary_terminal_home(home: Option<PathBuf>) -> Result<PathBuf, String> {
+    let home = home.ok_or("無法取得本機家目錄，請檢查系統使用者設定")?;
+    if !home.is_absolute() || !home.is_dir() {
+        return Err("本機家目錄不存在或不是絕對目錄".into());
+    }
+    Ok(home)
+}
+
+fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> Result<String, String> {
     let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
     let canonical_uuid = (kind == AgentKind::Antigravity)
         .then(|| uuid::Uuid::parse_str(id).ok())
@@ -480,7 +589,15 @@ fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> String {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part.as_bytes());
     }
-    format!("provider-{:x}", hash.finalize())
+    // Bind an OpenCode runtime to the physical database it opened. Reindexing a
+    // replacement at the same root must never make the old runtime look current.
+    // Normal WAL/checkpoint writes preserve this identity and still deduplicate.
+    if kind == AgentKind::OpenCode {
+        let identity = crate::opencode::database_identity(PathBuf::from(root).as_path())?;
+        hash.update((identity.len() as u64).to_le_bytes());
+        hash.update(identity.as_bytes());
+    }
+    Ok(format!("provider-{:x}", hash.finalize()))
 }
 
 fn validate_resume_id(id: &str) -> Result<(), String> {
@@ -496,7 +613,21 @@ fn validate_resume_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn history_environment_value(kind: AgentKind, root: &str) -> String {
+    if kind == AgentKind::OpenCode {
+        std::path::Path::new(root)
+            .join("opencode.db")
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        root.into()
+    }
+}
+
 fn history_environment(kind: AgentKind) -> Option<&'static str> {
+    if kind == AgentKind::OpenCode {
+        return Some("OPENCODE_DB");
+    }
     crate::providers::definition(kind)
         .history
         .source_env
@@ -521,6 +652,43 @@ fn empty_index() -> IndexStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn appearance_saves_during_indexing_but_other_changes_remain_blocked() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = Service::open(temp.path().join("app")).unwrap();
+        let mut next = service.settings().unwrap();
+        service.index.lock().unwrap().running = true;
+        let _scan = service.scan_guard.lock().unwrap();
+        next.app_zoom = 150;
+        next.theme_palette = "rose".into();
+        next.terminal_theme = "ocean-light".into();
+        let saved = service.save_settings(next.clone()).unwrap();
+        assert_eq!(saved.theme_palette, "rose");
+        assert_eq!(saved.app_zoom, 150);
+        assert_eq!(service.config.load_settings().0.app_zoom, 150);
+        assert_eq!(
+            service.config.load_settings().0.terminal_theme,
+            "ocean-light"
+        );
+        next.sources.clear();
+        assert!(service.save_settings(next).is_err());
+        let mut other = service.settings().unwrap();
+        other.profiles[0].name = "Unrelated edit".into();
+        assert!(service.save_settings(other).is_err());
+        assert_eq!(service.settings().unwrap().theme_palette, "rose");
+    }
+
+    #[test]
+    fn failed_appearance_write_does_not_change_in_memory_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = Service::open(temp.path().join("app")).unwrap();
+        std::fs::create_dir(service.config.directory.join("settings.json")).unwrap();
+        let mut next = service.settings().unwrap();
+        next.theme_palette = "forest".into();
+        assert!(service.save_settings(next).is_err());
+        assert_eq!(service.settings().unwrap().theme_palette, "bay");
+    }
+
     #[test]
     fn antigravity_runtime_identity_normalizes_uuid_case_without_rewriting_argv() {
         let id = "07EB4413-E2D7-4D1D-9E39-85AD75ECFF49";
@@ -552,14 +720,36 @@ mod tests {
         }
     }
     #[test]
-    fn launch_requires_explicit_valid_directory() {
+    fn explicit_directories_are_validated_and_unscoped_shell_uses_home() {
         let d = tempfile::tempdir().unwrap();
         let s = Service::open(d.path().join("app")).unwrap();
-        assert!(s.plan_launch(&request(None)).is_err());
+        assert_eq!(
+            s.plan_launch(&request(None)).unwrap().cwd,
+            dirs::home_dir().unwrap()
+        );
+        let mut agent = request(None);
+        agent.kind = "codex".into();
+        assert!(s.plan_launch(&agent).is_err());
         assert!(s.plan_launch(&request(Some("relative".into()))).is_err());
         assert!(s
             .plan_launch(&request(Some(d.path().to_string_lossy().into())))
             .is_ok());
+    }
+    #[test]
+    fn temporary_home_fails_closed_without_a_real_absolute_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(temporary_terminal_home(None).is_err());
+        assert!(temporary_terminal_home(Some(PathBuf::from("relative"))).is_err());
+        assert!(temporary_terminal_home(Some(temp.path().join("missing"))).is_err());
+        let file = temp.path().join("file");
+        std::fs::write(&file, "synthetic").unwrap();
+        assert!(temporary_terminal_home(Some(file)).is_err());
+        let unicode = temp.path().join("家目錄 with spaces");
+        std::fs::create_dir(&unicode).unwrap();
+        assert_eq!(
+            temporary_terminal_home(Some(unicode.clone())).unwrap(),
+            unicode
+        );
     }
     #[test]
     fn launch_keeps_metacharacter_path_out_of_shell() {

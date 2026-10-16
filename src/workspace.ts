@@ -1,4 +1,4 @@
-import type { LayoutNode, Pane, Project, Workspace, WorkspaceTab } from './types';
+import type { LayoutNode, Pane, Project, RuntimeRecord, Workspace, WorkspaceTab } from './types';
 import { displayNameError } from './display-name';
 
 /** Display-only edits never change IDs, layout, runtime identity or start tokens. */
@@ -27,6 +27,15 @@ export const emptyWorkspace = (): Workspace => ({
   panes: {},
   activeTabByProject: {},
 });
+/** Global tabs have no project identity, including in persisted layouts. */
+export function activeWorkspaceTabId(workspace: Workspace, projectId: string | null | undefined): string | undefined {
+  return projectId === null ? workspace.activeTemporaryTabId
+    : projectId === undefined ? undefined : workspace.activeTabByProject[projectId];
+}
+export function selectWorkspaceTab(workspace: Workspace, tab: WorkspaceTab): Workspace {
+  return tab.projectId === null ? { ...workspace, activeTemporaryTabId: tab.id }
+    : { ...workspace, activeTabByProject: { ...workspace.activeTabByProject, [tab.projectId]: tab.id } };
+}
 export const uid = () => crypto.randomUUID();
 export const paneIds = (node: LayoutNode): string[] =>
   node.kind === 'pane' ? [node.paneId] : [...paneIds(node.first), ...paneIds(node.second)];
@@ -129,17 +138,51 @@ export function closePane(workspace: Workspace, id: string): Workspace {
       if (replacement) activeTabByProject[project] = replacement.id;
       else delete activeTabByProject[project];
     }
-  return { ...workspace, panes, tabs, activeTabByProject };
+  const temporaryTabs = tabs.filter((tab) => tab.projectId === null);
+  const activeTemporaryTabId = temporaryTabs.some((tab) => tab.id === workspace.activeTemporaryTabId)
+    ? workspace.activeTemporaryTabId : temporaryTabs[0]?.id;
+  return { ...workspace, panes, tabs, activeTabByProject, activeTemporaryTabId };
 }
-/** A successful shell exit closes only its pane; errors and Agent transcripts stay inspectable. */
+/** Finished shells retain their final screen until explicitly closed. */
 export function patchWorkspacePane(workspace: Workspace, id: string, patch: Partial<Pane>): Workspace {
   const pane = workspace.panes[id];
   if (!pane) return workspace;
-  if (pane.kind === 'shell' && ['starting', 'running'].includes(pane.state) &&
-      patch.state === 'exited' && patch.exitCode === 0 && !pane.error) {
-    return closePane(workspace, id);
-  }
   return { ...workspace, panes: { ...workspace.panes, [id]: { ...pane, ...patch } } };
+}
+
+/** Runtime identities come only from the broker, never the saved layout. */
+export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]): Workspace {
+  let next = workspace;
+  const seen = new Set<string>();
+  for (const record of records) {
+    if (seen.has(record.paneId)) continue; // The broker returns the current generation first.
+    seen.add(record.paneId);
+    const existing = next.panes[record.paneId];
+    const projectId = record.projectId ?? null;
+    const state = ['starting', 'running', 'exited', 'failed', 'interrupted'].includes(record.state)
+      ? record.state as Pane['state'] : 'disconnected';
+    const pane: Pane = {
+      id: record.paneId, kind: record.kind, projectId, cwd: record.cwd,
+      title: existing?.title || (record.kind === 'shell' ? '已保留的 Shell' : `已保留的 ${record.kind}`),
+      sessionId: record.sessionId ?? undefined, resumeId: record.resumeId ?? undefined,
+      profileId: record.profileId ?? undefined,
+      homeDirectory: record.kind === 'shell' && projectId === null && record.homeDirectory === true,
+      runtimeId: record.id, state, exitCode: record.exitCode,
+      ...(state === 'interrupted' ? { error: '背景程序已中斷；請確認後明確重新啟動。' } : {}),
+    };
+    if (existing && existing.projectId !== projectId) next = closePane(next, record.paneId);
+    const hasTab = next.tabs.some((tab) => paneIds(tab.layout).includes(record.paneId));
+    next = { ...next, panes: { ...next.panes, [pane.id]: pane } };
+    if (!hasTab) {
+      let tabId = `recovered-${record.id}`;
+      while (next.tabs.some((tab) => tab.id === tabId)) tabId += '-tab';
+      const tab: WorkspaceTab = { id: tabId, projectId, name: pane.title,
+        layout: { kind: 'pane', paneId: pane.id }, focusedPaneId: pane.id };
+      next = { ...next, tabs: [...next.tabs, tab] };
+      if (!activeWorkspaceTabId(next, projectId)) next = selectWorkspaceTab(next, tab);
+    }
+  }
+  return next;
 }
 
 export function serializeWorkspace(workspace: Workspace): unknown {
@@ -154,6 +197,7 @@ export function serializeWorkspace(workspace: Workspace): unknown {
           title: pane.title,
           projectId: pane.projectId,
           cwd: pane.cwd,
+          homeDirectory: pane.homeDirectory,
           sessionId: pane.sessionId,
           resumeId: pane.resumeId,
           profileId: pane.profileId,
@@ -186,8 +230,8 @@ export function restoreWorkspace(value: unknown): Workspace {
       safeString(id, 128) &&
       !['__proto__', 'constructor', 'prototype'].includes(id) &&
       p.id === id &&
-      ['shell', 'codex', 'claude', 'grok', 'antigravity'].includes(p.kind) &&
-      safeString(p.projectId, 256) &&
+      ['shell', 'codex', 'claude', 'grok', 'antigravity', 'opencode'].includes(p.kind) &&
+      (p.projectId === null || safeString(p.projectId, 256)) &&
       safeString(p.cwd) &&
       safeString(p.title, 512)
     ) {
@@ -197,13 +241,14 @@ export function restoreWorkspace(value: unknown): Workspace {
         title: p.title,
         projectId: p.projectId,
         cwd: p.cwd,
+        homeDirectory: p.kind === 'shell' && p.projectId === null && p.homeDirectory === true,
         ...(safeString(p.sessionId, 1024) ? { sessionId: p.sessionId } : {}),
         ...(safeString(p.resumeId, 1024) ? { resumeId: p.resumeId } : {}),
         ...(safeString(p.profileId, 128) ? { profileId: p.profileId } : {}),
         state: 'placeholder',
       };
     }
-  function parseNode(raw: unknown, projectId: string, depth = 0): LayoutNode | null {
+  function parseNode(raw: unknown, projectId: string | null, depth = 0): LayoutNode | null {
     if (!raw || typeof raw !== 'object' || depth > 12) return null;
     const n = raw as LayoutNode;
     if (n.kind === 'pane') {
@@ -239,7 +284,7 @@ export function restoreWorkspace(value: unknown): Workspace {
       t &&
       safeString(t.id, 128) &&
       !tabIds.has(t.id) &&
-      safeString(t.projectId, 256) &&
+      (t.projectId === null || safeString(t.projectId, 256)) &&
       safeString(t.name, 512)
     ) {
       const layout = parseNode(t.layout, t.projectId);
@@ -258,9 +303,13 @@ export function restoreWorkspace(value: unknown): Workspace {
   for (const id of Object.keys(panes)) if (!used.has(id)) delete panes[id];
   const activeTabByProject: Record<string, string> = {};
   for (const t of tabs)
-    if (!activeTabByProject[t.projectId] || source.activeTabByProject?.[t.projectId] === t.id)
+    if (t.projectId !== null && (!activeTabByProject[t.projectId] || source.activeTabByProject?.[t.projectId] === t.id))
       activeTabByProject[t.projectId] = t.id;
-  return { version: 1, tabs, panes, activeTabByProject };
+  const temporaryTabs = tabs.filter((tab) => tab.projectId === null);
+  const activeTemporaryTabId = temporaryTabs.some((tab) => tab.id === source.activeTemporaryTabId)
+    ? source.activeTemporaryTabId : temporaryTabs[0]?.id;
+  return { version: 1, tabs, panes, activeTabByProject,
+    ...(activeTemporaryTabId ? { activeTemporaryTabId } : {}) };
 }
 export function localDayBound(value: string, end = false): string | undefined {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
@@ -282,7 +331,7 @@ export function mergeWorkspaceProjects(
   const result = [...projects];
   const present = new Set(projects.map((project) => project.id));
   for (const tab of workspace.tabs) {
-    if (present.has(tab.projectId)) continue;
+    if (tab.projectId === null || present.has(tab.projectId)) continue;
     const panes = paneIds(tab.layout)
       .map((id) => workspace.panes[id])
       .filter(Boolean);

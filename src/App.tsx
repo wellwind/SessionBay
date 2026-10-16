@@ -23,9 +23,11 @@ import {
   AlertTriangle,
   Square,
   Compass,
+  Palette,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { startup } from './startup';
+import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
 import { agentCapabilities, agentKinds, bypassFlags, installationState } from './agents';
 import { AgentIcon } from './components/AgentIcon';
 import { Select } from './components/controls';
@@ -41,12 +43,15 @@ import type {
   Workspace,
 } from './types';
 import {
+  activeWorkspaceTabId,
+  selectWorkspaceTab,
   closePane,
   emptyWorkspace,
   mergeWorkspaceProjects,
   paneIds,
   patchWorkspacePane,
   restoreWorkspace,
+  reconcileRuntimes,
   renameWorkspaceTab,
   reorderWorkspaceTab,
   serializeWorkspace,
@@ -58,11 +63,19 @@ import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspace
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
+import { DirectoryPathField } from './components/DirectoryPathField';
 import { RenameDialog } from './components/RenameDialog';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
 import { SettingsPanel } from './components/SettingsPanel';
+import { ThemeControls, TerminalPreview } from './components/ThemeControls';
+import { appearanceOf } from './themes';
+import { AppearanceSaveQueue } from './appearance-save-queue';
+import { CommandThemePicker } from './components/CommandThemePicker';
+import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
+import type { Appearance } from './themes';
+import { useUiTheme } from './use-ui-theme';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 interface Launcher {
   resumeId?: string;
@@ -96,13 +109,22 @@ export default function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
   const [view, setView] = useState<'history' | 'workspace'>('history');
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appearancePreview, setAppearancePreview] = useState<Partial<Appearance> | null>(null);
+  const [quickThemeOpen, setQuickThemeOpen] = useState(false);
+  const [themeSaving, setThemeSaving] = useState(false);
+  const [themeSaveError, setThemeSaveError] = useState('');
+  const themeSaveInFlight = useRef(false);
+  const quickAppearanceRequests = useRef(0);
+  const quickAppearanceCurrent = useRef<Partial<Appearance> | null>(null);
+  const quickThemeOpenRef = useRef(false);
+  quickThemeOpenRef.current = quickThemeOpen;
   const detectionGeneration = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [projectSearch, setProjectSearch] = useState('');
@@ -123,19 +145,68 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [palette, setPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
+  const [paletteTheme, setPaletteTheme] = useState<ThemeTarget | null>(null);
+  const [commandThemePreview, setCommandThemePreview] = useState<ThemePatch | null>(null);
+  const paletteGeneration = useRef(0);
+  const paletteOpener = useRef<HTMLElement | null>(null);
+  const paletteWasOpen = useRef(false);
+  useEffect(() => {
+    if (paletteWasOpen.current && !palette && paletteOpener.current?.isConnected) paletteOpener.current.focus();
+    paletteWasOpen.current = palette;
+  }, [palette]);
+  const closePaletteTheme = () => {
+    paletteGeneration.current++;
+    setPaletteTheme(null);
+    setCommandThemePreview(null);
+    setThemeSaveError('');
+  };
+  const closePalette = () => { closePaletteTheme(); setPalette(false); };
+
   const ready = boot !== null;
   useEffect(() => startup.mounted(), []);
   useEffect(() => {
     if (ready && desktop) startup.ready();
   }, [ready, desktop]);
   const settings = boot?.settings;
-  const theme = settings?.theme;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const visibleSettings = useMemo(() => settings ? { ...settings, ...appearancePreview, ...commandThemePreview } : undefined, [settings, appearancePreview, commandThemePreview]);
+  useUiTheme(visibleSettings);
+  const [appliedZoom, setAppliedZoom] = useState<number | null>(null);
+  const [zoomError, setZoomError] = useState(false);
+  const [zoomController] = useState(() => new WorkspaceZoomController(api.setWorkspaceZoom, (percent) => { setAppliedZoom(percent); setZoomError(false); }));
+  const [appearanceQueue] = useState(() => new AppearanceSaveQueue({
+    getSettings: () => settingsRef.current,
+    save: api.saveSettings,
+    beforeSave: (patch) => {
+      // A color-only save must never restore an obsolete native zoom snapshot.
+      if (patch.appZoom !== undefined && !zoomController.isApplied(patch.appZoom))
+        return zoomController.apply(patch.appZoom);
+    },
+    committed: (patch) => {
+      settingsRef.current = { ...settingsRef.current!, ...patch };
+      setBoot(current => current ? { ...current, settings: { ...current.settings, ...patch } } : current);
+    },
+    busy: (saving) => { themeSaveInFlight.current = saving; setThemeSaving(saving); },
+  }));
+  const zoomPercent = visibleSettings?.appZoom ?? 100;
+  const hasSettings = !!settings;
+  useEffect(() => {
+    if (!desktop || !hasSettings) return;
+    let cancelled = false;
+    setZoomError(false);
+    void zoomController.apply(zoomPercent).catch((error) => {
+      if (!cancelled) { setZoomError(true); setToast(errorMessage(error)); }
+    });
+    return () => { cancelled = true; };
+  }, [desktop, hasSettings, zoomPercent, zoomController]);
   const knownProjects = useRef<Record<string, Project>>({});
   for (const project of projects) knownProjects.current[project.id] = project;
   const visibleProjects = useMemo(
     () => mergeWorkspaceProjects(projects, workspace, knownProjects.current),
     [projects, workspace],
   );
+  const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
   const launchProjectId = current && !current.workspaceOnly ? current.id : undefined;
   useEffect(() => {
@@ -154,7 +225,7 @@ export default function App() {
     }, 150);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [launcher, launchProjectId, settings]);
-  const activeTabId = selectedId ? workspace.activeTabByProject[selectedId] : undefined;
+  const activeTabId = activeWorkspaceTabId(workspace, selectedId);
   const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   const focusPane = activeTab ? workspace.panes[activeTab.focusedPaneId] : undefined;
   useEffect(() => {
@@ -164,9 +235,9 @@ export default function App() {
     }
   }, [selectedId, visibleProjects]);
   useEffect(() => {
-    if (view === 'workspace' && !activeTab) setView('history');
+    if (view === 'workspace' && !activeTab && !temporaryWorkspace) setView('history');
     if (maximizedId && !workspace.panes[maximizedId]) setMaximizedId(null);
-  }, [view, activeTab, workspace.panes, maximizedId]);
+  }, [view, activeTab, workspace.panes, maximizedId, temporaryWorkspace]);
   const stateRef = useRef({ workspace, selectedId, boot, view, navigation, projects: visibleProjects });
   stateRef.current = { workspace, selectedId, boot, view, navigation, projects: visibleProjects };
   const composing = useRef(false);
@@ -177,7 +248,7 @@ export default function App() {
       if (event.defaultPrevented || event.isComposing || composing.current || event.keyCode === 229 || document.querySelector('[role="dialog"]')) return;
       const current = stateRef.current;
       const tabs = current.workspace.tabs.filter((tab) => tab.projectId === current.selectedId);
-      const active = current.view === 'workspace' ? tabs.findIndex((tab) => tab.id === current.workspace.activeTabByProject[current.selectedId ?? '']) : -1;
+      const active = current.view === 'workspace' ? tabs.findIndex((tab) => tab.id === activeWorkspaceTabId(current.workspace, current.selectedId)) : -1;
       const index = workspaceTabIndex(event, tabs.length, active);
       const reserved = index !== null || (tabs.length > 0 && workspaceTabIndex(event, 9, 0) !== null);
       if (!reserved) return;
@@ -185,7 +256,7 @@ export default function App() {
       event.preventDefault();
       event.stopPropagation();
       if (index === null) return; // A reserved number beyond the open tabs is a no-op, never PTY input.
-      setWorkspace((workspace) => ({ ...workspace, activeTabByProject: { ...workspace.activeTabByProject, [tabs[index].projectId]: tabs[index].id } }));
+      setWorkspace((workspace) => selectWorkspaceTab(workspace, tabs[index]));
       setView('workspace');
       setMaximizedId(null);
     };
@@ -229,8 +300,9 @@ export default function App() {
       setBoot(data);
       setProjects(data.projects);
       setIndex(data.index);
-      const restored = restoreWorkspace(data.workspace);
-      observedWorkspace.current = JSON.stringify(serializeWorkspace(restored));
+      const saved = restoreWorkspace(data.workspace);
+      const restored = reconcileRuntimes(saved, data.runtimes ?? []);
+      observedWorkspace.current = JSON.stringify(serializeWorkspace(saved));
       persistedWorkspace.current = observedWorkspace.current;
       setWorkspace(restored);
       setSettingsOpen(!data.settings.onboardingComplete);
@@ -276,17 +348,6 @@ export default function App() {
     };
   }, [ready, desktop, refresh, notify]);
   useEffect(() => {
-    if (!theme) return;
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const update = () => {
-      document.documentElement.dataset.theme =
-        theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
-    };
-    update();
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, [theme]);
-  useEffect(() => {
     if (!ready || observedWorkspace.current === workspaceSignature) return;
     observedWorkspace.current = workspaceSignature;
     const timer = setTimeout(() => {
@@ -306,9 +367,6 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   const closeApplication = useCallback(() => {
-    const live = Object.values(stateRef.current.workspace.panes).filter(
-      (p) => p.state === 'running' || p.state === 'starting',
-    );
     const action = async () => {
       closingApp.current = true;
       try {
@@ -327,13 +385,7 @@ export default function App() {
         throw error;
       }
     };
-    if (live.length)
-      setConfirmation({
-        title: `結束 ${live.length} 個程序並退出？`,
-        text: `將結束 Session Bay 管理的面板：${live.map((p) => p.title).join('、')}。布局會保存，重新開啟時不會自動執行指令。`,
-        action,
-      });
-    else void action().catch(notify);
+    if (!closingApp.current) void action().catch(notify);
   }, [notify]);
   useEffect(() => {
     if (!desktop) return;
@@ -367,8 +419,7 @@ export default function App() {
     setView('workspace');
     setMaximizedId(null);
     setWorkspace((w) => ({
-      ...w,
-      activeTabByProject: { ...w.activeTabByProject, [tab.projectId]: tab.id },
+      ...selectWorkspaceTab(w, tab),
       tabs: w.tabs.map((t) => (t.id === tab.id ? { ...t, focusedPaneId: id } : t)),
     }));
   }, []);
@@ -376,20 +427,20 @@ export default function App() {
     (id: string, cwdOverride?: string) =>
       setWorkspace((w) => {
         const pane = w.panes[id];
-        if (!pane || pane.state === 'running' || pane.state === 'starting') return w;
+        if (!pane || ['running', 'starting', 'disconnected'].includes(pane.state)) return w;
         const project = stateRef.current.projects.find((p) => p.id === pane.projectId);
         const cwd =
           cwdOverride ??
           (pane.sessionId ? project?.launchPath || pane.cwd || project?.path || '' : pane.cwd);
         return {
           ...w,
-          panes: { ...w.panes, [id]: { ...pane, cwd, startToken: (pane.startToken ?? 0) + 1 } },
+          panes: { ...w.panes, [id]: { ...pane, cwd, runtimeId: undefined, startToken: (pane.startToken ?? 0) + 1 } },
         };
       }),
     [],
   );
   const addPane = (
-    project: Project,
+    project: Project | null,
     kind: Pane['kind'],
     cwd: string,
     profileId: string,
@@ -402,6 +453,7 @@ export default function App() {
       return;
     }
     const id = uid();
+    const projectId = project?.id ?? null;
     const pane: Pane = {
       id,
       kind,
@@ -410,8 +462,9 @@ export default function App() {
         (kind === 'shell'
           ? settings?.profiles.find((p) => p.id === profileId)?.name || 'Terminal'
           : `${agentName(kind)} 工作`),
-      projectId: project.id,
+      projectId,
       cwd,
+      homeDirectory: projectId === null && kind === 'shell' && cwd === '',
       profileId,
       sessionId: session?.id,
       resumeId,
@@ -420,9 +473,9 @@ export default function App() {
     };
     setWorkspace((w) => {
       const tab = split ? w.tabs.find((t) => paneIds(t.layout).includes(split.paneId)) : undefined;
-      if (tab && split)
+      if (tab && split && tab.projectId === projectId)
         return {
-          ...w,
+          ...selectWorkspaceTab(w, tab),
           panes: { ...w.panes, [id]: pane },
           tabs: w.tabs.map((t) =>
             t.id === tab.id
@@ -433,26 +486,19 @@ export default function App() {
                 }
               : t,
           ),
-          activeTabByProject: { ...w.activeTabByProject, [project.id]: tab.id },
         };
       const tabId = uid();
-      return {
-        ...w,
-        panes: { ...w.panes, [id]: pane },
-        tabs: [
-          ...w.tabs,
-          {
-            id: tabId,
-            projectId: project.id,
-            name: kind === 'shell' ? 'Terminal' : agentName(kind),
-            focusedPaneId: id,
-            layout: { kind: 'pane', paneId: id },
-          },
-        ],
-        activeTabByProject: { ...w.activeTabByProject, [project.id]: tabId },
-      };
+      let name = kind === 'shell' ? 'Terminal' : agentName(kind);
+      if (projectId === null) {
+        let number = 1;
+        while (w.tabs.some((tab) => tab.projectId === null && tab.name === `Terminal ${number}`)) number++;
+        name = `Terminal ${number}`;
+      }
+      const newTab = { id: tabId, projectId, name, focusedPaneId: id,
+        layout: { kind: 'pane' as const, paneId: id } };
+      return selectWorkspaceTab({ ...w, panes: { ...w.panes, [id]: pane }, tabs: [...w.tabs, newTab] }, newTab);
     });
-    setSelectedId(project.id);
+    setSelectedId(projectId);
     setAllSessionsSearch(false);
     setView('workspace');
     setMaximizedId(null);
@@ -468,6 +514,10 @@ export default function App() {
     const needsLocation = !resumeCwd || (project && !project.path && !project.launchPath) || (project && !project.exists && resumeCwd === (project.launchPath || project.path));
     // The backend owns provider/source-qualified deduplication. A catalog ID can
     // survive a source-root change; never focus a live pane by catalog ID alone.
+    if (existing?.state === 'disconnected' && existing.projectId === project?.id) {
+      focus(existing.id);
+      return;
+    }
     if (existing && existing.projectId === project?.id && !['running', 'starting'].includes(existing.state)) {
       if (project && needsLocation) {
         setPathDialog({ project, path: project.launchPath || project.path || '', resume: session });
@@ -493,9 +543,15 @@ export default function App() {
       session,
     );
   };
+  const openTemporaryTerminal = (split?: Launcher['split']) => {
+    if (!settings) return;
+    // Empty cwd is intentional. Rust resolves home; saved paths never override it.
+    addPane(null, 'shell', '', settings.defaultProfileId, undefined, split);
+  };
   const openLauncher = (kind: Launcher['kind'], split?: Launcher['split']) => {
     if (!settings) return;
     if (!current) {
+      if (kind === 'shell') { openTemporaryTerminal(split); return; }
       setProjectDialog({ launchKind: kind });
       return;
     }
@@ -512,22 +568,19 @@ export default function App() {
   };
   const removePanes = (ids: string[]) => {
     const panes = ids.map((id) => workspace.panes[id]).filter(Boolean);
-    const live = panes.filter((p) => p.state === 'running' || p.state === 'starting');
+    const live = panes.filter((p) => ['running', 'starting', 'disconnected'].includes(p.state));
     const action = async () => {
+      await api.settleLaunches(ids);
       const managed = await api.runtimes();
-      const targets = new Set([
-        ...managed
-          .filter((r) => ids.includes(r.paneId) && ['running', 'starting'].includes(r.state))
-          .map((r) => r.id),
-        ...ids
-          .map((id) => stateRef.current.workspace.panes[id])
-          .filter((p) => p && ['running', 'starting'].includes(p.state) && p.runtimeId)
-          .map((p) => p.runtimeId!),
-      ]);
+      const targets = new Set(managed
+        .filter((record) => ids.includes(record.paneId) && ['running', 'starting'].includes(record.state))
+        .map((record) => record.id));
       await Promise.all([...targets].map((id) => api.stop(id)));
+      const retained = new Set(managed.filter((record) => ids.includes(record.paneId)).map((record) => record.id));
+      await Promise.all([...retained].map((id) => api.forget(id)));
       setWorkspace((w) => {
         const next = ids.reduce((result, id) => closePane(result, id), w);
-        if (!next.tabs.some((t) => t.projectId === stateRef.current.selectedId)) setView('history');
+        if (!next.tabs.some((t) => t.projectId === stateRef.current.selectedId) && stateRef.current.selectedId !== null) setView('history');
         return next;
       });
       setMaximizedId(null);
@@ -549,7 +602,9 @@ export default function App() {
     {
       id: 'command-palette',
       label: '開啟命令面板',
+      disabled: settingsOpen || quickThemeOpen || themeSaving,
       run: () => {
+        paletteOpener.current = document.activeElement as HTMLElement | null;
         setPalette(true);
         setPaletteQuery('');
       },
@@ -558,6 +613,12 @@ export default function App() {
       id: 'new-terminal',
       label: '開啟 Terminal',
       run: () => openLauncher('shell'),
+      disabled: !settings,
+    },
+    {
+      id: 'temporary-terminal',
+      label: '開啟臨時 Terminal（家目錄）',
+      run: () => openTemporaryTerminal(),
       disabled: !settings,
     },
     {
@@ -571,6 +632,7 @@ export default function App() {
       label: current ? '搜尋此目錄的工作階段' : '搜尋所有工作階段',
       run: () => {
         if (!current) {
+          setSelectedId(undefined);
           setNavigation('directories');
           setAllSessionsSearch(true);
         }
@@ -621,6 +683,12 @@ export default function App() {
       },
       disabled: !focusPane,
     },
+    ...(['ui', 'terminal'] as const).map(target => ({
+      id: `theme-${target}`,
+      label: target === 'ui' ? '切換介面主題' : '切換 Terminal 主題',
+      disabled: !settings || settingsOpen || quickThemeOpen || themeSaving,
+      run: () => { if (!palette) paletteOpener.current = document.activeElement as HTMLElement | null; paletteGeneration.current++; setThemeSaveError(''); setPalette(true); setPaletteTheme(target); },
+    })),
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => setSidebarOpen((value) => !value) },
   ].map((command) => ({ ...command, shortcut: effectiveShortcuts[command.id] ?? '' }));
   const commandRef = useRef(commands);
@@ -655,12 +723,76 @@ export default function App() {
   const saveSettings = async (next: Settings) => {
     const first = !settings?.onboardingComplete;
     ++detectionGeneration.current;
+    await zoomController.apply(next.appZoom ?? 100);
     const saved = await api.saveSettings(next);
+    settingsRef.current = saved;
     setBoot((b) => (b ? { ...b, settings: saved, installations: [] } : b));
     setSettingsOpen(false);
     void detectAgents().catch(notify);
     if (first) void scan(false).catch(notify);
   };
+  const persistAppearance = (patch: Partial<Appearance>): Promise<boolean> => {
+    if (!settingsRef.current || settingsOpen) return Promise.resolve(false);
+    return appearanceQueue.persist(patch);
+  };
+  const quickSaveTheme = async (patch: Partial<Appearance>) => {
+    if (!settingsRef.current || settingsOpen || paletteTheme) return;
+    quickAppearanceRequests.current++;
+    const next = { ...quickAppearanceCurrent.current, ...patch };
+    quickAppearanceCurrent.current = next;
+    setAppearancePreview(next);
+    setThemeSaveError('');
+    try { await persistAppearance(patch); }
+    catch (error) {
+      const message = `外觀變更未能保存；保留上次儲存設定：${errorMessage(error)}`;
+      setThemeSaveError(message);
+      if (!quickThemeOpenRef.current) notify(message);
+    } finally {
+      if (--quickAppearanceRequests.current === 0) {
+        quickAppearanceCurrent.current = null;
+        setAppearancePreview(null);
+      }
+    }
+  };
+  const commitCommandTheme = async (patch: ThemePatch) => {
+    if (!paletteTheme || themeSaveInFlight.current || settingsOpen || quickThemeOpen) return;
+    const generation = paletteGeneration.current;
+    setThemeSaveError('');
+    setCommandThemePreview(patch);
+    try {
+      const saved = await persistAppearance(patch);
+      if (generation === paletteGeneration.current) {
+        if (saved) closePalette();
+        else {
+          setCommandThemePreview(null);
+          setThemeSaveError('主題尚未儲存，已還原目前儲存的外觀；請重試。');
+        }
+      }
+    } catch (error) {
+      const message = `主題未能儲存，已還原目前儲存的外觀；可重試：${errorMessage(error)}`;
+      if (generation === paletteGeneration.current) {
+        setCommandThemePreview(null);
+        setThemeSaveError(message);
+      } else notify(message);
+    }
+  };
+  const zoomShortcutRef = useRef((event: KeyboardEvent) => { void event; });
+  zoomShortcutRef.current = (event) => {
+    if (!settings || settingsOpen || composing.current || document.querySelector('[role="dialog"]') || !acceptsWorkspaceZoomShortcut(event.target)) return;
+    const action = workspaceZoomShortcut(event);
+    if (!action) return;
+    // Capture before xterm so reserved zoom keys, including boundary no-ops, never reach PTY.
+    event.preventDefault();
+    event.stopPropagation();
+    const size = quickAppearanceCurrent.current?.appZoom ?? settings.appZoom ?? 100;
+    const next = nextWorkspaceZoom(size, action);
+    if (next !== size || !zoomController.isApplied(next)) void quickSaveTheme({ appZoom: next });
+  };
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => zoomShortcutRef.current(event);
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, []);
   const saveMembership = async (project: Project, curated: boolean) => {
     if (projectMutation.current) return;
     if (curated && !project.path && !project.launchPath) {
@@ -762,15 +894,25 @@ export default function App() {
           <kbd>⌘ / Ctrl ⇧ P</kbd>
         </button>
         <div className="topbar-actions">
+          <button className="secondary temporary-terminal-button" disabled={!boot || !desktop}
+            title="在家目錄開啟臨時 Terminal，不建立專案" aria-label="開啟臨時 Terminal"
+            onClick={() => openTemporaryTerminal()}>
+            <TerminalSquare size={16} aria-hidden="true" /><span>臨時 Terminal</span>
+          </button>
           <span className="local-badge">
             <span className="tiny-dot" />
             本機優先
           </span>
+          <button className="icon-button theme-quick-trigger" aria-label="快速切換主題" title="快速切換主題"
+            disabled={!settings || settingsOpen || themeSaving || palette}
+            onClick={() => { setThemeSaveError(''); setQuickThemeOpen(true); }}>
+            <Palette size={19} />
+          </button>
           <button
             className="icon-button"
             aria-label="設定與資料來源"
             title="設定與資料來源"
-            disabled={!boot}
+            disabled={!boot || themeSaving || palette || quickThemeOpen}
             onClick={() => setSettingsOpen(true)}
           >
             <SettingsIcon size={19} />
@@ -876,9 +1018,9 @@ export default function App() {
                   {workspace.tabs.map((tab) => {
                     const project = visibleProjects.find((p) => p.id === tab.projectId);
                     return <button key={tab.id} className={view === 'workspace' && activeTabId === tab.id ? 'active' : ''}
-                      aria-label={`開啟工作區 ${project?.name || '工作目錄'} ${tab.name}`}
-                      title={project?.launchPath || project?.path || '目錄待確認'} onClick={() => focus(tab.focusedPaneId)}>
-                      <TerminalSquare size={14} /><span><strong>{project?.name || '工作目錄'}</strong>
+                      aria-label={`開啟工作區 ${tab.projectId === null ? '臨時 Terminal' : project?.name || '工作目錄'} ${tab.name}`}
+                      title={tab.projectId === null ? '不屬於任何專案' : project?.launchPath || project?.path || '目錄待確認'} onClick={() => focus(tab.focusedPaneId)}>
+                      <TerminalSquare size={14} /><span><strong>{tab.projectId === null ? '臨時 Terminal' : project?.name || '工作目錄'}</strong>
                         <small>{tab.name}{project?.workspaceOnly ? ' · 僅工作區' : ''}</small></span>
                     </button>;
                   })}
@@ -888,7 +1030,7 @@ export default function App() {
             <div className="sidebar-bottom">
               <span className="eyebrow">你的工作，留在本機</span>
               <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
-              <button onClick={() => setSettingsOpen(true)} disabled={!boot}>
+              <button onClick={() => setSettingsOpen(true)} disabled={!boot || themeSaving || palette || quickThemeOpen}>
                 <CircleHelp size={14} />
                 資料來源與支援範圍
                 <ChevronRight size={14} />
@@ -911,12 +1053,13 @@ export default function App() {
                 )}
                 Session Bay
                 <ChevronRight size={12} />
-                {current || allSessionsSearch ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {current || allSessionsSearch || temporaryWorkspace ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {temporaryWorkspace && <><ChevronRight size={12} /><span aria-current="page">臨時 Terminal</span></>}
                 {current && <><ChevronRight size={12} /><span aria-current="page">{current.name}</span></>}
                 {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
               </nav>
               <h1>
-                {current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
+                {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
                 {current?.pinned && <Pin size={16} />}
               </h1>
               <div className="project-path">
@@ -938,13 +1081,14 @@ export default function App() {
                     </button>
                   </>
                 ) : (
-                  navigation === 'projects' ? '管理你選入的專案，專注在真正有意義的工作。'
+                  temporaryWorkspace ? '新 Terminal 從家目錄開始，使用預設 Shell Profile；不會加入任何專案。'
+                    : navigation === 'projects' ? '管理你選入的專案，專注在真正有意義的工作。'
                     : '保留所有工作階段的目錄分組。選擇目錄瀏覽對話，或加入專案。'
                 )}
               </div>
             </div>
             <div className="header-buttons">
-              {navigation === 'directories' && !current && <button className="secondary" disabled={!boot}
+              {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
                 {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
@@ -958,7 +1102,9 @@ export default function App() {
                 onClick={() => void saveMembership(current, !current.curated)}>
                 {current.curated ? '移出專案' : '加入專案'}
               </button>}
-              {current ? <>
+              {temporaryWorkspace ? <button className="primary" onClick={() => openTemporaryTerminal()}>
+                <Plus size={16} />新增臨時 Terminal
+              </button> : current ? <>
                 <button className="secondary" onClick={() => runCommand('new-terminal')}>
                   <TerminalSquare size={16} />Terminal
                 </button>
@@ -1032,25 +1178,25 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {(current || allSessionsSearch) && <div className="workspace-tabs" title={workspaceTabShortcutHelp}>
-                <button
+              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs" title={workspaceTabShortcutHelp}>
+                {!temporaryWorkspace && <button
                   className={view === 'history' ? 'active history-tab' : 'history-tab'}
                   onClick={() => setView('history')}
                 >
                   <History size={14} />
                   歷史 Session
-                </button>
+                </button>}
                 <WorkspaceTabs tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
                   onSelect={(tab) => {
-                    setWorkspace((w) => ({ ...w, activeTabByProject: { ...w.activeTabByProject, [tab.projectId]: tab.id } }));
+                    setWorkspace((w) => selectWorkspaceTab(w, tab));
                     setView('workspace');
                     setMaximizedId(null);
                   }}
                   onRename={(tab) => setRenameTarget({ kind: 'tab', id: tab.id, name: tab.name })}
                   onClose={(tab) => removePanes(paneIds(tab.layout))}
                   onReorder={(id, targetId, after) => setWorkspace((w) => reorderWorkspaceTab(w, id, targetId, after))} />
-                {current && (
+                {(current || temporaryWorkspace) && (
                   <button
                     className="icon-button"
                     aria-label="新增工作區分頁"
@@ -1061,12 +1207,17 @@ export default function App() {
                 )}
               </div>}
               <div className="main-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
+                {temporaryWorkspace && !activeTab && <div className="empty-state">
+                  <TerminalSquare size={30} aria-hidden="true" /><h2>目前沒有臨時 Terminal</h2>
+                  <p>隨時從家目錄開啟新的命令列，不需要建立專案。</p>
+                  <button className="primary" onClick={() => openTemporaryTerminal()}>開啟新的臨時 Terminal</button>
+                </div>}
                 <div
                   className="history-mount"
                   style={{ display: view === 'history' ? undefined : 'none' }}
                 >
                   {current || allSessionsSearch ? <HistoryView
-                    projectId={selectedId}
+                    projectId={selectedId ?? undefined}
                     projects={projects}
                     refreshToken={refreshToken}
                     onResume={resume}
@@ -1082,7 +1233,7 @@ export default function App() {
                     workspace={workspace}
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
-                    settings={settings}
+                    settings={visibleSettings ?? settings}
                     visible={view === 'workspace'}
                     maximizedId={maximizedId}
                     onPatch={patchPane}
@@ -1113,12 +1264,20 @@ export default function App() {
                       if (workspace.panes[info.paneId]) {
                         setWorkspace((w) => closePane(w, newId));
                         focus(info.paneId);
-                      } else
-                        patchPane(newId, {
-                          state: 'failed',
-                          error:
-                            '此 Session 已在受管程序中執行，但目前視圖無法重新附接。請先查看其他工作區。',
-                        });
+                      } else {
+                        void api.runtimes().then((records) => {
+                          if (!records.some((record) => record.id === info.id && record.paneId === info.paneId))
+                            throw new Error('此受管程序已不在背景程序清單中，請重新整理後再試。');
+                          let recovered = reconcileRuntimes(closePane(stateRef.current.workspace, newId), records);
+                          const tab = recovered.tabs.find((item) => paneIds(item.layout).includes(info.paneId));
+                          if (tab) recovered = selectWorkspaceTab(recovered, tab);
+                          setWorkspace(recovered);
+                          if (tab) setSelectedId(tab.projectId);
+                          setAllSessionsSearch(false);
+                          setView('workspace');
+                          setMaximizedId(null);
+                        }).catch((error) => patchPane(newId, { state: 'failed', error: errorMessage(error) }));
+                      }
                     }}
                   />
                 )}
@@ -1168,6 +1327,7 @@ export default function App() {
         </div>
         <div>
           <span>{activeCount} 個執行中程序</span>
+          {visibleSettings && <span role="status" aria-live="polite" title={workspaceZoomShortcutHelp}>工作台 {appliedZoom ?? 100}%{zoomError ? ' · 縮放套用失敗' : appliedZoom !== zoomPercent ? ' · 套用中' : ''}{themeSaving ? ' · 儲存中' : ''}</span>}
           <span className="status-separator">│</span>
           <span>
             {focusPane && view === 'workspace'
@@ -1187,6 +1347,18 @@ export default function App() {
           </button>
         </div>
       )}
+      {quickThemeOpen && visibleSettings && (
+        <Dialog title="快速切換主題" onClose={() => setQuickThemeOpen(false)}>
+          <div className="theme-quick-content">
+            <p className="theme-quick-help">每次選擇立即套用並儲存，關閉選單會保留。介面與終端可以各自搭配。</p>
+            <ThemeControls value={appearanceOf(visibleSettings)} disabled={themeSaving}
+              onChange={(patch) => void quickSaveTheme(patch)} />
+            <TerminalPreview value={appearanceOf(visibleSettings)} />
+            <div className="theme-quick-status" role="status">{themeSaving ? '正在儲存主題…' : themeSaveError ? '目前顯示上次儲存的主題' : '主題已儲存在本機'}</div>
+            {themeSaveError && <p className="theme-quick-error" role="alert">{themeSaveError}</p>}
+          </div>
+        </Dialog>
+      )}
       {settingsOpen && settings && boot && (
         <SettingsPanel
           settings={settings}
@@ -1194,7 +1366,8 @@ export default function App() {
           index={index}
           onboarding={!settings.onboardingComplete}
           onSave={saveSettings}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => { setAppearancePreview(null); setSettingsOpen(false); }}
+          onPreviewAppearance={setAppearancePreview}
           onScan={scan}
           onCancelScan={api.cancelScan}
           onClearIndex={async () => {
@@ -1253,16 +1426,11 @@ export default function App() {
             {pathDialog.project?.path && (
               <p className="original-path">原始路徑：{pathDialog.project.path}</p>
             )}
-            <label className="field-label">
-              目錄路徑
-              <input
-                autoFocus
-                required
-                placeholder="/Users/you/projects/my-app 或 /home/you/projects/my-app"
-                value={pathDialog.path}
-                onChange={(event) => setPathDialog({ ...pathDialog, path: event.target.value })}
-              />
-            </label>
+            <DirectoryPathField key={pathDialog.project?.id ?? 'new'} label="目錄路徑"
+              autoFocus required disabled={busy}
+              placeholder="/Users/you/projects/my-app 或 /home/you/projects/my-app"
+              value={pathDialog.path}
+              onChange={(path) => setPathDialog((current) => current ? { ...current, path } : null)} />
             <div className="dialog-actions">
               <button
                 type="button"
@@ -1328,14 +1496,9 @@ export default function App() {
               {boot?.installations.find((item) => item.kind === launcher.kind)?.available === false &&
                 <span className="inline-warning">未偵測到這個 Agent，請先在設定中指定執行檔並重新偵測。</span>}
             </label>}
-            <label className="field-label">
-              工作目錄
-              <input
-                required
-                value={launcher.cwd}
-                onChange={(event) => setLauncher({ ...launcher, cwd: event.target.value })}
-              />
-            </label>
+            <DirectoryPathField key={`${current?.id}:${launcher.kind}`} label="工作目錄"
+              required value={launcher.cwd}
+              onChange={(cwd) => setLauncher((current) => current ? { ...current, cwd } : null)} />
             {launcher.kind !== 'shell' && agentCapabilities[launcher.kind].resume.manualId && (
               <label className="field-label">接續對話 ID（選填）
                 <input value={launcher.resumeId || ''} placeholder="留空開始新對話；填入原工具的對話 ID"
@@ -1418,7 +1581,11 @@ export default function App() {
         </Dialog>
       )}
       {palette && (
-        <Dialog title="命令面板" onClose={() => setPalette(false)}>
+        <Dialog title="命令面板" onClose={closePalette}>
+          {paletteTheme && settings ? <CommandThemePicker key={paletteTheme} target={paletteTheme}
+            value={appearanceOf(settings)} saving={themeSaving} error={themeSaveError}
+            onPreview={setCommandThemePreview} onCommit={patch => void commitCommandTheme(patch)}
+            onBack={closePaletteTheme} /> : <>
           <div className="palette-input search-field">
             <Search size={18} />
             <input
@@ -1427,6 +1594,12 @@ export default function App() {
               placeholder="輸入命令或專案名稱…"
               value={paletteQuery}
               onChange={(event) => setPaletteQuery(event.target.value)}
+              onKeyDown={event => {
+                if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
+                const first = event.currentTarget.closest('[role="dialog"]')?.querySelector<HTMLButtonElement>('.palette-results button:not(:disabled)');
+                if (event.key === 'Enter') { event.preventDefault(); first?.click(); }
+                if (event.key === 'ArrowDown') { event.preventDefault(); first?.focus(); }
+              }}
             />
           </div>
           <div className="palette-results">
@@ -1441,7 +1614,7 @@ export default function App() {
                   disabled={command.disabled}
                   key={command.id}
                   onClick={() => {
-                    setPalette(false);
+                    if (!command.id.startsWith('theme-')) closePalette();
                     command.run();
                   }}
                 >
@@ -1471,6 +1644,7 @@ export default function App() {
                 </button>
               ))}
           </div>
+          </>}
         </Dialog>
       )}
     </div>

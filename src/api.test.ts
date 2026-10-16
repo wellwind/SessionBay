@@ -3,7 +3,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { api } from './api';
 import type { LaunchRequest } from './types';
 
-const native = vi.hoisted(() => ({ channels: vi.fn() }));
+const native = vi.hoisted(() => ({ channels: vi.fn(), setZoom: vi.fn() }));
+vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ setZoom: native.setZoom }) }));
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
   isTauri: vi.fn(() => false),
@@ -18,7 +19,7 @@ beforeEach(() => {
 });
 
 describe('launch preview IPC contract', () => {
-  it.each(['grok', 'antigravity'] as const)('sends a %s preview request unchanged without creating an output channel or launching', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('sends a %s preview request unchanged without creating an output channel or launching', async (kind) => {
     vi.mocked(isTauri).mockReturnValue(true);
     const request: LaunchRequest = {
       paneId: 'synthetic-preview', kind, projectId: 'synthetic-project',
@@ -60,7 +61,7 @@ describe('shell discovery IPC contract', () => {
 });
 
 describe('history source discovery IPC contract', () => {
-  it.each(['codex', 'claude', 'grok', 'antigravity'] as const)('passes only the %s registry ID without launching or mutating settings', async (kind) => {
+  it.each(['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const)('passes only the %s registry ID without launching or mutating settings', async (kind) => {
     vi.mocked(isTauri).mockReturnValue(true);
     const result = { kind, supported: kind !== 'antigravity', candidates: [], message: null };
     vi.mocked(invoke).mockResolvedValue(result);
@@ -71,5 +72,59 @@ describe('history source discovery IPC contract', () => {
   it('does not call native discovery in browser preview', async () => {
     await expect(api.detectHistorySources('grok')).rejects.toThrow('桌面執行環境未連線');
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('persistent attachment IPC contract', () => {
+  it('passes the attachment lease on attach, ACK and detach while keeping explicit stop separate', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const listener = vi.fn();
+    await api.attach('runtime', listener, 'lease');
+    const channel = (vi.mocked(invoke).mock.calls[0][1] as Record<string, unknown>).onEvent as { onmessage: (value: unknown) => void };
+    expect(invoke).toHaveBeenCalledWith('attach_runtime', { runtimeId: 'runtime', attachmentId: 'lease', onEvent: channel });
+    const event = { type: 'snapshot', runtimeId: 'runtime', sequence: 0, data: [], cols: 80, rows: 24, truncated: false };
+    channel.onmessage(event);
+    expect(listener).toHaveBeenCalledWith(event);
+    await api.ack('runtime', 0, 'lease');
+    await api.detach('runtime', 'lease');
+    await api.forget('runtime');
+    expect(invoke).toHaveBeenCalledWith('ack_runtime', { runtimeId: 'runtime', sequence: 0, attachmentId: 'lease' });
+    expect(invoke).toHaveBeenCalledWith('detach_runtime', { runtimeId: 'runtime', attachmentId: 'lease' });
+    expect(invoke).toHaveBeenCalledWith('forget_runtime', { runtimeId: 'runtime' });
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'stop_runtime' || command === 'launch_runtime')).toBe(false);
+  });
+});
+
+it('settles only the requested panes before explicit close, including failed launches', async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  let fail!: (reason: Error) => void;
+  let finish!: () => void;
+  vi.mocked(invoke).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }))
+    .mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve(undefined); }));
+  const one = api.launch({ paneId: 'closing', kind: 'shell', cols: 80, rows: 24 }, () => {}, 'lease-one');
+  const two = api.launch({ paneId: 'other', kind: 'shell', cols: 80, rows: 24 }, () => {}, 'lease-two');
+  const failed = one.catch(() => undefined);
+  let settled = false;
+  const waiting = api.settleLaunches(['closing']).then(() => { settled = true; });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  fail(new Error('launch status uncertain'));
+  await waiting;
+  await failed;
+  expect(settled).toBe(true);
+  finish();
+  await two;
+  await api.settleLaunches(['closing', 'other']);
+});
+
+describe('native zoom API', () => {
+  it('uses the current WebView page zoom factor without changing runtime IPC', async () => {
+    vi.mocked(isTauri).mockReturnValue(true); native.setZoom.mockResolvedValue(undefined);
+    await api.setWorkspaceZoom(150);
+    expect(native.setZoom).toHaveBeenCalledWith(1.5); expect(invoke).not.toHaveBeenCalled();
+  });
+  it('does not claim a browser-only preview changed native zoom', async () => {
+    await expect(api.setWorkspaceZoom(150)).rejects.toThrow('桌面');
+    expect(native.setZoom).not.toHaveBeenCalled();
   });
 });
