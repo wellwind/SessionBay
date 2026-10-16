@@ -1,3 +1,4 @@
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
   AgentKind,
@@ -26,6 +27,10 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
 // UI/window detach deliberately never waits for or cancels these launches.
 const pendingLaunches = new Map<string, Set<Promise<RuntimeInfo>>>();
 export const api = {
+  setWorkspaceZoom: async (percent: number): Promise<void> => {
+    if (!isDesktop()) throw new Error('工作台縮放需要桌面執行環境。');
+    await getCurrentWebview().setZoom(percent / 100);
+  },
   bootstrap: () => call<Bootstrap>('bootstrap'),
   detect: () => call<Installation[]>('detect_installations'),
   detectShells: () => call<ShellCandidate[]>('detect_shells'),

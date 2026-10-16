@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { startup } from './startup';
+import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
 import { agentCapabilities, agentKinds, bypassFlags, installationState } from './agents';
 import { AgentIcon } from './components/AgentIcon';
 import { Select } from './components/controls';
@@ -65,6 +66,7 @@ import { agentName, dateLabel, HistoryView } from './components/History';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
+import { AppearanceSaveQueue } from './appearance-save-queue';
 import { CommandThemePicker } from './components/CommandThemePicker';
 import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
 import type { Appearance } from './themes';
@@ -114,6 +116,8 @@ export default function App() {
   const [themeSaving, setThemeSaving] = useState(false);
   const [themeSaveError, setThemeSaveError] = useState('');
   const themeSaveInFlight = useRef(false);
+  const quickAppearanceRequests = useRef(0);
+  const quickAppearanceCurrent = useRef<Partial<Appearance> | null>(null);
   const quickThemeOpenRef = useRef(false);
   quickThemeOpenRef.current = quickThemeOpen;
   const detectionGeneration = useRef(0);
@@ -162,6 +166,34 @@ export default function App() {
   settingsRef.current = settings;
   const visibleSettings = useMemo(() => settings ? { ...settings, ...appearancePreview, ...commandThemePreview } : undefined, [settings, appearancePreview, commandThemePreview]);
   useUiTheme(visibleSettings);
+  const [appliedZoom, setAppliedZoom] = useState<number | null>(null);
+  const [zoomError, setZoomError] = useState(false);
+  const [zoomController] = useState(() => new WorkspaceZoomController(api.setWorkspaceZoom, (percent) => { setAppliedZoom(percent); setZoomError(false); }));
+  const [appearanceQueue] = useState(() => new AppearanceSaveQueue({
+    getSettings: () => settingsRef.current,
+    save: api.saveSettings,
+    beforeSave: (patch) => {
+      // A color-only save must never restore an obsolete native zoom snapshot.
+      if (patch.appZoom !== undefined && !zoomController.isApplied(patch.appZoom))
+        return zoomController.apply(patch.appZoom);
+    },
+    committed: (patch) => {
+      settingsRef.current = { ...settingsRef.current!, ...patch };
+      setBoot(current => current ? { ...current, settings: { ...current.settings, ...patch } } : current);
+    },
+    busy: (saving) => { themeSaveInFlight.current = saving; setThemeSaving(saving); },
+  }));
+  const zoomPercent = visibleSettings?.appZoom ?? 100;
+  const hasSettings = !!settings;
+  useEffect(() => {
+    if (!desktop || !hasSettings) return;
+    let cancelled = false;
+    setZoomError(false);
+    void zoomController.apply(zoomPercent).catch((error) => {
+      if (!cancelled) { setZoomError(true); setToast(errorMessage(error)); }
+    });
+    return () => { cancelled = true; };
+  }, [desktop, hasSettings, zoomPercent, zoomController]);
   const knownProjects = useRef<Record<string, Project>>({});
   for (const project of projects) knownProjects.current[project.id] = project;
   const visibleProjects = useMemo(
@@ -685,41 +717,36 @@ export default function App() {
   const saveSettings = async (next: Settings) => {
     const first = !settings?.onboardingComplete;
     ++detectionGeneration.current;
+    await zoomController.apply(next.appZoom ?? 100);
     const saved = await api.saveSettings(next);
+    settingsRef.current = saved;
     setBoot((b) => (b ? { ...b, settings: saved, installations: [] } : b));
     setSettingsOpen(false);
     void detectAgents().catch(notify);
     if (first) void scan(false).catch(notify);
   };
-  // All appearance callers share one write gate. Build from the latest saved
-  // settings and apply only the caller's fields; a preview never owns zoom/font.
-  const persistAppearance = async (patch: Partial<Appearance>) => {
-    const latest = settingsRef.current;
-    if (!latest || settingsOpen || themeSaveInFlight.current) return false;
-    themeSaveInFlight.current = true;
-    setThemeSaving(true);
-    try {
-      const saved = await api.saveSettings({ ...latest, ...patch });
-      const committed = Object.fromEntries(Object.keys(patch).map(key => [key, saved[key as keyof Settings]]));
-      const next = { ...settingsRef.current!, ...committed };
-      settingsRef.current = next;
-      setBoot(current => current ? { ...current, settings: { ...current.settings, ...committed } } : current);
-      return true;
-    } finally {
-      themeSaveInFlight.current = false;
-      setThemeSaving(false);
-    }
+  const persistAppearance = (patch: Partial<Appearance>): Promise<boolean> => {
+    if (!settingsRef.current || settingsOpen) return Promise.resolve(false);
+    return appearanceQueue.persist(patch);
   };
   const quickSaveTheme = async (patch: Partial<Appearance>) => {
-    if (!settingsRef.current || settingsOpen || paletteTheme || themeSaveInFlight.current) return;
+    if (!settingsRef.current || settingsOpen || paletteTheme) return;
+    quickAppearanceRequests.current++;
+    const next = { ...quickAppearanceCurrent.current, ...patch };
+    quickAppearanceCurrent.current = next;
+    setAppearancePreview(next);
     setThemeSaveError('');
-    setAppearancePreview(patch);
     try { await persistAppearance(patch); }
     catch (error) {
-      const message = `主題未能儲存，已還原：${errorMessage(error)}`;
+      const message = `外觀變更未能保存；保留上次儲存設定：${errorMessage(error)}`;
       setThemeSaveError(message);
       if (!quickThemeOpenRef.current) notify(message);
-    } finally { setAppearancePreview(null); }
+    } finally {
+      if (--quickAppearanceRequests.current === 0) {
+        quickAppearanceCurrent.current = null;
+        setAppearancePreview(null);
+      }
+    }
   };
   const commitCommandTheme = async (patch: ThemePatch) => {
     if (!paletteTheme || themeSaveInFlight.current || settingsOpen || quickThemeOpen) return;
@@ -743,6 +770,23 @@ export default function App() {
       } else notify(message);
     }
   };
+  const zoomShortcutRef = useRef((event: KeyboardEvent) => { void event; });
+  zoomShortcutRef.current = (event) => {
+    if (!settings || settingsOpen || composing.current || document.querySelector('[role="dialog"]') || !acceptsWorkspaceZoomShortcut(event.target)) return;
+    const action = workspaceZoomShortcut(event);
+    if (!action) return;
+    // Capture before xterm so reserved zoom keys, including boundary no-ops, never reach PTY.
+    event.preventDefault();
+    event.stopPropagation();
+    const size = quickAppearanceCurrent.current?.appZoom ?? settings.appZoom ?? 100;
+    const next = nextWorkspaceZoom(size, action);
+    if (next !== size || !zoomController.isApplied(next)) void quickSaveTheme({ appZoom: next });
+  };
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => zoomShortcutRef.current(event);
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, []);
   const saveMembership = async (project: Project, curated: boolean) => {
     if (projectMutation.current) return;
     if (curated && !project.path && !project.launchPath) {
@@ -1289,6 +1333,7 @@ export default function App() {
         </div>
         <div>
           <span>{activeCount} 個執行中程序</span>
+          {visibleSettings && <span role="status" aria-live="polite" title={workspaceZoomShortcutHelp}>工作台 {appliedZoom ?? 100}%{zoomError ? ' · 縮放套用失敗' : appliedZoom !== zoomPercent ? ' · 套用中' : ''}{themeSaving ? ' · 儲存中' : ''}</span>}
           <span className="status-separator">│</span>
           <span>
             {focusPane && view === 'workspace'

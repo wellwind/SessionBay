@@ -150,6 +150,7 @@ impl Service {
             "terminalTheme",
             "fontFamily",
             "fontSize",
+            "appZoom",
         ] {
             previous.as_object_mut().unwrap().remove(field);
             next.as_object_mut().unwrap().remove(field);
@@ -658,10 +659,13 @@ mod tests {
         let mut next = service.settings().unwrap();
         service.index.lock().unwrap().running = true;
         let _scan = service.scan_guard.lock().unwrap();
+        next.app_zoom = 150;
         next.theme_palette = "rose".into();
         next.terminal_theme = "ocean-light".into();
         let saved = service.save_settings(next.clone()).unwrap();
         assert_eq!(saved.theme_palette, "rose");
+        assert_eq!(saved.app_zoom, 150);
+        assert_eq!(service.config.load_settings().0.app_zoom, 150);
         assert_eq!(
             service.config.load_settings().0.terminal_theme,
             "ocean-light"

@@ -1,4 +1,5 @@
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
+import { workspaceZoomEvent } from './workspace-zoom';
 import { defaultAgentOptions } from './agents';
 import { shouldHandleTerminalKey } from './terminal-ime';
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
@@ -732,4 +733,70 @@ describe('real plugin asynchronous confirmation safety', () => {
     expect(invoke).not.toHaveBeenCalled();
     expect(mocks.termPaste).not.toHaveBeenCalled();
   });
+});
+describe('live terminal font sizing', () => {
+  it('fits and resizes visible panes, updates hidden panes, and retains runtime input and output', async () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
+    try {
+      const first = props(makePane({ startToken: 1 }));
+      const second = props(makePane({ id: 'second', startToken: 1 }));
+      mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
+      const panes = (fontSize: number, showSecond = false) => <>
+        <TerminalPane {...first} settings={{ ...settings, fontSize }} />
+        <TerminalPane {...second} settings={{ ...settings, fontSize }} visible={showSecond} focused={false} />
+      </>;
+      const view = render(panes(14));
+      await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+      for (const [request, channel] of mocks.launch.mock.calls) completeSnapshot(channel, request.paneId);
+      await act(async () => { await Promise.resolve(); });
+      const baseline = { fit: mocks.fit.mock.calls.length, reset: mocks.reset.mock.calls.length, focus: mocks.focus.mock.calls.length };
+      view.rerender(panes(20));
+      expect(mocks.options.map((options) => options.fontSize)).toEqual([20, 20]);
+      expect(mocks.fit).toHaveBeenCalledTimes(baseline.fit + 1);
+      expect(mocks.resize).toHaveBeenCalledWith('pane', 80, 24);
+      expect(mocks.focus).toHaveBeenCalledTimes(baseline.focus);
+      view.rerender(panes(20, true));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+      expect(mocks.resize).toHaveBeenCalledWith('second', 80, 24);
+      const event = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+      act(() => event({ type: 'output', runtimeId: 'pane', sequence: 1, data: [111, 107] }));
+      expect(mocks.termWrite).toHaveBeenCalledWith(new Uint8Array([111, 107]), expect.any(Function));
+      act(() => mocks.input?.('still typing'));
+      await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('second', 'still typing'));
+      expect(mocks.launch).toHaveBeenCalledTimes(2); expect(mocks.options).toHaveLength(2);
+      expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
+      expect(mocks.reset).toHaveBeenCalledTimes(baseline.reset);
+    } finally { width.mockRestore(); height.mockRestore(); }
+  });
+});
+
+it('refits after native page zoom without changing terminal font or runtime, and fits hidden panes on reveal', async () => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
+  const p = props(makePane({ startToken: 1 }));
+  const view = render(<TerminalPane {...p} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  // The broker must finish its snapshot before the renderer may fit or accept input.
+  completeSnapshot(mocks.launch.mock.calls[0][1]);
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  mocks.fit.mockClear(); mocks.resize.mockClear(); mocks.focus.mockClear();
+  const resets = mocks.reset.mock.calls.length;
+  act(() => window.dispatchEvent(new Event(workspaceZoomEvent)));
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).toHaveBeenCalledOnce(); expect(mocks.resize).toHaveBeenCalledWith('runtime', 80, 24);
+  expect(mocks.options.at(-1)?.fontSize).toBe(13); expect(mocks.focus).not.toHaveBeenCalled();
+  view.rerender(<TerminalPane {...p} visible={false} />);
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  act(() => window.dispatchEvent(new Event(workspaceZoomEvent)));
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).not.toHaveBeenCalled(); expect(mocks.resize).not.toHaveBeenCalled();
+  view.rerender(<TerminalPane {...p} visible />);
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  act(() => mocks.input?.('still alive'));
+  await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'still alive'));
+  expect(mocks.launch).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
+  expect(mocks.reset).toHaveBeenCalledTimes(resets);
 });

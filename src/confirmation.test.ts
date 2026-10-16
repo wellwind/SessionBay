@@ -13,7 +13,7 @@ describe('native and browser confirmation contract', () => {
   it('permits explicit native Ok and enables only the required dialog commands', async () => {
     installNativeConfirmation(vi.fn().mockResolvedValue('Ok'));
     expect(await confirmAction('Synthetic confirmation')).toBe(true);
-    expect(capability.permissions).toEqual(['core:default', 'dialog:allow-open', 'dialog:allow-message']);
+    expect(capability.permissions).toEqual(['core:default', 'dialog:allow-open', 'dialog:allow-message', 'core:webview:allow-set-webview-zoom']);
   });
   it('fails closed without an unhandled rejection when the native command is denied', async () => {
     installNativeConfirmation(vi.fn().mockRejectedValue(new Error('plugin:dialog|message is not allowed')));

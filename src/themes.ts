@@ -50,7 +50,7 @@ const legacyTerminalThemes: Record<string, ITheme> = {
 };
 
 export type ColorMode = 'dark' | 'light';
-export type Appearance = Pick<Settings, 'theme' | 'themePalette' | 'terminalTheme' | 'fontSize' | 'fontFamily'>;
+export type Appearance = Pick<Settings, 'theme' | 'themePalette' | 'terminalTheme' | 'fontSize' | 'fontFamily' | 'appZoom'>;
 export interface ThemePalette {
   id: string;
   label: string;
@@ -160,5 +160,5 @@ export function terminalOptions(id: string) {
 export function validThemeId(id: string) { return /^[a-z0-9][a-z0-9-]{0,63}$/.test(id); }
 export function appearanceOf(settings: Settings): Appearance {
   return { theme: settings.theme, themePalette: settings.themePalette, terminalTheme: settings.terminalTheme,
-    fontSize: settings.fontSize, fontFamily: settings.fontFamily };
+    fontSize: settings.fontSize, fontFamily: settings.fontFamily, appZoom: settings.appZoom ?? 100 };
 }

@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Only the bundled main window can access core UI events and the native open and confirmation dialogs. Files and child processes are scoped by application commands.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-message"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-message", "core:webview:allow-set-webview-zoom"]
 }

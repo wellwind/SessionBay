@@ -48,6 +48,7 @@ vi.mock('./api', () => ({
     cancelScan: vi.fn(),
     clearIndex: vi.fn(),
     saveSettings: vi.fn(),
+    setWorkspaceZoom: vi.fn(),
     updateProject: vi.fn(),
     addProject: vi.fn(),
     createProject: vi.fn(),
@@ -132,6 +133,7 @@ function bootstrap(): Bootstrap {
       terminalTheme: 'bay',
       fontFamily: 'monospace',
       fontSize: 14,
+      appZoom: 100,
       defaultAgent: 'codex',
       defaultProfileId: 'default',
       profiles: [{ id: 'default', name: 'Shell', executable: '/bin/bash', args: ['-l'], env: {} }],
@@ -211,6 +213,7 @@ async function nativeClose() {
 beforeEach(() => {
   vi.mocked(canPickDirectory).mockReturnValue(false);
   vi.mocked(pickDirectory).mockReset();
+  vi.mocked(api.setWorkspaceZoom).mockReset().mockResolvedValue(undefined);
   vi.useFakeTimers();
   native.handlers.clear();
   native.patch = undefined;
@@ -1959,7 +1962,7 @@ describe('App live theme integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
     await act(async () => fail(new Error('Disk full')));
     expect(document.documentElement.dataset.theme).toBe('dark');
-    expect(screen.getByRole('alert')).toHaveTextContent('主題未能儲存，已還原');
+    expect(screen.getByRole('alert')).toHaveTextContent('外觀變更未能保存；保留上次儲存設定');
     expect(screen.getByRole('button', { name: '快速切換主題' })).not.toBeDisabled();
   });
   it('Settings previews without a save call, then cancel restores and a later save persists', async () => {
@@ -1980,6 +1983,252 @@ describe('App live theme integration', () => {
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(api.saveSettings).toHaveBeenCalledTimes(1);
     expect(native.canvasUnmounted).not.toHaveBeenCalled();
+  });
+});
+
+describe('Whole-workspace zoom integration', () => {
+  const zoom = (key: string, patch: KeyboardEventInit = {}, target: Window | Document | Element = window) => fireEvent(target, new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true, ...patch }));
+  const start = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal 1' }));
+  };
+  const zoomStatus = () => screen.getByText(/^工作台 \d+%/);
+  it('previews every repeat immediately, coalesces serialized saves, and resets without changing base terminal font or workspace', async () => {
+    await start();
+    const before = workspaceSnapshot();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    expect(zoom('=')).toBe(false);
+    zoom('+', { shiftKey: true }); zoom('=');
+    await tick();
+    expect(zoomStatus()).toHaveTextContent('工作台 130%');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.saveSettings).mock.calls[0][0].appZoom).toBe(110);
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(api.saveSettings).toHaveBeenCalledTimes(2);
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...bootstrap().settings, appZoom: 130 });
+    expect(zoomStatus()).toHaveTextContent('工作台 130%');
+    expect(zoomStatus()).not.toHaveTextContent('儲存中');
+    await act(async () => zoom('-'));
+    expect(zoomStatus()).toHaveTextContent('工作台 120%');
+    await act(async () => zoom('0'));
+    expect(zoomStatus()).toHaveTextContent('工作台 100%');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].fontSize).toBe(14);
+    expect(workspaceSnapshot()).toEqual(before);
+    expect(native.canvasUnmounted).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled(); expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('rolls failed persistence back to the last confirmed size, drops queued changes and allows retry', async () => {
+    await start(); await act(async () => zoom('='));
+    let fail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    zoom('='); zoom('=');
+    await tick();
+    expect(zoomStatus()).toHaveTextContent('工作台 130%');
+    await act(async () => fail(new Error('Disk full')));
+    expect(zoomStatus()).toHaveTextContent('工作台 110%');
+    expect(screen.getByRole('alert')).toHaveTextContent('保留上次儲存設定');
+    await act(async () => zoom('='));
+    expect(zoomStatus()).toHaveTextContent('工作台 120%');
+  });
+  it('does not capture ordinary fields, modal dialogs, IME or unrelated PTY keys', async () => {
+    await start();
+    const field = document.getElementById('session-search')!;
+    expect(zoom('=', {}, field)).toBe(true);
+    expect(zoom('=', { isComposing: true })).toBe(true);
+    fireEvent.compositionStart(window.document);
+    expect(zoom('=')).toBe(true);
+    fireEvent.compositionEnd(window.document);
+    expect(zoom('c')).toBe(true);
+    expect(zoom('Enter', { shiftKey: true })).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    expect(zoom('=')).toBe(true);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(zoomStatus()).toHaveTextContent('工作台 100%');
+  });
+  it('settings preview cancels to the zoomed size and save persists the new size', async () => {
+    await start(); await act(async () => zoom('='));
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '工作台縮放 %' }), { target: { value: '150' } });
+    await tick();
+    expect(zoomStatus()).toHaveTextContent('工作台 150%');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    await tick();
+    expect(zoomStatus()).toHaveTextContent('工作台 110%');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '工作台縮放 %' }), { target: { value: '150' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(zoomStatus()).toHaveTextContent('工作台 150%');
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].appZoom).toBe(150);
+  });
+  it('captures zoom before the xterm input target, consumes bounds, and leaves normal input untouched', async () => {
+    await start();
+    const pane = document.createElement('div'); pane.className = 'terminal-pane';
+    const input = document.createElement('textarea'); input.className = 'xterm-helper-textarea';
+    pane.append(input); screen.getByTestId('workspace-canvas').append(pane);
+    const terminalKey = vi.fn(); input.addEventListener('keydown', terminalKey);
+    for (let i = 0; i < 40; i++) expect(zoom('=', {}, input)).toBe(false);
+    await tick();
+    expect(zoomStatus()).toHaveTextContent('工作台 200%');
+    expect(terminalKey).not.toHaveBeenCalled();
+    await tick();
+    for (let i = 0; i < 40; i++) expect(zoom('-', {}, input)).toBe(false);
+    await tick();
+    expect(zoomStatus()).toHaveTextContent('工作台 50%');
+    await tick();
+    expect(zoom('c', {}, input)).toBe(true);
+    expect(terminalKey).toHaveBeenCalledOnce();
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].appZoom).toBe(50);
+  });
+  it('keeps a pending quick theme when a subsequent zoom is queued after its menu closes', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    zoom('=');
+    await tick();
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(zoomStatus()).toHaveTextContent('工作台 110%');
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...bootstrap().settings, theme: 'light', appZoom: 110 });
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(zoomStatus()).toHaveTextContent('工作台 110%');
+  });
+
+});
+
+describe('native whole-workspace zoom recovery', () => {
+  const zoom = (key: string) => fireEvent.keyDown(window, { key, ctrlKey: true });
+  const start = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    const view = render(<App />); await tick(); return view;
+  };
+  it('restores the saved native zoom and works in history with no open terminal', async () => {
+    const saved = bootstrap(); saved.settings.appZoom = 150; saved.workspace = emptyWorkspace();
+    vi.mocked(api.bootstrap).mockResolvedValue(saved);
+    const view = await start();
+    expect(api.setWorkspaceZoom).toHaveBeenCalledWith(150);
+    await act(async () => zoom('='));
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(160);
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...saved.settings, appZoom: 160 });
+    expect(api.launch).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled();
+    view.unmount();
+    vi.mocked(api.bootstrap).mockResolvedValue({ ...saved, settings: { ...saved.settings, appZoom: 160 } });
+    render(<App />); await tick();
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(160);
+    await act(async () => zoom('0'));
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(100);
+  });
+  it('does not save a native apply failure and allows retry without changing fontSize', async () => {
+    await start();
+    vi.mocked(api.setWorkspaceZoom).mockRejectedValueOnce(new Error('Native zoom denied'));
+    await act(async () => zoom('=')); await tick();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('縮放未能套用');
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 100%');
+    await act(async () => zoom('='));
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...bootstrap().settings, appZoom: 110 });
+  });
+  it('reports the actual applied percentage when disk-save rollback also fails natively', async () => {
+    await start();
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error('Disk full'));
+    vi.mocked(api.setWorkspaceZoom).mockImplementation(async (percent) => { if (percent === 100) throw new Error('Rollback failed'); });
+    await act(async () => zoom('=')); await tick();
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 110% · 縮放套用失敗');
+    expect(screen.getByRole('alert')).toHaveTextContent('Rollback failed');
+    vi.mocked(api.setWorkspaceZoom).mockResolvedValue(undefined);
+    await act(async () => zoom('0')); await tick();
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 100%');
+  });
+  it('keeps invalid Settings zoom out of native preview and lets reset cancel back to the saved zoom', async () => {
+    const saved = bootstrap(); saved.settings.appZoom = 150;
+    vi.mocked(api.bootstrap).mockResolvedValue(saved);
+    await start();
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '工作台縮放 %' }), { target: { value: '999' } });
+    await tick(); expect(api.setWorkspaceZoom).not.toHaveBeenCalledWith(999);
+    fireEvent.click(screen.getByRole('button', { name: '還原工作台縮放 100%' }));
+    await tick(); expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(100);
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    await tick(); expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(150);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe('workspace zoom delayed-operation regressions', () => {
+  const zoomKey = (key: string) => fireEvent.keyDown(window, { key, ctrlKey: true });
+  const startReview = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    render(<App />); await tick();
+  };
+  const openAppearance = () => {
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+  };
+  it('cancel wins after an older Settings native preview resolves late', async () => {
+    await startReview();
+    let finish!: () => void;
+    vi.mocked(api.setWorkspaceZoom).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    openAppearance();
+    fireEvent.change(screen.getByRole('spinbutton', { name: '工作台縮放 %' }), { target: { value: '150' } });
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    await tick();
+    await act(async () => finish()); await tick();
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(100);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 100%');
+    expect(screen.getByText(/^工作台 \d+%/)).not.toHaveTextContent('套用中');
+  });
+  it('does not persist superseded queued requests when their coalesced native target fails', async () => {
+    let finish!: () => void;
+    vi.mocked(api.setWorkspaceZoom).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    await startReview();
+    zoomKey('='); zoomKey('='); zoomKey('='); await tick();
+    vi.mocked(api.setWorkspaceZoom).mockRejectedValueOnce(new Error('130 fails'));
+    await act(async () => finish()); await tick();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 100%');
+  });
+  it('disk failure rolls back after a newer in-flight native preview completes', async () => {
+    await startReview();
+    let diskFail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { diskFail = reject; }));
+    await act(async () => zoomKey('=')); await tick();
+    let finish!: () => void;
+    vi.mocked(api.setWorkspaceZoom).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    zoomKey('='); await tick();
+    await act(async () => diskFail(new Error('disk failed'))); await tick();
+    await act(async () => finish()); await tick();
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(100);
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 100%');
+  });
+  it('Settings save retry retains its draft after a disk failure and cancel restores native zoom', async () => {
+    await startReview(); openAppearance();
+    fireEvent.change(screen.getByRole('spinbutton', { name: '工作台縮放 %' }), { target: { value: '170' } });
+    await tick();
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error('disk failed'));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(screen.getByRole('spinbutton', { name: '工作台縮放 %' })).toHaveValue(170);
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 170%');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' })); await tick();
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(100);
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -2101,5 +2350,151 @@ describe('command palette theme transactions', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe('command themes and whole-workspace zoom integration', () => {
+  const zoom = (key = '=') => fireEvent.keyDown(window, { key, ctrlKey: true });
+  const status = () => screen.getByText(/^工作台 \d+%/);
+  async function start() {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async next => next);
+    render(<App />); await tick();
+  }
+  function picker(target = '切換介面主題') {
+    fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
+    const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    fireEvent.change(search, { target: { value: target } }); fireEvent.keyDown(search, { key: 'Enter' });
+    return screen.getByRole('combobox', { name: '搜尋主題' });
+  }
+  it('preserves command commit then newer zoom while its save completes after closing', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const input = picker();
+    fireEvent.change(input, { target: { value: 'Code Modern · 淺色' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(api.saveSettings).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    zoom(); zoom(); await tick();
+    expect(status()).toHaveTextContent('工作台 120%');
+    expect(screen.getByRole('button', { name: '設定與資料來源' })).toBeDisabled();
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0])); await tick();
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ theme: 'light', themePalette: 'code-modern', appZoom: 120, fontSize: 14 }));
+    expect(document.documentElement.dataset.themePalette).toBe('code-modern');
+    const zoomCalls = vi.mocked(api.setWorkspaceZoom).mock.calls.length;
+    const again = picker('切換 Terminal 主題');
+    fireEvent.change(again, { target: { value: '淺色 · Code 2026' } });
+    await act(async () => fireEvent.keyDown(again, { key: 'Enter' }));
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ terminalTheme: 'code-2026-light', appZoom: 120, themePalette: 'code-modern' }));
+    expect(api.setWorkspaceZoom).toHaveBeenCalledTimes(zoomCalls);
+    expect(api.launch).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled(); expect(native.canvasUnmounted).not.toHaveBeenCalled();
+  });
+  it('theme preview, cancel and failed retry never own an already saved zoom or font', async () => {
+    const data = bootstrap(); data.settings.appZoom = 150; data.settings.fontSize = 20;
+    vi.mocked(api.bootstrap).mockResolvedValue(data); await start();
+    const calls = vi.mocked(api.setWorkspaceZoom).mock.calls.length;
+    let input = picker(); fireEvent.change(input, { target: { value: 'Code 2026 · 淺色' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: '搜尋命令或專案' }), { key: 'Escape' });
+    expect(status()).toHaveTextContent('工作台 150%'); expect(api.saveSettings).not.toHaveBeenCalled();
+    input = picker(); fireEvent.change(input, { target: { value: 'Code Modern · 淺色' } });
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error('Theme save failed'));
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(document.documentElement.dataset.theme).toBe('dark'); expect(status()).toHaveTextContent('工作台 150%');
+    await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
+    expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ appZoom: 150, fontSize: 20, themePalette: 'code-modern' }));
+    expect(api.setWorkspaceZoom).toHaveBeenCalledTimes(calls);
+  });
+  it('keeps a committed theme when queued native zoom fails, then settings cancel restores both', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const input = picker(); fireEvent.change(input, { target: { value: 'Code 2026 · 淺色' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    vi.mocked(api.setWorkspaceZoom).mockImplementation(async percent => { if (percent === 110) throw new Error('Native zoom failed'); });
+    zoom(); await tick();
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0])); await tick();
+    expect(api.saveSettings).toHaveBeenCalledOnce(); expect(status()).toHaveTextContent('工作台 100%');
+    expect(document.documentElement.dataset.themePalette).toBe('code-2026');
+    vi.mocked(api.setWorkspaceZoom).mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: '工作台縮放 %' }), { target: { value: '170' } });
+    fireEvent.click(screen.getByRole('button', { name: '深色' })); await tick();
+    expect(status()).toHaveTextContent('工作台 170%');
+    fireEvent.click(screen.getByRole('button', { name: '取消' })); fireEvent.click(screen.getByRole('button', { name: '捨棄變更' })); await tick();
+    expect(status()).toHaveTextContent('工作台 100%'); expect(document.documentElement.dataset.theme).toBe('light');
+    expect(document.documentElement.dataset.themePalette).toBe('code-2026'); expect(api.saveSettings).toHaveBeenCalledOnce();
+  });
+});
+
+describe('appearance transactions across delayed native and disk saves', () => {
+  async function startMerged() {
+    const saved = bootstrap(); saved.settings.appZoom = 150; saved.settings.fontSize = 21;
+    vi.mocked(api.bootstrap).mockResolvedValue(saved);
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async next => next);
+    render(<App />); await tick();
+    return saved;
+  }
+  function chooseUITheme() {
+    fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
+    const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    fireEvent.change(search, { target: { value: '切換介面主題' } });
+    fireEvent.keyDown(search, { key: 'Enter' });
+    const input = screen.getByRole('combobox', { name: '搜尋主題' });
+    fireEvent.change(input, { target: { value: 'Ocean · 海洋 · 淺色' } });
+    return input;
+  }
+  it('theme commit cannot revert a newer delayed zoom preview and both persisted fields survive', async () => {
+    const saved = await startMerged();
+    let finishDisk!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise(resolve => { finishDisk = resolve; }));
+    fireEvent.keyDown(chooseUITheme(), { key: 'Enter' });
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    let finishNative!: () => void;
+    vi.mocked(api.setWorkspaceZoom).mockClear().mockImplementationOnce(() => new Promise<void>(resolve => { finishNative = resolve; }));
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true }); await tick();
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true }); await tick();
+    await act(async () => finishDisk(vi.mocked(api.saveSettings).mock.calls[0][0])); await tick();
+    await act(async () => finishNative()); await tick();
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...saved.settings, appZoom: 170, theme: 'light', themePalette: 'ocean' });
+    expect(api.setWorkspaceZoom).not.toHaveBeenCalledWith(150);
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(170);
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 170%');
+    expect(document.documentElement.dataset.themePalette).toBe('ocean');
+  });
+  it('failed command commit rejects pending zoom and rolls native preview back after its delayed completion', async () => {
+    await startMerged();
+    let failDisk!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { failDisk = reject; }));
+    fireEvent.keyDown(chooseUITheme(), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    let finishNative!: () => void;
+    vi.mocked(api.setWorkspaceZoom).mockImplementationOnce(() => new Promise<void>(resolve => { finishNative = resolve; }));
+    fireEvent.keyDown(window, { key: '=', ctrlKey: true }); await tick();
+    await act(async () => failDisk(new Error('Disk fails theme'))); await tick();
+    await act(async () => finishNative()); await tick();
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(api.setWorkspaceZoom).toHaveBeenLastCalledWith(150);
+    expect(screen.getByText(/^工作台 \d+%/)).toHaveTextContent('工作台 150%');
+    expect(document.documentElement.dataset.themePalette).toBe('bay');
+    expect(screen.getByRole('alert')).toHaveTextContent('Disk fails theme');
+  });
+  it('color preview and cancellation after a saved zoom never own the zoom or font fields', async () => {
+    const saved = await startMerged();
+    await act(async () => fireEvent.keyDown(window, { key: '=', ctrlKey: true })); await tick();
+    vi.mocked(api.setWorkspaceZoom).mockClear(); vi.mocked(api.saveSettings).mockClear();
+    const input = chooseUITheme();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' })); await tick();
+    expect(api.setWorkspaceZoom).not.toHaveBeenCalled(); expect(api.saveSettings).not.toHaveBeenCalled();
+    const retry = chooseUITheme();
+    await act(async () => fireEvent.keyDown(retry, { key: 'Enter' })); await tick();
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...saved.settings, appZoom: 160, theme: 'light', themePalette: 'ocean' });
+    expect(api.setWorkspaceZoom).not.toHaveBeenCalled();
   });
 });

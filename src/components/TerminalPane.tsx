@@ -33,6 +33,7 @@ interface Attachment {
   lastAcknowledged: number;
   info?: RuntimeInfo;
 }
+import { workspaceZoomEvent } from '../workspace-zoom';
 import { terminalTheme } from '../themes';
 
 export function TerminalPane({
@@ -165,6 +166,8 @@ export function TerminalPane({
       frame = requestAnimationFrame(fitNow);
     });
     observer.observe(host.current);
+    const zoomed = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(fitNow); };
+    window.addEventListener(workspaceZoomEvent, zoomed);
     fitNow();
     return () => {
       mounted.current = false;
@@ -177,6 +180,7 @@ export function TerminalPane({
       // Any queued frames acknowledge their own obsolete lease without repainting.
       for (const frame of queuedFrames.splice(0)) frame(() => undefined);
       observer.disconnect();
+      window.removeEventListener(workspaceZoomEvent, zoomed);
       cancelAnimationFrame(frame);
       input.dispose();
       clipboardBlock.dispose();
