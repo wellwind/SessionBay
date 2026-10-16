@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod antigravity;
 pub mod antigravity_metadata;
+pub mod broker;
 pub mod catalog;
 pub mod config;
 pub mod history_sources;

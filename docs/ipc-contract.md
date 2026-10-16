@@ -110,3 +110,9 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 `Session.resumeDisabledReason` 是 nullable 的逐筆能力原因，適用所有 provider；非空表示可預覽但不可直接索引接續，UI 同時顯示原因與 disabled 狀態。backend preflight 不信任 UI 狀態；手動 ID 沿用不同入口，不虛構 catalog 關聯。
 
 `TranscriptPage.warning` 與 `stale` 可同時存在，UI 不以通用 stale 字樣遮掉來源原因；翻頁保留已有警告。`snapshotId` 是同一已索引來源快照的 opaque token，各頁相同，任何已索引內容變更時改變；stale 回應為 null。不得由 token 推測路徑或內容。索引 revision 改變時，同一 Session ID 也會重新讀取；只有背景刷新且非空 snapshotId 與最新頁內容均未改變，才保留已載入的較早頁和捲動位置。手動刷新、背景刷新缺少 token、快照變更或已知 token 不同的跨快照翻頁皆重新載入；舊分頁回應不能混入新 generation。TypeScript 欄位可省略，以容納舊測試／IPC fixture，缺少時採保守重載。來源格式、metadata 私密快照及 compaction 重建語意見 [CLI 歷史專章](antigravity-cli-history.md)。
+
+## 全域臨時 Terminal
+
+- `LaunchRequest` 未新增可注入的 home／env 欄位。只有 shell 且 projectId/sessionId/resumeId/cwd 皆省略時，Rust 決定並驗證 home；其他啟動保持原驗證。
+- broker `RuntimeRecord.homeDirectory: boolean` 由 Rust 依啟動請求推導並持久化，舊 metadata 缺欄位為 false。projectId 仍為 null；明確 cwd 的舊無專案 Shell 不會改為 home 策略。
+- Workspace version 1 的 pane/tab `projectId` 接受明確 null；全域選取另存 `activeTemporaryTabId`。pane 保存 homeDirectory，但 Runtime ID／PID／startToken 仍不接受；broker reconcile 覆蓋策略與 cwd。

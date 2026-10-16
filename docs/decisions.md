@@ -262,6 +262,28 @@
 
 - 2026-10-16 CI follow-up：JavaScript actions 與專案 Node 分開版本化。官方 Node 20 action runtime 移除後，兩份 workflows 改用 Node 24 的 checkout 7.0.1／setup-node 7.1.0／upload-artifact 7.0.2 完整 SHA。三 OS 完整 gate 需要同提交四個 jobs 成功；Linux lightweight 綠燈不替代平台驗收，不增加自動 matrix。
 
+## 2026-10-16 關閉介面後繼續執行與重新附接
+
+使用者將「關掉介面可以接回來、回來看每個已開狀態」列為最高優先，要求獨立 PR。這個決定取代先前「關閉程式停止所有 PTY、重開只還原 placeholder」的 MVP 行為；不是把舊 PID 存下來或重新執行相同指令。
+
+- 以同一個已安裝執行檔的 headless broker 模式持有 Shell／Agent 的 PTY。桌面 UI 關閉、WebView 重載或渲染 channel 消失只取消 UI attachment；明確「停止」／「關閉面板」才停止受管程序。
+- macOS／Linux 使用 owner-only Unix socket，Windows 使用拒絕遠端連入、限定目前使用者 SID 的 named pipe；不開 TCP listener、不建立登入啟動服務、不產生或保存憑證。單一 broker 以 OS 檔案鎖協調，不用 PID 存活猜測身分。
+- Broker 在記憶體消費 PTY 輸出，保留有上限的 VT 畫面、200 行回捲與 replay；UI ACK 僅影響該 attachment，不能停止背景工作。每次附接用不同 lease，舊 ACK／detach 不能影響新視圖。
+- 重開以 broker 的 runtime／pane／project metadata 為權威，保存的 layout 仍不接受 Runtime ID、PID、指令或 auto-start token。遺失 layout 的活躍面板會重建，不會悄悄藏起來。
+- 程序已退出時保留最後畫面與 exit code。Broker 或作業系統重啟後，上次執行中的 metadata 改為 `interrupted`；不冒稱仍在執行、不採用舊 PID、不自動重啟 Shell／Agent。終端輸出不落盤，broker 重啟後無法還原舊畫面。
+- 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。
+
+- 2026-10-16 macOS 啟動修正：interprocess 2.4.5 的 listener `.mode(0600)` 在 Darwin 回傳 `Unsupported`。macOS 改在已驗證的 0700 socket 目錄內 bind，再設定 socket 路徑為 0600；保留 peer UID 驗證與 broker 所有權鎖。Linux 維持 bind 前設定權限，Windows ACL 不變。
+
+## 2026-10-16：全域臨時 Terminal（獨立日常體驗 PR）
+
+- 使用者要求隨時開啟臨時 Terminal，預設家目錄，不必進入或新增任何專案。
+- 採真正 `projectId: null` 的工作區分頁／面板；全域分頁另存 active selection，不把家目錄建立為 catalog project，也不建立 workspace-only 假專案。
+- 啟動沿用設定中的預設 Shell Profile；只有 shell、無 project/session/resume 且未指定 cwd 時，由 Rust 取得並驗證本機家目錄。前端不推測 HOME／USERPROFILE，不傳入命令字串或任意環境變數。
+- UI 關閉／重開沿用 persistent runtime broker 的 detach／attach；明確關閉面板仍只停止該面板的受管程序。此 PR 疊在 persistent runtime PR #7（其依賴平台 PR #3），不重複實作 broker。
+- 範圍不含檔案瀏覽、遠端主機或 Web Terminal。原生跨平台驗證與 screenshot 限制需如實記錄。
+- 相容既有無 project、但指定 cwd 的 Shell：broker 另存 `homeDirectory` 啟動語意，舊 metadata 缺欄位視為 false。只有新 home Terminal 重啟時省略 cwd；既有無專案 Shell 保留 broker 確認的 cwd，不將 null 身分誤當家目錄策略。
+
 ## 2026-10-16 OpenCode 獨立整合
 
 使用者要求 OpenCode 與持續 Runtime、主題預覽、日常體驗、索引效能各自交付 PR。本 PR 僅新增第五個內建 provider，依賴原生三平台 PR #3 的執行檔解析與 Windows 安全唯讀 file handle；以該 branch 為 base，不重複修改 workflows。須先合併平台 PR，再重新指定 OpenCode 的 base 並驗證；本次不授權自動合併或發行。

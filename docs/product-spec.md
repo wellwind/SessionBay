@@ -131,6 +131,8 @@ MVP 提供標題、使用者訊息與 agent 回覆的關鍵字搜尋。工具輸
 
 Shell 設定另驗收：全新預設選有效絕對 `$SHELL`，否則 macOS `/bin/zsh`、Linux `/bin/bash`，args `[-l]`；不匯入 Terminal Profiles 或 rc。重新偵測只回傳候選，使用者明確加入／保存，保留既有自訂 Profiles 與預設項。Shell 啟動檔由 Shell 本身載入。
 
+全域臨時 Terminal 補充：無任何專案時也能從頂列開啟，Rust 決定家目錄，採 null project 身分，不新增 catalog／假專案。多分頁、切頁找回、UI 關閉重開附接及明確關閉單一 Runtime 的驗收見[獨立規格](temporary-terminal.md)。
+
 ## F07 工作區分頁與分割面板
 
 結構為 Project → Workspace tab → Pane。單一分頁可只有一個面板，也可以左右或上下分割，混用 Agent 與普通 Terminal。
@@ -200,3 +202,7 @@ P2 包含獨立 Session daemon、重新附接、自動派工、同步與外掛�
 ## 整體驗收
 
 使用者能在同一專案找到不同 Agent 的歷史，預覽並恢復正確 Session，再分割出普通 Terminal 執行測試；索引同步與大量輸出時，仍可輸入、切換面板與搜尋。效能的量測方法與暫定門檻見[開發路線圖](roadmap.md)。
+
+## 2026-10-16 持續 Runtime 變更
+
+關閉 UI 不停止已開 Shell／Agent；重開須列出每個已開分頁／面板／專案狀態，附接相同受管程序並還原有界畫面。明確 Stop／關閉面板才結束程序。Broker／電腦重啟後以 interrupted 呈現，不得採用舊 PID 或自動執行指令。此規則取代本文件先前的 close-to-stop MVP 限制；驗收與已知終端限制見[持續執行](persistent-runtime.md)。

@@ -1,4 +1,5 @@
 use crate::{
+    broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
     models::{AgentKind, IndexStatus, Project},
@@ -30,6 +31,16 @@ pub struct LaunchRequest {
     pub rows: u16,
 }
 
+impl LaunchRequest {
+    pub(crate) fn uses_home_directory(&self) -> bool {
+        self.kind == "shell"
+            && self.project_id.is_none()
+            && self.session_id.is_none()
+            && self.resume_id.is_none()
+            && self.cwd.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchPreview {
@@ -47,12 +58,14 @@ pub struct Bootstrap {
     pub index: IndexStatus,
     pub workspace: serde_json::Value,
     pub warnings: Vec<String>,
+    pub runtimes: Vec<RuntimeRecord>,
 }
 
 pub struct Service {
     pub catalog: Catalog,
     pub config: ConfigStore,
     pub runtime: RuntimeManager,
+    broker: Option<BrokerClient>,
     settings: Mutex<Settings>,
     index: Mutex<IndexStatus>,
     scan_guard: Mutex<()>,
@@ -65,6 +78,19 @@ pub struct Service {
 
 impl Service {
     pub fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
+        Self::open_internal(directory, None)
+    }
+    pub fn open_desktop(directory: PathBuf) -> Result<Arc<Self>, String> {
+        // Establish local configuration storage before creating its private IPC child.
+        let config = ConfigStore::open(directory.clone())?;
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        let broker = BrokerClient::connect(&config.directory, &executable)?;
+        Self::open_internal(directory, Some(broker))
+    }
+    fn open_internal(
+        directory: PathBuf,
+        broker: Option<BrokerClient>,
+    ) -> Result<Arc<Self>, String> {
         let config = ConfigStore::open(directory)?;
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
@@ -72,6 +98,7 @@ impl Service {
             catalog,
             config,
             runtime: RuntimeManager::new(),
+            broker,
             settings: Mutex::new(settings),
             index: Mutex::new(empty_index()),
             scan_guard: Mutex::new(()),
@@ -103,6 +130,12 @@ impl Service {
             index: self.index_status()?,
             workspace,
             warnings,
+            runtimes: self
+                .broker
+                .as_ref()
+                .map(|broker| broker.list())
+                .transpose()?
+                .unwrap_or_default(),
         })
     }
     pub fn save_settings(self: &Arc<Self>, settings: Settings) -> Result<Settings, String> {
@@ -230,6 +263,16 @@ impl Service {
         let mut args = vec![];
         let mut resume_key = None;
         let mut cwd = request.cwd.clone();
+        if request.uses_home_directory() {
+            // An unscoped shell is a temporary terminal. Resolve its home in
+            // Rust, before applying profile environment; never trust a UI guess.
+            let home = temporary_terminal_home(dirs::home_dir())?;
+            cwd = Some(
+                home.to_str()
+                    .ok_or("家目錄路徑不是有效的 Unicode")?
+                    .to_owned(),
+            );
+        }
         if let Some(project_id) = &request.project_id {
             let project = self
                 .catalog
@@ -474,15 +517,40 @@ impl Service {
         let spec = self.plan_launch(request)?;
         self.runtime.launch(spec, request.cols, request.rows, emit)
     }
+    pub fn broker(&self) -> Result<&BrokerClient, String> {
+        self.broker
+            .as_ref()
+            .ok_or_else(|| "Persistent runtime broker is not connected".into())
+    }
+    pub fn launch_persistent(
+        &self,
+        request: &LaunchRequest,
+        attachment_id: String,
+        emit: UiEmitter,
+    ) -> Result<RuntimeInfo, String> {
+        let spec = self.plan_launch(request)?;
+        self.broker()?.launch(spec, request, attachment_id, emit)
+    }
     pub fn is_shutdown(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
     pub fn shutdown(&self) -> Result<(), String> {
         self.cancel.store(true, Ordering::Release);
+        if let Some(broker) = &self.broker {
+            broker.detach_all();
+        }
         self.runtime.shutdown()?;
         self.closed.store(true, Ordering::Release);
         Ok(())
     }
+}
+
+fn temporary_terminal_home(home: Option<PathBuf>) -> Result<PathBuf, String> {
+    let home = home.ok_or("無法取得本機家目錄，請檢查系統使用者設定")?;
+    if !home.is_absolute() || !home.is_dir() {
+        return Err("本機家目錄不存在或不是絕對目錄".into());
+    }
+    Ok(home)
 }
 
 fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> Result<String, String> {
@@ -594,14 +662,36 @@ mod tests {
         }
     }
     #[test]
-    fn launch_requires_explicit_valid_directory() {
+    fn explicit_directories_are_validated_and_unscoped_shell_uses_home() {
         let d = tempfile::tempdir().unwrap();
         let s = Service::open(d.path().join("app")).unwrap();
-        assert!(s.plan_launch(&request(None)).is_err());
+        assert_eq!(
+            s.plan_launch(&request(None)).unwrap().cwd,
+            dirs::home_dir().unwrap()
+        );
+        let mut agent = request(None);
+        agent.kind = "codex".into();
+        assert!(s.plan_launch(&agent).is_err());
         assert!(s.plan_launch(&request(Some("relative".into()))).is_err());
         assert!(s
             .plan_launch(&request(Some(d.path().to_string_lossy().into())))
             .is_ok());
+    }
+    #[test]
+    fn temporary_home_fails_closed_without_a_real_absolute_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(temporary_terminal_home(None).is_err());
+        assert!(temporary_terminal_home(Some(PathBuf::from("relative"))).is_err());
+        assert!(temporary_terminal_home(Some(temp.path().join("missing"))).is_err());
+        let file = temp.path().join("file");
+        std::fs::write(&file, "synthetic").unwrap();
+        assert!(temporary_terminal_home(Some(file)).is_err());
+        let unicode = temp.path().join("家目錄 with spaces");
+        std::fs::create_dir(&unicode).unwrap();
+        assert_eq!(
+            temporary_terminal_home(Some(unicode.clone())).unwrap(),
+            unicode
+        );
     }
     #[test]
     fn launch_keeps_metacharacter_path_out_of_shell() {

@@ -664,7 +664,7 @@ describe('browser-only safety', () => {
     await expect(realApi.api.sessions({ query: 'anything' })).rejects.toThrow('桌面執行環境未連線');
     await expect(realApi.api.transcript('synthetic-session')).rejects.toThrow('桌面執行環境未連線');
     await expect(
-      realApi.api.launch({ paneId: 'synthetic-pane', kind: 'shell', cols: 80, rows: 24 }, () => {}),
+      realApi.api.launch({ paneId: 'synthetic-pane', kind: 'shell', cols: 80, rows: 24 }, () => {}, 'synthetic-attachment'),
     ).rejects.toThrow('桌面執行環境未連線');
     expect(invoke).not.toHaveBeenCalled();
   });

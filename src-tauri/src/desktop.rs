@@ -1,8 +1,9 @@
 use crate::{
+    broker::{RuntimeRecord, UiEvent},
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
     models::{AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
-    runtime::{RuntimeInfo, TerminalEvent},
+    runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
     shells::{self, ShellCandidate},
 };
@@ -209,12 +210,14 @@ async fn preview_launch(
 async fn launch_runtime(
     state: AppState<'_>,
     request: LaunchRequest,
-    on_event: Channel<TerminalEvent>,
+    on_event: Channel<UiEvent>,
+    attachment_id: String,
 ) -> Result<RuntimeInfo, String> {
     let s = state.inner().clone();
     blocking(move || {
-        s.launch(
+        s.launch_persistent(
             &request,
+            attachment_id,
             Arc::new(move |event| on_event.send(event).map_err(|e| e.to_string())),
         )
     })
@@ -227,7 +230,7 @@ async fn write_runtime(
     data: String,
 ) -> Result<(), String> {
     let s = state.inner().clone();
-    blocking(move || s.runtime.write(&runtime_id, &data)).await
+    blocking(move || s.broker()?.write(&runtime_id, &data)).await
 }
 #[tauri::command]
 async fn resize_runtime(
@@ -237,20 +240,57 @@ async fn resize_runtime(
     rows: u16,
 ) -> Result<(), String> {
     let s = state.inner().clone();
-    blocking(move || s.runtime.resize(&runtime_id, cols, rows)).await
+    blocking(move || s.broker()?.resize(&runtime_id, cols, rows)).await
 }
 #[tauri::command]
-fn ack_runtime(state: AppState<'_>, runtime_id: String, sequence: u64) -> Result<(), String> {
-    state.runtime.ack(&runtime_id, sequence)
+fn ack_runtime(
+    state: AppState<'_>,
+    runtime_id: String,
+    sequence: u64,
+    attachment_id: String,
+) -> Result<(), String> {
+    state.broker()?.ack(&runtime_id, sequence, &attachment_id)
 }
 #[tauri::command]
 async fn stop_runtime(state: AppState<'_>, runtime_id: String) -> Result<(), String> {
     let s = state.inner().clone();
-    blocking(move || s.runtime.stop(&runtime_id)).await
+    blocking(move || s.broker()?.stop(&runtime_id)).await
 }
 #[tauri::command]
-fn list_runtimes(state: AppState<'_>) -> Vec<RuntimeInfo> {
-    state.runtime.list()
+async fn list_runtimes(state: AppState<'_>) -> Result<Vec<RuntimeRecord>, String> {
+    let s = state.inner().clone();
+    blocking(move || s.broker()?.list()).await
+}
+#[tauri::command]
+async fn attach_runtime(
+    state: AppState<'_>,
+    runtime_id: String,
+    attachment_id: String,
+    on_event: Channel<UiEvent>,
+) -> Result<RuntimeInfo, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.broker()?.attach(
+            &runtime_id,
+            attachment_id,
+            Arc::new(move |event| on_event.send(event).map_err(|e| e.to_string())),
+        )
+    })
+    .await
+}
+#[tauri::command]
+fn detach_runtime(
+    state: AppState<'_>,
+    runtime_id: String,
+    attachment_id: String,
+) -> Result<(), String> {
+    state.broker()?.detach(&runtime_id, &attachment_id);
+    Ok(())
+}
+#[tauri::command]
+async fn forget_runtime(state: AppState<'_>, runtime_id: String) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.broker()?.forget(&runtime_id)).await
 }
 #[tauri::command]
 async fn close_application(app: tauri::AppHandle, state: AppState<'_>) -> Result<(), String> {
@@ -264,7 +304,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .setup(|app| {
             let directory = smoke_data_directory()?.unwrap_or(app.path().app_data_dir()?);
-            let service = Service::open(directory).map_err(std::io::Error::other)?;
+            let service = Service::open_desktop(directory).map_err(std::io::Error::other)?;
             app.manage(service.clone());
             service.begin_reconcile();
             Ok(())
@@ -304,6 +344,9 @@ pub fn run() {
             save_workspace,
             preview_launch,
             launch_runtime,
+            attach_runtime,
+            detach_runtime,
+            forget_runtime,
             write_runtime,
             resize_runtime,
             ack_runtime,
