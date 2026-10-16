@@ -22,6 +22,33 @@ vi.mock('./api', () => ({
 }));
 
 const root = '/synthetic/isolated-home/sessionbay-smoke-fixture';
+// These are complete UI scenarios, not individual control tests. Keep their
+// virtual-time bound below, but allow slower standard CI runners enough wall time.
+const scenarioTimeout = 30_000;
+let stopped = false;
+let advancing: Promise<void> | undefined;
+
+async function advance(milliseconds: number) {
+  if (stopped) throw new Error('smoke test driver stopped');
+  const pending = (async () => {
+    await act(async () => { await vi.advanceTimersByTimeAsync(milliseconds); });
+  })();
+  advancing = pending;
+  try {
+    await pending;
+  } finally {
+    if (advancing === pending) advancing = undefined;
+  }
+  if (stopped) throw new Error('smoke test driver stopped');
+}
+
+async function stopDriver() {
+  stopped = true;
+  // A Vitest wall-time timeout does not cancel the test body. Drain the current
+  // act before restoring fake timers / cleaning the DOM for the next scenario.
+  await advancing?.catch(() => undefined);
+}
+
 function seed(theme: 'dark' | 'light'): Bootstrap {
   return {
     runtimes: [],
@@ -44,6 +71,7 @@ function seed(theme: 'dark' | 'light'): Bootstrap {
 }
 
 beforeEach(() => {
+  stopped = false;
   vi.useFakeTimers();
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 400, height: 40, top: 0, bottom: 40, left: 0, right: 400 } as DOMRect);
@@ -53,7 +81,8 @@ beforeEach(() => {
   vi.mocked(api.forget).mockResolvedValue(undefined);
   vi.mocked(api.settleLaunches).mockResolvedValue(undefined);
 });
-afterEach(() => {
+afterEach(async () => {
+  await stopDriver();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -64,13 +93,22 @@ async function drive(probe: Promise<void>) {
   let failure: unknown;
   void probe.then(() => { settled = true; }, (error) => { failure = error; settled = true; });
   for (let i = 0; i < 450 && !settled; i++) {
-    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await advance(50);
   }
   if (failure) throw failure;
   expect(settled, 'smoke interaction should settle within its bounded wait').toBe(true);
 }
 
 describe('native visual smoke scenario against real React UI', () => {
+  it('stops an active driver before the next test can replace fake timers and DOM', async () => {
+    const advanceTimers = vi.spyOn(vi, 'advanceTimersByTimeAsync');
+    const pending = drive(new Promise<void>(() => {}));
+    const rejection = expect(pending).rejects.toThrow('smoke test driver stopped');
+    await stopDriver();
+    await rejection;
+    expect(advanceTimers).toHaveBeenCalledTimes(1);
+    expect(advancing).toBeUndefined();
+  });
   it.each(['dark', 'light'] as const)('reaches all five %s states using only synthetic curation and indexing', async (theme) => {
     const boot = seed(theme);
     let projects: Project[] = [];
@@ -131,7 +169,7 @@ describe('native visual smoke scenario against real React UI', () => {
       if (name.startsWith('calendar')) expect(screen.getByRole('grid')).toBeInTheDocument();
     });
     render(<App />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await advance(50);
     await drive(runSmokeInteraction());
     expect(vi.mocked(smokeSnapshot).mock.calls.map(([name]) => name)).toEqual(
       ['projects', 'directories', 'providers', 'launcher', 'calendar'].map((state) => `${state}-${theme}`),
@@ -149,7 +187,7 @@ describe('native visual smoke scenario against real React UI', () => {
     expect(api.stop).not.toHaveBeenCalled();
     expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ kind: 'shell', cwd: `${root}/workspaces/harbor` }));
     expect((screen.getByRole('textbox', { name: '開始日期' }) as HTMLInputElement).value).toContain('2026');
-  });
+  }, scenarioTimeout);
 
   it('rejects a reserved fixture ID with a non-fixture path before any write', async () => {
     const boot = seed('dark');
@@ -157,7 +195,7 @@ describe('native visual smoke scenario against real React UI', () => {
     vi.mocked(api.bootstrap).mockResolvedValue(boot);
     vi.mocked(api.index).mockResolvedValue(boot.index);
     render(<App />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await advance(50);
     await expect(drive(runSmokeInteraction())).rejects.toThrow('invalid synthetic fixture source');
     expect(api.addProject).not.toHaveBeenCalled();
     expect(api.scan).not.toHaveBeenCalled();
