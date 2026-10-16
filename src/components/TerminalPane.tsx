@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { api, errorMessage } from '../api';
+import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { shouldHandleTerminalKey } from '../terminal-ime';
 import type { Pane, RuntimeInfo, Settings } from '../types';
@@ -103,14 +104,20 @@ export function TerminalPane({
   const launched = useRef(0);
   const mounted = useRef(false);
   const ended = useRef(false);
-  const latest = useRef({ pane, onPatch, onAlreadyOpen, visible });
-  latest.current = { pane, onPatch, onAlreadyOpen, visible };
+  const latest = useRef({ pane, onPatch, onAlreadyOpen, visible, focused });
+  latest.current = { pane, onPatch, onAlreadyOpen, visible, focused };
   const inputQueue = useRef<TerminalInputQueue | null>(null);
   const resizePending = useRef<{ id: string; cols: number; rows: number } | null>(null);
   const resizing = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [needle, setNeedle] = useState('');
   const [notice, setNotice] = useState('');
+  const actionPending = useRef(false);
+  const [confirming, setConfirming] = useState(false);
+  const actionGeneration = useRef(0);
+  useEffect(() => {
+    actionGeneration.current += 1;
+  }, [pane.id, pane.runtimeId, pane.startToken, pane.state, visible, focused]);
   const fitNow = useCallback(() => {
     if (
       !latest.current.visible ||
@@ -309,15 +316,54 @@ export function TerminalPane({
       setNotice('無法存取剪貼簿，請使用系統複製快捷鍵。');
     }
   };
+  const captureActionTarget = () => {
+    const current = latest.current;
+    if (!mounted.current || ended.current || !current.visible || !current.focused || current.pane.state !== 'running' ||
+      !runtime.current || !term.current || current.pane.runtimeId !== runtime.current) return null;
+    return { terminal: term.current, runtimeId: runtime.current, paneId: current.pane.id,
+      startToken: current.pane.startToken, launchToken: launched.current, generation: actionGeneration.current };
+  };
+  const targetIsCurrent = (target: NonNullable<ReturnType<typeof captureActionTarget>>) =>
+    mounted.current && !ended.current && latest.current.visible && latest.current.focused && latest.current.pane.state === 'running' &&
+    term.current === target.terminal && runtime.current === target.runtimeId &&
+    latest.current.pane.id === target.paneId && latest.current.pane.runtimeId === target.runtimeId &&
+    latest.current.pane.startToken === target.startToken && launched.current === target.launchToken &&
+    actionGeneration.current === target.generation;
+  const finishAction = () => {
+    actionPending.current = false;
+    if (mounted.current) setConfirming(false);
+  };
   const paste = async () => {
+    const target = captureActionTarget();
+    if (!target || actionPending.current) return;
+    actionPending.current = true;
+    setConfirming(true);
     try {
       const text = await navigator.clipboard.readText();
-      if (/[\r\n]/.test(text) && !window.confirm('貼上的內容含多行，可能立即執行指令。確定貼上？'))
-        return;
-      term.current?.paste(text);
-      term.current?.focus();
+      if (!targetIsCurrent(target)) return;
+      if (/[\r\n]/.test(text) && !await confirmAction('貼上的內容含多行，可能立即執行指令。確定貼上？')) return;
+      if (!targetIsCurrent(target)) return;
+      target.terminal.paste(text);
+      target.terminal.focus();
     } catch {
-      setNotice('無法讀取剪貼簿，請使用系統貼上快捷鍵。');
+      if (targetIsCurrent(target)) setNotice('無法讀取剪貼簿，請使用系統貼上快捷鍵。');
+    } finally {
+      finishAction();
+    }
+  };
+  const stop = async () => {
+    const target = captureActionTarget();
+    if (!target || actionPending.current) return;
+    actionPending.current = true;
+    setConfirming(true);
+    try {
+      if (!await confirmAction(`結束「${latest.current.pane.title}」的受管程序？最後畫面將保留。`)) return;
+      if (!targetIsCurrent(target)) return;
+      await api.stop(target.runtimeId);
+    } catch (error) {
+      if (targetIsCurrent(target)) setNotice(errorMessage(error));
+    } finally {
+      finishAction();
     }
   };
   return (
@@ -354,7 +400,7 @@ export function TerminalPane({
             className="icon-button"
             title="貼上"
             aria-label="貼上"
-            disabled={!live}
+            disabled={!live || confirming}
             onClick={() => void paste()}
           >
             <ClipboardPaste size={14} />
@@ -468,14 +514,8 @@ export function TerminalPane({
           </span>
           {live ? (
             <button
-              disabled={pane.state === 'starting'}
-              onClick={() => {
-                if (
-                  pane.runtimeId &&
-                  window.confirm(`結束「${pane.title}」的受管程序？最後畫面將保留。`)
-                )
-                  void api.stop(pane.runtimeId).catch((error) => setNotice(errorMessage(error)));
-              }}
+              disabled={pane.state === 'starting' || confirming}
+              onClick={() => void stop()}
             >
               <Square size={11} />
               停止

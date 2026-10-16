@@ -6,7 +6,8 @@
 
 - 本機目錄欄位使用 Tauri 2 官方 dialog plugin 的單選資料夾對話框：加入既有專案、建立專案的上層目錄、歷史來源根目錄、重新定位與啟動工作目錄。
 - 保留可直接輸入的文字欄位，支援隱藏目錄及特殊路徑；選取只回填目前草稿，不自動儲存、建目錄、啟動或索引。取消與失敗保留草稿，後端原有驗證、canonicalization 與存取邊界仍為準。
-- 僅授予主視窗 `dialog:allow-open`，不加入 filesystem 或 shell plugin 權限。瀏覽器預覽沒有原生選擇器時顯示提示並保留文字輸入；不實作遠端目錄瀏覽或 Web 檔案上傳。
+- 主視窗僅授予 `dialog:allow-open` 與既有終端安全確認所需的 `dialog:allow-message`，不加入 filesystem、save 或 shell plugin 權限。瀏覽器預覽沒有原生選擇器時顯示提示並保留文字輸入；不實作遠端目錄瀏覽或 Web 檔案上傳。
+- 官方 plugin 2.8.3 會將 `window.confirm` 改為 `Promise<boolean>`。多行貼上與停止程序一律經共用 async helper，只接受明確 `true`；取消、權限拒絕、例外與重疊請求均不執行。等待剪貼簿／確認期間鎖定重複操作，回覆後重新核對原 pane、runtime、啟動世代與可見性，避免晚到確認操作新終端。
 - Shell Profile 目前沒有 cwd 欄位；Shell／Agent 執行檔欄位仍維持文字輸入，不把執行檔當成資料夾。
 - 非同步選取結果在欄位編輯、模式切換、儲存鎖定或關閉／重新開啟後失效，避免覆蓋較新的草稿或重建已關閉的視窗。系統對話框取消後回到原欄位。
 - dialog plugin 提供 macOS／Windows／Linux API；這不代表本 PR 完成 Windows 整體支援，三平台遷移使用另一個獨立 PR，原生選取驗收與編譯結果分別記錄。

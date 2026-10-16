@@ -6,12 +6,14 @@
 本批從 main `a609f041` 分支，僅加入本機目錄選擇器；與三平台移植分開，不把 plugin 的 Windows API 支援視為應用程式的 Windows 驗收。
 
 - 加入既有專案、建立專案的上層目錄、歷史來源根目錄、重新定位與啟動工作目錄使用共同欄位元件；手動輸入、原本儲存／驗證／canonicalization 流程保留。
-- Tauri Rust 與 npm dialog plugin 固定為 `2.8.3`，兩份 lockfile 已更新；僅啟用 `dialog:allow-open`，不新增 filesystem API 權限。上游 dialog crate 依賴 filesystem crate，但應用未註冊 filesystem plugin 或授予其命令權限。對話框設定 `directory: true`、`multiple: false`、`recursive: false`。
+- Tauri Rust 與 npm dialog plugin 固定為 `2.8.3`，兩份 lockfile 已更新；僅啟用 `dialog:allow-open` 與既有安全確認所需的 `dialog:allow-message`，不新增 filesystem／save API 權限。上游 dialog crate 依賴 filesystem crate，但應用未註冊 filesystem plugin 或授予其命令權限。對話框設定 `directory: true`、`multiple: false`、`recursive: false`。
 - 選取／取消均不自動提交、建立目錄、掃描或啟動；重複點擊、選取失敗、較新手動輸入（包含改回原值）、關閉／重新開啟、模式／設定區段切換、來源移除、儲存鎖定與焦點回復均有回歸測試。
+
+- PR review 修正官方 plugin 將 `window.confirm` 改為 Promise 的跨功能影響。測試執行固定版本原始 `init-iife.js`，核對真正 `Cancel`／`Ok`、IPC 拒絕與未處理 rejection；多行貼上與停止程序皆 fail closed，等待期間重新啟動、退出、切換分頁、關閉面板或較晚的剪貼簿結果不作用於新目標。這是合成 IPC 回歸，不冒充原生 OS modal 實機驗收。
 
 | 驗證 | 本批結果與限制 |
 | --- | --- |
-| 前端 aggregate | typecheck、ESLint、Vitest **15 檔 433 測試**與 production build 通過；相較基線新增 35 項 |
+| 前端 aggregate | typecheck、ESLint、Vitest **16 檔 465 測試**與 production build 通過；包含官方 initializer 的 async confirmation 回歸。共用雲端預設並行曾出現測試逾時／worker SIGKILL，改以 `--maxWorkers=2` 完整重跑通過，沒有略過測試或放寬 timeout |
 | Rust 核心 | `cargo test --locked --no-default-features` **241 通過、1 個既有 ignore**；strict all-target core Clippy 與 rustfmt 通過 |
 | 靜態視覺資產 | 44 組語意色彩與 10 個 ICNS representations 檢查通過；不代表 painted-pixel／原生視窗驗收 |
 | 桌面 feature 檢查 | 已嘗試 `cargo check --locked`，在 `gobject-sys` 建置時因缺少 `gobject-2.0.pc`（GTK／WebKit 開發依賴）受阻，未通過，亦未宣稱原生 bundle 成功 |

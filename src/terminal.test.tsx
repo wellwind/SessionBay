@@ -1,8 +1,9 @@
 import { defaultAgentOptions } from './agents';
 import { shouldHandleTerminalKey } from './terminal-ime';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPane } from './components/TerminalPane';
+import { installNativeConfirmation } from './test/dialog-init';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from './types';
 const mocks = vi.hoisted(() => ({
   launch: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   ack: vi.fn(),
   stop: vi.fn(),
   termWrite: vi.fn(),
+  termPaste: vi.fn(),
   disposed: vi.fn(),
   keyHandler: vi.fn(),
   input: undefined as undefined | ((value: string) => void),
@@ -30,7 +32,7 @@ vi.mock('@xterm/xterm', () => ({
     getSelection() {
       return '';
     }
-    paste() {}
+    paste(text: string) { mocks.termPaste(text); }
     dispose() {
       mocks.disposed();
     }
@@ -318,5 +320,117 @@ describe('additional agent terminal requests', () => {
     render(<TerminalPane {...props(makePane({ kind: 'grok', sessionId: 'catalog-session', startToken: 1 }))} />);
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
     expect(mocks.launch.mock.calls[0][0]).toMatchObject({ kind: 'grok', sessionId: 'catalog-session', resumeId: undefined });
+  });
+});
+
+describe('real plugin asynchronous confirmation safety', () => {
+  function running() { return props(makePane({ state: 'running', runtimeId: 'runtime' })); }
+  function clipboard(text = 'unsafe command\n') {
+    const readText = vi.fn().mockResolvedValue(text);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText } });
+    return readText;
+  }
+  it.each(['Cancel', 'rejection'])('never pastes multiline clipboard text after native %s', async (result) => {
+    clipboard();
+    installNativeConfirmation(result === 'Cancel' ? vi.fn().mockResolvedValue('Cancel') : vi.fn().mockRejectedValue(new Error('Denied')));
+    const view = render(<TerminalPane {...running()} />);
+    await act(async () => fireEvent.click(view.getByRole('button', { name: '貼上' })));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(view.getByRole('button', { name: '貼上' })).toBeEnabled();
+  });
+  it.each(['Cancel', 'rejection'])('never stops a runtime after native %s', async (result) => {
+    installNativeConfirmation(result === 'Cancel' ? vi.fn().mockResolvedValue('Cancel') : vi.fn().mockRejectedValue(new Error('Denied')));
+    const view = render(<TerminalPane {...running()} />);
+    await act(async () => fireEvent.click(view.getByRole('button', { name: '停止' })));
+    expect(mocks.stop).not.toHaveBeenCalled();
+    expect(view.getByRole('button', { name: '停止' })).toBeEnabled();
+  });
+  it('allows native Ok to paste once and to stop only the captured runtime', async () => {
+    clipboard();
+    installNativeConfirmation(vi.fn().mockResolvedValue('Ok'));
+    const view = render(<TerminalPane {...running()} />);
+    await act(async () => fireEvent.click(view.getByRole('button', { name: '貼上' })));
+    expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('unsafe command\n');
+    await act(async () => fireEvent.click(view.getByRole('button', { name: '停止' })));
+    expect(mocks.stop).toHaveBeenCalledExactlyOnceWith('runtime');
+  });
+  it('prevents repeated clicks and concurrent paste/stop while native confirmation is pending', async () => {
+    const read = clipboard();
+    let finish!: (value: string) => void;
+    const invoke = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    installNativeConfirmation(invoke);
+    const view = render(<TerminalPane {...running()} />);
+    await act(async () => {
+      fireEvent.click(view.getByRole('button', { name: '貼上' }));
+      fireEvent.click(view.getByRole('button', { name: '貼上' }));
+      fireEvent.click(view.getByRole('button', { name: '停止' }));
+    });
+    expect(read).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(view.getByRole('button', { name: '貼上' })).toBeDisabled();
+    expect(view.getByRole('button', { name: '停止' })).toBeDisabled();
+    await act(async () => finish('Ok'));
+    expect(mocks.termPaste).toHaveBeenCalledOnce();
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
+  it.each(['restart', 'hide', 'hide-and-show', 'refocus', 'exit', 'unmount'] as const)('discards a confirmed paste after %s', async (change) => {
+    clipboard();
+    let finish!: (value: string) => void;
+    installNativeConfirmation(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const p = running();
+    const view = render(<TerminalPane {...p} />);
+    await act(async () => fireEvent.click(view.getByRole('button', { name: '貼上' })));
+    if (change === 'restart') {
+      mocks.launch.mockResolvedValueOnce({ ...info, id: 'new-runtime' });
+      view.rerender(<TerminalPane {...p} pane={makePane({ state: 'running', runtimeId: 'new-runtime', startToken: 1 })} />);
+    } else if (change === 'hide' || change === 'hide-and-show') {
+      view.rerender(<TerminalPane {...p} visible={false} />);
+      if (change === 'hide-and-show') view.rerender(<TerminalPane {...p} visible />);
+    } else if (change === 'refocus') {
+      view.rerender(<TerminalPane {...p} focused={false} />);
+      view.rerender(<TerminalPane {...p} focused />);
+    } else if (change === 'exit') view.rerender(<TerminalPane {...p} pane={{ ...p.pane, state: 'exited' }} />);
+    else view.unmount();
+    await act(async () => finish('Ok'));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it.each(['restart', 'hide-and-show', 'refocus', 'exit', 'unmount'] as const)('does not stop from an obsolete confirmation after %s', async (change) => {
+    let finish!: (value: string) => void;
+    installNativeConfirmation(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const p = running();
+    const view = render(<TerminalPane {...p} />);
+    await act(async () => fireEvent.click(view.getByRole('button', { name: '停止' })));
+    if (change === 'restart') {
+      mocks.launch.mockResolvedValueOnce({ ...info, id: 'new-runtime' });
+      view.rerender(<TerminalPane {...p} pane={makePane({ state: 'running', runtimeId: 'new-runtime', startToken: 1 })} />);
+    } else if (change === 'hide-and-show') {
+      view.rerender(<TerminalPane {...p} visible={false} />);
+      view.rerender(<TerminalPane {...p} visible />);
+    } else if (change === 'refocus') {
+      view.rerender(<TerminalPane {...p} focused={false} />);
+      view.rerender(<TerminalPane {...p} focused />);
+    } else if (change === 'exit') view.rerender(<TerminalPane {...p} pane={{ ...p.pane, state: 'exited' }} />);
+    else view.unmount();
+    // Baseline pane cleanup has its own stop; the pending confirmation must add no call.
+    mocks.stop.mockClear();
+    await act(async () => finish('Ok'));
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
+  it('revalidates the target after clipboard read, before showing any confirmation', async () => {
+    let finish!: (value: string) => void;
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+      readText: () => new Promise<string>((resolve) => { finish = resolve; }),
+    } });
+    const invoke = vi.fn().mockResolvedValue('Ok');
+    installNativeConfirmation(invoke);
+    const p = running();
+    const view = render(<TerminalPane {...p} />);
+    fireEvent.click(view.getByRole('button', { name: '貼上' }));
+    view.rerender(<TerminalPane {...p} visible={false} />);
+    await act(async () => finish('unsafe command\n'));
+    expect(invoke).not.toHaveBeenCalled();
+    expect(mocks.termPaste).not.toHaveBeenCalled();
   });
 });
