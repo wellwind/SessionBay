@@ -1,0 +1,107 @@
+{
+  "fallbackDuplicates": true,
+  "finalMemory": {
+    "processPeakResidentKiB": 87324,
+    "residentKiB": 6444
+  },
+  "logicalMessagesPerSession": 2000,
+  "phases": [
+    {
+      "memory": {
+        "processPeakResidentKiB": 6300,
+        "residentKiB": 6308
+      },
+      "milliseconds": 8187.287453,
+      "phase": "coldIndex",
+      "processed": 1
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 6300,
+        "residentKiB": 6308
+      },
+      "milliseconds": 0.6157670000000001,
+      "phase": "unchangedReconcile",
+      "processed": 1
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 6300,
+        "residentKiB": 6308
+      },
+      "milliseconds": 0.462316,
+      "phase": "unchangedReconcile",
+      "processed": 1
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 6300,
+        "residentKiB": 6308
+      },
+      "milliseconds": 0.442957,
+      "phase": "unchangedReconcile",
+      "processed": 1
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 6300,
+        "residentKiB": 6308
+      },
+      "milliseconds": 8418.165943,
+      "phase": "singleFileAppend",
+      "processed": 1
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 87324,
+        "residentKiB": 6804
+      },
+      "milliseconds": 11156.517561999999,
+      "phase": "sameSizeRewrite",
+      "processed": 1
+    }
+  ],
+  "requestedKiBPerSession": 20000,
+  "scope": "release backend only; fresh index with OS page cache warm from synthetic generation; source integrity checks excluded from timings; memory is process-wide and includes generation",
+  "search": [
+    {
+      "matches": 1,
+      "p50Ms": 0.400102,
+      "p95Ms": 0.49799000000000004,
+      "query": "中文",
+      "samples": 20
+    },
+    {
+      "matches": 1,
+      "p50Ms": 28.977099,
+      "p95Ms": 38.884119,
+      "query": "session_bay_identifier",
+      "samples": 20
+    },
+    {
+      "matches": 1,
+      "p50Ms": 27.855909,
+      "p95Ms": 29.469048,
+      "query": "SESSION_BAY_IDENTIFIER",
+      "samples": 20
+    },
+    {
+      "matches": 1,
+      "p50Ms": 26.73466,
+      "p95Ms": 27.986515,
+      "query": "unique_needle_0.",
+      "samples": 20
+    },
+    {
+      "matches": 0,
+      "p50Ms": 0.774777,
+      "p95Ms": 1.158605,
+      "query": "no_match_exists",
+      "samples": 20
+    }
+  ],
+  "sessions": 1,
+  "sourceBytes": 41496930,
+  "sourceSha256": "5edaab91a49fe6a411a25ed57a216afc4302efbdb8d42abe2b55e0370ebd1d1e",
+  "version": 1
+}

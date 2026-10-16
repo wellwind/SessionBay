@@ -1,10 +1,13 @@
 import { agentNames, defaultAgentOptions } from './agents';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { TerminalDraftDialog } from './components/TerminalDraftDialog';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api, isDesktop } from './api';
-import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, Session, Workspace } from './types';
+import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, RuntimeRecord, Session, Workspace } from './types';
+import { canPickDirectory, pickDirectory } from './directory-picker';
+vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
 import { emptyWorkspace } from './workspace';
 import { startup } from './startup';
 import { runSmokeInteraction } from './smoke';
@@ -36,6 +39,8 @@ vi.mock('./api', () => ({
     saveWorkspace: vi.fn(),
     close: vi.fn(),
     stop: vi.fn(),
+    forget: vi.fn(),
+    settleLaunches: vi.fn(),
     runtimes: vi.fn(),
     launch: vi.fn(),
     detect: vi.fn(),
@@ -121,6 +126,7 @@ vi.mock('./components/WorkspaceCanvas', () => ({
 
 function bootstrap(): Bootstrap {
   return {
+    runtimes: [],
     settings: {
       version: 1,
       theme: 'dark',
@@ -132,7 +138,7 @@ function bootstrap(): Bootstrap {
       profiles: [{ id: 'default', name: 'Shell', executable: '/bin/bash', args: ['-l'], env: {} }],
       sources: [],
       agentOptions: defaultAgentOptions(),
-      executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+      executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
       shortcuts: {},
       onboardingComplete: true,
     },
@@ -181,6 +187,11 @@ function bootstrap(): Bootstrap {
     },
   };
 }
+function brokerRecord(patch: Partial<RuntimeRecord> = {}): RuntimeRecord {
+  return { id: 'runtime-a', paneId: 'pane-a', kind: 'shell', projectId: 'project-a',
+    sessionId: null, resumeId: null, profileId: null, cwd: '/synthetic/project',
+    state: 'running', exitCode: null, ...patch };
+}
 async function tick(ms = 0) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -199,6 +210,8 @@ async function nativeClose() {
 }
 
 beforeEach(() => {
+  vi.mocked(canPickDirectory).mockReturnValue(false);
+  vi.mocked(pickDirectory).mockReset();
   vi.useFakeTimers();
   native.handlers.clear();
   native.patch = undefined;
@@ -218,6 +231,8 @@ beforeEach(() => {
   vi.mocked(api.stop).mockResolvedValue(undefined);
   vi.mocked(api.preview).mockResolvedValue({ executable: '/bin/bash', args: ['-l'], cwd: '/synthetic/project' });
   vi.mocked(api.runtimes).mockResolvedValue([]);
+  vi.mocked(api.forget).mockResolvedValue(undefined);
+  vi.mocked(api.settleLaunches).mockResolvedValue(undefined);
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -332,6 +347,7 @@ describe('App desktop lifecycle', () => {
     changePage('所有目錄');
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     expect(screen.getByRole('heading', { name: 'Synthetic project' })).toBeInTheDocument();
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord()]);
     fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
     fireEvent.click(
       within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', {
@@ -455,21 +471,16 @@ describe('App desktop lifecycle', () => {
     );
     expect(api.stop).not.toHaveBeenCalled();
   });
-  it('does not stop or close active programs when native-close confirmation is cancelled', async () => {
+  it('closes the UI without stopping or forgetting active programs', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />);
     await tick();
     fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
     await nativeClose();
-    const confirmation = screen.getByRole('dialog', { name: '結束 1 個程序並退出？' });
-    expect(within(confirmation).getByText(/Saved shell/)).toBeInTheDocument();
-    expect(api.close).not.toHaveBeenCalled();
+    expect(api.close).toHaveBeenCalledOnce();
     expect(api.stop).not.toHaveBeenCalled();
-    fireEvent.click(within(confirmation).getByRole('button', { name: '取消' }));
+    expect(api.forget).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(api.close).not.toHaveBeenCalled();
-    expect(api.stop).not.toHaveBeenCalled();
-    expect(screen.getByText('1 個執行中程序')).toBeInTheDocument();
   });
   it('closes the latest runtime when a starting pane becomes running while confirmation is open', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
@@ -483,6 +494,7 @@ describe('App desktop lifecycle', () => {
     });
     vi.mocked(api.runtimes).mockResolvedValue([
       {
+        kind: 'shell', projectId: 'project-a', profileId: null, resumeId: null,
         id: 'runtime-a',
         paneId: 'pane-a',
         sessionId: null,
@@ -703,28 +715,21 @@ describe('App curated project navigation', () => {
   });
 });
 
-describe('App successful shell exit navigation', () => {
-  it('returns to history after a final shell exits successfully and never restores late duplicate patches', async () => {
+describe('App retained shell exit navigation', () => {
+  it('keeps a successful final shell and its output workspace until explicit close', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />);
     await tick();
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
     act(() => { native.patch?.('pane-a', { state: 'exited', exitCode: 0 }); });
-    act(() => {
-      native.patch?.('pane-a', { state: 'exited', exitCode: 0 });
-      native.patch?.('pane-a', { runtimeId: 'late-runtime' });
-    });
-    expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!)).toEqual(emptyWorkspace());
-    expect(screen.queryByRole('region', { name: '開啟中的工作區' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('history-view')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!).panes['pane-a'])
+      .toMatchObject({ state: 'exited', exitCode: 0 });
+    expect(screen.getByRole('region', { name: '開啟中的工作區' })).toBeInTheDocument();
     expect(api.stop).not.toHaveBeenCalled();
-    await tick(500);
-    expect(api.saveWorkspace).toHaveBeenCalledExactlyOnceWith(emptyWorkspace());
+    expect(api.forget).not.toHaveBeenCalled();
   });
 });
-
 
 describe('App session-specific working directories', () => {
   it.each([
@@ -941,7 +946,7 @@ describe('exact agent launch preview and manual resume', () => {
     expect(reopened.querySelector('pre')?.textContent).toContain('/current');
     expect(Object.keys(workspaceSnapshot().panes)).toEqual(['pane-a']);
   });
-  it.each(['grok', 'antigravity'] as const)('previews and persists the trimmed manual %s resume ID separately from the catalog ID', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('previews and persists the trimmed manual %s resume ID separately from the catalog ID', async (kind) => {
     vi.mocked(api.preview).mockResolvedValue({ executable: kind === 'grok' ? '/synthetic/grok' : '/synthetic/agy',
       args: [kind === 'grok' ? '--resume' : '--conversation', 'synthetic-conversation'], cwd: '/synthetic/project' });
     const dialog = await openLauncher();
@@ -985,7 +990,7 @@ describe('exact agent launch preview and manual resume', () => {
     await tick(150);
     expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'grok', resumeId: undefined }));
   });
-  it.each(['grok', 'antigravity'] as const)('restores a %s manual conversation as a placeholder without previewing or starting it', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('restores a %s manual conversation as a placeholder without previewing or starting it', async (kind) => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();
     (data.workspace as Workspace).panes['pane-a'] = {
@@ -1081,9 +1086,10 @@ describe('backend-owned resume identity', () => {
       id: 'other-runtime', paneId: 'not-in-workspace', sessionId: 'synthetic-session',
       state: 'running', cwd: '/synthetic/new-source-worktree', exitCode: null,
     }));
+    await tick();
     const result = workspaceSnapshot();
     expect(result.panes['pane-a']).toEqual(original.panes['pane-a']);
-    expect(result.panes[newPane.id]).toMatchObject({ state: 'failed', error: expect.stringContaining('無法重新附接') });
+    expect(result.panes[newPane.id]).toMatchObject({ state: 'failed', error: expect.stringContaining('已不在背景程序清單') });
     expect(api.stop).not.toHaveBeenCalled();
   });
 });
@@ -1487,7 +1493,7 @@ describe('shared launcher and scoped search controls', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
     const selector = within(dialog).getByRole('combobox', { name: 'Agent' });
     fireEvent.click(selector);
-    for (const kind of ['codex', 'claude', 'grok', 'antigravity'] as const)
+    for (const kind of ['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const)
       expect(screen.getByRole('option', { name: new RegExp(`^${agentNames[kind]}`) })).toBeInTheDocument();
     const missing = screen.getByRole('option', { name: /^Grok Build/ });
     expect(missing).toHaveAttribute('aria-disabled', 'true');
@@ -1685,4 +1691,548 @@ it('refuses a preview-only session even when a stale history callback attempts r
   expect(api.launch).not.toHaveBeenCalled();
   expect(api.preview).not.toHaveBeenCalled();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+describe('persistent broker application lifecycle', () => {
+  it('reconciles broker identity and never relaunches restored live work', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.runtimes = [brokerRecord({ id: 'authoritative-id' })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    expect(workspaceSnapshot().panes['pane-a']).toMatchObject({ runtimeId: 'authoritative-id', state: 'running' });
+    expect(workspaceSnapshot().panes['pane-a'].startToken).toBeUndefined();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('recovers and saves an orphan runtime even when no layout or catalog project survived', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.workspace = emptyWorkspace();
+    data.projects = [];
+    data.runtimes = [brokerRecord({ paneId: 'orphan', projectId: null })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    expect(workspaceSnapshot().panes.orphan).toMatchObject({ runtimeId: 'runtime-a', state: 'running' });
+    expect(workspaceSnapshot().tabs).toHaveLength(1);
+    await tick(500);
+    const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)![0] as Workspace;
+    expect(saved.panes.orphan).toMatchObject({ state: 'placeholder' });
+    expect(saved.panes.orphan.runtimeId).toBeUndefined();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('waits for a pending launch before authoritative stop and forget on explicit pane close', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    let settle!: () => void;
+    vi.mocked(api.settleLaunches).mockImplementationOnce(() => new Promise<void>((resolve) => { settle = resolve; }));
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord()]);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime starting' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+    await tick();
+    expect(api.runtimes).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    await act(async () => settle());
+    expect(api.stop).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(api.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(vi.mocked(api.stop).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(api.forget).mock.invocationCallOrder[0]);
+    expect(workspaceSnapshot().panes['pane-a']).toBeUndefined();
+  });
+  it('does not stop an old runtime when broker reports interrupted after a restart', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord({ state: 'interrupted' })]);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+    await tick();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.forget).toHaveBeenCalledWith('runtime-a');
+  });
+  it('removes a completed shell record only after explicit close, without stopping it', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.runtimes = [brokerRecord({ state: 'exited', exitCode: 0 })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.runtimes).mockResolvedValue(data.runtimes);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    await tick();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(workspaceSnapshot().panes['pane-a']).toBeUndefined();
+  });
+  it('recovers a broker-owned duplicate pane absent from saved layout instead of launching or stopping it', async () => {
+    const { newPane } = await resumeWithExistingLiveSession('/synthetic/new-source-worktree');
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord({ id: 'other-runtime', paneId: 'recovered-pane',
+      kind: 'codex', sessionId: 'synthetic-session', cwd: '/synthetic/new-source-worktree' })]);
+    act(() => native.alreadyOpen?.(newPane.id, { id: 'other-runtime', paneId: 'recovered-pane',
+      sessionId: 'synthetic-session', state: 'running', cwd: '/synthetic/new-source-worktree', exitCode: null }));
+    await tick();
+    expect(workspaceSnapshot().panes[newPane.id]).toBeUndefined();
+    expect(workspaceSnapshot().panes['recovered-pane']).toMatchObject({ state: 'running', runtimeId: 'other-runtime' });
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+});
+
+describe('global temporary terminals', () => {
+  it('opens from an empty project catalog using the configured profile without creating a project', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.projects = [];
+    data.workspace = emptyWorkspace();
+    data.settings.defaultProfileId = 'home-shell';
+    data.settings.profiles.push({ id: 'home-shell', name: 'Home shell', executable: '/synthetic/shell', args: [], env: {} });
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '開啟臨時 Terminal' }));
+    const state = workspaceSnapshot();
+    const pane = Object.values(state.panes)[0];
+    expect(pane).toMatchObject({ kind: 'shell', projectId: null, homeDirectory: true, cwd: '', profileId: 'home-shell', startToken: 1 });
+    expect(state.tabs[0]).toMatchObject({ projectId: null, name: 'Terminal 1' });
+    expect(state.activeTemporaryTabId).toBe(state.tabs[0].id);
+    expect(state.activeTabByProject).toEqual({});
+    expect(screen.getByRole('heading', { level: 1, name: '臨時 Terminal' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.addProject).not.toHaveBeenCalled();
+    expect(api.createProject).not.toHaveBeenCalled();
+    expect(api.updateProject).not.toHaveBeenCalled();
+    await tick(500);
+    const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)![0] as Workspace;
+    expect(saved.panes[pane.id].projectId).toBeNull();
+    expect(saved.panes[pane.id].startToken).toBeUndefined();
+  });
+  it('keeps global tabs reachable across project navigation, numeric shortcuts and repeated opens', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: '開啟臨時 Terminal' }));
+    fireEvent.click(screen.getByRole('button', { name: '新增臨時 Terminal' }));
+    const state = workspaceSnapshot();
+    const globalTabs = state.tabs.filter((tab) => tab.projectId === null);
+    expect(globalTabs.map((tab) => tab.name)).toEqual(['Terminal 1', 'Terminal 2']);
+    expect(state.activeTemporaryTabId).toBe(globalTabs[1].id);
+    expect(state.activeTabByProject['project-a']).toBe('tab-a');
+    fireEvent.keyDown(window, { key: '1', code: 'Digit1', ctrlKey: true });
+    expect(workspaceSnapshot().activeTemporaryTabId).toBe(globalTabs[0].id);
+    fireEvent.keyDown(window, { key: 'Tab', code: 'Tab', ctrlKey: true });
+    expect(workspaceSnapshot().activeTemporaryTabId).toBe(globalTabs[1].id);
+    selectGroup();
+    expect(screen.getByRole('heading', { level: 1, name: 'Synthetic project' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '開啟工作區 臨時 Terminal Terminal 1' }));
+    expect(screen.getByRole('heading', { level: 1, name: '臨時 Terminal' })).toBeInTheDocument();
+    expect(workspaceSnapshot().activeTemporaryTabId).toBe(globalTabs[0].id);
+    expect(workspaceSnapshot().panes['pane-a'].projectId).toBe('project-a');
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.addProject).not.toHaveBeenCalled();
+  });
+  it('recovers a global broker record without a fake project and explicitly closes only that runtime', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.runtimes = [brokerRecord({ projectId: null, cwd: '/trusted/home' }),
+      brokerRecord({ id: 'other-runtime', paneId: 'other-pane', projectId: 'project-a' })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.runtimes).mockResolvedValue(data.runtimes);
+    render(<App />);
+    await tick();
+    const state = workspaceSnapshot();
+    const globalTab = state.tabs.find((tab) => tab.projectId === null)!;
+    expect(state.panes['pane-a']).toMatchObject({ projectId: null, cwd: '/trusted/home', runtimeId: 'runtime-a', state: 'running' });
+    expect(state.panes['pane-a'].startToken).toBeUndefined();
+    expect(screen.queryByText('已還原工作區')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: `開啟工作區 臨時 Terminal ${globalTab.name}` }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+    await tick();
+    expect(api.stop).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(api.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(workspaceSnapshot().panes['other-pane'].runtimeId).toBe('other-runtime');
+    expect(screen.getByRole('heading', { name: '目前沒有臨時 Terminal' })).toBeInTheDocument();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.addProject).not.toHaveBeenCalled();
+  });
+  it('uses the normal Terminal shortcut without a project and preserves project launch dialogs', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    fireEvent.keyDown(window, { key: 'T', code: 'KeyT', ctrlKey: true, shiftKey: true });
+    expect(workspaceSnapshot().tabs.some((tab) => tab.projectId === null)).toBe(true);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    selectGroup();
+    fireEvent.keyDown(window, { key: 'T', code: 'KeyT', ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole('dialog', { name: '開始新的工作' })).toBeInTheDocument();
+    expect(api.createProject).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('directory pickers in workspace flows', () => {
+  beforeEach(() => { vi.mocked(canPickDirectory).mockReturnValue(true); });
+  it('previews a selected launch cwd but never starts a process until submitted', async () => {
+    vi.mocked(pickDirectory).mockResolvedValue('/synthetic/chosen');
+    const dialog = await openLauncher();
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: '選擇工作目錄' })); });
+    expect(within(dialog).getByLabelText('工作目錄')).toHaveValue('/synthetic/chosen');
+    await tick(150);
+    expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: '/synthetic/chosen' }));
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(Object.keys(workspaceSnapshot().panes)).toEqual(['pane-a']);
+  });
+  it('ignores a selected launch cwd after cancelling and reopening the launcher', async () => {
+    let resolve!: (value: string) => void;
+    vi.mocked(pickDirectory).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const dialog = await openLauncher();
+    fireEvent.click(within(dialog).getByRole('button', { name: '選擇工作目錄' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    await act(async () => resolve('/late'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
+    expect(screen.getByRole('textbox', { name: '工作目錄' })).toHaveValue('/synthetic/project');
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('only saves a selected relocation through the existing validated project update', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(pickDirectory).mockResolvedValue('/synthetic/relocated');
+    const data = directoryOverviewBootstrap();
+    const unknown = data.projects.find((entry) => entry.id === 'unknown')!;
+    const saved = { ...unknown, curated: true, launchPath: '/synthetic/relocated', exists: true };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.updateProject).mockResolvedValue(saved);
+    vi.mocked(api.projects).mockResolvedValue(data.projects.map((entry) => entry.id === saved.id ? saved : entry));
+    render(<App />);
+    await tick();
+    changePage('所有目錄');
+    selectGroup('Unknown directory', '所有目錄');
+    fireEvent.click(screen.getByRole('button', { name: 'Curate synthetic history project' }));
+    const dialog = screen.getByRole('dialog', { name: '重新定位專案目錄' });
+    vi.mocked(api.scan).mockClear(); // The initial bootstrap scan predates opening this picker.
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: '選擇目錄路徑' })); });
+    expect(within(dialog).getByLabelText('目錄路徑')).toHaveValue('/synthetic/relocated');
+    expect(api.updateProject).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: '儲存新位置' }));
+    await tick();
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith('unknown', { launchPath: '/synthetic/relocated', curated: true });
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.scan).not.toHaveBeenCalled();
+  });
+});
+
+describe('App live theme integration', () => {
+  const start = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    render(<App />);
+    await tick();
+  };
+  it('quick switching previews before persistence resolves and keeps the committed theme after closing', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '深色' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '設定與資料來源' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    // Theme-only quick saves preserve all other committed settings verbatim.
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...bootstrap().settings, theme: 'light' });
+  });
+  it('restores the committed theme after a failed quick save, even if the menu already closed', async () => {
+    await start();
+    let fail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    await act(async () => fail(new Error('Disk full')));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(screen.getByRole('alert')).toHaveTextContent('外觀未能儲存，已還原至上次儲存');
+    expect(screen.getByRole('button', { name: '快速切換主題' })).not.toBeDisabled();
+  });
+  it('Settings previews without a save call, then cancel restores and a later save persists', async () => {
+    await start();
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '快速切換主題' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(native.canvasUnmounted).not.toHaveBeenCalled();
+  });
+});
+
+describe('Terminal font zoom integration', () => {
+  const zoom = (key: string, patch: KeyboardEventInit = {}, target: Window | Document | Element = window) => fireEvent(target, new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true, ...patch }));
+  const start = async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal 1' }));
+  };
+  const fontStatus = () => screen.getByText(/^終端 \d+ px/);
+  it('previews every repeat immediately, coalesces serialized saves, and resets without changing UI or workspace', async () => {
+    await start();
+    const before = workspaceSnapshot();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    expect(zoom('=')).toBe(false);
+    zoom('+', { shiftKey: true }); zoom('=');
+    expect(fontStatus()).toHaveTextContent('終端 17 px');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.saveSettings).mock.calls[0][0].fontSize).toBe(15);
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(api.saveSettings).toHaveBeenCalledTimes(2);
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...bootstrap().settings, fontSize: 17 });
+    expect(fontStatus()).toHaveTextContent('終端 17 px');
+    expect(fontStatus()).not.toHaveTextContent('儲存中');
+    await act(async () => zoom('-'));
+    expect(fontStatus()).toHaveTextContent('終端 16 px');
+    await act(async () => zoom('0'));
+    expect(fontStatus()).toHaveTextContent('終端 14 px');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(workspaceSnapshot()).toEqual(before);
+    expect(native.canvasUnmounted).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled(); expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('rolls failed persistence back to the last confirmed size, drops queued changes and allows retry', async () => {
+    await start(); await act(async () => zoom('='));
+    let fail!: (error: Error) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    zoom('='); zoom('=');
+    expect(fontStatus()).toHaveTextContent('終端 17 px');
+    await act(async () => fail(new Error('Disk full')));
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+    expect(screen.getByRole('alert')).toHaveTextContent('已還原至上次儲存');
+    await act(async () => zoom('='));
+    expect(fontStatus()).toHaveTextContent('終端 16 px');
+  });
+  it('does not capture ordinary fields, modal dialogs, IME or unrelated PTY keys', async () => {
+    await start();
+    const field = document.getElementById('session-search')!;
+    expect(zoom('=', {}, field)).toBe(true);
+    expect(zoom('=', { isComposing: true })).toBe(true);
+    fireEvent.compositionStart(window.document);
+    expect(zoom('=')).toBe(true);
+    fireEvent.compositionEnd(window.document);
+    expect(zoom('c')).toBe(true);
+    expect(zoom('Enter', { shiftKey: true })).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    expect(zoom('=')).toBe(true);
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(fontStatus()).toHaveTextContent('終端 14 px');
+  });
+  it('settings preview cancels to the zoomed size and save persists the new size', async () => {
+    await start(); await act(async () => zoom('='));
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /終端字型大小/ }), { target: { value: '21' } });
+    expect(fontStatus()).toHaveTextContent('終端 21 px');
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+    expect(api.saveSettings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /終端字型大小/ }), { target: { value: '21' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(fontStatus()).toHaveTextContent('終端 21 px');
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].fontSize).toBe(21);
+  });
+  it('captures zoom before the xterm input target, consumes bounds, and leaves normal input untouched', async () => {
+    await start();
+    const pane = document.createElement('div'); pane.className = 'terminal-pane';
+    const input = document.createElement('textarea'); input.className = 'xterm-helper-textarea';
+    pane.append(input); screen.getByTestId('workspace-canvas').append(pane);
+    const terminalKey = vi.fn(); input.addEventListener('keydown', terminalKey);
+    for (let i = 0; i < 40; i++) expect(zoom('=', {}, input)).toBe(false);
+    expect(fontStatus()).toHaveTextContent('終端 32 px');
+    expect(terminalKey).not.toHaveBeenCalled();
+    await tick();
+    for (let i = 0; i < 40; i++) expect(zoom('-', {}, input)).toBe(false);
+    expect(fontStatus()).toHaveTextContent('終端 9 px');
+    await tick();
+    expect(zoom('c', {}, input)).toBe(true);
+    expect(terminalKey).toHaveBeenCalledOnce();
+    expect(vi.mocked(api.saveSettings).mock.calls.at(-1)?.[0].fontSize).toBe(9);
+  });
+  it('keeps a pending quick theme when a subsequent zoom is queued after its menu closes', async () => {
+    await start();
+    let finish!: (value: Bootstrap['settings']) => void;
+    vi.mocked(api.saveSettings).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    zoom('=');
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+    await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...bootstrap().settings, theme: 'light', fontSize: 15 });
+    expect(document.documentElement.dataset.theme).toBe('light');
+    expect(fontStatus()).toHaveTextContent('終端 15 px');
+  });
+
+});
+
+describe('workspace display organization', () => {
+  it('renames and persists a tab without remounting the canvas or stopping its runtime', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
+    const original = workspaceSnapshot();
+    const mounts = native.canvasMounted.mock.calls.length;
+    const unmounts = native.canvasUnmounted.mock.calls.length;
+    const stops = vi.mocked(api.stop).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '重新命名分頁 Terminal' }));
+    fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Build console' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存名稱' }));
+    await tick(); await tick(450);
+    expect(workspaceSnapshot().tabs[0].name).toBe('Build console');
+    expect(workspaceSnapshot().panes).toEqual(original.panes);
+    expect(native.canvasMounted).toHaveBeenCalledTimes(mounts);
+    expect(native.canvasUnmounted).toHaveBeenCalledTimes(unmounts);
+    expect(api.stop).toHaveBeenCalledTimes(stops);
+    expect(vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0]).toMatchObject({ tabs: [{ name: 'Build console' }] });
+  });
+  it('cancels project rename without writes and saves display-only metadata without path/membership changes', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const project = bootstrap().projects[0];
+    vi.mocked(api.updateProject).mockResolvedValue({ ...project, name: 'Friendly project' });
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: '重新命名專案' }));
+    fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Cancelled' } });
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(api.updateProject).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '重新命名專案' }));
+    expect(screen.getByLabelText('顯示名稱')).toHaveValue(project.name);
+    fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: '  Friendly project  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存名稱' })); await tick();
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith(project.id, { name: 'Friendly project' });
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Friendly project');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(workspaceSnapshot().panes['pane-a'].cwd).toBe(project.path);
+    expect(api.createProject).not.toHaveBeenCalled(); expect(api.addProject).not.toHaveBeenCalled();
+  });
+  it('reorders the rendered tabs and numeric navigation follows the persisted order', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap(); const workspace = data.workspace as Workspace;
+    workspace.tabs.push({ ...workspace.tabs[0], id: 'tab-b', name: 'Second', focusedPaneId: 'pane-b', layout: { kind: 'pane', paneId: 'pane-b' } });
+    workspace.panes['pane-b'] = { ...workspace.panes['pane-a'], id: 'pane-b' };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />); await tick(); selectGroup();
+    const tab = screen.getByRole('button', { name: 'Second 1' });
+    fireEvent.keyDown(tab, { key: 'ArrowLeft', altKey: true });
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    fireEvent.keyDown(window, { key: '1', code: 'Digit1', metaKey: mac, ctrlKey: !mac });
+    expect(workspaceSnapshot().tabs.map((item) => item.id)).toEqual(['tab-b', 'tab-a']);
+    expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-b');
+    await tick(450);
+    expect((vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0] as Workspace).tabs.map((item) => item.id)).toEqual(['tab-b', 'tab-a']);
+  });
+});
+
+it('integrates temporary tab naming, selection and reordering without inventing a project identity', async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  render(<App />);
+  await tick();
+  fireEvent.click(screen.getByRole('button', { name: '開啟臨時 Terminal' }));
+  fireEvent.click(screen.getByRole('button', { name: '新增臨時 Terminal' }));
+  const before = workspaceSnapshot();
+  const globalTabs = before.tabs.filter((tab) => tab.projectId === null);
+  fireEvent.click(screen.getByRole('button', { name: '重新命名分頁 Terminal 1' }));
+  fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Named global' } });
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存名稱' })));
+  const select = screen.getByRole('button', { name: /^Named global 1$/ });
+  fireEvent.click(select);
+  expect(workspaceSnapshot().activeTemporaryTabId).toBe(globalTabs[0].id);
+  fireEvent.keyDown(select, { key: 'ArrowRight', altKey: true });
+  const after = workspaceSnapshot();
+  expect(after.tabs.filter((tab) => tab.projectId === null).map((tab) => tab.id)).toEqual([globalTabs[1].id, globalTabs[0].id]);
+  expect(after.activeTemporaryTabId).toBe(globalTabs[0].id);
+  expect(after.activeTabByProject).toEqual(before.activeTabByProject);
+  expect(after.activeTabByProject).not.toHaveProperty('null');
+  expect(after.panes).toEqual(before.panes);
+  expect(api.addProject).not.toHaveBeenCalled();
+  expect(api.stop).not.toHaveBeenCalled();
+  expect(api.launch).not.toHaveBeenCalled();
+  await tick(500);
+  const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)![0] as Workspace;
+  expect(saved.tabs.filter((tab) => tab.projectId === null).map((tab) => tab.name)).toEqual(['Terminal 2', 'Named global']);
+  expect(saved.activeTemporaryTabId).toBe(globalTabs[0].id);
+});
+
+
+it.each(['Linux', 'MacIntel'])('keeps real draft textarea shortcuts and IME isolated from App navigation and font zoom on %s', async (platform) => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.mocked(api.saveSettings).mockReset().mockImplementation(async (next) => next);
+  const data = bootstrap();
+  const workspace = data.workspace as Workspace;
+  workspace.tabs.push({ ...workspace.tabs[0], id: 'tab-b', name: 'Second', focusedPaneId: 'pane-b', layout: { kind: 'pane', paneId: 'pane-b' } });
+  workspace.panes['pane-b'] = { ...workspace.panes['pane-a'], id: 'pane-b' };
+  vi.mocked(api.bootstrap).mockResolvedValue(data);
+  render(<App />); await tick(); selectGroup();
+  fireEvent.click(screen.getByRole('button', { name: 'Second 1' }));
+  await tick(500);
+  const before = workspaceSnapshot();
+  vi.mocked(api.saveWorkspace).mockClear();
+  const paste = vi.fn(); const restoreFocus = vi.fn();
+  function DraftHarness() {
+    const [open, setOpen] = useState(true);
+    const [text, setText] = useState('first line\nsecond line');
+    return <>
+      <button onClick={() => setOpen(true)}>Reopen synthetic draft</button>
+      {open && <TerminalDraftDialog text={text} target={{ title: 'Second', cwd: '/synthetic/project', runtimeId: 'runtime-b' }}
+        available busy={false} result="" onChange={setText} onPaste={paste} onNew={vi.fn()}
+        onClose={() => setOpen(false)} onRestoreFocus={restoreFocus} />}
+    </>;
+  }
+  render(<DraftHarness />);
+  const field = screen.getByRole('textbox', { name: '草稿內容' });
+  expect(field).toHaveFocus();
+  fireEvent.change(field, { target: { value: 'kept\ndraft' } });
+  const modifier = platform === 'MacIntel' ? { metaKey: true } : { ctrlKey: true };
+  for (const key of ['1', '9', '=', '-', '0']) fireEvent.keyDown(field, { key, ...modifier });
+  fireEvent.keyDown(field, { key: 'Tab', ctrlKey: true });
+  fireEvent.keyDown(field, { key: 'Tab', ctrlKey: true, shiftKey: true });
+  await tick(500);
+  expect(workspaceSnapshot()).toEqual(before);
+  expect(screen.getByText(/^終端 \d+ px/)).toHaveTextContent('終端 14 px');
+  expect(api.saveSettings).not.toHaveBeenCalled();
+  expect(api.saveWorkspace).not.toHaveBeenCalled();
+  expect(api.launch).not.toHaveBeenCalled();
+  expect(api.stop).not.toHaveBeenCalled();
+  expect(paste).not.toHaveBeenCalled();
+  fireEvent.compositionStart(field);
+  fireEvent.keyDown(field, { key: 'Escape' });
+  expect(screen.getByRole('dialog', { name: '多行草稿' })).toBeInTheDocument();
+  expect(field).toHaveValue('kept\ndraft');
+  fireEvent.compositionEnd(field);
+  fireEvent.keyDown(field, { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: '多行草稿' })).not.toBeInTheDocument();
+  expect(restoreFocus).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Reopen synthetic draft' }));
+  expect(screen.getByRole('textbox', { name: '草稿內容' })).toHaveValue('kept\ndraft');
+  expect(paste).not.toHaveBeenCalled();
 });

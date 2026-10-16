@@ -16,7 +16,7 @@ vi.mock('./startup', async (original) => ({
 vi.mock('./api', () => ({
   isDesktop: () => true, call: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
-  api: Object.fromEntries(['bootstrap', 'scan', 'index', 'projects', 'saveWorkspace', 'close', 'stop', 'runtimes',
+  api: Object.fromEntries(['bootstrap', 'scan', 'index', 'projects', 'saveWorkspace', 'close', 'stop', 'forget', 'settleLaunches', 'runtimes',
     'launch', 'detect', 'detectShells', 'cancelScan', 'clearIndex', 'saveSettings', 'updateProject', 'addProject',
     'createProject', 'preview', 'sessions', 'transcript', 'detectHistorySources'].map((name) => [name, vi.fn()])),
 }));
@@ -24,17 +24,18 @@ vi.mock('./api', () => ({
 const root = '/synthetic/isolated-home/sessionbay-smoke-fixture';
 function seed(theme: 'dark' | 'light'): Bootstrap {
   return {
+    runtimes: [],
     settings: {
       version: 1, theme, terminalTheme: 'bay', fontFamily: 'monospace', fontSize: 14,
       defaultAgent: 'codex', defaultProfileId: 'smoke-shell',
       profiles: [{ id: 'smoke-shell', name: 'POSIX Shell', executable: '/bin/sh', args: [], env: {} }],
       sources: [{ id: 'sessionbay-smoke-codex', kind: 'codex', root: `${root}/codex`, enabled: true },
         { id: 'sessionbay-smoke-antigravity', kind: 'antigravity', root: '/synthetic/isolated-home/.gemini/antigravity-cli', enabled: true }],
-      executables: { codex: '/missing/codex', claude: '/missing/claude', grok: '/missing/grok', antigravity: '/missing/agy' },
+      executables: { codex: '/missing/codex', claude: '/missing/claude', grok: '/missing/grok', antigravity: '/missing/agy', opencode: '/missing/opencode' },
       agentOptions: defaultAgentOptions(), shortcuts: {}, onboardingComplete: false,
     },
-    installations: ['codex', 'claude', 'grok', 'antigravity'].map((kind) => ({
-      kind: kind as 'codex' | 'claude' | 'grok' | 'antigravity', available: false,
+    installations: ['codex', 'claude', 'grok', 'antigravity', 'opencode'].map((kind) => ({
+      kind: kind as 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode', available: false,
       executable: null, version: null, error: null,
     })),
     projects: [], workspace: emptyWorkspace(), warnings: [],
@@ -49,6 +50,8 @@ beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   vi.mocked(api.saveWorkspace).mockResolvedValue(undefined);
   vi.mocked(api.runtimes).mockResolvedValue([]);
+  vi.mocked(api.forget).mockResolvedValue(undefined);
+  vi.mocked(api.settleLaunches).mockResolvedValue(undefined);
 });
 afterEach(() => {
   vi.clearAllTimers();
@@ -118,12 +121,12 @@ describe('native visual smoke scenario against real React UI', () => {
       if (name.startsWith('projects')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('專案');
       if (name.startsWith('directories')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('所有目錄');
       if (name.startsWith('providers')) {
-        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(4);
+        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(5);
         expect(api.detectHistorySources).not.toHaveBeenCalled();
       }
       if (name.startsWith('launcher')) {
         expect(screen.getByRole('dialog', { name: '開始新的工作' })).toContainElement(screen.getByRole('listbox'));
-        expect(screen.getAllByRole('option')).toHaveLength(4);
+        expect(screen.getAllByRole('option')).toHaveLength(5);
       }
       if (name.startsWith('calendar')) expect(screen.getByRole('grid')).toBeInTheDocument();
     });

@@ -1,3 +1,4 @@
+import { agentKinds, agentNames } from './agents';
 import { smokeSnapshot } from './startup';
 
 /** Invoked only after the native diagnostic command confirms SESSIONBAY_SMOKE=1. */
@@ -44,7 +45,7 @@ export async function runSmokeInteraction(): Promise<void> {
     !fixtureSource.endsWith('/sessionbay-smoke-fixture/codex')))
     throw new Error('UI smoke: invalid synthetic fixture source');
   const fixtureRoot = fixtureSource?.slice(0, -'/codex'.length);
-  for (const name of ['Codex', 'Claude Code', 'Grok Build', 'Antigravity CLI']) {
+  for (const name of agentKinds.map((kind) => agentNames[kind])) {
     const checkbox = dialog()?.querySelector<HTMLInputElement>(`input[aria-label="${name} 略過權限確認"]`);
     if (!checkbox || checkbox.checked) throw new Error(`UI smoke: missing/default-unsafe ${name} options`);
   }
@@ -112,8 +113,8 @@ export async function runSmokeInteraction(): Promise<void> {
     await smokeSnapshot(`directories-${theme}`);
     open();
     await waitFor(() => !!dialog(), 'provider settings did not open');
-    if (dialog()!.querySelectorAll('.settings-history-provider').length !== 4)
-      throw new Error('UI smoke: expected four permanent history provider sections');
+    if (dialog()!.querySelectorAll('.settings-history-provider').length !== agentKinds.length)
+      throw new Error('UI smoke: expected all permanent history provider sections');
     dialog()!.querySelector('.settings-history-providers')?.scrollIntoView({ block: 'start' });
     await smokeSnapshot(`providers-${theme}`);
     // Exercise the native read-only discovery IPC against CI's isolated, empty GROK_HOME.
@@ -152,9 +153,9 @@ export async function runSmokeInteraction(): Promise<void> {
     await waitFor(() => !!launcher()?.querySelector('[role="combobox"][aria-label="Agent"]'),
       'fixture agent chooser did not appear');
     click(launcher()!.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Agent"]'));
-    await waitFor(() => launcher()?.querySelectorAll('[role="listbox"] [role="option"]').length === 4,
-      'four-provider listbox did not open inside the launcher dialog');
-    if (launcher()!.querySelectorAll('[role="option"][aria-disabled="true"]').length !== 4)
+    await waitFor(() => launcher()?.querySelectorAll('[role="listbox"] [role="option"]').length === agentKinds.length,
+      'provider listbox did not open inside the launcher dialog');
+    if (launcher()!.querySelectorAll('[role="option"][aria-disabled="true"]').length !== agentKinds.length)
       throw new Error('UI smoke: synthetic unavailable executables must remain disabled');
     await smokeSnapshot(`launcher-${theme}`);
     launcher()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

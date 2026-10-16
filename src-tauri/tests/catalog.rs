@@ -7,6 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tempfile::TempDir;
 
+#[cfg(unix)]
+const SHARED_CWD: &str = "/synthetic/shared";
+#[cfg(windows)]
+const SHARED_CWD: &str = "C:/synthetic/shared";
+
 const CODEX: &str = include_str!("../../fixtures/codex/standard.jsonl");
 const CLAUDE: &str = include_str!("../../fixtures/claude/standard.jsonl");
 const CHILD: &str = include_str!("../../fixtures/claude/subagent.jsonl");
@@ -38,7 +43,11 @@ impl Harness {
     fn write(&self, source: &HistorySource, relative: &str, text: &str) -> PathBuf {
         let path = Path::new(&source.root).join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, text).unwrap();
+        fs::write(
+            &path,
+            text.replace("\"/synthetic/shared\"", &format!("\"{SHARED_CWD}\"")),
+        )
+        .unwrap();
         path
     }
     fn sync(&self, sources: &[HistorySource]) {
@@ -61,7 +70,7 @@ impl Harness {
 fn codex(id: &str, text: &str) -> String {
     format!(
         "{}\n{}\n",
-        json!({"type":"session_meta","payload":{"id":id,"cwd":"/synthetic/shared"}}),
+        json!({"type":"session_meta","payload":{"id":id,"cwd":SHARED_CWD}}),
         json!({"timestamp":"2026-01-01T00:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}})
     )
 }
@@ -91,6 +100,7 @@ fn cross_agent_grouping_literal_unicode_search_and_safe_tool_omission() {
     h.sync(&[a, b]);
     let projects = h.catalog.projects().unwrap();
     assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].path.as_deref(), Some(SHARED_CWD));
     assert_eq!(projects[0].session_count, 2);
     assert_eq!(projects[0].agents.len(), 2);
     assert_eq!(h.total("中文"), 1);
@@ -619,7 +629,7 @@ fn project_overrides_and_clear_never_modify_original_history() {
         )
         .unwrap();
     assert!(updated.exists);
-    assert_eq!(updated.path.as_deref(), Some("/synthetic/shared"));
+    assert_eq!(updated.path.as_deref(), Some(SHARED_CWD));
     let manual = h
         .catalog
         .add_project(h.root.to_str().unwrap(), None)
@@ -745,8 +755,7 @@ fn existing_symlink_paths_merge_without_losing_original_cwd() {
     symlink(&real, &alias).unwrap();
     let source = h.source("a", AgentKind::Codex);
     for (id, path) in [("one", real), ("two", alias)] {
-        let content =
-            codex(id, "same project").replace("/synthetic/shared", path.to_str().unwrap());
+        let content = codex(id, "same project").replace(SHARED_CWD, path.to_str().unwrap());
         h.write(&source, &format!("sessions/{id}.jsonl"), &content);
     }
     h.sync(&[source]);
@@ -1169,7 +1178,7 @@ fn relative_cwd_is_preserved_but_never_resolved_against_application_directory() 
     h.write(
         &source,
         "sessions/a.jsonl",
-        &codex("s", "relative cwd").replace("/synthetic/shared", "."),
+        &codex("s", "relative cwd").replace(SHARED_CWD, "."),
     );
     h.sync(&[source]);
     let session = h
@@ -1374,7 +1383,7 @@ fn transcript_snapshot_is_stable_and_covers_older_codex_and_claude_pages() {
                     user("Fixed newest page")
                 )
             } else {
-                ["Fixed first title", middle, "Fixed newest page"].into_iter().map(|text| format!("{}\n", json!({"type":"user","sessionId":"snapshot-id","cwd":"/synthetic/shared","timestamp":"2026-02-01T00:00:00Z","message":{"role":"user","content":text}}))).collect::<String>()
+                ["Fixed first title", middle, "Fixed newest page"].into_iter().map(|text| format!("{}\n", json!({"type":"user","sessionId":"snapshot-id","cwd":SHARED_CWD,"timestamp":"2026-02-01T00:00:00Z","message":{"role":"user","content":text}}))).collect::<String>()
             }
         };
         let relative = if kind == AgentKind::Codex {
@@ -1411,4 +1420,134 @@ fn transcript_snapshot_is_stable_and_covers_older_codex_and_claude_pages() {
         assert_eq!(revised.messages[0].text, original.messages[0].text);
         assert_ne!(revised.snapshot_id, original.snapshot_id);
     }
+}
+
+fn fallback(role: &str, text: &str) -> String {
+    format!(
+        "{}\n",
+        json!({"type":"event_msg","payload":{"type": if role == "user" { "user_message" } else { "agent_message" },"message":text}})
+    )
+}
+
+#[test]
+fn many_fallback_copies_preserve_exact_text_roles_append_and_rewrite() {
+    let h = Harness::new();
+    let source = h.source("duplicates", AgentKind::Codex);
+    let header = format!(
+        "{}\n",
+        json!({"type":"session_meta","payload":{"id":"duplicates","cwd":"/synthetic/shared"}})
+    );
+    let mut text = header.clone();
+    for i in 0..256 {
+        let prose = format!("去重保留 Unicode {i} {}", "bounded message ".repeat(30));
+        text.push_str(&fallback("user", &prose));
+        text.push_str(&user(&prose));
+    }
+    text.push_str(&fallback("assistant", "same text different role"));
+    text.push_str(&user("same text different role"));
+    text.push_str(&fallback("user", "UNMATCHED_APPEND_TOKEN"));
+    text.push_str(&fallback("user", "Case_Sensitive_É"));
+    text.push_str(&user("case_sensitive_É"));
+    let path = h.write(&source, "sessions/duplicates.jsonl", &text);
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    let db = h.root.join("app/index.sqlite");
+    let count = |predicate: &str| -> i64 {
+        rusqlite::Connection::open(&db)
+            .unwrap()
+            .query_row(
+                &format!("SELECT COUNT(*) FROM messages WHERE {predicate}"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(count("hidden=1"), 256);
+    assert_eq!(count("hidden=0 AND role='assistant'"), 1);
+    assert_eq!(count("hidden=0 AND search_text='Case_Sensitive_É'"), 1);
+    assert_eq!(h.total("UNMATCHED_APPEND_TOKEN"), 1);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let before = h.catalog.transcript(&session.id, None, 200).unwrap();
+    append(&path, &user("UNMATCHED_APPEND_TOKEN"));
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(count("hidden=1"), 257);
+    assert_eq!(h.total("UNMATCHED_APPEND_TOKEN"), 1);
+    let after = h.catalog.transcript(&session.id, None, 200).unwrap();
+    assert_ne!(before.snapshot_id, after.snapshot_id);
+    assert_eq!(
+        after
+            .messages
+            .iter()
+            .filter(|message| message.text == "UNMATCHED_APPEND_TOKEN")
+            .count(),
+        1
+    );
+    // Rewriting away canonical rows restores the surviving fallback visibility.
+    let rewritten = format!("{header}{}", fallback("user", "UNMATCHED_APPEND_TOKEN"));
+    fs::write(&path, &rewritten).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(count("hidden=1"), 0);
+    assert_eq!(count("hidden=0"), 1);
+    assert_eq!(h.total("去重保留 Unicode"), 0);
+    assert_eq!(h.total("UNMATCHED_APPEND_TOKEN"), 1);
+    assert_eq!(fs::read_to_string(path).unwrap(), rewritten);
+    fts_integrity(&db);
+    // Scratch hashes never become part of the persistent catalog schema.
+    let conn = rusqlite::Connection::open(db).unwrap();
+    let persisted: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'message_dedup%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(persisted, 0);
+}
+
+#[test]
+fn fallback_digest_work_does_not_cross_source_or_file_boundaries() {
+    let h = Harness::new();
+    let first = h.source("first", AgentKind::Codex);
+    let second = h.source("second", AgentKind::Codex);
+    h.write(
+        &first,
+        "sessions/one.jsonl",
+        &format!(
+            "{}{}",
+            codex("one", "canonical only"),
+            fallback("user", "shared fallback")
+        ),
+    );
+    h.write(
+        &first,
+        "sessions/two.jsonl",
+        &format!(
+            "{}{}",
+            codex("two", "shared fallback"),
+            fallback("user", "shared fallback")
+        ),
+    );
+    h.write(
+        &second,
+        "sessions/three.jsonl",
+        &format!(
+            "{}{}",
+            codex("three", "other text"),
+            fallback("user", "shared fallback")
+        ),
+    );
+    h.sync(&[first, second]);
+    assert_eq!(h.total("shared fallback"), 3);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    let hidden: i64 = conn
+        .query_row("SELECT COUNT(*) FROM messages WHERE hidden=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(hidden, 1);
 }

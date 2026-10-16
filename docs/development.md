@@ -1,13 +1,14 @@
 # Session Bay 開發與試用
 
-本機優先的 macOS／Linux 工作台。可啟動你原先已安裝並登入的 Codex CLI、Claude Code、Grok Build 或 Antigravity CLI（`agy`）；即使未安裝 Agent，普通 Shell 與已存在的歷史仍可分開使用。
+本機優先的 Windows／macOS／Linux 工作台。可啟動你原先已安裝並登入的 Codex CLI、Claude Code、Grok Build、Antigravity CLI（`agy`）或 OpenCode；即使未安裝 Agent，普通 Shell 與已存在的歷史仍可分開使用。
 
 ## 平台與工具
 
+- Windows 10 1809+ x64／Windows 11，需要 Visual Studio 的 Desktop development with C++、MSVC Rust 與 WebView2；原生 build／ConPTY smoke 仍需驗收。詳見[三平台支援](platform-support.md)。
 - macOS 最低建置目標設定為 12+（尚待原生驗收）；Apple Silicon 與 Intel 分開建置。安裝 Xcode Command Line Tools：`xcode-select --install`。
 - Linux 以 Ubuntu 24.04 x64 作 CI／打包基準；開發驗證環境另見驗收紀錄。需要圖形工作階段（X11 或 Wayland）及 WebKitGTK 4.1。
 - Node.js 24／npm；Rust 使用根目錄 `rust-toolchain.toml` 固定版本。第一次 Cargo 執行會由 rustup 取得工具鏈。
-- `npm run tauri` 會在目前支援的 macOS／Linux 上，將 `${CARGO_HOME:-$HOME/.cargo}/bin` 放到子程序 PATH 前端，使用 rustup 的專案工具鏈；此設定僅作用於該次指令。
+- `npm run tauri` 使用跨平台 Node launcher，將 `CARGO_HOME/bin`（預設家目錄 `.cargo/bin`）放到本次程序 PATH 前端，直接執行 npm 套件的 JS entry，不依賴 POSIX 指派語法或 Windows `.cmd` quoting。
 - Git clone 後在 repo 根目錄執行，不需要修改 Agent 的資料庫或登入設定。
 
 Ubuntu 24.04 桌面相依套件：
@@ -35,6 +36,8 @@ npm run tauri -- build
 npm run tauri -- build --bundles deb
 # macOS 僅建立 app bundle
 npm run tauri -- build --bundles app
+# Windows 僅建立目前使用者的 NSIS installer
+npm run tauri -- build --bundles nsis
 ```
 
 產物在 `src-tauri/target/release/bundle/`。未簽章／未公證開發產物不等同公開發行，勿停用系統安全檢查來安裝來源不明的檔案。自行從可信原始碼建置適合這一階段試用。
@@ -62,15 +65,16 @@ node scripts/generate-macos-icon.mjs --preview-dir /tmp/sessionbay-icon-preview
 
 ## 第一次使用
 
-1. 開啟「設定與資料來源」。四 Agent 的能力卡片固定可見，與是否啟動過或找到執行檔無關；四工具可設定資料根目錄後啟用索引；Antigravity 只涵蓋 CLI，來源預設 ~/.gemini/antigravity-cli，App／IDE 不混用。舊設定以「偵測歷史來源」明確加入後保存。
+1. 開啟「設定與資料來源」。五 Agent 的能力卡片固定可見，與是否啟動過或找到執行檔無關；五工具可設定資料根目錄後啟用索引；Antigravity 只涵蓋 CLI，來源預設 ~/.gemini/antigravity-cli，App／IDE 不混用。舊設定以「偵測歷史來源」明確加入後保存。
 2. 全新設定的預設來源尊重 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`GROK_HOME`；否則為 `~/.codex`、`~/.claude`、`~/.grok`。升級保留既有來源清單；若缺少 Grok，使用卡片設定入口新增草稿，填入絕對路徑並明確保存，不會猜測 home 或自動新增索引根目錄。欄位輸入完整絕對路徑，依工具包含 `sessions`／`archived_sessions`、`projects` 或 Grok 的 `sessions`。
 3. 每個來源有獨立 ID。同一 Agent 的相同 canonical root 不可重複；不同來源同名 Session 不會被合併。
 4. 預設開啟「專案」總覽，管理自己加入的目錄；切到「所有目錄」可看所有有 Session 的分組，包含未知或失效路徑。兩頁都有卡片與側欄，選擇一組後才搜尋該目錄歷史；掃描不自動加入專案，總覽不混列各目錄的 Session。中文以連續子字串匹配；英文 ASCII 不分大小寫，`%`、`_` 不當 SQL wildcard；不提供模糊或語意搜尋。3 字元以上使用 compact trigram 候選索引再精確驗證，不足 3 字元掃描匹配。
 5. 點選對話只預覽，不啟動 CLI。接續時才會啟動原工具，沿用 CLI 權限及登入流程。
-6. 新增 Terminal 或左右／上下分割，兩邊各自有 PTY。切換分頁不結束程序；關閉面板／退出應用需確認結束受管程序。
-7. 重開只恢復布局占位，點「重新開啟」才執行。普通 Terminal 中手動啟動 Agent 不自動與歷史關聯。
+6. 新增 Terminal 或左右／上下分割，兩邊各自有 PTY。切換分頁不結束程序；明確停止／關閉面板才結束受管程序；退出 UI 僅 detach，broker 繼續執行。
+7. 重開從 broker 找回每個受管程序的真實狀態，附接相同 runtime，不重跑原指令；broker／電腦重啟後標示 interrupted，須明確重新啟動。普通 Terminal 中手動啟動 Agent 不自動與歷史關聯。
+8. 不需專案時，頂列「臨時 Terminal」使用預設 Shell Profile 在 Rust 確認的家目錄啟動；不新增 catalog project。
 
-普通 Shell 執行 `exit` 且以結束碼 `0` 正常離開時，面板會自動關閉；若是最後一個面板，該工作區分頁也會關閉。Agent、非零／未知結束碼與錯誤保留診斷畫面；重開後的布局占位不因此自動移除。
+所有已退出 Shell／Agent 均保留最後畫面與結束碼，直到明確關閉面板。UI 退出後的輸出有界保留在 broker 記憶體；broker 重啟不恢復舊畫面。詳見[持續 Runtime](persistent-runtime.md)。
 
 ## 管理自己的專案清單
 
@@ -81,7 +85,7 @@ node scripts/generate-macos-icon.mjs --preview-dir /tmp/sessionbay-icon-preview
 - **置頂**：保留 `pinned` 作為自選專案內的排序偏好；取消置頂不會移出專案。
 - **保存與升級**：加入狀態、名稱及釘選保存在自有 catalog；舊版手動加入或釘選項會保留為自選專案，其餘有 Session 的掃描目錄仍可在所有目錄找到。
 
-此版尚無原生目錄選擇器，請輸入完整絕對路徑，不使用 `~` 或相對路徑。專案更名只改顯示名稱；搬移後請用原有「重新定位」，仍保留原始 cwd／transcript。
+本機目錄欄位可用原生資料夾選擇器或手動輸入絕對路徑，不使用 `~` 或相對路徑；選取只更新草稿，仍須明確儲存。瀏覽器預覽使用手動輸入。專案更名只改顯示名稱；搬移後請用原有「重新定位」，仍保留原始 cwd／transcript。
 
 本次變更在隔離雲端使用合成資料與暫存路徑驗證，不存取使用者真實電腦或 Agent 歷史。具體測試結果與尚待驗收範圍見[變更紀錄](mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)。
 
@@ -97,7 +101,7 @@ Shell「重新偵測」只列候選，由你選擇加入 Profile 並保存，保
 
 ## 自訂 Agent 啟動參數
 
-在「設定與資料來源」中，四個 Agent 都有獨立執行檔與參數設定。參數填 JSON 字串陣列，例如 `["--model", "your-model-id"]`，不要填整條命令或 Shell 引號。選項只接受後端支援的白名單；目錄、來源與 Session ID 由應用管理。設定會明文保存在本機，請勿填入密碼、API key 或 token。
+在「設定與資料來源」中，五個 Agent 都有獨立執行檔與參數設定。參數填 JSON 字串陣列，例如 `["--model", "your-model-id"]`，不要填整條命令或 Shell 引號。選項只接受後端支援的白名單；目錄、來源與 Session ID 由應用管理。設定會明文保存在本機，請勿填入密碼、API key 或 token。
 
 如需減少工具的權限提示，閱讀風險說明後明確勾選該 Agent 的高風險選項並保存。它預設關閉，勾選後跨重開沿用，不必每次在 Session Bay 重複確認；CLI 自身登入、工作區信任或政策仍可能要求操作。Codex 的預設會同時取消審批與沙箱；Grok 的預設只自動核准工具，沙箱另行設定。各工具實際旗標與自訂權限模式優先規則見 [Agent 整合規格](agent-integrations.md#每個-agent-的自訂參數與危險模式)。
 
@@ -115,10 +119,11 @@ Shell「重新偵測」只列候選，由你選擇加入 Profile 並保存，保
 - Claude Code：解析 `projects` 內的 user／assistant transcript JSONL，保留 parent／子代理關係；啟動使用 `claude --resume <id>`，獨立 cwd 與 `CLAUDE_CONFIG_DIR`。
 - Grok Build：唯讀解析 `sessions/<encoded-cwd>/<session-id>/summary.json` 與 `updates.jsonl` 的支援訊息／rewind 事件；使用 `grok --resume <id>`、獨立 cwd 與選中來源的 `GROK_HOME`。
 - Antigravity CLI：使用 `agy` 新建或 `agy --conversation <id>` 接續；支援 CLI metadata／持久化 transcript 的防禦讀取與預覽。備份來源只讀、缺 cwd 需明確選擇；1.3.5 實際資料仍待驗證，不涵蓋 App／IDE。見[相容性說明](antigravity-cli-history.md)。
+- OpenCode：唯讀複製並驗證 `opencode.db`／WAL，解析固定版本的支援 SQLite v1/v2 結構；以 `--session <id>` 與 `OPENCODE_DB` 接續，不改 HOME 或憑證。舊 JSON、任意 DB 檔名及 remote attach 不在範圍，見[整合限制](opencode-integration.md)。
 - CLI 格式不是本專案保證穩定的公開資料 API。實際版本相容性與尚未驗證項目列於驗收紀錄，不能把合成 fixture 通過等同真實版本已驗證。
 - 成功 spawn 只表示「已啟動，待確認 Session」，不表示原工具已載入正確對話。外部已啟動的程序狀態未知，不會被自動附接或關閉。
 - 同來源多個 transcript 同 ID、跨來源同 ID 造成 CLI 歧義、來源遺失或身分衝突時，恢復會被阻擋；先修正資料來源後重新索引。
-- 目前不提供 fork 副本、雲端／IDE 歷史、daemon 附接、用量分析、外掛或同步。
+- 目前不提供 fork 副本、雲端／IDE 歷史、任意外部 daemon 附接、用量分析、外掛或同步；內建 broker 只附接受管 Runtime。
 
 ## 本機資料與隱私
 
@@ -159,6 +164,15 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 第一個參數為 Session 數，第二個為每個 Session 的近似 KiB。結果含實際來源 bytes、索引耗時、未變更補掃、20 次查詢 p50／p95；不是 WebView 互動或整體記憶體量測。
 
+較完整的多訊息／生命週期基準使用 `index_lifecycle_benchmark`，參數依序為 Session 數、每個 Session 近似 KiB、訊息數，可加 `duplicates` 產生 Codex fallback／canonical 雙份紀錄。它分測空索引、三次未變更補掃、單檔追加、同大小重寫與五類搜尋，並檢查來源內容及可見訊息數。大型資料請把 `TMPDIR` 指向空間充足的磁碟，而非小型 tmpfs；建議至少預留 8 GiB。
+
+```bash
+cargo run --release --locked --manifest-path src-tauri/Cargo.toml \
+  --no-default-features --example index_lifecycle_benchmark -- 1000 100 20
+```
+
+同環境 before／after、10k／長對話指令、記憶體欄位與尚未達標的搜尋情境見[索引效能量測](index-performance.md)。這些資料不能代替使用者真實來源與原生 UI 驗收。
+
 ## CI 省額度模式
 
 日常自動檢查由 `.github/workflows/light-checks.yml` 執行：本 repo 的 branch push 只跑一個 Ubuntu 24.04 job，不同時監聽 pull_request。結果仍附在同 repo PR 的 commit 上；同 branch 較新的程式提交會取消較舊的自動檢查。它驗證 branch head，不是合成 merge commit；fork PR 或只有 base branch 更新的整合相容性需另外安排，不假裝已覆蓋。
@@ -167,7 +181,7 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 自動 push 的 `paths-ignore` 僅包含 `README.md` 和 `docs/*.md`。一般僅修改這些文件時，在配置 runner 前略過；`docs/` 內其他格式／更深路徑、scripts、fixtures、skills、設定、workflow 都不忽略。GitHub 對大量 commits、diff 逾時或檔案列表上限有特殊規則，不能保證每種大型變更都零 run。純文件被略過不會產生新的通過證據；若把這個檢查設成 required，缺少 check 可能讓合併保持 pending。此 PR 不改 branch protection 或 required checks。
 
-完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；手動觸發會使用三個 runner，請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
+完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；手動觸發會使用四個 runner（Linux、macOS ARM64／Intel、Windows x64），請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
 
 GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026-10-15 本次合併授權前的唯讀檢查確認 main 尚無 `.github/workflows`，當時不能保證未合併 PR 已有手動按鈕或 API／CLI 可派送。流程檔正常納入 default branch 後，仍須帳務可用並明確選擇目標 branch/ref，才執行完整驗收。使用者後續已接受 PR 並授權合併；不會因此代為觸發完整流程、調整帳務或提高額度。
 
@@ -177,7 +191,7 @@ GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026
 
 ### 完整手動驗收產物
 
-`.github/workflows/ci.yml` 手動執行時會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`。兩 OS 的 smoke 使用空白暫存 HOME、明確的 SESSIONBAY_SMOKE=1，等待 React DOM、backend bootstrap 與實際設定對話框開關／重開的訊號；啟動前模組錯誤、CSP 違規與未處理例外會使測試失敗。Linux Xvfb 無 GPU，僅在 CI 設 WEBKIT_DISABLE_COMPOSITING_MODE=1 使用軟體合成，沒有停用 WebKit sandbox 或放寬 CSP。Linux 再擷取 PNG 並拒絕純色畫面，仍需人工檢視截圖。macOS 不申請螢幕錄製／Accessibility 權限，DOM 操作通過也不宣稱已驗證畫面像素。這些 smoke 不取代 IME／真實 CLI／完整終端互動驗收。Private repo Actions 可能消耗帳號額度；只有實際 workflow run 成功才表示該平台通過。
+`.github/workflows/ci.yml` 手動執行時會檢查 Ubuntu 24.04、macOS 15 ARM64／Intel、Windows 2022 x64，並保存未簽章 artifact，不建立公開 release。macOS `.app` 先封裝成 `.tar.gz` 以保留 executable permissions／symlinks；下載 artifact ZIP 後還需解開內層 tar。Linux 保存 `.deb`，Windows 保存 NSIS `.exe`；Windows 隔離空來源 smoke 的限制見[三平台支援](platform-support.md)。兩 OS 的 smoke 使用空白暫存 HOME、明確的 SESSIONBAY_SMOKE=1，等待 React DOM、backend bootstrap 與實際設定對話框開關／重開的訊號；啟動前模組錯誤、CSP 違規與未處理例外會使測試失敗。Linux Xvfb 無 GPU，僅在 CI 設 WEBKIT_DISABLE_COMPOSITING_MODE=1 使用軟體合成，沒有停用 WebKit sandbox 或放寬 CSP。Linux 再擷取 PNG 並拒絕純色畫面，仍需人工檢視截圖。macOS 不申請螢幕錄製／Accessibility 權限，DOM 操作通過也不宣稱已驗證畫面像素。這些 smoke 不取代 IME／真實 CLI／完整終端互動驗收。Actions 是否計費依 repository／runner／帳戶方案而定；只有相同提交的完整四個 matrix jobs 都成功，才算三 OS CI 通過。日常 Linux lightweight 綠燈不代表三平台驗收。
 
 Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](https://github.com/actions/upload-artifact/blob/v4/README.md#permission-loss)。
 
@@ -198,3 +212,7 @@ Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](
 - 設定／布局損壞：使用預設值並顯示警告，原檔保留；修復後再手動保存。較新 schema 不會被開啟／未變更退出自動覆寫；在恢復後改動布局或明確保存設定會建立目前支援版本，請先保留原檔備份。
 - PTY 超過 30 秒未收到前端消費 ACK：停止該程序並報錯，防止失控輸出累積；正常背景分頁仍會解析與 ACK。
 - Linux 缺 WebKit／GTK：安裝上面的官方 distro 套件；不要停用系統沙箱來繞過啟動錯誤。
+
+### Actions JavaScript runtime
+
+專案測試用的 `node-version: 24` 與 JavaScript action 自己的 `runs.using` 是兩層設定。GitHub 已在 [2026-09-23 移除 Node 20 action runtime](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/)；兩份 workflows 改用經官方 `action.yml` 確認為 Node 24 的 checkout 7.0.1、setup-node 7.1.0、upload-artifact 7.0.2，固定完整 commit SHA。沒有獨立 cache action；npm cache 由 setup-node 的 Node 24 runtime 處理。沒有設定舊 runtime opt-out 或改動專案 Node major。最低 Actions Runner 2.327.1；本案皆使用 GitHub hosted runners，macOS 15／Linux x64／Windows x64 符合 Node 24 平台條件。

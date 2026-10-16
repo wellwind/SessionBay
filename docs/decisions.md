@@ -2,6 +2,18 @@
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
 
+## 2026-10-16 原生目錄選擇器（獨立 PR）
+
+- 本機目錄欄位使用 Tauri 2 官方 dialog plugin 的單選資料夾對話框：加入既有專案、建立專案的上層目錄、歷史來源根目錄、重新定位與啟動工作目錄。
+- 保留可直接輸入的文字欄位，支援隱藏目錄及特殊路徑；選取只回填目前草稿，不自動儲存、建目錄、啟動或索引。取消與失敗保留草稿，後端原有驗證、canonicalization 與存取邊界仍為準。
+- 主視窗僅授予 `dialog:allow-open` 與既有終端安全確認所需的 `dialog:allow-message`，不加入 filesystem、save 或 shell plugin 權限。瀏覽器預覽沒有原生選擇器時顯示提示並保留文字輸入；不實作遠端目錄瀏覽或 Web 檔案上傳。
+- 官方 plugin 2.8.3 會將 `window.confirm` 改為 `Promise<boolean>`。多行貼上與停止程序一律經共用 async helper，只接受明確 `true`；取消、權限拒絕、例外與重疊請求均不執行。等待剪貼簿／確認期間鎖定重複操作，回覆後重新核對原 pane、runtime、啟動世代與可見性，避免晚到確認操作新終端。
+- Shell Profile 目前沒有 cwd 欄位；Shell／Agent 執行檔欄位仍維持文字輸入，不把執行檔當成資料夾。
+- 非同步選取結果在欄位編輯、模式切換、儲存鎖定或關閉／重新開啟後失效，避免覆蓋較新的草稿或重建已關閉的視窗。系統對話框取消後回到原欄位。
+- dialog plugin 提供 macOS／Windows／Linux API；這不代表本 PR 完成 Windows 整體支援，三平台遷移使用另一個獨立 PR，原生選取驗收與編譯結果分別記錄。
+
+官方依據：[Tauri Dialog](https://v2.tauri.app/plugin/dialog/)，查閱 2026-10-16。
+
 ## 2026-10-15 工具登錄、啟動器與輸入操作一致性
 
 本節記錄原功能批次；後續使用者追加的 Antigravity CLI 歷史、IME／快捷鍵與來源偵測依本文件後段決策執行，未來待辦仍不納入實作。
@@ -248,3 +260,117 @@
 使用者明確表示「ok, 驗收完成, 確保 PR 標題內容描述等都正確後就可以 merge 了」，並補充「噢，還要把完成的都勾起來」。本次接受已交付 PR 的功能與介面，授權校正描述、勾選實際完成項目後合併；不新增功能或將未完成的規劃改為完成。
 
 已實作並有本機回歸的 UI／UX、工作分頁快捷鍵、來源候選偵測與 breadcrumb，依這次使用者驗收更新 ADD-13／17／18／20。完整三平台 CI、精確 macOS 圖示／IME 情境及 Antigravity CLI 1.3.5 磁碟樣本／互動接續沒有新增逐項證據，仍未勾選；原始任務完整條件與 17 項未來待辦不因合併自動完成。退出 UI 後持續執行／重新附接仍是下一階段最高優先。
+
+## 2026-10-16 原生三平台與獨立 PR
+
+使用者要求兩個獨立 PR：本 PR 處理 Windows／macOS／Linux 原生可用性；目錄選擇 dialog 另開 PR，不互相依賴，也不擴大為 17 項未來需求。
+
+- 保留 Tauri 2、React、xterm.js、SQLite、唯讀歷史與現有 UI／索引架構；Windows 使用 portable-pty 的原生 ConPTY，Unix 的 session／process-group 清理保持原有安全邊界。
+- Windows 最低目標為 Windows 10 1809（ConPTY）及 WebView2；本次驗收流程以 Windows x64 為主。macOS ARM64／Intel、Linux x64 仍各自驗收，跨編譯不等於原生通過。
+- Windows 啟動不把不可信 cwd、Session ID 或參數拼成 Shell 字串。優先原生 `.exe`；僅有 `.cmd`／`.bat` 的安裝需提供明確診斷與原生安裝指引，不將檔案存在冒充可啟動。
+- 歷史來源維持唯讀；Windows 使用檔案 handle 身分與 reparse-point 檢查，不能因移除 Unix 編譯限制而弱化來源替換／連結防護。
+- 延續省額度模式：自動檢查仍只有 Linux 輕量流程，完整驗收仍是手動 workflow；本次只增加 Windows 原生驗收定義，不代為觸發、不調整帳務或停用 checks。
+- 新 PR 維持 Draft，沒有合併、部署或發行授權；所有測試結果以此 PR 的實際執行證據記錄，缺少原生 Windows／macOS 證據時明確保留待驗。
+
+- 2026-10-16 CI follow-up：JavaScript actions 與專案 Node 分開版本化。官方 Node 20 action runtime 移除後，兩份 workflows 改用 Node 24 的 checkout 7.0.1／setup-node 7.1.0／upload-artifact 7.0.2 完整 SHA。三 OS 完整 gate 需要同提交四個 jobs 成功；Linux lightweight 綠燈不替代平台驗收，不增加自動 matrix。
+
+## 2026-10-16 關閉介面後繼續執行與重新附接
+
+使用者將「關掉介面可以接回來、回來看每個已開狀態」列為最高優先，要求獨立 PR。這個決定取代先前「關閉程式停止所有 PTY、重開只還原 placeholder」的 MVP 行為；不是把舊 PID 存下來或重新執行相同指令。
+
+- 以同一個已安裝執行檔的 headless broker 模式持有 Shell／Agent 的 PTY。桌面 UI 關閉、WebView 重載或渲染 channel 消失只取消 UI attachment；明確「停止」／「關閉面板」才停止受管程序。
+- macOS／Linux 使用 owner-only Unix socket，Windows 使用拒絕遠端連入、限定目前使用者 SID 的 named pipe；不開 TCP listener、不建立登入啟動服務、不產生或保存憑證。單一 broker 以 OS 檔案鎖協調，不用 PID 存活猜測身分。
+- Broker 在記憶體消費 PTY 輸出，保留有上限的 VT 畫面、200 行回捲與 replay；UI ACK 僅影響該 attachment，不能停止背景工作。每次附接用不同 lease，舊 ACK／detach 不能影響新視圖。
+- 重開以 broker 的 runtime／pane／project metadata 為權威，保存的 layout 仍不接受 Runtime ID、PID、指令或 auto-start token。遺失 layout 的活躍面板會重建，不會悄悄藏起來。
+- 程序已退出時保留最後畫面與 exit code。Broker 或作業系統重啟後，上次執行中的 metadata 改為 `interrupted`；不冒稱仍在執行、不採用舊 PID、不自動重啟 Shell／Agent。終端輸出不落盤，broker 重啟後無法還原舊畫面。
+- 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。
+
+## 2026-10-16：全域臨時 Terminal（獨立日常體驗 PR）
+
+- 使用者要求隨時開啟臨時 Terminal，預設家目錄，不必進入或新增任何專案。
+- 採真正 `projectId: null` 的工作區分頁／面板；全域分頁另存 active selection，不把家目錄建立為 catalog project，也不建立 workspace-only 假專案。
+- 啟動沿用設定中的預設 Shell Profile；只有 shell、無 project/session/resume 且未指定 cwd 時，由 Rust 取得並驗證本機家目錄。前端不推測 HOME／USERPROFILE，不傳入命令字串或任意環境變數。
+- UI 關閉／重開沿用 persistent runtime broker 的 detach／attach；明確關閉面板仍只停止該面板的受管程序。此 PR 疊在 persistent runtime PR #7（其依賴平台 PR #3），不重複實作 broker。
+- 範圍不含檔案瀏覽、遠端主機或 Web Terminal。原生跨平台驗證與 screenshot 限制需如實記錄。
+- 相容既有無 project、但指定 cwd 的 Shell：broker 另存 `homeDirectory` 啟動語意，舊 metadata 缺欄位視為 false。只有新 home Terminal 重啟時省略 cwd；既有無專案 Shell 保留 broker 確認的 cwd，不將 null 身分誤當家目錄策略。
+
+## 2026-10-16 OpenCode 獨立整合
+
+使用者要求 OpenCode 與持續 Runtime、主題預覽、日常體驗、索引效能各自交付 PR。本 PR 僅新增第五個內建 provider，依賴原生三平台 PR #3 的執行檔解析與 Windows 安全唯讀 file handle；以該 branch 為 base，不重複修改 workflows。須先合併平台 PR，再重新指定 OpenCode 的 base 並驗證；本次不授權自動合併或發行。
+
+- 依官方 v1.19.2 固定原始碼定義 SQLite v1 message/part 與 v2 session_message reader。fixtures 明示為合成的最小 schema，不冒充實際 CLI 磁碟擷取。
+- source root 是含 opencode.db 的目錄；預設使用 XDG_DATA_HOME/opencode，未設定或無效時為 home/.local/share/opencode。Windows 也遵循 OpenCode 的 xdg-basedir 實作。
+- 設定固定顯示 OpenCode 來源卡片、下拉選項與 O monogram；舊設定只補執行檔／空選項，不自動新增或改動已保存來源。
+- source SQLite 永遠不直接交給 SQLite library。只複製受限 DB/WAL，檢查身分、大小、內容雜湊、WAL checksum 與完整性；在私人 copy 執行查詢。無 migration、登入或 auth.json 讀取。
+- 新工作無額外權限旗標；接續精確使用 --session 與單獨 ID，使用 OPENCODE_DB 指向選定的資料庫。只有明確高風險選項啟用才加入官方 --auto，不覆寫 HOME、XDG 設定或憑證。
+- 舊 JSON 儲存、任意名稱／channel DB、多數位於外部的遠端 server，以及未知未來版本不推測相容性。詳見 [OpenCode 整合與驗證](opencode-integration.md)。
+
+## 2026-10-16 索引效能量測與低風險熱路徑改善
+
+使用者要求索引速度獨立 PR。先以合成 1,000／10,000 Session 與多訊息長對話，分測空索引、未變更補掃、單檔追加、同大小重寫、搜尋 p95 與程序記憶體；不用真實私人歷史。量測為 backend release，來源剛生成，因此不宣稱冷磁碟／WebView／實機結果。
+
+初步診斷找到 Codex canonical／fallback 重複訊息的 correlated SQL 平方掃描。改善採操作本機的 SQLite TEMP digest lookup，hash 只縮小候選，仍核對原文字與角色，不以 hash 相同直接隱藏訊息。連線要求 FILE 暫存與約 2 MiB page-cache 目標，並非全程序記憶體硬上限；不把整份對話保留在 Rust HashMap，也不新增持久 schema。另重用 message INSERT 與 checkpoint 查詢的 prepared statements。
+
+原來源唯讀、來源與檔案身份、prefix hash、寫入前後校驗、重寫／compaction、取消與交易 rollback、stale／snapshot generation 均維持。同一 harness／環境的 before／after、全部核心回歸與未達標的高命中率搜尋見[索引效能量測](index-performance.md)；合成改善不等於使用者真實來源或全部效能驗收完成。
+
+## 2026-10-16 獨立主題與即時預覽
+
+- 本次獨立功能 PR 實作 UI 深／淺色各 10 種，Terminal 深／淺色各 10 種；兩者獨立選擇。既有 Bay／Classic 終端色票保留，不強制轉換。
+- 設定內的外觀變更立即套用到整個工作台與所有開啟的 Terminal；只有儲存成功才持久化。取消、關閉、Escape 後確認捨棄、瀏覽器上一頁或元件卸載會移除預覽。儲存中暫停編輯與取消，避免已送出的寫入與回復互相競爭；儲存失敗保留預覽與草稿並顯示錯誤。
+- 工具列的快速主題選單每次選擇立即預覽並儲存，關閉不回復；寫入失敗回到已儲存外觀並提示。寫入中禁止重複變更；設定視窗開啟時不開放快速切換，避免兩個編輯來源互相覆寫。
+- 設定預覽只覆蓋外觀欄位，不改啟動命令／來源／工作區。若開啟期間收到外部已儲存設定，採用最新設定作為新基準，捨棄舊草稿，取消不回寫過期快照。
+- 保留 settings version 1，新增可省略且有預設值的 themePalette；未知但格式合法的主題 ID 保留原值、顯示安全 fallback，不因新增主題導致整份設定回到預設。任意 CSS 或自訂色票編輯器不在本次範圍。
+- Terminal 只更新 xterm options，不重建 xterm、不重新啟動 PTY、不重設畫面；純換色不做 fit／resize 或搶焦點。自動化與原生桌面視覺驗收分開記錄。
+
+- 純外觀寫入可在索引期間完成；後端比對所有非外觀欄位，只有 theme／themePalette／terminalTheme／fontFamily／fontSize 可略過掃描鎖。其餘設定仍遵守原限制；寫入失敗不更新記憶體中的已儲存設定。
+
+## 2026-10-16 日常體驗：Terminal 字級快捷鍵
+
+使用者授權日常體驗分成小型 PR。本組對應待辦 01，只調整全域 Terminal 字級，所有面板共用；不改介面文字或瀏覽器縮放，也不新增逐面板字級 schema。
+
+- 以主題 PR 的 Appearance 預覽與設定保存機制為基礎，Cmd（macOS）／Ctrl（Linux）加 `=` 或 `+` 放大、`-` 縮小、`0` 還原設定預設 14 px。範圍沿用 9–32 px，每次 1 px。
+- 工作區開啟時接受快捷鍵；一般輸入欄位、對話框與 IME 組字期間不處理。保留組合於 capture 階段攔截，避免送入 xterm／PTY；其餘按鍵維持原樣。
+- 快捷鍵即時預覽並自動保存；快速連按合併等待中的最新值，寫入依序進行，不讓舊結果覆蓋新的預覽。失敗還原至上次確認保存值，顯示錯誤並允許重試。設定內字級編輯仍遵守預覽、儲存保留、取消捨棄還原。
+- 更新既有 xterm options 與 fit／resize，不重建終端、不修改 runtime／PTY 生命週期。持續 Runtime PR 仍最高優先；原生驗收及與 Windows 設定驗證修正的整合回歸另行執行。
+- Shift＋Enter 不併入本組；各工具及模式對 LF、Ctrl＋J、modified Enter 的語意不同，未確認時不能保證只換行而不送出。另立協定／模式驗收範圍，不直接對所有 PTY 送 LF。
+
+## 2026-10-16 日常體驗：工作區整理獨立 PR
+
+使用者授權日常體驗按規模拆成獨立 PR。本次涵蓋後續待辦第 02–05 項：分頁、面板及專案顯示名稱，以及同一專案內的分頁排序。第 09 項持續執行與重新附接仍最高優先；字型快捷鍵、Shift＋Enter、臨時 Terminal、OpenCode、主題及索引改善不併入本 PR。
+
+- 名稱去除首尾空白，限 1–200 個 Unicode 字元、不可含控制字元；允許重複顯示名稱，保留路徑／位置作辨識。取消不寫入，儲存失敗保留草稿並可重試。
+- 只改顯示資料，不修改資料夾、cwd、Project／Tab／Pane／Runtime ID、Session 關聯、程序或輸出。專案使用既有 name 更新 API；分頁與面板名稱沿用現有 workspace schema 保存。
+- 拖曳只在 drop 時提交，同一專案內重排；Escape／拖曳取消不變更。聚焦分頁後以 Alt＋左右方向鍵提供鍵盤替代，順序直接影響既有數字分頁快捷鍵。
+- 持續 Runtime PR 優先；若其先合併，此 PR 須 rebase 並重跑生命週期／保存驗證，不以自動合併代替整合檢查。原生 macOS／Linux 拖曳、焦點、視覺與重開驗收仍待執行，不能標成完成。
+
+詳細驗收與範圍見 [工作區整理](workspace-organization.md)。
+
+## 2026-10-16 工作區整理複查：對話框焦點與組字保護
+
+重新命名對話框開啟期間，Terminal 延後執行的 focus 必須在實際回呼時檢查阻擋式對話框及焦點是否已轉移；仍保留正常工作區重新顯示的 Terminal focus 與尺寸重算，不改 PTY 生命週期或輸入協定。共用 Dialog 在子元素自動聚焦前記住 opener，關閉後只恢復仍存在、且不在即將移除對話框內的元素；名稱入口明確聚焦以涵蓋不會自動聚焦按鈕的瀏覽器。
+
+Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode 229 路徑）不取消草稿；組字結束後仍可正常取消，Tab／Shift＋Tab 維持原焦點循環。新增真實 DOM 輸入焦點及可取消 rAF 回歸，涵蓋未聚焦面板開啟重新命名、starting 轉 running、對話框關閉後的延遲 focus、鍵盤關閉與焦點返回。原生 WebView／實際 IME 驗收仍待執行。
+
+## 2026-10-16 批次整合的相容性規則
+
+- 各功能保留獨立 PR 與驗證記錄；整合時同時保留平台路徑驗證、原生目錄草稿、五個 provider、索引去重、背景 broker、null 專案臨時 Terminal、名稱／順序與外觀設定。
+- 臨時分頁使用獨立選取 ID，重新命名／排序不得建立字串 `null` 專案，亦不得修改 Runtime 身份或啟動 token。
+- Runtime 必須完成 snapshot 渲染才啟用輸入與 fit／resize；主題只換色，字級變更不重啟程序。對話框開啟後與延遲事件皆不得搶走輸入焦點。
+- 現行操作文件同步已採用的 broker、退出保留畫面、五工具與目錄選擇器；歷史測試檢查點保留原範圍。原生 GUI／IME、三 OS 完整矩陣與真實 CLI 尚未驗證的項目不因整合勾選。
+
+## 2026-10-16 Shift+Enter 採本機多行草稿
+
+使用者選擇「Shift+Enter 開啟草稿，編輯不送進 Terminal，再明確選擇貼上」。本批因此不將 Shift+Enter 全域映射為 LF、CR 或 Ctrl+J，也不依原始 pane.kind 猜測目前前景工具／模式。
+
+- 在執行中的終端按 Shift+Enter，或按工具列「多行草稿」，開啟有標籤、焦點限制與取消操作的本機編輯框。Enter／Shift+Enter 在框內只換行；沒有 Ctrl+Enter 送出快捷鍵。
+- 草稿只存在原面板的記憶體中。取消／切換面板保留文字；關閉面板或整個應用程式不保留，不寫入設定、歷史或 broker metadata。
+- 「確認貼上」再次列出原面板、工作目錄、Runtime ID 與末尾換行；明示貼上本身可能執行指令或送出提示。沿用 xterm.paste 與既有輸入佇列，不額外加 Enter，不宣稱 bracketed paste 保證任意工具不執行。
+- 草稿綁定原 attachment lease／runtime／啟動世代；退出、斷線、重新連線或切換面板時不能貼到別的工作。舊草稿可讀取；要使用目前新連線，需明確清除舊稿並另開草稿。
+- 同步／非同步貼上失敗均保留文字，提示可能部分送達，不自動重試。控制字元與超過輸入上限的草稿拒絕貼上，不靜默改寫內容。
+
+原生多平台／實際 Agent 操作仍待驗；測試與限制見 [多行草稿](terminal-drafts.md)。
+
+
+## 2026-10-16 批次狀態與驗證分層
+
+本批十組變更已於隔離整合樹合併，完成既有功能回歸與草稿／分頁快捷鍵／字級／IME 交互測試。清單分別記錄「已實作及自動驗證」與「原生人工驗收」，不再以單一未完成方框掩蓋已交付程式碼，也不因自動測試通過勾選原生項目。歷史分支 checkpoint 保留，當前批次證據與限制見[批次整合驗證](batch-integration-validation.md)。

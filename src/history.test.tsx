@@ -664,7 +664,7 @@ describe('browser-only safety', () => {
     await expect(realApi.api.sessions({ query: 'anything' })).rejects.toThrow('桌面執行環境未連線');
     await expect(realApi.api.transcript('synthetic-session')).rejects.toThrow('桌面執行環境未連線');
     await expect(
-      realApi.api.launch({ paneId: 'synthetic-pane', kind: 'shell', cols: 80, rows: 24 }, () => {}),
+      realApi.api.launch({ paneId: 'synthetic-pane', kind: 'shell', cols: 80, rows: 24 }, () => {}, 'synthetic-attachment'),
     ).rejects.toThrow('桌面執行環境未連線');
     expect(invoke).not.toHaveBeenCalled();
   });
@@ -680,7 +680,7 @@ describe('additional agent history capabilities', () => {
     const filter = screen.getByRole('combobox', { name: '篩選 Agent' });
     fireEvent.click(filter);
     expect(screen.getAllByRole('option').map((option) => option.textContent))
-      .toEqual(['所有 Agent', 'CCodex', '✳Claude Code', 'GGrok Build', 'AAntigravity CLI']);
+      .toEqual(['所有 Agent', 'CCodex', '✳Claude Code', 'GGrok Build', 'AAntigravity CLI', 'OOpenCode']);
     fireEvent.click(screen.getByRole('option', { name: 'Antigravity CLI' }));
     await tick();
     expect(api.sessions).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'antigravity' }));
