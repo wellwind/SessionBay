@@ -2,6 +2,10 @@
 
 //! Native ConPTY acceptance tests. Cross-compilation checks their types, but
 //! these must run on Windows 10 1809+ (including a pre-24H2 shutdown run).
+#[path = "common/terminal_events.rs"]
+mod terminal_events;
+use terminal_events::TerminalEvents;
+
 use sessionbay_lib::runtime::{
     LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent, MAX_INPUT_BYTES, MAX_IN_FLIGHT_BYTES,
     MAX_IN_FLIGHT_CHUNKS,
@@ -59,60 +63,11 @@ fn launch(
     (info, rx)
 }
 
-fn collect(manager: &RuntimeManager, rx: &mpsc::Receiver<TerminalEvent>) -> (String, Option<i32>) {
-    let deadline = Instant::now() + Duration::from_secs(15);
-    let mut output = Vec::new();
-    let mut previous = 0;
-    loop {
-        match rx
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .expect("terminal event timeout")
-        {
-            TerminalEvent::Output {
-                runtime_id,
-                sequence,
-                data,
-            } => {
-                assert_eq!(sequence, previous + 1);
-                previous = sequence;
-                output.extend(data);
-                manager.ack(&runtime_id, sequence).unwrap();
-            }
-            TerminalEvent::Exit { exit_code, .. } => {
-                return (String::from_utf8(output).unwrap(), exit_code)
-            }
-            TerminalEvent::Error { message, .. } => panic!("terminal error: {message}"),
-        }
-    }
-}
-
-fn until_text(
-    manager: &RuntimeManager,
-    rx: &mpsc::Receiver<TerminalEvent>,
-    needle: &str,
-) -> String {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut output = Vec::new();
-    loop {
-        match rx
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .expect("terminal readiness timeout")
-        {
-            TerminalEvent::Output {
-                runtime_id,
-                sequence,
-                data,
-            } => {
-                output.extend(data);
-                manager.ack(&runtime_id, sequence).unwrap();
-                let text = String::from_utf8_lossy(&output);
-                if text.contains(needle) {
-                    return text.into_owned();
-                }
-            }
-            event => panic!("unexpected readiness event: {event:?}"),
-        }
-    }
+fn events<'a>(
+    manager: &'a RuntimeManager,
+    receiver: &'a mpsc::Receiver<TerminalEvent>,
+) -> TerminalEvents<'a, impl FnMut(&str, u64) + 'a> {
+    TerminalEvents::new(receiver, |id, sequence| manager.ack(id, sequence).unwrap())
 }
 
 fn wait_until(mut predicate: impl FnMut() -> bool) {
@@ -136,7 +91,7 @@ fn executable_arguments_cwd_environment_and_unicode_are_preserved() {
         .env
         .insert("SESSIONBAY_TEST_VALUE".into(), "value & ; $() 中文".into());
     let (_, rx) = launch(&manager, launch_spec);
-    let (output, code) = collect(&manager, &rx);
+    let (output, code) = events(&manager, &rx).collect();
     assert!(output.contains("project & literal 中文"));
     assert!(output.contains("value & ; $() 中文"));
     assert!(output.contains(literal));
@@ -148,7 +103,7 @@ fn exit_code_259_is_an_exit_not_still_active() {
     let root = tempfile::tempdir().unwrap();
     let manager = RuntimeManager::new();
     let (_, rx) = launch(&manager, spec(root.path(), "exit259"));
-    assert_eq!(collect(&manager, &rx).1, Some(259));
+    assert_eq!(events(&manager, &rx).collect().1, Some(259));
 }
 
 #[test]
@@ -199,10 +154,11 @@ fn interactive_input_and_resize_reach_the_console() {
     let root = tempfile::tempdir().unwrap();
     let manager = RuntimeManager::new();
     let (info, rx) = launch(&manager, spec(root.path(), "resize"));
-    until_text(&manager, &rx, "ready-for-input");
+    let mut events = events(&manager, &rx);
+    events.until_text("ready-for-input");
     manager.resize(&info.id, 111, 37).unwrap();
     manager.write(&info.id, "hello 中文\r").unwrap();
-    let (output, code) = collect(&manager, &rx);
+    let (output, code) = events.collect();
     assert!(output.contains("received:hello 中文"));
     assert!(output.contains("size:111x37"), "{output}");
     assert_eq!(code, Some(0));
@@ -307,7 +263,7 @@ fn closing_console_terminates_attached_descendant_and_preserves_unrelated_proces
         marker.to_string_lossy().into_owned(),
     );
     let (info, rx) = launch(&manager, launch_spec);
-    until_text(&manager, &rx, "descendant-ready");
+    events(&manager, &rx).until_text("descendant-ready");
     let pid: u32 = std::fs::read_to_string(&marker).unwrap().parse().unwrap();
     // Test-only observation: open the live fixture descendant now and retain
     // its exact handle across shutdown, rather than checking a reused PID later.
@@ -482,7 +438,7 @@ fn fixture_entry() {
         "dll-search" => {
             let manager = RuntimeManager::new();
             let (_, rx) = launch(&manager, spec(&std::env::current_dir().unwrap(), "exit259"));
-            assert_eq!(collect(&manager, &rx).1, Some(259));
+            assert_eq!(events(&manager, &rx).collect().1, Some(259));
             assert!(!Path::new(&std::env::var("SESSIONBAY_DLL_MARKER").unwrap()).exists());
         }
         "report" => {

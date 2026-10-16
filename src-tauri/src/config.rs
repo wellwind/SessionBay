@@ -229,6 +229,10 @@ impl Settings {
             {
                 return Err("來源 ID 不可重複，資料根目錄必須是絕對路徑".into());
             }
+            #[cfg(windows)]
+            if !crate::windows_fs::valid_filesystem_path(Path::new(&s.root)) {
+                return Err("來源根目錄必須是完整檔案系統路徑，不可使用裝置名稱或資料串流".into());
+            }
             let root = fs::canonicalize(&s.root).unwrap_or_else(|_| PathBuf::from(&s.root));
             if !roots.insert((format!("{:?}", s.kind), root)) {
                 return Err("同一 Agent 的資料根目錄不可重複".into());
@@ -979,6 +983,34 @@ mod windows_tests {
         assert!(executable_fallback_directories()
             .iter()
             .all(|path| path.is_absolute()));
+    }
+
+    #[test]
+    fn settings_reject_windows_device_stream_and_relative_source_roots() {
+        let mut settings = Settings::default();
+        for invalid in [
+            r"C:relative",
+            r"\root-relative",
+            "/root-relative",
+            r"C:\history\file:stream",
+            r"C:\history\NUL.txt",
+            r"\\.\pipe\name",
+            r"\\server\pipe\name",
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\history",
+        ] {
+            settings.sources[0].root = invalid.into();
+            assert!(settings.validate().is_err(), "accepted {invalid}");
+        }
+        let temp = tempfile::tempdir().unwrap();
+        settings.sources[0].root = temp.path().to_string_lossy().into_owned();
+        settings.validate().unwrap();
+        settings.sources[0].root = temp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        settings.validate().unwrap();
     }
 
     #[test]
