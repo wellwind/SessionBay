@@ -1,7 +1,9 @@
 # Session Bay 技術架構
 
-> 2026-10-15 實作更新：本次包含 macOS＋Linux 的 P0 程式碼；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
+> 2026-10-16 實作更新：本次加入 Windows 原生支援；平台前提與待驗項目見[三平台支援](platform-support.md)。既有 macOS＋Linux P0 程式碼保留；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
 目前建議採用 Tauri 2＋Rust 後端、TypeScript 前端、xterm.js、跨平台 PTY 與 SQLite。這是依本機索引、程序管理與可客製化 UI 需求提出的方案，需先通過效能與終端相容性原型。
+
+> 持續執行變更：PTY 所有權移至獨立本機 broker。桌面退出只 detach；輸出由 broker 有界消費，UI ACK 只限制 renderer。下方早期 UI-owned runtime／通道關閉即清理說明，以[持續 Runtime](persistent-runtime.md)與最新決策為準。
 
 ## 系統分工
 

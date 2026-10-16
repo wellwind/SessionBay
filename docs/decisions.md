@@ -260,3 +260,57 @@
 使用者明確表示「ok, 驗收完成, 確保 PR 標題內容描述等都正確後就可以 merge 了」，並補充「噢，還要把完成的都勾起來」。本次接受已交付 PR 的功能與介面，授權校正描述、勾選實際完成項目後合併；不新增功能或將未完成的規劃改為完成。
 
 已實作並有本機回歸的 UI／UX、工作分頁快捷鍵、來源候選偵測與 breadcrumb，依這次使用者驗收更新 ADD-13／17／18／20。完整三平台 CI、精確 macOS 圖示／IME 情境及 Antigravity CLI 1.3.5 磁碟樣本／互動接續沒有新增逐項證據，仍未勾選；原始任務完整條件與 17 項未來待辦不因合併自動完成。退出 UI 後持續執行／重新附接仍是下一階段最高優先。
+
+## 2026-10-16 原生三平台與獨立 PR
+
+使用者要求兩個獨立 PR：本 PR 處理 Windows／macOS／Linux 原生可用性；目錄選擇 dialog 另開 PR，不互相依賴，也不擴大為 17 項未來需求。
+
+- 保留 Tauri 2、React、xterm.js、SQLite、唯讀歷史與現有 UI／索引架構；Windows 使用 portable-pty 的原生 ConPTY，Unix 的 session／process-group 清理保持原有安全邊界。
+- Windows 最低目標為 Windows 10 1809（ConPTY）及 WebView2；本次驗收流程以 Windows x64 為主。macOS ARM64／Intel、Linux x64 仍各自驗收，跨編譯不等於原生通過。
+- Windows 啟動不把不可信 cwd、Session ID 或參數拼成 Shell 字串。優先原生 `.exe`；僅有 `.cmd`／`.bat` 的安裝需提供明確診斷與原生安裝指引，不將檔案存在冒充可啟動。
+- 歷史來源維持唯讀；Windows 使用檔案 handle 身分與 reparse-point 檢查，不能因移除 Unix 編譯限制而弱化來源替換／連結防護。
+- 延續省額度模式：自動檢查仍只有 Linux 輕量流程，完整驗收仍是手動 workflow；本次只增加 Windows 原生驗收定義，不代為觸發、不調整帳務或停用 checks。
+- 新 PR 維持 Draft，沒有合併、部署或發行授權；所有測試結果以此 PR 的實際執行證據記錄，缺少原生 Windows／macOS 證據時明確保留待驗。
+
+- 2026-10-16 CI follow-up：JavaScript actions 與專案 Node 分開版本化。官方 Node 20 action runtime 移除後，兩份 workflows 改用 Node 24 的 checkout 7.0.1／setup-node 7.1.0／upload-artifact 7.0.2 完整 SHA。三 OS 完整 gate 需要同提交四個 jobs 成功；Linux lightweight 綠燈不替代平台驗收，不增加自動 matrix。
+
+## 2026-10-16 關閉介面後繼續執行與重新附接
+
+使用者將「關掉介面可以接回來、回來看每個已開狀態」列為最高優先，要求獨立 PR。這個決定取代先前「關閉程式停止所有 PTY、重開只還原 placeholder」的 MVP 行為；不是把舊 PID 存下來或重新執行相同指令。
+
+- 以同一個已安裝執行檔的 headless broker 模式持有 Shell／Agent 的 PTY。桌面 UI 關閉、WebView 重載或渲染 channel 消失只取消 UI attachment；明確「停止」／「關閉面板」才停止受管程序。
+- macOS／Linux 使用 owner-only Unix socket，Windows 使用拒絕遠端連入、限定目前使用者 SID 的 named pipe；不開 TCP listener、不建立登入啟動服務、不產生或保存憑證。單一 broker 以 OS 檔案鎖協調，不用 PID 存活猜測身分。
+- Broker 在記憶體消費 PTY 輸出，保留有上限的 VT 畫面、200 行回捲與 replay；UI ACK 僅影響該 attachment，不能停止背景工作。每次附接用不同 lease，舊 ACK／detach 不能影響新視圖。
+- 重開以 broker 的 runtime／pane／project metadata 為權威，保存的 layout 仍不接受 Runtime ID、PID、指令或 auto-start token。遺失 layout 的活躍面板會重建，不會悄悄藏起來。
+- 程序已退出時保留最後畫面與 exit code。Broker 或作業系統重啟後，上次執行中的 metadata 改為 `interrupted`；不冒稱仍在執行、不採用舊 PID、不自動重啟 Shell／Agent。終端輸出不落盤，broker 重啟後無法還原舊畫面。
+- 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。
+
+- 2026-10-16 macOS 啟動修正：interprocess 2.4.5 的 listener `.mode(0600)` 在 Darwin 回傳 `Unsupported`。macOS 改在已驗證的 0700 socket 目錄內 bind，再設定 socket 路徑為 0600；保留 peer UID 驗證與 broker 所有權鎖。Linux 維持 bind 前設定權限，Windows ACL 不變。
+
+## 2026-10-16：全域臨時 Terminal（獨立日常體驗 PR）
+
+- 使用者要求隨時開啟臨時 Terminal，預設家目錄，不必進入或新增任何專案。
+- 採真正 `projectId: null` 的工作區分頁／面板；全域分頁另存 active selection，不把家目錄建立為 catalog project，也不建立 workspace-only 假專案。
+- 啟動沿用設定中的預設 Shell Profile；只有 shell、無 project/session/resume 且未指定 cwd 時，由 Rust 取得並驗證本機家目錄。前端不推測 HOME／USERPROFILE，不傳入命令字串或任意環境變數。
+- UI 關閉／重開沿用 persistent runtime broker 的 detach／attach；明確關閉面板仍只停止該面板的受管程序。此 PR 疊在 persistent runtime PR #7（其依賴平台 PR #3），不重複實作 broker。
+- 範圍不含檔案瀏覽、遠端主機或 Web Terminal。原生跨平台驗證與 screenshot 限制需如實記錄。
+- 相容既有無 project、但指定 cwd 的 Shell：broker 另存 `homeDirectory` 啟動語意，舊 metadata 缺欄位視為 false。只有新 home Terminal 重啟時省略 cwd；既有無專案 Shell 保留 broker 確認的 cwd，不將 null 身分誤當家目錄策略。
+
+## 2026-10-16 OpenCode 獨立整合
+
+使用者要求 OpenCode 與持續 Runtime、主題預覽、日常體驗、索引效能各自交付 PR。本 PR 僅新增第五個內建 provider，依賴原生三平台 PR #3 的執行檔解析與 Windows 安全唯讀 file handle；以該 branch 為 base，不重複修改 workflows。須先合併平台 PR，再重新指定 OpenCode 的 base 並驗證；本次不授權自動合併或發行。
+
+- 依官方 v1.19.2 固定原始碼定義 SQLite v1 message/part 與 v2 session_message reader。fixtures 明示為合成的最小 schema，不冒充實際 CLI 磁碟擷取。
+- source root 是含 opencode.db 的目錄；預設使用 XDG_DATA_HOME/opencode，未設定或無效時為 home/.local/share/opencode。Windows 也遵循 OpenCode 的 xdg-basedir 實作。
+- 設定固定顯示 OpenCode 來源卡片、下拉選項與 O monogram；舊設定只補執行檔／空選項，不自動新增或改動已保存來源。
+- source SQLite 永遠不直接交給 SQLite library。只複製受限 DB/WAL，檢查身分、大小、內容雜湊、WAL checksum 與完整性；在私人 copy 執行查詢。無 migration、登入或 auth.json 讀取。
+- 新工作無額外權限旗標；接續精確使用 --session 與單獨 ID，使用 OPENCODE_DB 指向選定的資料庫。只有明確高風險選項啟用才加入官方 --auto，不覆寫 HOME、XDG 設定或憑證。
+- 舊 JSON 儲存、任意名稱／channel DB、多數位於外部的遠端 server，以及未知未來版本不推測相容性。詳見 [OpenCode 整合與驗證](opencode-integration.md)。
+
+## 2026-10-16 索引效能量測與低風險熱路徑改善
+
+使用者要求索引速度獨立 PR。先以合成 1,000／10,000 Session 與多訊息長對話，分測空索引、未變更補掃、單檔追加、同大小重寫、搜尋 p95 與程序記憶體；不用真實私人歷史。量測為 backend release，來源剛生成，因此不宣稱冷磁碟／WebView／實機結果。
+
+初步診斷找到 Codex canonical／fallback 重複訊息的 correlated SQL 平方掃描。改善採操作本機的 SQLite TEMP digest lookup，hash 只縮小候選，仍核對原文字與角色，不以 hash 相同直接隱藏訊息。連線要求 FILE 暫存與約 2 MiB page-cache 目標，並非全程序記憶體硬上限；不把整份對話保留在 Rust HashMap，也不新增持久 schema。另重用 message INSERT 與 checkpoint 查詢的 prepared statements。
+
+原來源唯讀、來源與檔案身份、prefix hash、寫入前後校驗、重寫／compaction、取消與交易 rollback、stale／snapshot generation 均維持。同一 harness／環境的 before／after、全部核心回歸與未達標的高命中率搜尋見[索引效能量測](index-performance.md)；合成改善不等於使用者真實來源或全部效能驗收完成。

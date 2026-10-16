@@ -14,6 +14,14 @@ smoke_stop() {
     wait "$pid" 2>/dev/null || true
   fi
   pid=''
+  # Closing a GUI deliberately leaves its broker running. Explicitly stop only
+  # this smoke's isolated state before deleting it; never use a saved PID.
+  if [[ -n "${binary:-}" ]]; then
+    for state in "${XDG_DATA_HOME:-/nonexistent}/dev.sessionbay.desktop" "${HOME}/Library/Application Support/dev.sessionbay.desktop"; do
+      [[ -d "$state/runtime-broker-v1" ]] || continue
+      "$binary" --sessionbay-runtime-broker-stop "$state" || return 1
+    done
+  fi
 }
 
 smoke_environment() {

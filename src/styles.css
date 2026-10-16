@@ -1605,6 +1605,19 @@ kbd {
 .directory-empty>svg{color:var(--accent)}.directory-empty h3{font-size:18px;margin:0}.directory-empty p{max-width:440px}
 @media(max-width:1000px){.navigation-tabs{padding-left:18px}.directory-overview{padding:22px 18px}.directory-overview-heading{flex-wrap:wrap}}
 
+/* Global temporary terminals use the existing semantic button treatment. */
+.temporary-terminal-button { white-space: nowrap; min-height: 44px; }
+@media (max-width: 1100px) {
+  .topbar-actions { gap: 8px; }
+  .topbar-actions .local-badge { display: none; }
+}
+@media (max-width: 900px) {
+  .temporary-terminal-button span { display: none; }
+  .temporary-terminal-button { min-width: 44px; min-height: 44px; padding: 8px; }
+}
+
+.agent-badge.opencode { background: #243c45; color: #afe2e6; }
+
 /* Shared manual path input and native directory chooser. */
 .directory-path-controls { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
 .directory-path-controls > input { flex: 1; min-width: 0; }

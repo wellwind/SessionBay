@@ -15,8 +15,14 @@ use tempfile::TempDir;
 
 const ID: &str = "f19c6f8b-a063-43af-b661-e60149d138dc";
 const OTHER_ID: &str = "28a693b8-b14c-42d3-8bec-00cf83d00b6f";
+#[cfg(not(windows))]
 const CWD: &str = "/synthetic/project alpha/中文";
+#[cfg(windows)]
+const CWD: &str = "C:/synthetic/project alpha/中文";
+#[cfg(not(windows))]
 const WORKSPACE_URI: &str = "file:///synthetic/project%20alpha/%E4%B8%AD%E6%96%87";
+#[cfg(windows)]
+const WORKSPACE_URI: &str = "file:///C:/synthetic/project%20alpha/%E4%B8%AD%E6%96%87";
 
 struct Harness {
     _temp: TempDir,
@@ -504,14 +510,25 @@ fn antigravity_metadata_refresh_does_not_require_transcript_changes() {
         ID,
         "Renamed native title",
         "2026-03-04 05:06:07.12345+00:00",
-        r#"["file:///synthetic/renamed%20project"]"#,
+        if cfg!(windows) {
+            r#"["file:///C:/synthetic/renamed%20project"]"#
+        } else {
+            r#"["file:///synthetic/renamed%20project"]"#
+        },
     );
     assert!(h.page().stale);
     h.sync();
     let session = h.session();
     assert_eq!(session.id, id);
     assert_eq!(session.title, "Renamed native title");
-    assert_eq!(session.cwd.as_deref(), Some("/synthetic/renamed project"));
+    assert_eq!(
+        session.cwd.as_deref(),
+        Some(if cfg!(windows) {
+            "C:/synthetic/renamed project"
+        } else {
+            "/synthetic/renamed project"
+        })
+    );
     assert_same_instant(&session.updated_at, "2026-03-04T05:06:07.123Z");
     assert_eq!(h.total("Persistent searchable request"), 1);
     assert_eq!(fs::read(&path).unwrap(), original_bytes);
@@ -728,6 +745,7 @@ fn antigravity_fifo_at_exact_transcript_path_is_not_opened_as_history() {
     assert_rejected_or_metadata_only(&h, &status);
 }
 
+#[cfg(unix)]
 fn assert_rejected_or_metadata_only(h: &Harness, status: &IndexStatus) {
     if h.sessions().is_empty() {
         assert!(

@@ -1,0 +1,107 @@
+{
+  "fallbackDuplicates": false,
+  "finalMemory": {
+    "processPeakResidentKiB": 19248,
+    "residentKiB": 9012
+  },
+  "logicalMessagesPerSession": 40,
+  "phases": [
+    {
+      "memory": {
+        "processPeakResidentKiB": 18068,
+        "residentKiB": 17000
+      },
+      "milliseconds": 70468.00715800001,
+      "phase": "coldIndex",
+      "processed": 10000
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 18596,
+        "residentKiB": 9112
+      },
+      "milliseconds": 207.502532,
+      "phase": "unchangedReconcile",
+      "processed": 10000
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 18596,
+        "residentKiB": 18324
+      },
+      "milliseconds": 204.937151,
+      "phase": "unchangedReconcile",
+      "processed": 10000
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 19248,
+        "residentKiB": 19520
+      },
+      "milliseconds": 223.02396399999998,
+      "phase": "unchangedReconcile",
+      "processed": 10000
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 19248,
+        "residentKiB": 18236
+      },
+      "milliseconds": 246.25143699999998,
+      "phase": "singleFileAppend",
+      "processed": 10000
+    },
+    {
+      "memory": {
+        "processPeakResidentKiB": 19248,
+        "residentKiB": 18256
+      },
+      "milliseconds": 206.86237599999998,
+      "phase": "sameSizeRewrite",
+      "processed": 10000
+    }
+  ],
+  "requestedKiBPerSession": 200,
+  "scope": "release backend only; fresh index with OS page cache warm from synthetic generation; source integrity checks excluded from timings; memory is process-wide and includes generation",
+  "search": [
+    {
+      "matches": 10000,
+      "p50Ms": 44.532638999999996,
+      "p95Ms": 45.433365,
+      "query": "中文",
+      "samples": 20
+    },
+    {
+      "matches": 10000,
+      "p50Ms": 2454.508077,
+      "p95Ms": 2593.90442,
+      "query": "session_bay_identifier",
+      "samples": 20
+    },
+    {
+      "matches": 10000,
+      "p50Ms": 2379.2397809999998,
+      "p95Ms": 2791.673388,
+      "query": "SESSION_BAY_IDENTIFIER",
+      "samples": 20
+    },
+    {
+      "matches": 1,
+      "p50Ms": 14.996857,
+      "p95Ms": 16.729333999999998,
+      "query": "unique_needle_0.",
+      "samples": 20
+    },
+    {
+      "matches": 0,
+      "p50Ms": 10.643582,
+      "p95Ms": 12.544533999999999,
+      "query": "no_match_exists",
+      "samples": 20
+    }
+  ],
+  "sessions": 10000,
+  "sourceBytes": 2108968980,
+  "sourceSha256": "2b04e03f76005caa9016b33697d6b025704f9aa796339c3430bdbe6c5d2ccd09",
+  "version": 1
+}

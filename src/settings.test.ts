@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import manifest from './agent-manifest.json';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canPickDirectory, pickDirectory } from './directory-picker';
 vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
 beforeEach(() => { vi.mocked(canPickDirectory).mockReturnValue(false); vi.mocked(pickDirectory).mockReset(); });
@@ -33,7 +33,7 @@ function validSettings(): Settings {
     ],
     sources: [{ id: 'source-a', kind: 'codex', root: '/home/test/.codex', enabled: true }],
     agentOptions: defaultAgentOptions(),
-    executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+    executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
     shortcuts: { ...shortcutDefaults },
   };
 }
@@ -58,6 +58,65 @@ function openAgentOptions(name: string) {
   const details = summary.closest('details')!;
   if (!details.open) fireEvent.click(summary);
 }
+
+describe('Windows history path settings', () => {
+  afterEach(() => vi.restoreAllMocks());
+  function windowsSettings(): Settings {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32');
+    const settings = validSettings();
+    settings.profiles[0] = { id: 'main', name: 'PowerShell', executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', args: ['-NoLogo'], env: {} };
+    settings.sources = historyAgentKinds.map((kind) => ({ id: `windows-${kind}`, kind, root: `C:\\Users\\Synthetic User\\.${kind}`, enabled: true }));
+    return settings;
+  }
+
+  it('saves first-run Windows defaults with all native history roots', async () => {
+    const settings = { ...windowsSettings(), onboardingComplete: false };
+    expect(validateSettings(settings)).toEqual({});
+    const config = props({ settings, onboarding: true });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '儲存並開始掃描' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledExactlyOnceWith({ ...settings, onboardingComplete: true }));
+    expect(config.onClose).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    String.raw`D:\History & 中文\.codex`,
+    String.raw`\\server\share\.codex`,
+    String.raw`\\?\C:\Users\Synthetic User\.codex`,
+    String.raw`\\?\UNC\server\share\.codex`,
+  ])('saves an unchanged native directory-picker result: %s', async (root) => {
+    const config = props({ settings: windowsSettings() });
+    render(createElement(SettingsPanel, config));
+    fireEvent.change(screen.getByRole('textbox', { name: 'CODEX_HOME 資料目錄' }), { target: { value: root } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].sources.find((source) => source.kind === 'codex')?.root).toBe(root);
+  });
+
+  it('adds and saves the canonical Windows path returned by source discovery', async () => {
+    const root = String.raw`\\?\C:\History & 中文\.codex`;
+    const config = props({ settings: windowsSettings(), onDetectHistorySources: vi.fn().mockResolvedValue({ kind: 'codex', supported: true, candidates: [
+      { kind: 'codex', root, status: 'found', configured: false },
+    ] }) });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '偵測 Codex 歷史來源' }));
+    fireEvent.click(await screen.findByRole('button', { name: `加入 Codex 偵測來源 ${root}` }));
+    expect(config.onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].sources).toEqual(expect.arrayContaining([expect.objectContaining({ root })]));
+  });
+
+  it.each(['C:relative', '/Users/test/.codex', String.raw`C:\data\file:stream`, String.raw`\\.\pipe\name`])('blocks an invalid Windows source before save: %s', async (root) => {
+    const settings = windowsSettings();
+    settings.sources[0].root = root;
+    const config = props({ settings, onboarding: true });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '儲存並開始掃描' }));
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(validateSettings(settings)['sources.0.root']).toBeTruthy();
+  });
+});
 
 describe('settings validation', () => {
   it('accepts authoritative valid settings and an empty source list', () => {
@@ -284,7 +343,7 @@ describe('SettingsPanel', () => {
         ...config,
         settings: {
           ...validSettings(),
-          executables: { codex: 'authoritative', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+          executables: { codex: 'authoritative', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
         },
       }),
     );
@@ -306,7 +365,7 @@ describe('per-agent launch options', () => {
 
   it('creates independent safe defaults for every tool and every invocation', () => {
     const defaults = defaultAgentOptions();
-    expect(Object.keys(defaults)).toEqual(['codex', 'claude', 'grok', 'antigravity']);
+    expect(Object.keys(defaults)).toEqual(['codex', 'claude', 'grok', 'antigravity', 'opencode']);
     for (const options of Object.values(defaults)) {
       expect(options).toEqual({ extraArgs: [], bypassPermissions: false });
     }
@@ -342,7 +401,7 @@ describe('per-agent launch options', () => {
     expect(screen.getByRole('button', { name: '重新偵測' })).toBeEnabled();
     await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
     expect(config.onSave).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      executables: { codex: '/synthetic/codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+      executables: { codex: '/synthetic/codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
       agentOptions: defaultAgentOptions(),
     }));
     expect(legacy.agentOptions).toBeUndefined();
@@ -355,6 +414,7 @@ describe('per-agent launch options', () => {
       claude: ['--model', 'synthetic claude'],
       grok: ['--model', '$(touch /tmp/never-run); "literal"', '--rules', '中文'],
       antigravity: ['--model', '<script>never execute</script>', '--agent', 'two words'],
+      opencode: ['--model', 'synthetic/model', '--pure'],
     };
     for (const kind of agentKinds) {
       openAgentOptions(agentNames[kind]);
@@ -387,7 +447,7 @@ describe('per-agent launch options', () => {
   it.each([
     ['codex', '--yolo'], ['codex', '--dangerously-bypass-approvals-and-sandbox'],
     ['claude', '--dangerously-skip-permissions'], ['claude', '--allow-dangerously-skip-permissions'],
-    ['grok', '--always-approve'], ['antigravity', '--dangerously-skip-permissions'],
+    ['grok', '--always-approve'], ['antigravity', '--dangerously-skip-permissions'], ['opencode', '--auto'],
   ] satisfies [AgentKind, string][])('requires explicit opt-in for %s risky custom flag %s', (kind, flag) => {
     const settings = validSettings();
     settings.agentOptions[kind].extraArgs = [flag];
@@ -467,7 +527,7 @@ describe('per-agent launch options', () => {
     const sourceKind = screen.getByRole('combobox', { name: 'Agent 類型' });
     fireEvent.click(sourceKind);
     const sourceOptions = within(screen.getByRole('listbox', { name: 'Agent 類型' }));
-    expect(sourceOptions.getAllByRole('option')).toHaveLength(4);
+    expect(sourceOptions.getAllByRole('option')).toHaveLength(agentKinds.length);
     for (const name of ['Codex', 'Claude Code', 'Grok Build']) expect(sourceOptions.getByRole('option', { name })).toBeInTheDocument();
     expect(sourceOptions.getByRole('option', { name: 'Antigravity CLI' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
@@ -518,7 +578,7 @@ describe('fixed provider history capabilities', () => {
     render(createElement(SettingsPanel, props({ installations: [installation] })));
     expect(providerHistory('grok').getByText('CLI 已找到執行檔 · 版本檢查失敗')).toBeInTheDocument();
     expect(providerHistory('grok').queryByText('CLI 未偵測到')).not.toBeInTheDocument();
-    expect(screen.getAllByText('登入狀態：未驗證；沿用 CLI 自身登入。')).toHaveLength(4);
+    expect(screen.getAllByText('登入狀態：未驗證；沿用 CLI 自身登入。')).toHaveLength(agentKinds.length);
     expect(screen.getByText('Synthetic version timeout')).toBeInTheDocument();
   });
   it('reports discovered but unprobed binaries honestly for legacy and explicit detection results', () => {
@@ -531,7 +591,7 @@ describe('fixed provider history capabilities', () => {
 
   it('keeps the shared built-in manifest complete and consistent with registered UI and managed argv contracts', () => {
     expect(manifest.version).toBe(1);
-    expect(manifest.providers.map((provider) => provider.id)).toEqual(['codex', 'claude', 'grok', 'antigravity']);
+    expect(manifest.providers.map((provider) => provider.id)).toEqual(['codex', 'claude', 'grok', 'antigravity', 'opencode']);
     expect(new Set(manifest.providers.map((provider) => provider.id)).size).toBe(manifest.providers.length);
     expect([...agentKinds]).toEqual(manifest.providers.map((provider) => provider.id));
     for (const provider of manifest.providers) {
@@ -556,7 +616,7 @@ describe('fixed provider history capabilities', () => {
 
   it('derives compatible names, executables, history providers and resume semantics from one registry', () => {
     expect(Object.keys(agentCapabilities)).toEqual([...agentKinds]);
-    expect(historyAgentKinds).toEqual(['codex', 'claude', 'grok', 'antigravity']);
+    expect(historyAgentKinds).toEqual(['codex', 'claude', 'grok', 'antigravity', 'opencode']);
     for (const kind of agentKinds) {
       expect(agentNames[kind]).toBe(agentCapabilities[kind].name);
       expect(executableDefaults[kind]).toBe(agentCapabilities[kind].executable);
@@ -635,7 +695,7 @@ describe('fixed provider history capabilities', () => {
     render(createElement(SettingsPanel, config));
     const selector = screen.getByRole('combobox', { name: '新增來源的 Agent' });
     fireEvent.click(selector);
-    expect(screen.getAllByRole('option')).toHaveLength(4);
+    expect(screen.getAllByRole('option')).toHaveLength(agentKinds.length);
     for (const name of ['Codex', 'Claude Code', 'Grok Build']) expect(screen.getByRole('option', { name })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
     await userEvent.click(screen.getByRole('button', { name: '新增來源' }));

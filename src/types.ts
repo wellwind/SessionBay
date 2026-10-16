@@ -1,4 +1,4 @@
-export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity';
+export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 export interface AgentOptions { extraArgs: string[]; bypassPermissions: boolean; }
 export interface HistorySource {
   id: string;
@@ -129,6 +129,7 @@ export interface Settings {
   onboardingComplete: boolean;
 }
 export interface Bootstrap {
+  runtimes: RuntimeRecord[];
   settings: Settings;
   projects: Project[];
   installations: Installation[];
@@ -156,17 +157,28 @@ export interface RuntimeInfo {
   cwd: string;
   exitCode: number | null;
 }
+export interface RuntimeRecord extends RuntimeInfo {
+  kind: 'shell' | AgentKind;
+  projectId: string | null;
+  profileId: string | null;
+  resumeId: string | null;
+  /** Broker-derived launch policy; absent on older explicit-cwd runtimes. */
+  homeDirectory?: boolean;
+}
 export type TerminalEvent =
+  | { type: 'snapshot'; runtimeId: string; sequence: number; data: number[]; cols: number; rows: number; truncated: boolean }
+  | { type: 'disconnected'; runtimeId: string; message: string }
   | { type: 'output'; runtimeId: string; sequence: number; data: number[] }
   | { type: 'exit'; runtimeId: string; exitCode: number | null }
   | { type: 'error'; runtimeId: string; message: string };
-export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed';
+export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed' | 'disconnected' | 'interrupted';
 export interface Pane {
   id: string;
   kind: 'shell' | AgentKind;
   title: string;
-  projectId: string;
+  projectId: string | null;
   cwd: string;
+  homeDirectory?: boolean;
   sessionId?: string;
   resumeId?: string;
   profileId?: string;
@@ -188,7 +200,7 @@ export type LayoutNode =
     };
 export interface WorkspaceTab {
   id: string;
-  projectId: string;
+  projectId: string | null;
   name: string;
   layout: LayoutNode;
   focusedPaneId: string;
@@ -198,4 +210,5 @@ export interface Workspace {
   tabs: WorkspaceTab[];
   panes: Record<string, Pane>;
   activeTabByProject: Record<string, string>;
+  activeTemporaryTabId?: string;
 }
