@@ -75,7 +75,7 @@ const settings: Settings = {
   profiles: [],
   sources: [],
   agentOptions: defaultAgentOptions(),
-  executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+  executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
   shortcuts: {},
   onboardingComplete: true,
 };
@@ -317,11 +317,11 @@ describe('terminal lifetime and flow control', () => {
 
 
 describe('additional agent terminal requests', () => {
-  it.each(['grok', 'antigravity'] as const)('never launches a restored %s conversation without an explicit start token', (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('never launches a restored %s conversation without an explicit start token', (kind) => {
     render(<TerminalPane {...props(makePane({ kind, resumeId: 'synthetic-conversation' }))} />);
     expect(mocks.launch).not.toHaveBeenCalled();
   });
-  it.each(['grok', 'antigravity'] as const)('passes the %s manual ID as a separate launch field after explicit start', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('passes the %s manual ID as a separate launch field after explicit start', async (kind) => {
     const pane = makePane({ kind, resumeId: 'synthetic-conversation', cwd: '/synthetic/work tree', startToken: 1 });
     const config = props(pane);
     const view = render(<TerminalPane {...config} />);

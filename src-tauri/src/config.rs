@@ -31,6 +31,14 @@ pub struct Executables {
     pub grok: String,
     #[serde(default = "default_antigravity_executable")]
     pub antigravity: String,
+    #[serde(default = "default_opencode_executable")]
+    pub opencode: String,
+}
+
+fn default_opencode_executable() -> String {
+    providers::definition(AgentKind::OpenCode)
+        .executable
+        .clone()
 }
 
 fn default_grok_executable() -> String {
@@ -49,6 +57,7 @@ impl Executables {
             AgentKind::Claude => &self.claude,
             AgentKind::Grok => &self.grok,
             AgentKind::Antigravity => &self.antigravity,
+            AgentKind::OpenCode => &self.opencode,
         }
     }
 }
@@ -60,6 +69,7 @@ impl Default for Executables {
             claude: providers::definition(AgentKind::Claude).executable.clone(),
             grok: default_grok_executable(),
             antigravity: default_antigravity_executable(),
+            opencode: default_opencode_executable(),
         }
     }
 }
@@ -78,6 +88,7 @@ pub struct AgentOptions {
     pub claude: AgentLaunchOptions,
     pub grok: AgentLaunchOptions,
     pub antigravity: AgentLaunchOptions,
+    pub opencode: AgentLaunchOptions,
 }
 
 impl AgentOptions {
@@ -87,6 +98,7 @@ impl AgentOptions {
             AgentKind::Claude => &self.claude,
             AgentKind::Grok => &self.grok,
             AgentKind::Antigravity => &self.antigravity,
+            AgentKind::OpenCode => &self.opencode,
         }
     }
 }
@@ -400,6 +412,7 @@ pub fn executable_fallback_directories() -> Vec<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         paths.push(home.join(".local/bin"));
         paths.push(home.join(".cargo/bin"));
+        paths.push(home.join(".opencode/bin"));
         #[cfg(windows)]
         paths.push(home.join(".grok/bin"));
     }

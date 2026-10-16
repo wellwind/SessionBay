@@ -236,7 +236,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
     if (parsed.error) errors[`agentOptions.${kind}`] = parsed.error;
     if (typeof options.bypassPermissions !== 'boolean') errors[`agentOptions.${kind}`] = '請確認工具權限設定。';
     if (!options.bypassPermissions && options.extraArgs.some((arg) =>
-      /^(--yolo|--always-approve|--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--allow-dangerously-skip-permissions)(=|$)/.test(arg)))
+      /^(--auto|--yolo|--always-approve|--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--allow-dangerously-skip-permissions)(=|$)/.test(arg)))
       errors[`agentOptions.${kind}`] = '高風險參數需要先明確勾選下方的略過權限確認選項。';
   }
   const bindings = new Map<string, string[]>();

@@ -208,7 +208,7 @@ export function restoreWorkspace(value: unknown): Workspace {
       safeString(id, 128) &&
       !['__proto__', 'constructor', 'prototype'].includes(id) &&
       p.id === id &&
-      ['shell', 'codex', 'claude', 'grok', 'antigravity'].includes(p.kind) &&
+      ['shell', 'codex', 'claude', 'grok', 'antigravity', 'opencode'].includes(p.kind) &&
       (p.projectId === null || safeString(p.projectId, 256)) &&
       safeString(p.cwd) &&
       safeString(p.title, 512)

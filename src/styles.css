@@ -1615,3 +1615,5 @@ kbd {
   .temporary-terminal-button span { display: none; }
   .temporary-terminal-button { min-width: 44px; min-height: 44px; padding: 8px; }
 }
+
+.agent-badge.opencode { background: #243c45; color: #afe2e6; }

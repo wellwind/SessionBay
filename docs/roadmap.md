@@ -112,3 +112,7 @@
 
 - [x] 無專案 home Shell、null 分頁／面板、獨立選取、側欄找回與既有明確 cwd 相容的實作及單元回歸。
 - [ ] 同提交 Linux broker E2E 與原生三平台桌面驗收；不可將 socket 受限或交叉編譯算成原生通過。獨立 Draft PR 疊在持續 Runtime PR #7，詳見[驗證清單](temporary-terminal.md)。
+
+## 2026-10-16 OpenCode 獨立 PR
+
+第五 provider 的官方 SQLite v1/v2 reader、來源 UI、安全啟動／接續與合成回歸列為本 PR 交付；依賴原生平台 PR #3。舊 JSON 與任意 channel DB 不宣稱支援，真實 OpenCode 三平台接續仍待驗證，詳見 [OpenCode 整合與驗證](opencode-integration.md)。

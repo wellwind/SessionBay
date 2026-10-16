@@ -17,6 +17,7 @@ pub enum ParserId {
     Claude,
     Grok,
     Antigravity,
+    OpenCode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +64,9 @@ pub struct ProviderDefinition {
 
 impl ProviderDefinition {
     pub fn state_root(&self, home: &Path) -> PathBuf {
+        if self.id == AgentKind::OpenCode {
+            return opencode_data_root(home, std::env::var_os("XDG_DATA_HOME").as_deref());
+        }
         self.state_root_with_override(
             home,
             self.history
@@ -144,14 +148,16 @@ impl Manifest {
                 AgentKind::Claude => ParserId::Claude,
                 AgentKind::Grok => ParserId::Grok,
                 AgentKind::Antigravity => ParserId::Antigravity,
+                AgentKind::OpenCode => ParserId::OpenCode,
             };
             if history
                 .parser_id
                 .is_some_and(|parser| parser != expected_parser)
                 || (history.supported
                     && history.source_env.is_none()
-                    && provider.id != AgentKind::Antigravity)
-                || (provider.id == AgentKind::Antigravity && history.source_env.is_some())
+                    && !matches!(provider.id, AgentKind::Antigravity | AgentKind::OpenCode))
+                || (matches!(provider.id, AgentKind::Antigravity | AgentKind::OpenCode)
+                    && history.source_env.is_some())
             {
                 return Err(
                     "Provider parser or source environment does not match its reviewed integration"
@@ -250,6 +256,23 @@ pub fn lookup(id: &str) -> Option<&'static ProviderDefinition> {
         .find(|provider| provider.id.as_str() == id)
 }
 
+/// OpenCode uses xdg-basedir on all three OSes, including Windows.
+pub fn opencode_data_root(home: &Path, xdg: Option<&std::ffi::OsStr>) -> PathBuf {
+    xdg.map(PathBuf::from)
+        .filter(|path| {
+            #[cfg(windows)]
+            if !crate::windows_fs::valid_filesystem_path(path) {
+                return false;
+            }
+            path.is_absolute()
+                && path
+                    .to_str()
+                    .is_some_and(|s| s.len() <= 4096 && !s.chars().any(char::is_control))
+        })
+        .unwrap_or_else(|| home.join(".local/share"))
+        .join("opencode")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,7 +299,7 @@ mod tests {
             )
             .unwrap();
         }
-        assert!(lookup("opencode").is_none());
+        assert!(lookup("unregistered").is_none());
         assert_eq!(definition(AgentKind::Grok).launch.version_args, ["version"]);
         assert_eq!(
             definition(AgentKind::Grok)

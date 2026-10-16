@@ -157,3 +157,12 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [Windows named pipe listener options](https://docs.rs/interprocess/2.4.5/interprocess/os/windows/named_pipe/struct.PipeListenerOptions.html)：remote acceptance 預設 false，first-instance 與 security descriptor 行為以固定 lockfile 版本核對。
 - [vt100 0.16.2 Screen](https://docs.rs/vt100/0.16.2/vt100/struct.Screen.html)：有界 terminal state、formatted screen 與 input modes；不代表完整 xterm／所有 Agent TUI 相容。
 - [interprocess 2.4.5 Unix listener mode](https://docs.rs/interprocess/2.4.5/interprocess/os/unix/local_socket/trait.ListenerOptionsExt.html)：2026-10-16 核對本機 lockfile 對應原始碼；`.mode()` 在 bind 前執行 `fchmod`，不支援時回傳 `Unsupported`。本機 macOS 已重現；改用 0700 父目錄保護 bind 後的 0600 設定，其他平台未因此宣稱完成驗收。
+
+## OpenCode（查閱 2026-10-16）
+
+- [CLI 官方選項](https://opencode.ai/docs/cli/) 與 [Windows 原生安裝](https://opencode.ai/docs/windows/)：--version、--session、--auto 與平台安裝；文件會更新，不代表實機驗證。
+- [v1.19.2 release](https://github.com/anomalyco/opencode/releases/tag/v1.19.2)：本次固定參照版本。
+- [SQLite schema](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session/sql.ts)、[v1 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/v1/session.ts)、[v2 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/session-message.ts)：reader 與獨立合成 fixture 欄位依據，非穩定外部 API 保證。
+- [Global XDG paths](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/global.ts)、[DB override](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/database.ts)、[TUI argv](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/cli/cmd/tui.ts)、[global --pure](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/index.ts)：路徑、精確來源與權限選項依據。
+
+- OpenCode v2 reset 與原生讀取權威性（2026-10-16，固定 v1.19.2 source）：[reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts)、[V2Session reader](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session.ts)、[v2 experimental specification](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/specs/v2/session.md)。v2 state reset 不代表 v1 rows 仍屬現行 transcript；無權威標記的混合狀態採 metadata-only partial，不自動 fallback。
