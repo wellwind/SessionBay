@@ -3,7 +3,9 @@ mod common;
 use rusqlite::{params, Connection};
 use sessionbay_lib::{
     config::AgentLaunchOptions,
-    history_sources::{discover_history_sources, HistorySourceDiscoveryInputs},
+    history_sources::{
+        discover_history_sources, HistorySourceCandidateStatus, HistorySourceDiscoveryInputs,
+    },
     launch_options,
     models::{AgentKind, HistorySource, SessionQuery},
     providers,
@@ -37,8 +39,56 @@ fn xdg_paths_and_fixed_data_store_are_explicit() {
         &[],
     );
     assert_eq!(result.candidates.len(), 2);
-    assert_eq!(result.candidates[0].root, root.to_string_lossy());
+    // Discovery deliberately resolves filesystem aliases (including macOS /var
+    // -> /private/var and Windows extended-length canonical paths).
+    assert_eq!(
+        result.candidates[0].root,
+        fs::canonicalize(&root).unwrap().to_string_lossy()
+    );
+    assert_eq!(
+        result.candidates[0].status,
+        HistorySourceCandidateStatus::Found
+    );
 }
+#[cfg(unix)]
+#[test]
+fn opencode_discovery_preserves_canonical_identity_through_a_directory_alias() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join(".local/share/opencode");
+    let alias = tmp.path().join("store-alias");
+    fs::create_dir_all(&root).unwrap();
+    std::os::unix::fs::symlink(&root, &alias).unwrap();
+    let source = HistorySource {
+        id: "configured-opencode".into(),
+        kind: AgentKind::OpenCode,
+        root: root.to_string_lossy().into_owned(),
+        enabled: true,
+    };
+    let result = discover_history_sources(
+        AgentKind::OpenCode,
+        &HistorySourceDiscoveryInputs {
+            home: Some(tmp.path().into()),
+            source_env: Some(alias.clone()),
+        },
+        &[source],
+    );
+    assert_eq!(result.candidates.len(), 1);
+    let candidate = &result.candidates[0];
+    assert_eq!(
+        candidate.root,
+        fs::canonicalize(&root).unwrap().to_string_lossy()
+    );
+    assert_ne!(candidate.root, alias.to_string_lossy());
+    assert_eq!(candidate.status, HistorySourceCandidateStatus::Found);
+    assert!(candidate.configured);
+    assert_eq!(candidate.configured_source_ids, ["configured-opencode"]);
+    assert!(fs::symlink_metadata(&alias)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+}
+
 #[test]
 fn safe_flags_and_identity_cannot_be_overridden() {
     let options = |args: Vec<&str>, bypass| AgentLaunchOptions {
