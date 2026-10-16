@@ -61,6 +61,8 @@ import { agentName, dateLabel, HistoryView } from './components/History';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
+import { CommandThemePicker } from './components/CommandThemePicker';
+import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
 import type { Appearance } from './themes';
 import { useUiTheme } from './use-ui-theme';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
@@ -103,7 +105,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [appearancePreview, setAppearancePreview] = useState<Appearance | null>(null);
+  const [appearancePreview, setAppearancePreview] = useState<Partial<Appearance> | null>(null);
   const [quickThemeOpen, setQuickThemeOpen] = useState(false);
   const [themeSaving, setThemeSaving] = useState(false);
   const [themeSaveError, setThemeSaveError] = useState('');
@@ -129,13 +131,32 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [palette, setPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
+  const [paletteTheme, setPaletteTheme] = useState<ThemeTarget | null>(null);
+  const [commandThemePreview, setCommandThemePreview] = useState<ThemePatch | null>(null);
+  const paletteGeneration = useRef(0);
+  const paletteOpener = useRef<HTMLElement | null>(null);
+  const paletteWasOpen = useRef(false);
+  useEffect(() => {
+    if (paletteWasOpen.current && !palette && paletteOpener.current?.isConnected) paletteOpener.current.focus();
+    paletteWasOpen.current = palette;
+  }, [palette]);
+  const closePaletteTheme = () => {
+    paletteGeneration.current++;
+    setPaletteTheme(null);
+    setCommandThemePreview(null);
+    setThemeSaveError('');
+  };
+  const closePalette = () => { closePaletteTheme(); setPalette(false); };
+
   const ready = boot !== null;
   useEffect(() => startup.mounted(), []);
   useEffect(() => {
     if (ready && desktop) startup.ready();
   }, [ready, desktop]);
   const settings = boot?.settings;
-  const visibleSettings = useMemo(() => settings ? { ...settings, ...appearancePreview } : undefined, [settings, appearancePreview]);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const visibleSettings = useMemo(() => settings ? { ...settings, ...appearancePreview, ...commandThemePreview } : undefined, [settings, appearancePreview, commandThemePreview]);
   useUiTheme(visibleSettings);
   const knownProjects = useRef<Record<string, Project>>({});
   for (const project of projects) knownProjects.current[project.id] = project;
@@ -545,7 +566,9 @@ export default function App() {
     {
       id: 'command-palette',
       label: '開啟命令面板',
+      disabled: settingsOpen || quickThemeOpen || themeSaving,
       run: () => {
+        paletteOpener.current = document.activeElement as HTMLElement | null;
         setPalette(true);
         setPaletteQuery('');
       },
@@ -617,6 +640,12 @@ export default function App() {
       },
       disabled: !focusPane,
     },
+    ...(['ui', 'terminal'] as const).map(target => ({
+      id: `theme-${target}`,
+      label: target === 'ui' ? '切換介面主題' : '切換 Terminal 主題',
+      disabled: !settings || settingsOpen || quickThemeOpen || themeSaving,
+      run: () => { if (!palette) paletteOpener.current = document.activeElement as HTMLElement | null; paletteGeneration.current++; setThemeSaveError(''); setPalette(true); setPaletteTheme(target); },
+    })),
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => setSidebarOpen((value) => !value) },
   ].map((command) => ({ ...command, shortcut: effectiveShortcuts[command.id] ?? '' }));
   const commandRef = useRef(commands);
@@ -657,23 +686,56 @@ export default function App() {
     void detectAgents().catch(notify);
     if (first) void scan(false).catch(notify);
   };
-  const quickSaveTheme = async (patch: Partial<Appearance>) => {
-    if (!settings || settingsOpen || themeSaveInFlight.current) return;
+  // All appearance callers share one write gate. Build from the latest saved
+  // settings and apply only the caller's fields; a preview never owns zoom/font.
+  const persistAppearance = async (patch: Partial<Appearance>) => {
+    const latest = settingsRef.current;
+    if (!latest || settingsOpen || themeSaveInFlight.current) return false;
     themeSaveInFlight.current = true;
     setThemeSaving(true);
-    setThemeSaveError('');
-    setAppearancePreview({ ...appearanceOf(settings), ...patch });
     try {
-      const saved = await api.saveSettings({ ...settings, ...patch });
-      setBoot((current) => current ? { ...current, settings: saved } : current);
-    } catch (error) {
+      const saved = await api.saveSettings({ ...latest, ...patch });
+      const committed = Object.fromEntries(Object.keys(patch).map(key => [key, saved[key as keyof Settings]]));
+      const next = { ...settingsRef.current!, ...committed };
+      settingsRef.current = next;
+      setBoot(current => current ? { ...current, settings: { ...current.settings, ...committed } } : current);
+      return true;
+    } finally {
+      themeSaveInFlight.current = false;
+      setThemeSaving(false);
+    }
+  };
+  const quickSaveTheme = async (patch: Partial<Appearance>) => {
+    if (!settingsRef.current || settingsOpen || paletteTheme || themeSaveInFlight.current) return;
+    setThemeSaveError('');
+    setAppearancePreview(patch);
+    try { await persistAppearance(patch); }
+    catch (error) {
       const message = `主題未能儲存，已還原：${errorMessage(error)}`;
       setThemeSaveError(message);
       if (!quickThemeOpenRef.current) notify(message);
-    } finally {
-      setAppearancePreview(null);
-      themeSaveInFlight.current = false;
-      setThemeSaving(false);
+    } finally { setAppearancePreview(null); }
+  };
+  const commitCommandTheme = async (patch: ThemePatch) => {
+    if (!paletteTheme || themeSaveInFlight.current || settingsOpen || quickThemeOpen) return;
+    const generation = paletteGeneration.current;
+    setThemeSaveError('');
+    setCommandThemePreview(patch);
+    try {
+      const saved = await persistAppearance(patch);
+      if (generation === paletteGeneration.current) {
+        if (saved) closePalette();
+        else {
+          setCommandThemePreview(null);
+          setThemeSaveError('主題尚未儲存，已還原目前儲存的外觀；請重試。');
+        }
+      }
+    } catch (error) {
+      const message = `主題未能儲存，已還原目前儲存的外觀；可重試：${errorMessage(error)}`;
+      if (generation === paletteGeneration.current) {
+        setCommandThemePreview(null);
+        setThemeSaveError(message);
+      } else notify(message);
     }
   };
   const saveMembership = async (project: Project, curated: boolean) => {
@@ -782,7 +844,7 @@ export default function App() {
             本機優先
           </span>
           <button className="icon-button theme-quick-trigger" aria-label="快速切換主題" title="快速切換主題"
-            disabled={!settings || settingsOpen || themeSaving}
+            disabled={!settings || settingsOpen || themeSaving || palette}
             onClick={() => { setThemeSaveError(''); setQuickThemeOpen(true); }}>
             <Palette size={19} />
           </button>
@@ -790,7 +852,7 @@ export default function App() {
             className="icon-button"
             aria-label="設定與資料來源"
             title="設定與資料來源"
-            disabled={!boot || themeSaving}
+            disabled={!boot || themeSaving || palette || quickThemeOpen}
             onClick={() => setSettingsOpen(true)}
           >
             <SettingsIcon size={19} />
@@ -908,7 +970,7 @@ export default function App() {
             <div className="sidebar-bottom">
               <span className="eyebrow">你的工作，留在本機</span>
               <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
-              <button onClick={() => setSettingsOpen(true)} disabled={!boot || themeSaving}>
+              <button onClick={() => setSettingsOpen(true)} disabled={!boot || themeSaving || palette || quickThemeOpen}>
                 <CircleHelp size={14} />
                 資料來源與支援範圍
                 <ChevronRight size={14} />
@@ -1451,7 +1513,11 @@ export default function App() {
         </Dialog>
       )}
       {palette && (
-        <Dialog title="命令面板" onClose={() => setPalette(false)}>
+        <Dialog title="命令面板" onClose={closePalette}>
+          {paletteTheme && settings ? <CommandThemePicker key={paletteTheme} target={paletteTheme}
+            value={appearanceOf(settings)} saving={themeSaving} error={themeSaveError}
+            onPreview={setCommandThemePreview} onCommit={patch => void commitCommandTheme(patch)}
+            onBack={closePaletteTheme} /> : <>
           <div className="palette-input search-field">
             <Search size={18} />
             <input
@@ -1460,6 +1526,12 @@ export default function App() {
               placeholder="輸入命令或專案名稱…"
               value={paletteQuery}
               onChange={(event) => setPaletteQuery(event.target.value)}
+              onKeyDown={event => {
+                if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
+                const first = event.currentTarget.closest('[role="dialog"]')?.querySelector<HTMLButtonElement>('.palette-results button:not(:disabled)');
+                if (event.key === 'Enter') { event.preventDefault(); first?.click(); }
+                if (event.key === 'ArrowDown') { event.preventDefault(); first?.focus(); }
+              }}
             />
           </div>
           <div className="palette-results">
@@ -1474,7 +1546,7 @@ export default function App() {
                   disabled={command.disabled}
                   key={command.id}
                   onClick={() => {
-                    setPalette(false);
+                    if (!command.id.startsWith('theme-')) closePalette();
                     command.run();
                   }}
                 >
@@ -1504,6 +1576,7 @@ export default function App() {
                 </button>
               ))}
           </div>
+          </>}
         </Dialog>
       )}
     </div>
