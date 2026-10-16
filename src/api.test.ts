@@ -3,7 +3,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { api } from './api';
 import type { LaunchRequest } from './types';
 
-const native = vi.hoisted(() => ({ channels: vi.fn() }));
+const native = vi.hoisted(() => ({ channels: vi.fn(), setZoom: vi.fn() }));
+vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ setZoom: native.setZoom }) }));
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
   isTauri: vi.fn(() => false),
@@ -71,5 +72,17 @@ describe('history source discovery IPC contract', () => {
   it('does not call native discovery in browser preview', async () => {
     await expect(api.detectHistorySources('grok')).rejects.toThrow('桌面執行環境未連線');
     expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('native zoom API', () => {
+  it('uses the current WebView page zoom factor without changing runtime IPC', async () => {
+    vi.mocked(isTauri).mockReturnValue(true); native.setZoom.mockResolvedValue(undefined);
+    await api.setWorkspaceZoom(150);
+    expect(native.setZoom).toHaveBeenCalledWith(1.5); expect(invoke).not.toHaveBeenCalled();
+  });
+  it('does not claim a browser-only preview changed native zoom', async () => {
+    await expect(api.setWorkspaceZoom(150)).rejects.toThrow('桌面');
+    expect(native.setZoom).not.toHaveBeenCalled();
   });
 });

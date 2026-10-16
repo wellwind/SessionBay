@@ -1,3 +1,4 @@
+import { workspaceZoomEvent } from './workspace-zoom';
 import { defaultAgentOptions } from './agents';
 import { shouldHandleTerminalKey } from './terminal-ime';
 import { act, render, waitFor } from '@testing-library/react';
@@ -390,4 +391,31 @@ describe('live terminal font sizing', () => {
       expect(mocks.reset).toHaveBeenCalledTimes(baseline.reset);
     } finally { width.mockRestore(); height.mockRestore(); }
   });
+});
+
+it('refits after native page zoom without changing terminal font or runtime, and fits hidden panes on reveal', async () => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
+  const p = props(makePane({ startToken: 1 }));
+  const view = render(<TerminalPane {...p} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  mocks.fit.mockClear(); mocks.resize.mockClear(); mocks.focus.mockClear();
+  const resets = mocks.reset.mock.calls.length;
+  act(() => window.dispatchEvent(new Event(workspaceZoomEvent)));
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).toHaveBeenCalledOnce(); expect(mocks.resize).toHaveBeenCalledWith('runtime', 80, 24);
+  expect(mocks.options.at(-1)?.fontSize).toBe(13); expect(mocks.focus).not.toHaveBeenCalled();
+  view.rerender(<TerminalPane {...p} visible={false} />);
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  act(() => window.dispatchEvent(new Event(workspaceZoomEvent)));
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).not.toHaveBeenCalled(); expect(mocks.resize).not.toHaveBeenCalled();
+  view.rerender(<TerminalPane {...p} visible />);
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  act(() => mocks.input?.('still alive'));
+  await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'still alive'));
+  expect(mocks.launch).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
+  expect(mocks.reset).toHaveBeenCalledTimes(resets);
 });

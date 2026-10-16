@@ -1,3 +1,4 @@
+@import url('./code-themes.css');
 /* Session Bay workbench design system. See docs/ui-design-system.md. */
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'Noto Sans CJK TC', sans-serif;
@@ -256,3 +257,23 @@ input.checkbox::before { border-color: var(--on-accent); }
 .message-heading { font-size: 12px; }
 .message-heading time { font-size: 11px; }
 @media (max-width: 950px) { .settings-history-providers { grid-template-columns: 1fr; } }
+
+/* Native page zoom reduces the CSS viewport. Keep overflow reachable, never clip it. */
+#root { overflow: auto; }
+.app-shell { min-height: 420px; }
+@media (max-width: 720px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-panel { max-height: calc(100dvh - 24px); }
+}
+@media (max-height: 520px) {
+  .settings-backdrop { padding: 8px; }
+  .settings-panel { display: block; overflow: auto; max-height: calc(100dvh - 16px); }
+  .settings-form, .settings-layout { display: block; }
+  .settings-content { overflow: visible; }
+  .settings-nav { flex-direction: row; overflow-x: auto; }
+  .settings-nav > button { flex-shrink: 0; }
+  .settings-privacy { display: none; }
+  /* Confirmation must not scroll away with the long Settings panel. */
+  .settings-confirm-backdrop { position: fixed; overflow: auto; padding: 12px; }
+  .settings-confirm { max-height: calc(100dvh - 24px); overflow: auto; }
+}

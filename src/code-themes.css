@@ -1,0 +1,63 @@
+/* Semantic adaptations only for these two families; existing palettes are unchanged. */
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) {
+  --radius: 5px;
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) .app-topbar {
+  background: var(--code-titlebar);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) .transcript-column {
+  background: var(--bg);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tabs, .pane-toolbar, .pane-meta, .pane-footer, .statusbar) {
+  background: var(--panel);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab, .workspace-tabs > .history-tab) {
+  color: var(--code-tab-inactive-text);
+  background: var(--code-tab-inactive);
+  border-top: 2px solid transparent;
+  border-bottom-color: transparent;
+  border-right: 1px solid var(--border);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab.active, .workspace-tabs > .history-tab.active) {
+  color: var(--code-tab-text);
+  background: var(--code-tab-active);
+  border-top-color: var(--code-tab-border);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab:hover, .workspace-tabs > .history-tab:hover) {
+  background: var(--code-tab-hover);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(input, textarea, select, .select-trigger, .date-field, .search-field, .project-search.search-field) {
+  background: var(--code-input);
+  color: var(--code-input-text);
+  border-color: var(--control-border);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.date-field, .search-field) > input {
+  background: transparent;
+  border: 0;
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.primary, .settings-button.primary, .skip-link, .calendar-day.is-selected, input.checkbox:checked, input.checkbox:indeterminate) {
+  background: var(--code-primary);
+  color: var(--on-accent);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.primary, .settings-button.primary):is(:hover, :active):not(:disabled) {
+  background: var(--code-primary-hover);
+  filter: none;
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.secondary, .settings-button.secondary) {
+  color: var(--code-secondary-text);
+  background: var(--code-secondary);
+  border-color: var(--control-border);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.secondary, .settings-button.secondary):hover:not(:disabled) {
+  background: var(--code-secondary-hover);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--code-focus);
+  outline-offset: 3px;
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.select-trigger:focus-visible, .search-field:focus-within, .date-field:focus-within, input:focus, textarea:focus, .terminal-pane.focused) {
+  border-color: var(--code-focus);
+}
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.search-field, .date-field) > input:focus-visible {
+  outline: none;
+}

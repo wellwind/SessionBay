@@ -121,6 +121,8 @@ export interface Settings {
   terminalTheme: string;
   fontFamily: string;
   fontSize: number;
+  /** Percentage; absent in older version 1 settings means 100. */
+  appZoom?: number;
   defaultAgent: AgentKind;
   defaultProfileId: string;
   profiles: ShellProfile[];

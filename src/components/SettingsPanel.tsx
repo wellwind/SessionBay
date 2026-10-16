@@ -1,4 +1,4 @@
-import { terminalFontShortcutHelp } from '../terminal-font';
+import { workspaceZoomShortcutHelp } from '../workspace-zoom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
@@ -181,6 +181,8 @@ export function validateSettings(settings: Settings): ValidationErrors {
     errors.fontFamily = '請填寫有效的字型名稱，最多 256 bytes。';
   if (!Number.isInteger(settings.fontSize) || settings.fontSize < 9 || settings.fontSize > 32)
     errors.fontSize = '字型大小請填寫 9 到 32 的整數。';
+  if (!Number.isInteger(settings.appZoom ?? 100) || (settings.appZoom ?? 100) < 50 || (settings.appZoom ?? 100) > 200)
+    errors.appZoom = '工作台縮放請填寫 50 到 200 的整數百分比。';
   if (!agentKinds.includes(settings.defaultAgent))
     errors.defaultAgent = '請選擇預設 Agent。';
   if (!settings.profiles.length || settings.profiles.length > 32)
@@ -253,7 +255,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
       continue;
     }
     if (!binding.trim()) continue;
-    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換或終端字級，請選擇其他快捷鍵。';
+    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換或全工作台縮放，請選擇其他快捷鍵。';
     const parts = binding
       .trim()
       .split('+')
@@ -355,8 +357,10 @@ export function SettingsPanel({
     if (!Number.isInteger(appearance.fontSize) || appearance.fontSize < 9 || appearance.fontSize > 32)
       appearance.fontSize = settings.fontSize;
     if (!validText(appearance.fontFamily, 256)) appearance.fontFamily = settings.fontFamily;
+    if (!Number.isInteger(appearance.appZoom) || appearance.appZoom! < 50 || appearance.appZoom! > 200)
+      appearance.appZoom = settings.appZoom ?? 100;
     onPreviewAppearance?.(appearance);
-  }, [draft, settings.fontSize, settings.fontFamily, onPreviewAppearance]);
+  }, [draft, settings.fontSize, settings.fontFamily, settings.appZoom, onPreviewAppearance]);
   useEffect(() => () => onPreviewAppearance?.(null), [onPreviewAppearance]);
   useEffect(() => {
     const back = () => { if (!operationInFlight.current && !busy) onClose(); };
@@ -1102,6 +1106,16 @@ export function SettingsPanel({
                       </div>
                     </div>
                     <p className="settings-help theme-quick-help">立即預覽整個工作台與所有終端；儲存後保留，取消並捨棄則還原。</p>
+                    <div className="settings-field settings-section-space">
+                      <label id="app-zoom-label" htmlFor="app-zoom">工作台縮放 <small>%</small></label>
+                      <input id="app-zoom" type="number" min={50} max={200} step={10} aria-labelledby="app-zoom-label"
+                        value={Number.isFinite(draft.appZoom ?? 100) ? (draft.appZoom ?? 100) : ''}
+                        onChange={(event) => update('appZoom', event.target.value === '' ? Number.NaN : Number(event.target.value))}
+                        aria-invalid={Boolean(errors.appZoom)} aria-describedby="app-zoom-error app-zoom-help" />
+                      <FieldError id="app-zoom-error" message={errors.appZoom} />
+                      <p className="settings-help" id="app-zoom-help">{workspaceZoomShortcutHelp} 儲存保留、取消捨棄還原；終端基準字級不變。</p>
+                      <button className="secondary" type="button" onClick={() => update('appZoom', 100)}>還原工作台縮放 100%</button>
+                    </div>
                     <ThemeControls value={appearanceOf(draft)} disabled={locked}
                       onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
                     <FieldError id="theme-error" message={errors.theme || errors.themePalette} />
@@ -1127,7 +1141,7 @@ export function SettingsPanel({
                           aria-describedby="font-size-error"
                         />
                         <FieldError id="font-size-error" message={errors.fontSize} />
-                        <p className="settings-help">{terminalFontShortcutHelp} 設定內請用此欄位預覽，儲存保留、取消捨棄還原。</p>
+                        <p className="settings-help">終端的基準字級；全工作台縮放另外作用於介面與終端，不會改寫此數值。此欄位立即預覽，儲存保留、取消捨棄還原。</p>
                       </label>
                     </div>
                     <label className="settings-field">

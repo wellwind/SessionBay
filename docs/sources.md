@@ -134,3 +134,21 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [GitHub：Control workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)：同群 queued run 的取代語意；完整手動流程不共用自動取消群組。
 - [GitHub：Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)：未跑／略過不能作為本專案實際平台驗收證據。
 - [actionlint v1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)：本機以官方 release digest 核對後檢查 workflow 語法與 expressions；沒有新增第三方 CI action。
+
+## 全工作台原生縮放（2026-10-16）
+
+以本 PR lockfile 的 Tauri 2.12.4、tauri-runtime-wry 2.12.2、Wry 0.57.0 與 xterm 5.5.0 查核；文件與原始碼不是實機驗收。
+
+- [Tauri setZoom](https://v2.tauri.app/reference/javascript/api/namespacewebview/#setzoom) 與 [核心權限](https://v2.tauri.app/reference/acl/core-permissions/#webview)：使用目前 WebView 的 page zoom，1 代表 100%；需明確授權 allow-set-webview-zoom，core:default 不包含此 setter。
+- [Tauri window configuration](https://v2.tauri.app/reference/config/#windowconfig)：zoomHotkeysEnabled 在 Windows 控制 WebView2 zoom controls，macOS／Linux 會注入另套倍率與範圍的 polyfill；本 PR 明確設 false，由可保存的單一快捷鍵處理器負責。
+- [Wry 0.57 macOS](https://github.com/tauri-apps/wry/blob/wry-v0.57.0/src/wkwebview/mod.rs)、[Linux](https://github.com/tauri-apps/wry/blob/wry-v0.57.0/src/webkitgtk/mod.rs)、[Windows](https://github.com/tauri-apps/wry/blob/wry-v0.57.0/src/webview2/mod.rs)：分別使用 WKWebView pageZoom（macOS 11+）、WebKitGTK zoom level 與 WebView2 ZoomFactor；專案最低 macOS 12 符合 API 條件。
+- [WebKitGTK zoom-text-only](https://webkitgtk.org/reference/webkit2gtk/stable/property.Settings.zoom-text-only.html)：預設 false，正常頁面縮放包含內容與文字。
+- [WebView2 ZoomFactor](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controller?view=webview2-1.0.3537.50#get_zoomfactor)：倍率會影響頁面布局；host 設定值也是原生 Ctrl+0 的預設，故本應用自行處理明確的 100% reset。
+- [xterm 5.5 CoreBrowserService](https://github.com/xtermjs/xterm.js/blob/5.5.0/src/browser/services/CoreBrowserService.ts)：既有 DPR／resize 追蹤保留；不可把 DPR 當作已保存的 appZoom。
+- [MDN CSS zoom](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/zoom)：CSS zoom 與 transform scale 的布局語意不同；本 PR 使用原生 page zoom，未以 transform 模擬，並補縮小 CSS viewport 後的可達性。
+
+## Code 配色來源（2026-10-16）
+
+- Microsoft VS Code 固定 commit 3588843f05a21bfdeada83a9799d87f19de0fadd 的 [default themes](https://github.com/microsoft/vscode/tree/3588843f05a21bfdeada83a9799d87f19de0fadd/extensions/theme-defaults/themes)：Modern 與 2026 深／淺色及完整 include 鏈的語意配色。
+- 同一版本的 [Terminal color registry](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/src/vs/workbench/contrib/terminal/common/terminalColorRegistry.ts) 與 [editor selection defaults](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/src/vs/platform/theme/common/colors/editorColors.ts)：未被主題覆蓋的 ANSI／選取色來源。
+- [MIT license](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/LICENSE.txt) 隨 public/third-party/VSCode-LICENSE.txt 保留。適用範圍、可及性調整與非官方合作聲明見 [主題說明](theme-preview.md)。

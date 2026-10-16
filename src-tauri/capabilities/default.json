@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Only the bundled main window can access core UI events. Files and child processes are scoped by application commands.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:webview:allow-set-webview-zoom"]
 }

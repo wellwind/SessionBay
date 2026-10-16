@@ -1,5 +1,6 @@
 import type { ITheme } from '@xterm/xterm';
 import type { Settings } from './types';
+import { codeTerminalTheme, codeUiTokens } from './code-themes';
 
 const legacyTerminalThemes: Record<string, ITheme> = {
   bay: {
@@ -49,7 +50,7 @@ const legacyTerminalThemes: Record<string, ITheme> = {
 };
 
 export type ColorMode = 'dark' | 'light';
-export type Appearance = Pick<Settings, 'theme' | 'themePalette' | 'terminalTheme' | 'fontSize' | 'fontFamily'>;
+export type Appearance = Pick<Settings, 'theme' | 'themePalette' | 'terminalTheme' | 'fontSize' | 'fontFamily' | 'appZoom'>;
 export interface ThemePalette {
   id: string;
   label: string;
@@ -69,6 +70,8 @@ export const themePalettes: ThemePalette[] = [
   { id: 'slate', label: 'Slate · 青岩', dark: { background: '#111e21', surface: '#233339', accent: '#85cdd5' }, light: { background: '#f2f8f8', surface: '#e0eeee', accent: '#23626c' } },
   { id: 'coffee', label: 'Coffee · 咖啡', dark: { background: '#211914', surface: '#362b23', accent: '#d9b49a' }, light: { background: '#faf6f1', surface: '#eee5db', accent: '#795238' } },
   { id: 'sand', label: 'Sand · 沙丘', dark: { background: '#1e1d16', surface: '#333126', accent: '#d3cd95' }, light: { background: '#f9f8f0', surface: '#eeecdc', accent: '#626027' } },
+  { id: 'code-modern', label: 'Code Modern', dark: { background: '#1f1f1f', surface: '#202020', accent: '#4daafc' }, light: { background: '#ffffff', surface: '#f8f8f8', accent: '#005fb8' } },
+  { id: 'code-2026', label: 'Code 2026', dark: { background: '#121314', surface: '#202122', accent: '#48a0c7' }, light: { background: '#ffffff', surface: '#fafafd', accent: '#0069cc' } },
 ];
 
 function mix(a: string, b: string, amount: number): string {
@@ -100,6 +103,15 @@ export function uiTokens(paletteId = 'bay', mode: ColorMode = 'dark'): Record<st
     danger: dark ? '#f0a2a7' : '#a12c3f',
     'danger-bg': dark ? '#452b32' : '#fbe8eb',
     shadow: dark ? '0 20px 70px #0006' : '0 20px 70px #142c3626',
+    // Always include scoped token names so preview cleanup also restores them
+    // when switching from a Code family back to an existing palette.
+    'code-titlebar': surface, 'code-input': background, 'code-input-text': dark ? '#edf2f5' : '#172936',
+    'code-primary': accent, 'code-primary-hover': accent, 'code-secondary': surface,
+    'code-secondary-hover': surface, 'code-secondary-text': dark ? '#edf2f5' : '#172936', 'code-focus': accent,
+    'code-tab-active': background, 'code-tab-text': dark ? '#edf2f5' : '#172936',
+    'code-tab-inactive': surface, 'code-tab-inactive-text': dark ? '#b7c3ce' : '#445361',
+    'code-tab-border': accent, 'code-tab-hover': surface,
+    ...codeUiTokens(palette.id, mode),
   };
 }
 
@@ -127,6 +139,7 @@ export const terminalPresets = (['dark', 'light'] as const).flatMap((mode) => th
     cursorAccent: palette[mode].background,
     selectionBackground: mode === 'dark' ? '#486079' : '#c5d7e8',
     selectionForeground: mode === 'dark' ? '#ffffff' : '#172936',
+    ...codeTerminalTheme(palette.id, mode),
   } satisfies ITheme,
 })));
 
@@ -147,5 +160,5 @@ export function terminalOptions(id: string) {
 export function validThemeId(id: string) { return /^[a-z0-9][a-z0-9-]{0,63}$/.test(id); }
 export function appearanceOf(settings: Settings): Appearance {
   return { theme: settings.theme, themePalette: settings.themePalette, terminalTheme: settings.terminalTheme,
-    fontSize: settings.fontSize, fontFamily: settings.fontFamily };
+    fontSize: settings.fontSize, fontFamily: settings.fontFamily, appZoom: settings.appZoom ?? 100 };
 }

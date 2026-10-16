@@ -1,23 +1,32 @@
-# Terminal 字級快捷鍵
+# 全工作台縮放
 
-日期：2026-10-16。後續待辦 01 的獨立日常體驗 PR，stack 在主題即時預覽 PR；已實作待原生驗收。
+日期：2026-10-16。後續待辦 01 的獨立日常體驗 PR，依賴主題即時預覽。使用者追加介面與 Terminal 一起縮放，因此取代原本僅調整終端字級的快捷鍵方案；文件路徑保留以維持既有連結。已實作，原生驗收仍待完成。
 
 ## 操作與範圍
 
-- 目前顯示工作區時，macOS 用 Cmd，Linux 用 Ctrl：加 `=` 或 `+` 放大，加 `-` 縮小，加 `0` 還原 **14 px**。支援鍵盤送出的語意 `+`（含數字鍵盤），不把非美式鍵盤的任意實體位置強當成 `+`。
-- 每次 1 px，限 9–32 px；作用於全部終端（包括隱藏面板及後續新面板）。介面字級與瀏覽器縮放不變。
-- 立即套用並保存；狀態列顯示大小與儲存中。連按會合併等待寫入的最新值，所有寫入序列化。失敗還原上次成功保存值、清除未保存的等待變更並提示錯誤，可再次操作。應待儲存完成才關閉程式；未完成的寫入、強制結束與異常退出不宣稱保存成功。
-- 一般輸入／搜尋欄位、contenteditable、對話框及 IME 組字期間不處理快捷鍵；xterm 的隱藏輸入 textarea 可用。攔截發生在 PTY 輸入之前，上下界無變更的保留按鍵也不傳入終端。
-- 設定的字級欄位預覽全部終端；儲存保留，取消並捨棄回到進設定前已保存的字級。主題與字級共用 Appearance 保存機制，避免兩者競爭覆寫。
+- macOS 用 Cmd，Windows／Linux 用 Ctrl：加 `=` 或 `+` 放大，加 `-` 縮小，加 `0` 還原 **100%**。每次 10 個百分點，範圍 50–200%。沒有開啟 Terminal、停留在歷史頁面時也可操作。
+- 原生 WebView page zoom 同時縮放介面、圖示與所有終端；不使用 CSS transform 或額外乘上 xterm fontSize。設定的「終端字型大小」仍為獨立基準字級，字型／主題保持獨立。
+- 狀態列顯示原生 API 已成功套用的百分比；等待時顯示套用中／儲存中。原生縮放失敗與磁碟保存失敗均顯示錯誤，不宣稱失敗的倍率已保存；還原原生倍率若失敗，保留顯示實際套用值與錯誤。可按還原重試。
+- 一般輸入／搜尋欄位、contenteditable、對話框及 IME 組字期間不處理快捷鍵；xterm 的隱藏輸入 textarea 可用。保留按鍵在 capture 階段攔截，上下界也不送進 PTY。支援按鍵事件的語意 `+`／`=`，不把非美式鍵盤任意實體鍵當成加號。
+- 外觀設定提供「工作台縮放」百分比及「還原工作台縮放 100%」。立即預覽，儲存保留；取消並捨棄回到進設定前已保存的主題、終端字級與倍率。無效數值不送入原生預覽。
+- 窄／矮視窗允許工作台捲動，Settings 在短視窗也可捲動到內容與取消／儲存。這是避免放大後裁切控制項的布局處理，仍需實際平台畫面驗收。
+
+## 保存與生命週期
+
+`appZoom` 是 Settings v1 的新增百分比欄位；舊檔缺少此欄位時預設 100。前後端驗證整數及 50–200 範圍；與主題共同列為索引中可保存的純外觀欄位，不放寬其他設定限制。
+
+主題與倍率共用 Appearance 的窄欄位序列化／合併等待寫入，避免彼此覆寫。每次呼叫保留自己的 Promise<boolean> 結果；相同欄位被後來的要求取代回傳 false，真正保存才回傳 true，失敗會通知所有受影響呼叫。命令選色器仍有獨立預覽及世代檢查；只保存主題不會要求原生縮放。原生 setZoom 另有序列化／合併等待預覽，避免快速切換、取消及錯誤還原留下舊倍率；保存前必須確認原生套用成功。應待儲存完成才關閉程式，強制結束或未完成寫入不宣稱保存成功。
+
+僅 main window 新增 `core:webview:allow-set-webview-zoom`；明確停用原生 `zoomHotkeysEnabled`，避免 WebView2 或 Tauri polyfill 成為第二個縮放來源。原生套用後排入動畫幀通知，現有可見 Terminal 重新 fit／resize；保留 ResizeObserver、DPR 追蹤與隱藏面板重新顯示後的 fit，不改 runtime IDs、PTY 啟停或輸出。
 
 ## 驗證與整合
 
-本機 Linux 已通過 typecheck、lint、15 suites／443 tests、production build；Rust locked／no-default-features 核心 246 tests、fmt、Clippy 通過（另 1 個隔離子程序 helper 預設 ignored，由父測試執行）。44 組語義對比與 10 個圖示表示靜態檢查通過。
+本機 Linux：typecheck、lint、17 suites／497 tests、production build 通過；Rust `--locked --no-default-features` 核心 248 tests、fmt、Clippy 通過（另 1 個隔離子程序 helper 預設 ignored，由父測試執行）。44 組語義對比與 10 個圖示表示靜態檢查通過。
 
-純函式覆蓋兩平台、plus／equal／數字鍵盤、範圍、reset、IME、按鍵透傳與保留快捷鍵衝突。App 測試覆蓋快速連按、序列化寫入、錯誤回復、設定預覽／取消／保存、主題保存與 zoom 連續操作、原有 workspace 身分與生命週期保持。Terminal 測試確認 font options、可見面板 fit／resize、隱藏面板回到前景後 resize、輸入輸出續行，不 reset／relaunch／dispose。
+回歸涵蓋快捷鍵／界線／IME、沒有 Terminal 的歷史畫面、舊設定遷移、重開讀取、原生 IPC factor、快速連按與序列化、原生失敗不保存、磁碟失敗還原以及還原原生失敗時顯示實際倍率、Settings 預覽／取消／reset、非法數值、主題與倍率連續操作、Terminal fit／隱藏面板恢復且不重啟／不改基準字級。
 
-本 PR 依賴主題 PR 的 Appearance。持續 Runtime 仍優先；合併及 rebase 後須重跑設定／生命週期整合。Windows 的設定路徑驗證由獨立平台 PR 處理，本組不重複修改。
+待原生 macOS／Linux／Windows 驗收：50／100／200% 在預設及最小視窗的布局與捲動、游標／選取對齊、真實 Shell／Agent 輸出時 resize、不同螢幕 DPI、美式／非美式及數字鍵盤、IME、OS 熱鍵衝突、Settings 捲到底部後 Cancel／捨棄確認仍可到達，以及關閉重開。此環境 Chromium 仍以 socket `Operation not permitted` 失敗；GTK／WebKitGTK desktop build 依賴也未備齊，沒有以 DOM 或靜態檢查代替原生成功。
 
-待原生 macOS／Linux 驗收：美式／非美式鍵盤、數字鍵盤、IME、作業系統快捷鍵衝突、真實 Shell／Agent 輸出時 resize、隱藏面板恢復、設定取消與實際重開。此環境 Chromium 啟動受限，未取得可靠新截圖；DOM 與靜態檢查不當作原生畫面驗收。完整三平台 workflow 需另行手動驗收，不自動合併。
+已整合 PR4 `bc5aef77` 的新主題／命令選單，回歸含命令選色器保存中關閉後連按縮放、失敗回復、後續 Terminal 主題保存不覆寫倍率／字型、延遲原生縮放與 Settings 取消。獨立複查未見 blocker。持續 Runtime 與其他並行 PR 合併後仍須重跑整合回歸；只接收新版 Appearance 的窄 patch，不以舊 Settings 覆寫 appZoom。完整平台 workflow 需另行手動驗收，不自動合併。Shift＋Enter 與 CLI 輸入協定不在此變更。
 
-Shift＋Enter 保留獨立待辦；本 PR 不變更 Enter、LF、Ctrl＋J 或任何 CLI 輸入協定。
+官方來源與平台限制見 [技術來源](sources.md#全工作台原生縮放2026-10-16)。

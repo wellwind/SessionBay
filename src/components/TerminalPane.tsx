@@ -19,6 +19,7 @@ import '@xterm/xterm/css/xterm.css';
 import { api, errorMessage } from '../api';
 import { TerminalInputQueue } from '../terminal-queue';
 import { shouldHandleTerminalKey } from '../terminal-ime';
+import { workspaceZoomEvent } from '../workspace-zoom';
 import type { Pane, RuntimeInfo, Settings } from '../types';
 import { terminalTheme } from '../themes';
 
@@ -137,6 +138,8 @@ export function TerminalPane({
       frame = requestAnimationFrame(fitNow);
     });
     observer.observe(host.current);
+    const zoomed = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(fitNow); };
+    window.addEventListener(workspaceZoomEvent, zoomed);
     fitNow();
     return () => {
       mounted.current = false;
@@ -144,6 +147,7 @@ export function TerminalPane({
       runtime.current = undefined;
       if (id) void api.stop(id).catch(() => undefined);
       observer.disconnect();
+      window.removeEventListener(workspaceZoomEvent, zoomed);
       cancelAnimationFrame(frame);
       input.dispose();
       clipboardBlock.dispose();

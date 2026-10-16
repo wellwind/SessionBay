@@ -101,6 +101,8 @@ pub struct Settings {
     pub terminal_theme: String,
     pub font_family: String,
     pub font_size: u16,
+    #[serde(default = "default_app_zoom")]
+    pub app_zoom: u16,
     pub default_agent: AgentKind,
     pub default_profile_id: String,
     pub profiles: Vec<ShellProfile>,
@@ -147,6 +149,7 @@ impl Default for Settings {
             terminal_theme: "bay".into(),
             font_family: "ui-monospace, SFMono-Regular, Menlo, monospace".into(),
             font_size: 14,
+            app_zoom: default_app_zoom(),
             default_agent: AgentKind::Codex,
             default_profile_id: "default".into(),
             profiles: vec![ShellProfile {
@@ -178,6 +181,10 @@ fn clean_string(s: &str, max: usize) -> bool {
     !s.is_empty() && s.len() <= max && !s.contains('\0')
 }
 
+fn default_app_zoom() -> u16 {
+    100
+}
+
 fn default_theme_palette() -> String {
     "bay".into()
 }
@@ -205,6 +212,9 @@ impl Settings {
         }
         if !(9..=32).contains(&self.font_size) || !clean_string(&self.font_family, 256) {
             return Err("字型大小須為 9–32，且字型名稱不可為空".into());
+        }
+        if !(50..=200).contains(&self.app_zoom) {
+            return Err("工作台縮放須為 50–200 的整數百分比".into());
         }
         if self.profiles.is_empty() || self.profiles.len() > 32 || self.sources.len() > 32 {
             return Err("至少需要一個 Shell Profile，最多 32 個 Profile／來源".into());
@@ -564,6 +574,48 @@ mod tests {
         let settings = Settings::default();
         settings.validate().unwrap();
         assert_eq!(settings.shortcuts["next-pane"], "Mod+Alt+ArrowDown");
+    }
+    #[test]
+    fn workspace_zoom_migrates_and_roundtrips_independently_of_font() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("appZoom");
+        old["fontSize"] = 21.into();
+        let mut settings: Settings = serde_json::from_value(old).unwrap();
+        assert_eq!(settings.app_zoom, 100);
+        settings.app_zoom = 150;
+        let loaded: Settings =
+            serde_json::from_value(serde_json::to_value(settings).unwrap()).unwrap();
+        assert_eq!(loaded.app_zoom, 150);
+        assert_eq!(loaded.font_size, 21);
+        loaded.validate().unwrap();
+    }
+    #[test]
+    fn workspace_zoom_rejects_out_of_range_and_noninteger_settings() {
+        for value in [0, 49, 201, u16::MAX] {
+            let settings = Settings {
+                app_zoom: value,
+                ..Settings::default()
+            };
+            assert!(settings.validate().is_err());
+        }
+        for value in [
+            serde_json::json!(99.5),
+            serde_json::json!(-1),
+            serde_json::json!("100"),
+            serde_json::Value::Null,
+        ] {
+            let mut settings = serde_json::to_value(Settings::default()).unwrap();
+            settings["appZoom"] = value;
+            assert!(serde_json::from_value::<Settings>(settings).is_err());
+        }
+        for value in [50, 100, 200] {
+            Settings {
+                app_zoom: value,
+                ..Settings::default()
+            }
+            .validate()
+            .unwrap();
+        }
     }
     #[test]
     fn reject_duplicate_shortcuts_and_profiles() {
