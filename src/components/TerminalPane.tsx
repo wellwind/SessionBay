@@ -13,7 +13,6 @@ import {
   TerminalSquare,
   X,
   ClipboardPaste,
-  FilePenLine,
   SplitSquareHorizontal,
   SplitSquareVertical,
 } from 'lucide-react';
@@ -21,10 +20,8 @@ import '@xterm/xterm/css/xterm.css';
 import { api, errorMessage } from '../api';
 import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
-import { shouldHandleTerminalKey } from '../terminal-ime';
-import { hasBlockingDialog } from '../dialog-focus';
-import { describeDraft, draftProblem, isTerminalDraftKey } from '../terminal-draft';
-import { TerminalDraftDialog, type DraftDestination } from './TerminalDraftDialog';
+import { workspaceZoomEvent } from '../workspace-zoom';
+import { defaultShiftEnter, handleTerminalKey, type ShiftEnterMode } from '../terminal-keyboard';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
   lease: string;
@@ -41,13 +38,7 @@ interface Attachment {
 import { terminalTheme } from '../themes';
 
 import { RenameDialog } from './RenameDialog';
-interface TerminalDraft {
-  paneId: string;
-  text: string;
-  target: DraftDestination;
-  attachment: Attachment;
-  startToken: number;
-}
+import { hasBlockingDialog } from '../dialog-focus';
 export function TerminalPane({
   pane,
   projectAvailable = true,
@@ -99,64 +90,19 @@ export function TerminalPane({
   const [searchOpen, setSearchOpen] = useState(false);
   const [needle, setNeedle] = useState('');
   const [notice, setNotice] = useState('');
-  const [draft, setDraft] = useState<TerminalDraft | null>(null);
-  const [draftOpen, setDraftOpen] = useState(false);
-  const [draftBusy, setDraftBusy] = useState(false);
-  const [draftResult, setDraftResult] = useState('');
-  const draftSending = useRef(false);
+  const [keyOverride, setKeyOverride] = useState<{ paneId: string; runtimeId?: string; startToken?: number; mode: ShiftEnterMode } | null>(null);
+  const keyMode = keyOverride?.paneId === pane.id && keyOverride.runtimeId === pane.runtimeId && keyOverride.startToken === pane.startToken
+    ? keyOverride.mode : 'default';
+  const defaultEncoding = defaultShiftEnter(pane.kind);
+  const keyEncoding = keyMode === 'default' ? defaultEncoding : keyMode;
+  const keyEncodingRef = useRef(keyEncoding);
+  keyEncodingRef.current = keyEncoding;
   const actionPending = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const actionGeneration = useRef(0);
-  const draftGeneration = useRef(0);
   useEffect(() => {
     actionGeneration.current += 1;
-    draftGeneration.current += 1;
-  }, [visible, focused, pane.id, pane.runtimeId, pane.startToken, pane.state]);
-  const currentDraft = useRef(draft);
-  const currentDraftOpen = useRef(draftOpen);
-  currentDraft.current = draft;
-  currentDraftOpen.current = draftOpen;
-  const closeDraft = () => {
-    draftGeneration.current += 1;
-    currentDraftOpen.current = false;
-    setDraftOpen(false);
-  };
-  const inputFailures = useRef(0);
-  const composing = useRef(false);
-  const canPasteDraft = (value: TerminalDraft) => {
-    const current = latest.current;
-    return mounted.current && current.visible && current.focused && current.pane.id === value.paneId &&
-      (current.pane.state === 'running' || current.pane.state === 'starting') &&
-      (!current.pane.runtimeId || current.pane.runtimeId === value.target.runtimeId) &&
-      attachment.current === value.attachment && value.attachment.ready &&
-      !value.attachment.ended && !value.attachment.disconnected &&
-      runtime.current === value.target.runtimeId &&
-      (current.pane.startToken ?? 0) === value.startToken;
-  };
-  const openDraft = () => {
-    if (hasBlockingDialog()) return;
-    draftGeneration.current += 1;
-    if (draft) { setDraftOpen(true); return; }
-    const active = attachment.current;
-    if (!active?.ready || active.ended || active.disconnected || !runtime.current) {
-      setNotice('請先連接執行中的終端，再開啟多行草稿。');
-      return;
-    }
-    setDraft((previous) => previous ?? {
-      paneId: latest.current.pane.id, text: '', attachment: active, startToken: latest.current.pane.startToken ?? 0,
-      target: { title: latest.current.pane.title, cwd: latest.current.pane.cwd, runtimeId: runtime.current! },
-    });
-    setDraftOpen(true);
-  };
-  const openDraftRef = useRef(openDraft);
-  openDraftRef.current = openDraft;
-  useEffect(() => {
-    if (!visible || !focused) {
-      draftGeneration.current += 1;
-      currentDraftOpen.current = false;
-      setDraftOpen(false);
-    }
-  }, [visible, focused]);
+  }, [pane.id, pane.runtimeId, pane.startToken, pane.state, visible, focused]);
   const fitNow = useCallback(() => {
     if (
       !latest.current.visible ||
@@ -212,29 +158,32 @@ export function TerminalPane({
     const searchAddon = new SearchAddon();
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(searchAddon);
+    const element = host.current;
+    let composing = false;
+    const compositionStart = () => { composing = true; };
+    const compositionEnd = () => { composing = false; };
+    element.addEventListener('compositionstart', compositionStart, true);
+    element.addEventListener('compositionend', compositionEnd, true);
     terminal.attachCustomKeyEventHandler((event) => {
-      if (!shouldHandleTerminalKey(event)) return false;
-      if (hasBlockingDialog()) { event.preventDefault(); return false; }
-      if (!isTerminalDraftKey(event, composing.current) || !latest.current.visible ||
-          !latest.current.focused) return true;
-      event.preventDefault();
-      event.stopPropagation();
-      if (!event.repeat) openDraftRef.current();
-      return false;
+      const current = latest.current;
+      const active = attachment.current;
+      return handleTerminalKey(event, {
+        encoding: keyEncodingRef.current,
+        composing,
+        blocked: hasBlockingDialog(),
+        canInput: mounted.current && current.visible && current.focused && document.activeElement === terminal.textarea &&
+          current.pane.state === 'running' && !!runtime.current && current.pane.runtimeId === runtime.current &&
+          !!active?.ready && !active.ended && !active.disconnected,
+        input: (data) => terminal.input(data, true),
+      });
     });
-    const compositionHost = host.current;
-    const compositionStart = () => { composing.current = true; };
-    const compositionEnd = () => { composing.current = false; };
-    compositionHost.addEventListener('compositionstart', compositionStart);
-    compositionHost.addEventListener('compositionend', compositionEnd);
-    terminal.open(host.current);
+    terminal.open(element);
     term.current = terminal;
     fit.current = fitAddon;
     search.current = searchAddon;
     // OSC 52 must never read or mutate the clipboard from untrusted terminal output.
     const clipboardBlock = terminal.parser.registerOscHandler(52, () => true);
     inputQueue.current = new TerminalInputQueue(api.write, (error) => {
-      inputFailures.current += 1;
       if (mounted.current) setNotice(errorMessage(error));
     });
     const input = terminal.onData((data) => {
@@ -246,6 +195,8 @@ export function TerminalPane({
       frame = requestAnimationFrame(fitNow);
     });
     observer.observe(host.current);
+    const zoomed = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(fitNow); };
+    window.addEventListener(workspaceZoomEvent, zoomed);
     fitNow();
     return () => {
       mounted.current = false;
@@ -258,10 +209,11 @@ export function TerminalPane({
       // Any queued frames acknowledge their own obsolete lease without repainting.
       for (const frame of queuedFrames.splice(0)) frame(() => undefined);
       observer.disconnect();
+      window.removeEventListener(workspaceZoomEvent, zoomed);
       cancelAnimationFrame(frame);
-      compositionHost.removeEventListener('compositionstart', compositionStart);
-      compositionHost.removeEventListener('compositionend', compositionEnd);
       input.dispose();
+      element.removeEventListener('compositionstart', compositionStart, true);
+      element.removeEventListener('compositionend', compositionEnd, true);
       clipboardBlock.dispose();
       terminal.dispose();
       term.current = null;
@@ -475,17 +427,20 @@ export function TerminalPane({
     }
   };
   const captureActionTarget = () => {
+    const current = latest.current;
     const active = attachment.current;
-    if (!active || !runtime.current || !term.current || hasBlockingDialog()) return null;
-    const value: TerminalDraft = {
-      paneId: latest.current.pane.id, text: '', attachment: active, startToken: latest.current.pane.startToken ?? 0,
-      target: { title: latest.current.pane.title, cwd: latest.current.pane.cwd, runtimeId: runtime.current },
-    };
-    return canPasteDraft(value) ? { value, terminal: term.current, generation: actionGeneration.current, draftGeneration: draftGeneration.current } : null;
+    if (!active?.ready || active.ended || active.disconnected || !mounted.current || !current.visible || !current.focused || current.pane.state !== 'running' ||
+      !runtime.current || !term.current || current.pane.runtimeId !== runtime.current) return null;
+    return { attachment: active, lease: active.lease, terminal: term.current, runtimeId: runtime.current, paneId: current.pane.id,
+      startToken: current.pane.startToken, launchToken: launched.current, generation: actionGeneration.current };
   };
-  const actionTargetIsCurrent = (target: NonNullable<ReturnType<typeof captureActionTarget>>) =>
-    canPasteDraft(target.value) && term.current === target.terminal && !hasBlockingDialog() &&
-    actionGeneration.current === target.generation && draftGeneration.current === target.draftGeneration;
+  const targetIsCurrent = (target: NonNullable<ReturnType<typeof captureActionTarget>>) =>
+    mounted.current && attachment.current === target.attachment && target.attachment.lease === target.lease &&
+    target.attachment.ready && !target.attachment.ended && !target.attachment.disconnected && latest.current.visible && latest.current.focused && latest.current.pane.state === 'running' &&
+    term.current === target.terminal && runtime.current === target.runtimeId &&
+    latest.current.pane.id === target.paneId && latest.current.pane.runtimeId === target.runtimeId &&
+    latest.current.pane.startToken === target.startToken && launched.current === target.launchToken &&
+    actionGeneration.current === target.generation;
   const finishAction = () => {
     actionPending.current = false;
     if (mounted.current) setConfirming(false);
@@ -497,13 +452,13 @@ export function TerminalPane({
     setConfirming(true);
     try {
       const text = await navigator.clipboard.readText();
-      if (!actionTargetIsCurrent(target)) return;
+      if (!targetIsCurrent(target)) return;
       if (/[\r\n]/.test(text) && !await confirmAction('貼上的內容含多行，可能立即執行指令。確定貼上？')) return;
-      if (!actionTargetIsCurrent(target)) return;
+      if (!targetIsCurrent(target)) return;
       target.terminal.paste(text);
       target.terminal.focus();
     } catch {
-      if (actionTargetIsCurrent(target)) setNotice('無法讀取剪貼簿，請使用系統貼上快捷鍵。');
+      if (targetIsCurrent(target)) setNotice('無法讀取剪貼簿，請使用系統貼上快捷鍵。');
     } finally {
       finishAction();
     }
@@ -514,76 +469,13 @@ export function TerminalPane({
     actionPending.current = true;
     setConfirming(true);
     try {
-      if (!await confirmAction(`結束「${target.value.target.title}」的受管程序？最後畫面將保留。`)) return;
-      if (!actionTargetIsCurrent(target)) return;
-      await api.stop(target.value.target.runtimeId);
+      if (!await confirmAction(`結束「${latest.current.pane.title}」的受管程序？最後畫面將保留。`)) return;
+      if (!targetIsCurrent(target)) return;
+      await api.stop(target.runtimeId);
     } catch (error) {
-      if (actionTargetIsCurrent(target)) setNotice(errorMessage(error));
+      if (targetIsCurrent(target)) setNotice(errorMessage(error));
     } finally {
       finishAction();
-    }
-  };
-  const isCurrentDraftOperation = (value: TerminalDraft, generation: number) =>
-    mounted.current && currentDraftOpen.current && currentDraft.current === value && draftGeneration.current === generation;
-  const pasteDraft = async () => {
-    if (!draft || draftSending.current || draftProblem(draft.text) || !canPasteDraft(draft)) return;
-    const value = draft;
-    const generation = draftGeneration.current;
-    draftSending.current = true;
-    setDraftBusy(true);
-    setDraftResult('');
-    const failures = inputFailures.current;
-    try {
-      const confirmed = await confirmAction(`貼到「${value.target.title}」？\n${value.target.cwd}\nRuntime：${value.target.runtimeId}\n${describeDraft(value.text)}\n\n貼上可能立即執行指令或送出提示，尤其是多行或末尾換行。這不會額外加入 Enter。`);
-      if (!confirmed || !isCurrentDraftOperation(value, generation)) return;
-      if (!canPasteDraft(value) || !term.current || !inputQueue.current) {
-        setDraftResult('目標已改變，沒有貼上；草稿已保留。');
-        return;
-      }
-      term.current.paste(value.text);
-      await inputQueue.current.drained();
-      if (isCurrentDraftOperation(value, generation)) setDraftResult(inputFailures.current !== failures || !canPasteDraft(value)
-        ? '無法確認貼上是否完整送達，可能已有部分內容送出。草稿已保留；請先檢查終端，避免重複貼上。'
-        : '已交給終端，未額外加入 Enter。草稿已保留；再次貼上會重複輸入。');
-    } catch (error) {
-      if (isCurrentDraftOperation(value, generation)) setDraftResult(`貼上未確認完成：${errorMessage(error)}。草稿已保留，請先檢查終端再重試。`);
-    } finally {
-      draftSending.current = false;
-      if (mounted.current) setDraftBusy(false);
-    }
-  };
-  const newDraft = async () => {
-    if (!draft || draftSending.current) return;
-    const value = draft;
-    const generation = draftGeneration.current;
-    const active = attachment.current;
-    if (!active || !runtime.current) {
-      setDraftResult('目前終端尚未連接，草稿已保留。');
-      return;
-    }
-    const replacement: TerminalDraft = {
-      paneId: latest.current.pane.id, text: '', attachment: active, startToken: latest.current.pane.startToken ?? 0,
-      target: { title: latest.current.pane.title, cwd: latest.current.pane.cwd, runtimeId: runtime.current },
-    };
-    if (!canPasteDraft(replacement)) {
-      setDraftResult('目前終端尚未連接，草稿已保留。');
-      return;
-    }
-    draftSending.current = true;
-    setDraftBusy(true);
-    try {
-      if (value.text && !await confirmAction('清除這份草稿，並為目前終端另開空白草稿？請先複製要保留的文字。')) return;
-      if (!isCurrentDraftOperation(value, generation)) return;
-      if (!canPasteDraft(replacement)) {
-        setDraftResult('目標已改變，草稿已保留。');
-        return;
-      }
-      draftGeneration.current += 1;
-      setDraft(replacement);
-      setDraftResult('');
-    } finally {
-      draftSending.current = false;
-      if (mounted.current) setDraftBusy(false);
     }
   };
   return (
@@ -591,6 +483,10 @@ export function TerminalPane({
       className={`terminal-pane ${focused ? 'focused' : ''}`}
       aria-label={`${pane.title} 終端面板`}
       onPointerDown={onFocus}
+      onFocusCapture={(event) => {
+        // Keyboard navigation into xterm must own the pane just like a pointer click.
+        if (!focused && visible && mounted.current && !hasBlockingDialog() && event.target === term.current?.textarea) onFocus();
+      }}
     >
       <div className="pane-toolbar">
         <div className="pane-title">
@@ -601,10 +497,6 @@ export function TerminalPane({
         </div>
         <div className="pane-actions">
           <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
-          <button className="icon-button" title="多行草稿（Shift+Enter）" aria-label="多行草稿"
-            disabled={!draft && (!connected || !live)} onClick={() => { onFocus(); openDraft(); }}>
-            <FilePenLine size={14} />
-          </button>
           <button
             className="icon-button"
             title="搜尋終端文字"
@@ -713,15 +605,6 @@ export function TerminalPane({
           </button>
         </div>
       )}
-      {draftOpen && draft && visible && focused && <TerminalDraftDialog
-        text={draft.text} target={draft.target} available={canPasteDraft(draft)} busy={draftBusy} result={draftResult}
-        onChange={(text) => { draftGeneration.current += 1; setDraft({ ...draft, text }); setDraftResult(''); }}
-        onPaste={() => void pasteDraft()} onClose={closeDraft}
-        onRestoreFocus={() => {
-          if (latest.current.visible && latest.current.focused && !hasBlockingDialog()) term.current?.focus();
-        }}
-        onNew={() => void newDraft()}
-      />}
       <div className="terminal-body">
         <div className="xterm-host" ref={host} />
         {pane.state === 'placeholder' && (
@@ -749,6 +632,20 @@ export function TerminalPane({
                 ? '普通 Shell · 不自動關聯 Agent'
                 : '新的 Agent 工作'}
           </span>
+          <label className="terminal-keyboard-mode">
+            <span>Shift+Enter</span>
+            <select aria-label="Shift+Enter 輸入模式" aria-describedby={`keyboard-help-${pane.id}`}
+              value={keyMode} disabled={!connected || !live}
+              onChange={(event) => setKeyOverride({ paneId: pane.id, runtimeId: pane.runtimeId, startToken: pane.startToken, mode: event.target.value as ShiftEnterMode })}>
+              <option value="default">預設：{defaultEncoding === 'csi-u' ? 'CSI-u' : '原生'}（啟動來源）</option>
+              <option value="csi-u">CSI-u（Agent 相容）</option>
+              <option value="native">原生（xterm）</option>
+            </select>
+          </label>
+          <details className="terminal-keyboard-help">
+            <summary>按鍵說明</summary>
+            <p id={`keyboard-help-${pane.id}`}>CSI-u 傳送 Shift+Enter，由目前程式決定行為；不偵測前景程式。Shell 內啟動支援的 Agent 可手動選用，返回 Shell 請切回原生。原生通常等同 Enter，可能送出。手動模式於重新啟動後重設；同一工作重新連線則保留。Grok 多行模式的 Shift+Enter 是送出。</p>
+          </details>
           {pane.state === 'disconnected' ? (
             <button disabled={connecting} onClick={() => setReconnect((value) => value + 1)}>重新連線</button>
           ) : live ? (

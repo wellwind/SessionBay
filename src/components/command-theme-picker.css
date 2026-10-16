@@ -1,0 +1,6 @@
+.command-theme-picker { display: grid; gap: 12px; padding: 16px; }
+.command-theme-picker p { color: var(--muted); font-size: 13px; }
+.command-theme-picker [role="alert"] { color: var(--danger); }
+.command-theme-picker input { width: 100%; min-height: 44px; }
+.command-theme-picker [role="option"][aria-selected="true"] { background: var(--accent-bg); outline: 1px solid var(--accent); outline-offset: -1px; }
+.command-theme-picker > button { min-height: 44px; }

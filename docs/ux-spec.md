@@ -73,7 +73,7 @@ Session Bay
 
 ## Agent 與歷史來源設定
 
-設定固定呈現 Codex、Claude Code、Grok Build、Antigravity CLI 四張歷史能力卡片，無論是否找到執行檔、已啟動過或已配置來源。可啟動、有 adapter、來源未設定／停用／缺失與索引健康分開顯示；Antigravity 來源限定 CLI，明示相容性驗證狀態；備份或證據不完整的 Session 仍可預覽，但以原因說明為何不能直接接續。
+設定固定呈現 Codex、Claude Code、Grok Build、Antigravity CLI 與 OpenCode 五張歷史能力卡片，無論是否找到執行檔、已啟動過或已配置來源。可啟動、有 adapter、來源未設定／停用／缺失與索引健康分開顯示；Antigravity 來源限定 CLI，明示相容性驗證狀態；備份或證據不完整的 Session 仍可預覽，但以原因說明為何不能直接接續。
 
 工具「重新偵測」更新保存設定對應的安裝／版本，歷史「重新掃描」另更新來源健康；兩者不互相取代。
 
@@ -177,3 +177,7 @@ UI 框架採宣告式狀態。Terminal 高頻輸出由 xterm 實例接收，不�
 ## 全域臨時 Terminal
 
 頂列常駐入口與命令面板可直接開預設 Shell，初始 cwd 由 Rust 取得家目錄。未選專案時普通 Terminal 快捷鍵亦使用此入口。全域分頁有獨立 active selection；側欄可從任一目錄頁切回，切換不 unmount／重啟程序。最後一個面板關閉後保留可再次開啟的空狀態，不落入假的 home 專案。完整行為、舊 explicit-cwd Shell 相容及原生待驗清單見[全域臨時 Terminal](temporary-terminal.md)。
+
+### Terminal 原位 Shift＋Enter
+
+面板底部提供 Shift＋Enter 模式；已查核 Agent 的預設直接傳送 modified Enter，輸入留在 Terminal，不開 modal。Shell 內手動啟動 Agent 可選 CSI-u，相容性依目前程式；回到 Shell 可選原生。同 runtime 重新連線保留面板手動選擇，新啟動回到預設。詳細版本、Grok 送出語意及原生驗收限制見 [Terminal 按鍵](terminal-keyboard.md)。

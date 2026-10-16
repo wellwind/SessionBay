@@ -121,6 +121,12 @@
 
 第五 provider 的官方 SQLite v1/v2 reader、來源 UI、安全啟動／接續與合成回歸列為本 PR 交付；依賴原生平台 PR #3。舊 JSON 與任意 channel DB 不宣稱支援，真實 OpenCode 三平台接續仍待驗證，詳見 [OpenCode 整合與驗證](opencode-integration.md)。
 
-### 2026-10-16 終端多行草稿
+### Shift＋Enter 原位輸入（取代未合併的 modal 方案）
 
-使用者選定本機編輯框方案；Shift+Enter 開草稿、明確確認後貼上、原 attachment 綁定與失敗保留已加入前端回歸。跨工具原生 Shift+Enter 不在此批宣稱範圍；三平台真實 GUI／輸入法仍待驗。詳見 [多行草稿](terminal-drafts.md)。
+- 實作 registry 驅動的單鍵 CSI-u 相容模式與面板覆寫；Shell／未知工具不猜測，無 LF／CR fallback。
+- 自動化與原生驗收分開；完整 CLI、三平台 WebView／ConPTY、IME、tmux／SSH／WSL 尚待驗收，不能標成全工具通過。見 [版本與驗證清單](terminal-keyboard.md)。
+
+
+### 外觀修訂與命令面板
+
+保留既有十個色系，新增 Code Modern／Code 2026 深／淺色 UI 與 Terminal；命令面板可搜尋、鍵盤預覽、Enter 保存及 Escape 還原。全工作台 page zoom 使用獨立 appZoom，與主題共用序列化保存，不乘改 Terminal 基準字級。修訂後整合樹的自動化與原生待驗項目見[批次整合驗證](batch-integration-validation.md)。

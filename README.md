@@ -42,11 +42,13 @@ npm run tauri -- build
 | [產品功能規格](docs/product-spec.md) | MVP 功能、行為、例外情境與驗收條件 |
 | [介面與操作規格](docs/ux-spec.md) | 專案、分頁、面板、搜尋與工作恢復流程 |
 | [獨立主題與即時預覽](docs/theme-preview.md) | 快速切換、設定預覽／取消、色票與驗證限制 |
-| [Terminal 字級快捷鍵](docs/terminal-font-zoom.md) | 全域終端字級、保存／預覽及待驗收範圍 |
+| [全工作台縮放](docs/terminal-font-zoom.md) | UI／Terminal 同步縮放、保存／預覽及待驗收範圍 |
 | [桌面介面設計系統](docs/ui-design-system.md) | 全介面資訊架構、流程、語意主題、控制項與驗證標準 |
 | [技術架構](docs/architecture.md) | Tauri、Rust、PTY、資料流、索引與效能設計 |
 | [持續 Runtime](docs/persistent-runtime.md) | 背景 broker、同程序重新附接與原生待驗項目 |
 | [OpenCode 整合](docs/opencode-integration.md) | 唯讀 SQLite 歷史、安全接續與版本限制 |
+| [Terminal Shift＋Enter](docs/terminal-keyboard.md) | 原位輸入、工具預設與 Shell 手動模式 |
+| [批次整合驗證](docs/batch-integration-validation.md) | 修訂後來源、自動化證據與原生待驗項目 |
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
 | [Antigravity CLI 歷史相容性](docs/antigravity-cli-history.md) | 持久化格式依據、唯讀安全、接續限制與 1.3.5 待驗條件 |
 | [Agent 用量與分析規格](docs/usage-spec.md) | MVP 後的帳號額度總覽、Project／Agent／Session 用量與費用語意 |
@@ -59,13 +61,12 @@ npm run tauri -- build
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
 | [全域臨時 Terminal](docs/temporary-terminal.md) | 無專案 home Shell、舊 cwd 相容與驗證邊界 |
 | [索引效能量測](docs/index-performance.md) | 1k／10k／長對話的可重複合成 before／after、資料安全與未解瓶頸 |
-| [終端多行草稿](docs/terminal-drafts.md) | Shift+Enter 本機草稿、明確貼上與目標／換行風險 |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
 
 ## 目前範圍
 
-本批新增原生資料夾選擇器、Windows 後端、持續 Runtime、OpenCode、索引熱路徑改善、獨立主題、名稱／分頁排序、Terminal 字級快捷鍵、臨時 home Terminal 與多行草稿。自動驗證與仍待原生驗收項目見[批次整合驗證](docs/batch-integration-validation.md)。
+本批包含原生資料夾選擇器、Windows 後端、持續 Runtime、OpenCode、索引熱路徑改善、獨立主題與命令面板選色、名稱／分頁排序、全工作台縮放、臨時 home Terminal 與原位 Shift＋Enter。Code Modern／Code 2026 各提供深／淺色 UI 和 Terminal 選項，原有十個色系仍保留。實測與未驗項目見[批次整合驗證](docs/batch-integration-validation.md)。
 
 - Agent 啟動涵蓋 Codex CLI、Claude Code CLI、Grok Build、Antigravity CLI（`agy`）與 OpenCode；五者均有本機歷史 adapter。Antigravity 限 CLI 持久化格式，1.3.5 真實樣本與互動接續仍待驗證，詳見[相容性邊界](docs/antigravity-cli-history.md)。
 - 預設專案首頁與獨立所有目錄頁保留分組總覽；選目錄後可跨工具搜尋該組歷史、預覽與恢復，掃描不自動加入專案。
@@ -86,12 +87,14 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 ## 文件狀態
 
-更新日期：2026-10-16。文件保留最初 MVP 規劃與歷史 checkpoint；目前實作、實測數字與尚未達成的效能目標分開標示。使用者已明確指定的需求與尚待決策事項，集中列於[決策與待確認事項](docs/decisions.md)。
+更新日期：2026-10-16。保留原始規劃與歷史 checkpoint；目前實作、實測結果與未達成目標分開標示。使用者已明確指定的需求與尚待決策事項，集中列於[決策與待確認事項](docs/decisions.md)。
 
 名稱採用不代表商標或網域已取得；開源授權、商業模式與發行時程尚未決定。
 
 ## 試用後續待辦
 
-2026-10-15 新增的 17 項未來需求集中在 [後續待辦](docs/future-backlog.md)，其中部分已有獨立實作及自動回歸；各項清楚分開已驗結果與原生待驗項目，不因整合而全部勾選。
+2026-10-15 新增的 17 項未來需求集中在 [後續待辦](docs/future-backlog.md)，其中部分已有獨立實作與自動回歸；已驗結果及原生待驗項目分開列示，不因整合全部勾選。
 
 - [持續執行與重新附接](docs/persistent-runtime.md)：獨立 broker、關閉介面保留程序、狀態恢復與原生待驗項目。
+
+- [Terminal Shift＋Enter](docs/terminal-keyboard.md)：原位輸入模式、Shell 手動選擇、查核版本與平台限制。

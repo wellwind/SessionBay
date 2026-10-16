@@ -1,7 +1,9 @@
-import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
+
+import { workspaceZoomEvent } from './workspace-zoom';
 import { defaultAgentOptions } from './agents';
+import { shiftEnterSequence } from './terminal-keyboard';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPane } from './components/TerminalPane';
@@ -14,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   termReset: vi.fn(),
   termResize: vi.fn(),
   termPaste: vi.fn(),
-  termFocus: vi.fn(),
   fit: vi.fn(),
   initialCols: 80,
   initialRows: 24,
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
   termWrite: vi.fn(),
   disposed: vi.fn(),
+  termFocus: vi.fn(),
   keyHandler: vi.fn(),
   reset: vi.fn(),
   focus: vi.fn(),
@@ -43,7 +45,6 @@ vi.mock('@xterm/xterm', () => ({
     textarea?: HTMLTextAreaElement;
     open(host: HTMLElement) {
       this.textarea = document.createElement('textarea');
-      this.textarea.className = 'xterm-helper-textarea';
       this.textarea.setAttribute('aria-label', 'Mock xterm input');
       host.append(this.textarea);
     }
@@ -54,6 +55,7 @@ vi.mock('@xterm/xterm', () => ({
       return '';
     }
     paste(text: string) { mocks.termPaste(text); }
+    input(text: string) { mocks.input?.(text); }
     dispose() {
       mocks.disposed();
     }
@@ -153,7 +155,9 @@ describe('terminal lifetime and flow control', () => {
   it('installs the semantic CapsLock guard through the public xterm hook', () => {
     render(<TerminalPane {...props()} />);
     expect(mocks.keyHandler).toHaveBeenCalledTimes(1);
-    expect(mocks.keyHandler.mock.calls[0][0](new KeyboardEvent('keydown', { key: 'CapsLock' }))).toBe(false);
+    const handler = mocks.keyHandler.mock.calls[0][0];
+    expect(handler(new KeyboardEvent('keydown', { key: 'CapsLock' }))).toBe(false);
+    expect(handler(new KeyboardEvent('keydown', { key: 'a' }))).toBe(true);
   });
 
   it('can reopen a workspace-only shell without a deleted catalog project reference', async () => {
@@ -875,338 +879,211 @@ describe('real plugin asynchronous confirmation safety', () => {
   });
 });
 
-
-describe('local multiline draft editor', () => {
-  async function ready() {
-    const p = props(makePane({ startToken: 1, state: 'running' }));
+describe('inline Shift+Enter routing', () => {
+  async function ready(kind: Pane['kind'] = 'codex') {
+    const p = props(makePane({ kind, state: 'running', runtimeId: 'runtime', startToken: 1 }));
     const view = render(<TerminalPane {...p} />);
-    await waitFor(() => expect(mocks.launch).toHaveBeenCalled());
-    completeSnapshot(mocks.launch.mock.calls[0][1]);
-    return { p, view, channel: mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void };
-  }
-  function shiftEnter(init: KeyboardEventInit = {}) {
-    const event = new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, shiftKey: true, cancelable: true, ...init });
-    let handled = true;
-    act(() => { handled = mocks.keyHandler.mock.calls[0][0](event); });
-    return { event, handled };
-  }
-  it('opens locally, preserves a cancelled draft, and never sends Enter/Ctrl+Enter/Shift+Enter from the editor', async () => {
-    const { view } = await ready();
-    expect(shiftEnter().handled).toBe(false);
-    const editor = view.getByLabelText('草稿內容');
-    expect(editor).toHaveFocus();
-    fireEvent.change(editor, { target: { value: 'one\n中文\n' } });
-    for (const init of [{}, { shiftKey: true }, { ctrlKey: true }]) fireEvent.keyDown(editor, { key: 'Enter', ...init });
-    expect(mocks.termPaste).not.toHaveBeenCalled();
-    expect(mocks.write).not.toHaveBeenCalled();
-    fireEvent.click(view.getByText('取消並保留草稿'));
-    expect(view.queryByRole('dialog')).not.toBeInTheDocument();
-    shiftEnter();
-    expect(view.getByLabelText('草稿內容')).toHaveValue('one\n中文\n');
-  });
-  it('leaves IME confirmation, repeat, other modifiers, and another dialog alone', async () => {
-    const { view } = await ready();
-    const host = view.container.querySelector('.xterm-host')!;
-    fireEvent.compositionStart(host);
-    expect(shiftEnter().handled).toBe(true);
-    fireEvent.compositionEnd(host);
-    for (const init of [{ isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { metaKey: true }, { altKey: true }])
-      expect(shiftEnter(init).handled).toBe(true);
-    expect(shiftEnter({ repeat: true }).handled).toBe(false);
-    expect(view.queryByRole('dialog')).not.toBeInTheDocument();
-    const other = document.createElement('div'); other.setAttribute('role', 'dialog'); other.setAttribute('aria-modal', 'true'); document.body.append(other);
-    expect(shiftEnter().handled).toBe(false);
-    other.remove();
-    expect(mocks.termPaste).not.toHaveBeenCalled();
-  });
-  it('requires explicit target-labelled confirmation and sends exactly the original draft through paste', async () => {
-    const { view } = await ready();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: '  first\nsecond\n\n' } });
-    fireEvent.click(view.getByText('確認貼上…'));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Runtime：runtime'));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('末尾有 2 個換行'));
-    expect(mocks.termPaste).not.toHaveBeenCalled();
-    await waitFor(() => expect(view.getByText('確認貼上…')).toBeEnabled());
-    confirm.mockReturnValue(true);
-    mocks.termPaste.mockImplementationOnce((text: string) => mocks.input?.(text));
-    fireEvent.click(view.getByText('確認貼上…'));
-    await waitFor(() => expect(view.getByRole('status')).toHaveTextContent('已交給終端'));
-    expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('  first\nsecond\n\n');
-    expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', '  first\nsecond\n\n');
-    expect(view.getByLabelText('草稿內容')).toHaveValue('  first\nsecond\n\n');
-  });
-  it.each(['exit', 'disconnected'] as const)('keeps text and prevents paste when the target reports %s', async (type) => {
-    const { view, channel } = await ready();
-    shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'keep me' } });
-    act(() => channel(type === 'exit' ? { type, runtimeId: 'runtime', exitCode: 0 } : { type, runtimeId: 'runtime', message: 'disconnected' }));
-    expect(view.getByText('確認貼上…')).toBeDisabled();
-    fireEvent.click(view.getByText('取消並保留草稿'));
-    fireEvent.click(view.getByRole('button', { name: '多行草稿' }));
-    expect(view.getByLabelText('草稿內容')).toHaveValue('keep me');
-    expect(mocks.termPaste).not.toHaveBeenCalled();
-  });
-  it('rechecks the attachment after confirmation, even if the same pane was restarted', async () => {
-    const { p, view } = await ready();
-    shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'old draft' } });
-    vi.spyOn(window, 'confirm').mockImplementation(() => {
-      view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 2, state: 'running' })} />);
-      return true;
-    });
-    fireEvent.click(view.getByText('確認貼上…'));
-    await waitFor(() => expect(view.getByLabelText('草稿內容')).not.toHaveAttribute('readonly'));
-    expect(mocks.termPaste).not.toHaveBeenCalled();
-    expect(mocks.write).not.toHaveBeenCalled();
-    expect(view.getByLabelText('草稿內容')).toHaveValue('old draft');
-  });
-  it.each(['hidden', 'unfocused'] as const)('closes the editor on %s navigation without sending or losing text', async (change) => {
-    const { p, view } = await ready();
-    shiftEnter(); fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'private to this pane' } });
-    view.rerender(<TerminalPane {...p} visible={change !== 'hidden'} focused={change !== 'unfocused'} />);
-    expect(view.queryByRole('dialog')).not.toBeInTheDocument();
-    view.rerender(<TerminalPane {...p} />); shiftEnter();
-    expect(view.getByLabelText('草稿內容')).toHaveValue('private to this pane');
-    expect(mocks.write).not.toHaveBeenCalled();
-  });
-  it('retains text on IPC failure, reports uncertain delivery, and never retries automatically', async () => {
-    const { view } = await ready();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    mocks.write.mockRejectedValueOnce(new Error('fixture write failure'));
-    mocks.termPaste.mockImplementationOnce((text: string) => mocks.input?.(text));
-    shiftEnter(); fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'keep on failure' } });
-    fireEvent.click(view.getByText('確認貼上…'));
-    await waitFor(() => expect(view.getByRole('status')).toHaveTextContent('無法確認貼上是否完整送達'));
-    expect(view.getByLabelText('草稿內容')).toHaveValue('keep on failure');
-    expect(mocks.write).toHaveBeenCalledTimes(1);
-  });
-  it('does not close for IME Escape but ordinary Escape cancels', async () => {
-    const { view } = await ready(); shiftEnter();
-    const editor = view.getByLabelText('草稿內容');
-    fireEvent.compositionStart(editor);
-    fireEvent.keyDown(editor, { key: 'Escape' });
-    expect(view.getByRole('dialog')).toBeInTheDocument();
-    fireEvent.compositionEnd(editor); fireEvent.keyDown(editor, { key: 'Escape' });
-    expect(view.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(mocks.write).not.toHaveBeenCalled();
-  });
-  it('never lets a delayed animation frame or snapshot steal focus from the draft', async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length; });
-    const { p, view, channel } = await ready();
-    view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 1, state: 'starting' })} />);
-    shiftEnter();
-    const editor = view.getByLabelText('草稿內容');
-    expect(editor).toHaveFocus();
-    view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 1, state: 'running' })} />);
-    act(() => { for (const frame of frames.splice(0)) frame(0); });
-    completeSnapshot(channel);
-    expect(editor).toHaveFocus();
-    expect(mocks.termFocus).not.toHaveBeenCalled();
-    const handler = mocks.keyHandler.mock.calls[0][0];
-    for (const type of ['keydown', 'keypress', 'keyup']) {
-      const event = new KeyboardEvent(type, { key: 'Enter', cancelable: true });
-      expect(handler(event)).toBe(false);
-      expect(event.defaultPrevented).toBe(true);
-    }
-    expect(mocks.write).not.toHaveBeenCalled();
-  });
-  it('does not steal focus from a newer ordinary control when a frame runs', async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length; });
-    await ready();
-    const input = document.createElement('input'); document.body.append(input); input.focus();
-    act(() => { for (const frame of frames) frame(0); });
-    expect(input).toHaveFocus(); expect(mocks.termFocus).not.toHaveBeenCalled(); input.remove();
-  });
-  it('does not paste a pending clipboard read over a newly opened draft', async () => {
-    const { view } = await ready();
-    let resolve!: (text: string) => void;
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
-      readText: () => new Promise<string>((done) => { resolve = done; }),
-    } });
-    fireEvent.click(view.getByRole('button', { name: '貼上' })); shiftEnter();
-    await act(async () => resolve('late clipboard'));
-    expect(view.getByLabelText('草稿內容')).toHaveFocus();
-    expect(mocks.termPaste).not.toHaveBeenCalled();
-  });
-  it('requires explicitly replacing an old draft after reconnecting the same runtime ID', async () => {
-    const { p, view, channel } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'old lease draft' } });
-    act(() => channel({ type: 'disconnected', runtimeId: 'runtime', message: 'fixture disconnect' }));
-    view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 1, state: 'disconnected', runtimeId: 'runtime' })} />);
-    fireEvent.click(view.getByText('取消並保留草稿'));
-    fireEvent.click(view.getByText('重新連線'));
     await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
-    completeSnapshot(mocks.attach.mock.calls[0][1]);
-    view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 1, state: 'running', runtimeId: 'runtime' })} />);
-    fireEvent.click(view.getByRole('button', { name: '多行草稿' }));
-    expect(view.getByLabelText('草稿內容')).toHaveValue('old lease draft');
-    expect(view.getByText('確認貼上…')).toBeDisabled();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    fireEvent.click(view.getByText('另開目前終端草稿'));
-    expect(view.getByLabelText('草稿內容')).toHaveValue('old lease draft');
-    await waitFor(() => expect(view.getByText('另開目前終端草稿')).toBeEnabled());
-    confirm.mockReturnValue(true); fireEvent.click(view.getByText('另開目前終端草稿'));
-    await waitFor(() => expect(view.getByLabelText('草稿內容')).toHaveValue(''));
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'new lease' } });
-    expect(view.getByText('確認貼上…')).toBeEnabled();
+    const channel = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(channel);
+    const textarea = screen.getByRole('textbox', { name: 'Mock xterm input' });
+    textarea.focus();
+    const handler = mocks.keyHandler.mock.calls[0][0] as (event: KeyboardEvent) => boolean;
+    const press = (type = 'keydown', init: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent(type, { key: 'Enter', keyCode: 13, shiftKey: true, cancelable: true, ...init });
+      let result = true;
+      act(() => { result = handler(event); });
+      return result;
+    };
+    return { p, view, channel, textarea, press };
+  }
+  it.each(['codex', 'claude', 'opencode'] as const)('routes %s directly through xterm onData and the existing queue', async (kind) => {
+    const h = await ready(kind);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    for (const type of ['keydown', 'keypress', 'keyup']) expect(h.press(type)).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
     expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.launch).not.toHaveBeenCalled();
+    expect(h.textarea).toHaveFocus();
   });
-  it('prevents repeated paste while delivery is pending and keeps a synchronous failure recoverable', async () => {
-    const { view } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'once' } });
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    let finish!: () => void;
-    mocks.write.mockImplementationOnce(() => new Promise<void>((done) => { finish = done; }));
-    mocks.termPaste.mockImplementationOnce((text: string) => mocks.input?.(text));
-    fireEvent.click(view.getByText('確認貼上…')); fireEvent.click(view.getByText('正在貼上…'));
+  it.each(['shell', 'grok', 'antigravity'] as const)('does not map %s based on guesses about its foreground mode', async (kind) => {
+    const h = await ready(kind);
+    expect(h.press()).toBe(true);
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' })).toHaveValue('default');
+  });
+  it('lets a shell user opt in and return to native without restarting or writing on selection', async () => {
+    const h = await ready('shell');
+    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
+    fireEvent.change(select, { target: { value: 'csi-u' } });
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(h.press()).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
+    fireEvent.change(select, { target: { value: 'native' } });
+    expect(h.press()).toBe(true);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(mocks.attach).toHaveBeenCalledTimes(1);
+  });
+  it('keeps ordinary Enter, Ctrl+Enter, paste and bracketed paste bytes unchanged', async () => {
+    const h = await ready();
+    expect(h.press('keydown', { shiftKey: false })).toBe(true);
+    expect(h.press('keydown', { ctrlKey: true })).toBe(true);
+    const data = ['\r', '\x1b[200~first\n第二行\n\x1b[201~', '\x03'];
+    act(() => { for (const item of data) mocks.input!(item); });
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(data.length));
+    expect(mocks.write.mock.calls.map(([, value]) => value)).toEqual(data);
+  });
+  it('ignores Shift+Enter throughout composition including a missing isComposing flag', async () => {
+    const h = await ready();
+    fireEvent.compositionStart(h.textarea);
+    expect(h.press()).toBe(true);
+    fireEvent.compositionEnd(h.textarea);
+    expect(h.press('keydown', { isComposing: true })).toBe(true);
+    expect(h.press('keydown', { keyCode: 229 })).toBe(true);
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(h.press()).toBe(false);
     await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(1));
-    expect(confirm).toHaveBeenCalledTimes(1);
-    await act(async () => finish());
-    mocks.termPaste.mockImplementationOnce(() => { throw new Error('fixture paste failure'); });
-    fireEvent.click(view.getByText('確認貼上…'));
-    await waitFor(() => expect(view.getByRole('status')).toHaveTextContent('fixture paste failure'));
-    expect(view.getByLabelText('草稿內容')).toHaveValue('once');
+  });
+  it('does not emit before snapshot readiness or after disconnect/exit', async () => {
+    const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));
+    render(<TerminalPane {...p} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+    const handler = mocks.keyHandler.mock.calls[0][0];
+    const event = () => new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true });
+    expect(handler(event())).toBe(false);
+    const channel = mocks.attach.mock.calls[0][1];
+    completeSnapshot(channel);
+    act(() => channel({ type: 'disconnected', runtimeId: 'runtime', message: 'offline' }));
+    expect(handler(event())).toBe(false);
+    act(() => channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 }));
+    expect(handler(event())).toBe(false);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it('blocks hidden/unfocused panes and blocking dialogs', async () => {
+    const h = await ready();
+    h.view.rerender(<TerminalPane {...h.p} visible={false} />);
+    expect(h.press()).toBe(false);
+    h.view.rerender(<TerminalPane {...h.p} focused={false} />);
+    expect(h.press()).toBe(false);
+    h.view.rerender(<TerminalPane {...h.p} />);
+    fireEvent.click(screen.getByRole('button', { name: /重新命名面板/ }));
+    expect(h.press()).toBe(false);
+    expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it('preserves manual mode for same-runtime reconnect but resets it for a new start token', async () => {
+    const h = await ready('shell');
+    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
+    fireEvent.change(select, { target: { value: 'csi-u' } });
+    act(() => h.channel({ type: 'disconnected', runtimeId: 'runtime', message: 'offline' }));
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, state: 'disconnected' }} />);
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    completeSnapshot(mocks.attach.mock.calls[1][1]);
+    h.view.rerender(<TerminalPane {...h.p} />);
+    expect(select).toHaveValue('csi-u');
+    expect(h.press()).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(1));
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, startToken: 2 }} />);
+    expect(select).toHaveValue('default');
+    expect(h.press()).toBe(true);
     expect(mocks.write).toHaveBeenCalledTimes(1);
   });
-
-  it('inserts real textarea newlines with Enter and Shift+Enter without terminal input', async () => {
-    const { view } = await ready(); shiftEnter();
-    const editor = view.getByLabelText('草稿內容');
-    await userEvent.type(editor, 'one{Enter}two{Shift>}{Enter}{/Shift}three');
-    expect(editor).toHaveValue('one\ntwo\nthree');
-    expect(mocks.write).not.toHaveBeenCalled(); expect(mocks.termPaste).not.toHaveBeenCalled();
-  });
-  it('keeps keyboard focus inside the dialog and restores the actual terminal textarea on cancel', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);
-    const { view } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'text' } });
-    const paste = view.getByText('確認貼上…'); paste.focus();
-    fireEvent.keyDown(paste, { key: 'Tab' });
-    expect(view.getByLabelText('關閉對話框')).toHaveFocus();
-    fireEvent.keyDown(document.activeElement!, { key: 'Tab', shiftKey: true });
-    expect(paste).toHaveFocus();
-    fireEvent.click(view.getByText('取消並保留草稿'));
-    expect(view.container.querySelector('.xterm-helper-textarea')).toHaveFocus();
+  it('does not carry a manual mode onto a different runtime ID', async () => {
+    const h = await ready('shell');
+    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
+    fireEvent.change(select, { target: { value: 'csi-u' } });
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, runtimeId: 'different-runtime' }} />);
+    expect(select).toHaveValue('default');
+    expect(h.press()).toBe(true);
     expect(mocks.write).not.toHaveBeenCalled();
   });
-  it('never retargets a draft when a component receives a different pane identity', async () => {
-    const { p, view } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'original pane' } });
-    view.rerender(<TerminalPane {...p} pane={makePane({ id: 'other-pane', startToken: 1, state: 'running', runtimeId: 'runtime' })} />);
-    expect(view.getByText('確認貼上…')).toBeDisabled();
-    expect(view.getByLabelText('草稿內容')).toHaveValue('original pane');
+  it('never emits from a key callback after DOM focus moves or the pane unmounts', async () => {
+    const h = await ready();
+    screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' }).focus();
+    expect(h.press()).toBe(false);
+    h.view.unmount();
+    expect(h.press()).toBe(false);
     expect(mocks.write).not.toHaveBeenCalled();
   });
+  it('reports a failed key write without replaying it or appending Enter', async () => {
+    const h = await ready();
+    mocks.write.mockRejectedValueOnce(new Error('synthetic write failure'));
+    h.press();
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('synthetic write failure'));
+    h.press('keyup');
+    expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence);
+  });
+  it('displays scope and the Grok mode warning without opening a modal', async () => {
+    await ready();
+    fireEvent.click(screen.getByText('按鍵說明'));
+    expect(screen.getByText(/Grok 多行模式的 Shift\+Enter 是送出/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
 
-  it.each(['cancel', 'reject', 'invalid'] as const)('fails closed for native async confirmation %s', async (outcome) => {
-    const { view } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'unsafe command\n' } });
-    // tauri-plugin-dialog overrides the browser boolean signature with a Promise.
-    vi.spyOn(window, 'confirm').mockImplementation(() => (outcome === 'reject'
-      ? Promise.reject(new Error('fixture permission denied'))
-      : Promise.resolve(outcome === 'cancel' ? false : 'true')) as unknown as boolean);
-    fireEvent.click(view.getByText('確認貼上…'));
-    await waitFor(() => expect(view.getByText('確認貼上…')).toBeEnabled());
-    expect(view.getByLabelText('草稿內容')).toHaveValue('unsafe command\n');
-    expect(mocks.termPaste).not.toHaveBeenCalled(); expect(mocks.write).not.toHaveBeenCalled();
-  });
-  it('waits for native async true and prevents repeated pending confirmations', async () => {
-    const { view } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'exact\n' } });
-    let resolve!: (value: boolean) => void;
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(new Promise<boolean>((done) => { resolve = done; }) as unknown as boolean);
-    fireEvent.click(view.getByText('確認貼上…')); fireEvent.click(view.getByText('正在貼上…'));
-    expect(view.getByLabelText('草稿內容')).toHaveAttribute('readonly');
-    expect(confirm).toHaveBeenCalledTimes(1); expect(mocks.termPaste).not.toHaveBeenCalled();
-    await act(async () => resolve(true));
-    expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('exact\n');
-  });
-  it.each(['cancel', 'reopen', 'hidden', 'unfocused', 'edit', 'restart', 'exit', 'disconnected', 'unmount'] as const)(
-    'invalidates pending native paste confirmation after %s', async (change) => {
-      const { p, view, channel } = await ready(); shiftEnter();
-      fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'old text\n' } });
-      let resolve!: (value: boolean) => void;
-      vi.spyOn(window, 'confirm').mockReturnValue(new Promise<boolean>((done) => { resolve = done; }) as unknown as boolean);
-      fireEvent.click(view.getByText('確認貼上…'));
-      if (change === 'cancel' || change === 'reopen') {
-        fireEvent.click(view.getByText('取消並保留草稿'));
-        if (change === 'reopen') shiftEnter();
-      } else if (change === 'hidden' || change === 'unfocused') {
-        view.rerender(<TerminalPane {...p} visible={change !== 'hidden'} focused={change !== 'unfocused'} />);
-        view.rerender(<TerminalPane {...p} />); shiftEnter();
-      } else if (change === 'edit') {
-        // Even a programmatic change while readonly must invalidate the captured text.
-        fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'new text' } });
-      } else if (change === 'restart') {
-        view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 2, state: 'running' })} />);
-      } else if (change === 'unmount') view.unmount();
-      else act(() => channel(change === 'exit' ? { type: 'exit', runtimeId: 'runtime', exitCode: 0 }
-        : { type: 'disconnected', runtimeId: 'runtime', message: 'fixture disconnected' }));
-      await act(async () => resolve(true));
-      expect(mocks.termPaste).not.toHaveBeenCalled(); expect(mocks.write).not.toHaveBeenCalled();
-      if (change === 'edit') expect(view.getByLabelText('草稿內容')).toHaveValue('new text');
-    },
-  );
-  it.each(['cancel', 'reject', 'edit', 'close', 'restart'] as const)('preserves the old draft when async replacement is invalidated by %s', async (change) => {
-    const { p, view } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'old lease draft' } });
-    const replacementPane = makePane({ startToken: 2, state: 'running' });
-    view.rerender(<TerminalPane {...p} pane={replacementPane} />);
-    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
-    completeSnapshot(mocks.launch.mock.calls[1][1]);
-    let resolve!: (value: boolean) => void; let reject!: (error: Error) => void;
-    vi.spyOn(window, 'confirm').mockReturnValue(new Promise<boolean>((done, fail) => { resolve = done; reject = fail; }) as unknown as boolean);
-    fireEvent.click(view.getByText('另開目前終端草稿'));
-    if (change === 'edit') fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'new retained text' } });
-    if (change === 'close') fireEvent.click(view.getByText('取消並保留草稿'));
-    if (change === 'restart') view.rerender(<TerminalPane {...p} pane={makePane({ startToken: 3, state: 'running' })} />);
-    await act(async () => { if (change === 'reject') reject(new Error('fixture denied')); else resolve(change !== 'cancel'); });
-    if (change === 'close') shiftEnter();
-    expect(view.getByLabelText('草稿內容')).toHaveValue(change === 'edit' ? 'new retained text' : 'old lease draft');
-    expect(mocks.termPaste).not.toHaveBeenCalled(); expect(mocks.write).not.toHaveBeenCalled();
-  });
+it('keyboard focus into an inactive xterm pane transfers input ownership before Shift+Enter', async () => {
+  const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime', startToken: 1 }));
+  const onFocus = vi.fn();
+  function FocusHarness() {
+    const [focused, setFocused] = useState(false);
+    return <TerminalPane {...p} focused={focused} onFocus={() => { onFocus(); setFocused(true); }} />;
+  }
+  render(<FocusHarness />);
+  await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+  completeSnapshot(mocks.attach.mock.calls[0][1]);
+  const textarea = screen.getByRole('textbox', { name: 'Mock xterm input' });
+  act(() => textarea.focus());
+  expect(textarea).toHaveFocus();
+  const handler = mocks.keyHandler.mock.calls[0][0];
+  act(() => handler(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, shiftKey: true, cancelable: true })));
+  await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
+  expect(onFocus).toHaveBeenCalled();
+});
 
-  it.each(['Cancel', 'Ok', 'denied'] as const)('honors the actual native plugin %s response for draft paste', async (button) => {
-    const { view } = await ready(); shiftEnter();
-    fireEvent.change(view.getByLabelText('草稿內容'), { target: { value: 'original\n' } });
-    const invoke = button === 'denied' ? vi.fn().mockRejectedValue(new Error('permission denied')) : vi.fn().mockResolvedValue(button);
-    installNativeConfirmation(invoke);
-    fireEvent.click(view.getByText('確認貼上…'));
-    await waitFor(() => expect(view.getByText('確認貼上…')).toBeEnabled());
-    expect(invoke).toHaveBeenCalledWith('plugin:dialog|message', expect.objectContaining({ buttons: 'OkCancel' }), undefined);
-    if (button === 'Ok') expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('original\n');
-    else { expect(mocks.termPaste).not.toHaveBeenCalled(); expect(mocks.write).not.toHaveBeenCalled(); }
-  });
-  it.each(['clipboard', 'stop'] as const)('awaits native Cancel and denial for the original %s action', async (action) => {
-    const { view } = await ready();
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: vi.fn().mockResolvedValue('one\ntwo') } });
-    const button = view.getByRole('button', { name: action === 'clipboard' ? '貼上' : '停止' });
-    const invoke = vi.fn().mockResolvedValue('Cancel'); installNativeConfirmation(invoke);
-    fireEvent.click(button);
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(button).toBeEnabled());
-    expect(mocks.termPaste).not.toHaveBeenCalled(); expect(mocks.stop).not.toHaveBeenCalled();
-    invoke.mockRejectedValueOnce(new Error('permission denied')); fireEvent.click(button);
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(button).toBeEnabled());
-    expect(mocks.termPaste).not.toHaveBeenCalled(); expect(mocks.stop).not.toHaveBeenCalled();
-    invoke.mockResolvedValueOnce('Ok'); fireEvent.click(button);
-    await waitFor(() => expect(action === 'clipboard' ? mocks.termPaste : mocks.stop).toHaveBeenCalledOnce());
-  });
-  it.each(['clipboard', 'stop'] as const)('invalidates original %s confirmation when a draft opens and closes', async (action) => {
-    const { view } = await ready();
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: vi.fn().mockResolvedValue('one\ntwo') } });
-    let resolve!: (button: string) => void;
-    const invoke = vi.fn(() => new Promise<string>((done) => { resolve = done; })); installNativeConfirmation(invoke);
-    fireEvent.click(view.getByRole('button', { name: action === 'clipboard' ? '貼上' : '停止' }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledOnce());
-    shiftEnter(); fireEvent.click(view.getByText('取消並保留草稿'));
-    await act(async () => resolve('Ok'));
-    expect(mocks.termPaste).not.toHaveBeenCalled(); expect(mocks.stop).not.toHaveBeenCalled();
-  });
+it('non-terminal controls do not claim terminal keyboard focus', async () => {
+  const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));
+  render(<TerminalPane {...p} focused={false} />);
+  await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+  completeSnapshot(mocks.attach.mock.calls[0][1]);
+  act(() => screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' }).focus());
+  expect(p.onFocus).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
+  expect(screen.getByRole('textbox', { name: '終端搜尋' })).toHaveFocus();
+  expect(p.onFocus).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /重新命名面板/ }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(p.onFocus).not.toHaveBeenCalled();
+  const terminalInput = screen.getByRole('textbox', { name: 'Mock xterm input' });
+  act(() => terminalInput.focus());
+  expect(p.onFocus).not.toHaveBeenCalled();
+  expect(mocks.write).not.toHaveBeenCalled();
+});
 
+it('refits after native page zoom without changing terminal font or runtime, and fits hidden panes on reveal', async () => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
+  const p = props(makePane({ startToken: 1 }));
+  const view = render(<TerminalPane {...p} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  // The broker must finish its snapshot before the renderer may fit or accept input.
+  completeSnapshot(mocks.launch.mock.calls[0][1]);
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  mocks.fit.mockClear(); mocks.resize.mockClear(); mocks.focus.mockClear();
+  const resets = mocks.reset.mock.calls.length;
+  act(() => window.dispatchEvent(new Event(workspaceZoomEvent)));
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).toHaveBeenCalledOnce(); expect(mocks.resize).toHaveBeenCalledWith('runtime', 80, 24);
+  expect(mocks.options.at(-1)?.fontSize).toBe(13); expect(mocks.focus).not.toHaveBeenCalled();
+  view.rerender(<TerminalPane {...p} visible={false} />);
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  act(() => window.dispatchEvent(new Event(workspaceZoomEvent)));
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).not.toHaveBeenCalled(); expect(mocks.resize).not.toHaveBeenCalled();
+  view.rerender(<TerminalPane {...p} visible />);
+  await act(async () => { await new Promise((done) => setTimeout(done, 30)); });
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  act(() => mocks.input?.('still alive'));
+  await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'still alive'));
+  expect(mocks.launch).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
+  expect(mocks.reset).toHaveBeenCalledTimes(resets);
 });

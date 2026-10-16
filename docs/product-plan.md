@@ -42,7 +42,7 @@ Session Bay 的名稱取工作階段停靠站的意象。對外說明可使用�
 
 ### 各工具保留慣用啟動方式
 
-Codex、Claude Code、Grok Build 與 Antigravity CLI 可保存各自的啟動參數。使用者明確啟用危險模式後，不必每次在 Session Bay 重複確認；預設不加 bypass，啟動前顯示實際 argv 與風險。歷史格式按工具分開；Antigravity CLI 的防禦 reader、metadata 與接續條件見[相容性邊界](antigravity-cli-history.md)，1.3.5 真實樣本仍待驗證。
+Codex、Claude Code、Grok Build、Antigravity CLI 與 OpenCode 可保存各自的啟動參數。使用者明確啟用危險模式後，不必每次在 Session Bay 重複確認；預設不加 bypass，啟動前顯示實際 argv 與風險。歷史格式按工具分開；Antigravity CLI 的防禦 reader、metadata 與接續條件見[相容性邊界](antigravity-cli-history.md)，1.3.5 真實樣本仍待驗證。
 
 ### 在專案內開始新任務
 

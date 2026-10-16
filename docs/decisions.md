@@ -14,6 +14,13 @@
 
 官方依據：[Tauri Dialog](https://v2.tauri.app/plugin/dialog/)，查閱 2026-10-16。
 
+## 2026-10-16 Code 配色與命令面板主題切換
+
+- 使用者追加 Modern 與 2026 深／淺色兩組配色，介面與 Terminal 都提供對應選項；保留原有十個色系及所有 ID。名稱採 Code Modern、Code 2026，屬 Session Bay 的配色改編，不代表 VS Code 官方產品或合作關係。
+- 官方來源固定到 Microsoft VS Code commit 3588843f05a21bfdeada83a9799d87f19de0fadd，讀取主題 include 鏈與 Terminal ANSI 預設值，保留 MIT 著作權與授權告知。側欄、編輯區、面板、分頁、控制項及焦點採語意對應；低對比文字、ANSI 色與必要邊界作可及性調整，明列差異而非宣稱像素一致。
+- 命令面板提供獨立「切換介面主題」「切換 Terminal 主題」入口：搜尋名稱、鍵盤移動即預覽、Enter 套用保存、Escape／返回取消。與設定及快速切換的預覽擁有權互斥，延遲保存不可覆蓋後來設定或縮放。
+- 保留既有設定立即預覽／取消還原、快速切換與 Terminal 實例生命週期；原生桌面視覺驗收仍需另行完成。
+
 ## 2026-10-15 工具登錄、啟動器與輸入操作一致性
 
 本節記錄原功能批次；後續使用者追加的 Antigravity CLI 歷史、IME／快捷鍵與來源偵測依本文件後段決策執行，未來待辦仍不納入實作。
@@ -314,7 +321,6 @@
 初步診斷找到 Codex canonical／fallback 重複訊息的 correlated SQL 平方掃描。改善採操作本機的 SQLite TEMP digest lookup，hash 只縮小候選，仍核對原文字與角色，不以 hash 相同直接隱藏訊息。連線要求 FILE 暫存與約 2 MiB page-cache 目標，並非全程序記憶體硬上限；不把整份對話保留在 Rust HashMap，也不新增持久 schema。另重用 message INSERT 與 checkpoint 查詢的 prepared statements。
 
 原來源唯讀、來源與檔案身份、prefix hash、寫入前後校驗、重寫／compaction、取消與交易 rollback、stale／snapshot generation 均維持。同一 harness／環境的 before／after、全部核心回歸與未達標的高命中率搜尋見[索引效能量測](index-performance.md)；合成改善不等於使用者真實來源或全部效能驗收完成。
-
 ## 2026-10-16 獨立主題與即時預覽
 
 - 本次獨立功能 PR 實作 UI 深／淺色各 10 種，Terminal 深／淺色各 10 種；兩者獨立選擇。既有 Bay／Classic 終端色票保留，不強制轉換。
@@ -328,6 +334,8 @@
 
 ## 2026-10-16 日常體驗：Terminal 字級快捷鍵
 
+此節為原始方案，已由下節「全工作台縮放取代僅 Terminal 快捷鍵」的使用者追加需求取代。
+
 使用者授權日常體驗分成小型 PR。本組對應待辦 01，只調整全域 Terminal 字級，所有面板共用；不改介面文字或瀏覽器縮放，也不新增逐面板字級 schema。
 
 - 以主題 PR 的 Appearance 預覽與設定保存機制為基礎，Cmd（macOS）／Ctrl（Linux）加 `=` 或 `+` 放大、`-` 縮小、`0` 還原設定預設 14 px。範圍沿用 9–32 px，每次 1 px。
@@ -335,7 +343,6 @@
 - 快捷鍵即時預覽並自動保存；快速連按合併等待中的最新值，寫入依序進行，不讓舊結果覆蓋新的預覽。失敗還原至上次確認保存值，顯示錯誤並允許重試。設定內字級編輯仍遵守預覽、儲存保留、取消捨棄還原。
 - 更新既有 xterm options 與 fit／resize，不重建終端、不修改 runtime／PTY 生命週期。持續 Runtime PR 仍最高優先；原生驗收及與 Windows 設定驗證修正的整合回歸另行執行。
 - Shift＋Enter 不併入本組；各工具及模式對 LF、Ctrl＋J、modified Enter 的語意不同，未確認時不能保證只換行而不送出。另立協定／模式驗收範圍，不直接對所有 PTY 送 LF。
-
 ## 2026-10-16 日常體驗：工作區整理獨立 PR
 
 使用者授權日常體驗按規模拆成獨立 PR。本次涵蓋後續待辦第 02–05 項：分頁、面板及專案顯示名稱，以及同一專案內的分頁排序。第 09 項持續執行與重新附接仍最高優先；字型快捷鍵、Shift＋Enter、臨時 Terminal、OpenCode、主題及索引改善不併入本 PR。
@@ -353,26 +360,32 @@
 
 Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode 229 路徑）不取消草稿；組字結束後仍可正常取消，Tab／Shift＋Tab 維持原焦點循環。新增真實 DOM 輸入焦點及可取消 rAF 回歸，涵蓋未聚焦面板開啟重新命名、starting 轉 running、對話框關閉後的延遲 focus、鍵盤關閉與焦點返回。原生 WebView／實際 IME 驗收仍待執行。
 
-## 2026-10-16 批次整合的相容性規則
+## 2026-10-16 Shift＋Enter：回到 Terminal 原位輸入
 
-- 各功能保留獨立 PR 與驗證記錄；整合時同時保留平台路徑驗證、原生目錄草稿、五個 provider、索引去重、背景 broker、null 專案臨時 Terminal、名稱／順序與外觀設定。
-- 臨時分頁使用獨立選取 ID，重新命名／排序不得建立字串 `null` 專案，亦不得修改 Runtime 身份或啟動 token。
-- Runtime 必須完成 snapshot 渲染才啟用輸入與 fit／resize；主題只換色，字級變更不重啟程序。對話框開啟後與延遲事件皆不得搶走輸入焦點。
-- 現行操作文件同步已採用的 broker、退出保留畫面、五工具與目錄選擇器；歷史測試檢查點保留原範圍。原生 GUI／IME、三 OS 完整矩陣與真實 CLI 尚未驗證的項目不因整合勾選。
+使用者最新要求取代先前草稿視窗方案：Shift＋Enter 必須留在 Terminal，不開啟 modal。這不是 Tauri 的限制；目前 xterm 5.5 將 Enter 與 Shift＋Enter 都編碼為 CR，部分 CLI 因此無法區分。
 
-## 2026-10-16 Shift+Enter 採本機多行草稿
+- 只對已查核 decoder 的啟動工具預設送出 CSI-u `ESC [ 13 ; 2 u`，表示 Shift＋Enter；不送 LF／CR，不附加 Enter。Codex、Claude Code、OpenCode 的相容模式由共用 provider registry 宣告；Codex Windows 的 Console InputRecord 路徑尚未驗證，維持原生預設。這是一個按鍵的相容映射，不宣稱支援完整 Kitty 協定。
+- Shell、Grok 與 Antigravity 未啟用預設映射。Shell 裡自行啟動 Agent 時可在該面板選擇 CSI-u；回到 Shell 時切回原生。預設只依啟動來源，不能代表實際前景程序或應用程式模式，不能保證任意應用程式都把此鍵解讀成換行。
+- 模式顯示於面板，手動選擇只作用於目前 runtime，重新啟動後回到預設，同一 runtime 重新連線則保留。未知工具保留原生。沒有 output heuristics、磁碟設定、自動 CLI 啟動、全域 LF 或鍵盤協定宣告。
+- 經既有 xterm input／有界輸入佇列傳遞；連線、快照、退出、焦點與對話框守衛仍適用。IME 組字及其他修飾鍵不攔截，CapsLock 修正保留。測試與原生 WebView／實際 CLI 驗收分開記錄。
 
-使用者選擇「Shift+Enter 開啟草稿，編輯不送進 Terminal，再明確選擇貼上」。本批因此不將 Shift+Enter 全域映射為 LF、CR 或 Ctrl+J，也不依原始 pane.kind 猜測目前前景工具／模式。
-
-- 在執行中的終端按 Shift+Enter，或按工具列「多行草稿」，開啟有標籤、焦點限制與取消操作的本機編輯框。Enter／Shift+Enter 在框內只換行；沒有 Ctrl+Enter 送出快捷鍵。
-- 草稿只存在原面板的記憶體中。取消／切換面板保留文字；關閉面板或整個應用程式不保留，不寫入設定、歷史或 broker metadata。
-- 「確認貼上」再次列出原面板、工作目錄、Runtime ID 與末尾換行；明示貼上本身可能執行指令或送出提示。沿用 xterm.paste 與既有輸入佇列，不額外加 Enter，不宣稱 bracketed paste 保證任意工具不執行。
-- 草稿綁定原 attachment lease／runtime／啟動世代；退出、斷線、重新連線或切換面板時不能貼到別的工作。舊草稿可讀取；要使用目前新連線，需明確清除舊稿並另開草稿。
-- 同步／非同步貼上失敗均保留文字，提示可能部分送達，不自動重試。控制字元與超過輸入上限的草稿拒絕貼上，不靜默改寫內容。
-
-原生多平台／實際 Agent 操作仍待驗；測試與限制見 [多行草稿](terminal-drafts.md)。
+- 獨立複查補上鍵盤焦點接管：只有 xterm textarea 真正取得焦點時同步 active pane，避免 Tab 進入非作用中面板後 Shift＋Enter 被安全守衛吞掉。搜尋、模式選單與 modal 輸入不接管 Terminal 焦點；對話框與隱藏面板守衛保留。
 
 
-## 2026-10-16 批次狀態與驗證分層
+## 2026-10-16 修訂後的批次整合契約
 
-本批十組變更已於隔離整合樹合併，完成既有功能回歸與草稿／分頁快捷鍵／字級／IME 交互測試。清單分別記錄「已實作及自動驗證」與「原生人工驗收」，不再以單一未完成方框掩蓋已交付程式碼，也不因自動測試通過勾選原生項目。歷史分支 checkpoint 保留，當前批次證據與限制見[批次整合驗證](batch-integration-validation.md)。
+- 保留各功能的獨立 PR 與歷史驗證紀錄；來源涵蓋五個 provider、唯讀索引、原生資料夾選擇器、背景 broker、null 專案臨時 Terminal、名稱與分頁順序。整合不改來源身份、Runtime 身份或啟動 token。
+- Shift＋Enter 採原位按鍵相容方案，取代先前多行草稿視窗提案；支援工具使用明確的 CSI-u 編碼，其他工具及 Windows Codex 保留原生，面板可手動選模式。不能將 decoder 證據當作所有 CLI／平台都已驗收。
+- 外觀新增 Code Modern／Code 2026 色票及命令面板主題選擇；整個工作台縮放與 Terminal 字型大小分開。主題預覽只擁有色彩欄位，取消不得回復較舊的 zoom 或 font；保存與原生縮放必須序列化並區分成功／失敗。
+- 本段記錄整合要求，不宣稱修訂後最終樹已通過本機、Linux CI 或原生矩陣。現況文件與較早 checkpoint 分開，尚未驗證的 GUI／IME／真實 CLI 不因合併程式碼而勾選。
+
+
+## 2026-10-16 全工作台縮放取代僅 Terminal 快捷鍵
+
+使用者追加 Terminal 與介面一起放大縮小。原 PR 的 Cmd／Ctrl 加減與 0 改為整個原生 WebView 的頁面縮放；獨立 appZoom 設定預設 100%，範圍 50–200%，每次 10 個百分點，0 回到 100%。Terminal fontSize 仍是獨立基準字級，不額外乘上縮放比例。
+
+沿用外觀的即時預覽／儲存／取消還原，縮放與主題共用序列化設定寫入；原生縮放套用失敗不得宣稱已保存。明確停用 WebView 內建 zoom hotkeys，只准 main window 使用 set-webview-zoom，避免第二個未保存的縮放來源。IME／一般輸入欄位與對話框內仍不處理快捷鍵，設定用百分比欄位操作。窄視窗允許捲動，避免放大後控制項無法到達。原生 WebView／實際鍵盤及 resize 仍需三平台驗收。
+
+## 2026-10-16 命令選色器與工作台縮放整合
+
+命令選色器、快速主題與縮放快捷鍵共用序列化外觀寫入佇列，合併等待中的窄欄位 patch；相同欄位採最後一次要求。每次呼叫取得自己的 Promise<boolean>，只有所要求的欄位確實保存才回傳 true，被後續同欄位要求取代回傳 false，寫入失敗會通知所有受影響呼叫。只有擁有 appZoom 的批次可要求原生縮放，命令主題預覽不擷取字型／縮放快照。設定完整編輯入口在寫入期間保持停用；命令選色器保留自己的取消、重試與世代檢查。

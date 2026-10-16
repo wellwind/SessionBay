@@ -45,7 +45,7 @@ export function workspaceTabIndex(event: KeyboardEvent, count: number, current: 
   return (current + direction + count) % count;
 }
 export function reservedWorkspaceShortcut(shortcut: string, mac = isMac()): boolean {
-  const fixed = ['Mod+=', 'Mod++', 'Mod+Shift+=', 'Mod+Shift++', 'Mod+-', 'Mod+Shift+-', 'Mod+0', 'Mod+Shift+0', 'Ctrl+Tab', 'Ctrl+Shift+Tab', ...Array.from({ length: 9 }, (_, i) => `${mac ? 'Meta' : 'Ctrl'}+${i + 1}`)];
+  const fixed = ['Shift+Enter', 'Mod+=', 'Mod++', 'Mod+Shift+=', 'Mod+Shift++', 'Mod+-', 'Mod+Shift+-', 'Mod+0', 'Mod+Shift+0', 'Ctrl+Tab', 'Ctrl+Shift+Tab', ...Array.from({ length: 9 }, (_, i) => `${mac ? 'Meta' : 'Ctrl'}+${i + 1}`)];
   if (mac) fixed.push('Meta+Shift+[', 'Meta+Shift+]', 'Meta+Alt+ArrowLeft', 'Meta+Alt+ArrowRight');
   return fixed.some((binding) => normalizedShortcut(binding, mac) === normalizedShortcut(shortcut, mac));
 }
@@ -82,9 +82,6 @@ export function normalizedShortcut(value: string, mac = isMac()): string {
     .sort()
     .join('+');
 }
-export function reservedTerminalDraftShortcut(shortcut: string): boolean {
-  return normalizedShortcut(shortcut) === normalizedShortcut('Shift+Enter');
-}
 export function shortcutConflicts(shortcuts: Record<string, string>): Set<string> {
   const groups = new Map<string, string[]>();
   for (const [id, shortcut] of Object.entries(shortcuts))
@@ -94,7 +91,7 @@ export function shortcutConflicts(shortcuts: Record<string, string>): Set<string
     }
   return new Set([
     ...[...groups.values()].filter((group) => group.length > 1).flat(),
-    ...Object.entries(shortcuts).filter(([, binding]) => (reservedWorkspaceShortcut(binding) || reservedTerminalDraftShortcut(binding))).map(([id]) => id),
+    ...Object.entries(shortcuts).filter(([, binding]) => reservedWorkspaceShortcut(binding)).map(([id]) => id),
   ]);
 }
 export function matchesShortcut(event: KeyboardEvent, shortcut: string, mac = isMac()): boolean {

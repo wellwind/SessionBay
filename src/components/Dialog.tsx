@@ -6,21 +6,17 @@ export function Dialog({
   children,
   onClose,
   wide = false,
-  onRestoreFocus,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
-  onRestoreFocus?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Capture before descendant autoFocus runs during commit, never the modal's own input.
   const [previous] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  const restoreRef = useRef(onRestoreFocus);
-  restoreRef.current = onRestoreFocus;
   useEffect(() => {
     const root = ref.current;
     let composing = false;
@@ -63,8 +59,7 @@ export function Dialog({
       document.removeEventListener('compositionstart', start, true);
       document.removeEventListener('compositionend', end, true);
       window.removeEventListener('blur', end);
-      if (restoreRef.current) restoreRef.current();
-      else if (previous?.isConnected && !root?.contains(previous)) previous.focus();
+      if (previous?.isConnected && !root?.contains(previous)) previous.focus();
     };
   }, [previous]);
   return (
