@@ -82,6 +82,9 @@ export function normalizedShortcut(value: string, mac = isMac()): string {
     .sort()
     .join('+');
 }
+export function reservedTerminalDraftShortcut(shortcut: string): boolean {
+  return normalizedShortcut(shortcut) === normalizedShortcut('Shift+Enter');
+}
 export function shortcutConflicts(shortcuts: Record<string, string>): Set<string> {
   const groups = new Map<string, string[]>();
   for (const [id, shortcut] of Object.entries(shortcuts))
@@ -91,7 +94,7 @@ export function shortcutConflicts(shortcuts: Record<string, string>): Set<string
     }
   return new Set([
     ...[...groups.values()].filter((group) => group.length > 1).flat(),
-    ...Object.entries(shortcuts).filter(([, binding]) => reservedWorkspaceShortcut(binding)).map(([id]) => id),
+    ...Object.entries(shortcuts).filter(([, binding]) => (reservedWorkspaceShortcut(binding) || reservedTerminalDraftShortcut(binding))).map(([id]) => id),
   ]);
 }
 export function matchesShortcut(event: KeyboardEvent, shortcut: string, mac = isMac()): boolean {

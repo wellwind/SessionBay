@@ -272,3 +272,15 @@
 - 重開以 broker 的 runtime／pane／project metadata 為權威，保存的 layout 仍不接受 Runtime ID、PID、指令或 auto-start token。遺失 layout 的活躍面板會重建，不會悄悄藏起來。
 - 程序已退出時保留最後畫面與 exit code。Broker 或作業系統重啟後，上次執行中的 metadata 改為 `interrupted`；不冒稱仍在執行、不採用舊 PID、不自動重啟 Shell／Agent。終端輸出不落盤，broker 重啟後無法還原舊畫面。
 - 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。
+
+## 2026-10-16 Shift+Enter 採本機多行草稿
+
+使用者選擇「Shift+Enter 開啟草稿，編輯不送進 Terminal，再明確選擇貼上」。本批因此不將 Shift+Enter 全域映射為 LF、CR 或 Ctrl+J，也不依原始 pane.kind 猜測目前前景工具／模式。
+
+- 在執行中的終端按 Shift+Enter，或按工具列「多行草稿」，開啟有標籤、焦點限制與取消操作的本機編輯框。Enter／Shift+Enter 在框內只換行；沒有 Ctrl+Enter 送出快捷鍵。
+- 草稿只存在原面板的記憶體中。取消／切換面板保留文字；關閉面板或整個應用程式不保留，不寫入設定、歷史或 broker metadata。
+- 「確認貼上」再次列出原面板、工作目錄、Runtime ID 與末尾換行；明示貼上本身可能執行指令或送出提示。沿用 xterm.paste 與既有輸入佇列，不額外加 Enter，不宣稱 bracketed paste 保證任意工具不執行。
+- 草稿綁定原 attachment lease／runtime／啟動世代；退出、斷線、重新連線或切換面板時不能貼到別的工作。舊草稿可讀取；要使用目前新連線，需明確清除舊稿並另開草稿。
+- 同步／非同步貼上失敗均保留文字，提示可能部分送達，不自動重試。控制字元與超過輸入上限的草稿拒絕貼上，不靜默改寫內容。
+
+原生多平台／實際 Agent 操作仍待驗；測試與限制見 [多行草稿](terminal-drafts.md)。

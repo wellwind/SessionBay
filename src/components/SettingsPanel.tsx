@@ -17,7 +17,8 @@ import {
   X,
 } from 'lucide-react';
 import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Settings, ShellCandidate, ShellProfile } from '../types';
-import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
+import { terminalDraftShortcutHelp } from '../terminal-draft';
+import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, reservedTerminalDraftShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions } from '../agents';
 import type { HistoryAgentKind } from '../agents';
 import { isAbsoluteFilesystemPath } from '../paths';
@@ -247,6 +248,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
       continue;
     }
     if (!binding.trim()) continue;
+    if (reservedTerminalDraftShortcut(binding)) errors[`shortcuts.${action}`] = 'Shift+Enter 保留給終端多行草稿，請選擇其他快捷鍵。';
     if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換，請選擇其他快捷鍵。';
     const parts = binding
       .trim()
@@ -1205,7 +1207,7 @@ export function SettingsPanel({
                         Mod+Shift+T。留空可停用快捷鍵。衝突會顯示在下方；請避開終端程式與作業系統常用組合。
                       </p>
                     </div>
-                    <p className="settings-help">{workspaceTabShortcutHelp} 這些應用保留組合不會傳送至終端；組字期間或對話框內不攔截。舊版「下一個面板」預設改為 Mod+Alt+ArrowDown。</p>
+                    <p className="settings-help">{terminalDraftShortcutHelp} {workspaceTabShortcutHelp} 這些應用保留組合不會傳送至終端；組字期間或對話框內不攔截。舊版「下一個面板」預設改為 Mod+Alt+ArrowDown。</p>
                     {!Object.keys(draft.shortcuts).length && (
                       <div className="settings-empty">
                         <Keyboard size={24} />

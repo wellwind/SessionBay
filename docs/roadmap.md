@@ -107,3 +107,7 @@
 ## 最高優先：退出 UI 後持續執行
 
 - [ ] 獨立 broker／附接實作經同提交 Linux E2E 及三平台原生互動驗收。分支已加入實作與測試，仍為 Draft；不能將本機 socket 受限或 Windows 交叉編譯算成原生 passed。詳見[持續 Runtime](persistent-runtime.md)。
+
+### 2026-10-16 終端多行草稿
+
+使用者選定本機編輯框方案；Shift+Enter 開草稿、明確確認後貼上、原 attachment 綁定與失敗保留已加入前端回歸。跨工具原生 Shift+Enter 不在此批宣稱範圍；三平台真實 GUI／輸入法仍待驗。詳見 [多行草稿](terminal-drafts.md)。

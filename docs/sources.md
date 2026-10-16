@@ -156,3 +156,14 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [interprocess 2.4.5 local sockets](https://docs.rs/interprocess/2.4.5/interprocess/local_socket/index.html)：Unix socket／Windows named pipe 抽象、peer credentials；實作仍需 private directory／SID ACL，不能把本機名稱當身分驗證。
 - [Windows named pipe listener options](https://docs.rs/interprocess/2.4.5/interprocess/os/windows/named_pipe/struct.PipeListenerOptions.html)：remote acceptance 預設 false，first-instance 與 security descriptor 行為以固定 lockfile 版本核對。
 - [vt100 0.16.2 Screen](https://docs.rs/vt100/0.16.2/vt100/struct.Screen.html)：有界 terminal state、formatted screen 與 input modes；不代表完整 xterm／所有 Agent TUI 相容。
+
+## 終端多行草稿（2026-10-16）
+
+- [xterm 5.5.0 Keyboard](https://github.com/xtermjs/xterm.js/blob/5.5.0/src/common/input/Keyboard.ts)／[Clipboard](https://github.com/xtermjs/xterm.js/blob/5.5.0/src/browser/Clipboard.ts)：測試執行已安裝版本原始碼，確認 Enter 編碼、換行正規化與 bracketed-paste 邊界。
+- [xterm 6.0.0 Keyboard](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/common/input/Keyboard.ts)：同樣沒有區分 Shift+Enter；未升級依賴或加入未完成協定。
+- [Grok 鍵盤文件](https://docs.x.ai/build/keyboard-shortcuts)：multiline 模式的 Shift+Enter 是送出。
+- [Claude 終端設定](https://code.claude.com/docs/en/terminal-config)／[OpenCode 按鍵](https://opencode.ai/docs/keybinds/)／[Antigravity 提示輸入](https://antigravity.google/docs/cli/prompting)：工具原生按鍵與可設定性；不代表 Session Bay 已對真實 CLI 完成驗收。
+
+- [tauri-plugin-dialog 2.8.3](https://crates.io/crates/tauri-plugin-dialog/2.8.3)：原生初始化會將 window.confirm 改為 Promise；測試以附授權的官方 init fixture 驗證 Ok／Cancel／IPC 拒絕，所有 caller 等待 strict true 並重驗原目標。
+
+行為、風險與待驗矩陣見 [多行草稿](terminal-drafts.md)。

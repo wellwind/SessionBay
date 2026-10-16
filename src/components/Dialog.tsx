@@ -6,15 +6,19 @@ export function Dialog({
   children,
   onClose,
   wide = false,
+  onRestoreFocus,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  onRestoreFocus?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const restoreRef = useRef(onRestoreFocus);
+  restoreRef.current = onRestoreFocus;
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const root = ref.current;
@@ -48,7 +52,8 @@ export function Dialog({
     document.addEventListener('keydown', key);
     return () => {
       document.removeEventListener('keydown', key);
-      previous?.focus();
+      if (restoreRef.current) restoreRef.current();
+      else previous?.focus();
     };
   }, []);
   return (

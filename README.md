@@ -50,6 +50,7 @@ npm run tauri -- build
 | [三平台支援與驗收](docs/platform-support.md) | 原生平台前提、Windows ConPTY／路徑邊界、可重複驗收與未驗證項目 |
 | [開發與試用](docs/development.md) | 實際安裝、啟動、測試、建置與資料邊界 |
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
+| [終端多行草稿](docs/terminal-drafts.md) | Shift+Enter 本機草稿、明確貼上與目標／換行風險 |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
 
