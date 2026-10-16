@@ -50,6 +50,7 @@ npm run tauri -- build
 | [Agent 用量與分析規格](docs/usage-spec.md) | MVP 後的帳號額度總覽、Project／Agent／Session 用量與費用語意 |
 | [開發路線圖](docs/roadmap.md) | 分階段交付、相依性與效能原型驗證 |
 | [完整功能與開發任務](docs/development-tasks.md) | P0／P1／P2 功能清單、任務相依、完成條件與開工順序 |
+| [工作區整理](docs/workspace-organization.md) | 分頁／面板／專案顯示名稱、排序與驗收限制 |
 | [決策與待確認事項](docs/decisions.md) | 使用者已確定方向、建議方案與未定事項 |
 | [三平台支援與驗收](docs/platform-support.md) | 原生平台前提、Windows ConPTY／路徑邊界、可重複驗收與未驗證項目 |
 | [開發與試用](docs/development.md) | 實際安裝、啟動、測試、建置與資料邊界 |

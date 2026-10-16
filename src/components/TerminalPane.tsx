@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import {
   Copy,
+  Pencil,
   Maximize2,
   Minimize2,
   Play,
@@ -36,6 +37,8 @@ interface Attachment {
 import { workspaceZoomEvent } from '../workspace-zoom';
 import { terminalTheme } from '../themes';
 
+import { RenameDialog } from './RenameDialog';
+import { hasBlockingDialog } from '../dialog-focus';
 export function TerminalPane({
   pane,
   projectAvailable = true,
@@ -83,6 +86,7 @@ export function TerminalPane({
   const inputQueue = useRef<TerminalInputQueue | null>(null);
   const resizePending = useRef<{ id: string; cols: number; rows: number } | null>(null);
   const resizing = useRef(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [needle, setNeedle] = useState('');
   const [notice, setNotice] = useState('');
@@ -203,9 +207,11 @@ export function TerminalPane({
   }, [settings.terminalTheme]);
   useEffect(() => {
     if (visible) {
+      const scheduledFrom = document.activeElement;
       const frame = requestAnimationFrame(() => {
         fitNow();
-        if (focused && pane.state !== 'placeholder') term.current?.focus();
+        // Do not steal focus acquired by a modal or another control after scheduling.
+        if (focused && pane.state !== 'placeholder' && !hasBlockingDialog() && document.activeElement === scheduledFrom) term.current?.focus();
       });
       return () => cancelAnimationFrame(frame);
     }
@@ -454,11 +460,12 @@ export function TerminalPane({
       <div className="pane-toolbar">
         <div className="pane-title">
           <TerminalSquare size={14} />
-          <strong>{pane.title}</strong>
+          <strong title={pane.title}>{pane.title}</strong>
           {focused && <span className="focus-label">焦點</span>}
           <span className={`runtime-dot ${pane.state}`} />
         </div>
         <div className="pane-actions">
+          <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
           <button
             className="icon-button"
             title="搜尋終端文字"
@@ -529,6 +536,9 @@ export function TerminalPane({
                   : '已還原布局'}
         </span>
       </div>
+      {renameOpen && <RenameDialog title="重新命名面板" name={pane.title}
+        description="只修改面板顯示名稱，保留執行中的程序、終端輸出與工作目錄。"
+        onClose={() => setRenameOpen(false)} onSave={(title) => onPatch(pane.id, { title })} />}
       {searchOpen && (
         <form
           className="terminal-search search-field"

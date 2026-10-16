@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 export function Dialog({
@@ -13,18 +13,23 @@ export function Dialog({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Capture before descendant autoFocus runs during commit, never the modal's own input.
+  const [previous] = useState(() => document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
     const root = ref.current;
+    let composing = false;
+    const start = (event: CompositionEvent) => { if (event.target instanceof Node && root?.contains(event.target)) composing = true; };
+    const end = () => { composing = false; };
     (
       root?.querySelector<HTMLElement>('input, select, textarea') ??
       root?.querySelector<HTMLElement>('button')
     )?.focus();
     const key = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || event.isComposing || composing || event.keyCode === 229) return;
       if (event.key === 'Escape') {
+        event.preventDefault();
         event.stopPropagation();
         closeRef.current();
       }
@@ -46,11 +51,17 @@ export function Dialog({
       }
     };
     document.addEventListener('keydown', key);
+    document.addEventListener('compositionstart', start, true);
+    document.addEventListener('compositionend', end, true);
+    window.addEventListener('blur', end);
     return () => {
       document.removeEventListener('keydown', key);
-      previous?.focus();
+      document.removeEventListener('compositionstart', start, true);
+      document.removeEventListener('compositionend', end, true);
+      window.removeEventListener('blur', end);
+      if (previous?.isConnected && !root?.contains(previous)) previous.focus();
     };
-  }, []);
+  }, [previous]);
   return (
     <div
       className="dialog-backdrop"

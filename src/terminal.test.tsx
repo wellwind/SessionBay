@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
 import { workspaceZoomEvent } from './workspace-zoom';
 import { defaultAgentOptions } from './agents';
 import { shouldHandleTerminalKey } from './terminal-ime';
-import { act, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TerminalPane } from './components/TerminalPane';
 import { installNativeConfirmation } from './test/dialog-init';
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
   termWrite: vi.fn(),
   disposed: vi.fn(),
+  termFocus: vi.fn(),
   keyHandler: vi.fn(),
   reset: vi.fn(),
   focus: vi.fn(),
@@ -39,10 +41,15 @@ vi.mock('@xterm/xterm', () => ({
     parser = { registerOscHandler: () => ({ dispose() {} }) };
     loadAddon() {}
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { mocks.keyHandler(handler); }
-    open() {}
+    textarea?: HTMLTextAreaElement;
+    open(host: HTMLElement) {
+      this.textarea = document.createElement('textarea');
+      this.textarea.setAttribute('aria-label', 'Mock xterm input');
+      host.append(this.textarea);
+    }
     reset() { mocks.termReset(); mocks.reset(); }
     resize(cols: number, rows: number) { this.cols = cols; this.rows = rows; mocks.termResize(cols, rows); }
-    focus() { mocks.focus(); }
+    focus() { mocks.termFocus(); mocks.focus(); this.textarea?.focus(); }
     getSelection() {
       return '';
     }
@@ -446,7 +453,7 @@ describe('persistent runtime attachment', () => {
     const view = render(<TerminalPane {...p} />);
     expect(mocks.attach).not.toHaveBeenCalled();
     expect(mocks.launch).not.toHaveBeenCalled();
-    fireEvent.click(view.getByRole('button', { name: /重新/ }));
+    fireEvent.click(view.getByRole('button', { name: '重新啟動' }));
     expect(p.onStart).toHaveBeenCalledOnce();
     expect(mocks.stop).not.toHaveBeenCalled();
   });
@@ -607,6 +614,100 @@ describe('live terminal palette updates', () => {
     expect(mocks.fit).toHaveBeenCalledTimes(snapshots.fit);
     expect(mocks.focus).toHaveBeenCalledTimes(snapshots.focus);
   });
+});
+
+it('renames a running pane without remount, stop, relaunch or input interruption', async () => {
+  const pane = makePane({ startToken: 1 });
+  const original = props(pane);
+  const { rerender } = render(<TerminalPane {...original} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  completeSnapshot(mocks.launch.mock.calls[0][1]);
+  const disposed = mocks.disposed.mock.calls.length;
+  const stopped = mocks.stop.mock.calls.length;
+  fireEvent.click(screen.getByRole('button', { name: '重新命名面板 Shell' }));
+  fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Named console' } });
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存名稱' })));
+  expect(original.onPatch).toHaveBeenCalledWith(pane.id, { title: 'Named console' });
+  rerender(<TerminalPane {...original} pane={{ ...pane, title: 'Named console', state: 'running', runtimeId: 'runtime' }} />);
+  expect(screen.getByRole('region', { name: 'Named console 終端面板' })).toBeInTheDocument();
+  expect(mocks.launch).toHaveBeenCalledOnce();
+  expect(mocks.disposed).toHaveBeenCalledTimes(disposed);
+  expect(mocks.stop).toHaveBeenCalledTimes(stopped);
+  await act(async () => mocks.input?.('echo still alive\r'));
+  await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'echo still alive\r'));
+});
+
+
+// Keep cancellation faithful: rerenders must not execute superseded focus effects.
+function controlAnimationFrames() {
+  let id = 0;
+  const frames = new Map<number, FrameRequestCallback>();
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    frames.set(++id, callback);
+    return id;
+  });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((frameId) => { frames.delete(frameId); });
+  return () => act(() => {
+    const pending = [...frames.values()];
+    frames.clear();
+    pending.forEach((frame) => frame(0));
+  });
+}
+
+it('regression: opening rename on an unfocused running pane does not refocus xterm over the dialog', () => {
+  const flushFrames = controlAnimationFrames();
+  function Harness() {
+    const [focused, setFocused] = useState(false);
+    return <TerminalPane {...props(makePane({ state: 'running', runtimeId: 'runtime' }))} focused={focused} onFocus={() => setFocused(true)} />;
+  }
+  render(<Harness />);
+  flushFrames();
+  const rename = screen.getByRole('button', { name: '重新命名面板 Shell' });
+  fireEvent.pointerDown(rename);
+  fireEvent.click(rename);
+  expect(screen.getByLabelText('顯示名稱')).toHaveFocus();
+  mocks.termFocus.mockClear();
+  flushFrames();
+  expect(screen.getByLabelText('顯示名稱')).toHaveFocus();
+});
+
+it('regression: a starting pane becoming running does not take focus away from its rename dialog', () => {
+  const flushFrames = controlAnimationFrames();
+  const initial = props(makePane({ state: 'starting' }));
+  const view = render(<TerminalPane {...initial} />);
+  flushFrames();
+  fireEvent.click(screen.getByRole('button', { name: '重新命名面板 Shell' }));
+  expect(screen.getByLabelText('顯示名稱')).toHaveFocus();
+  view.rerender(<TerminalPane {...initial} pane={{ ...initial.pane, state: 'running', runtimeId: 'runtime' }} />);
+  flushFrames();
+  expect(screen.getByLabelText('顯示名稱')).toHaveFocus();
+});
+
+it('does not steal focus from another control before a pending frame, but still focuses on normal workspace reveal', () => {
+  const flushFrames = controlAnimationFrames();
+  const pane = props(makePane({ state: 'running', runtimeId: 'runtime' }));
+  const view = render(<><input aria-label="Outside search" /><TerminalPane {...pane} /></>);
+  const search = screen.getByLabelText('Outside search'); search.focus();
+  flushFrames();
+  expect(search).toHaveFocus();
+  view.rerender(<><input aria-label="Outside search" /><TerminalPane {...pane} visible={false} /></>);
+  view.rerender(<><input aria-label="Outside search" /><TerminalPane {...pane} visible /></>);
+  flushFrames();
+  expect(screen.getByLabelText('Mock xterm input')).toHaveFocus();
+});
+
+it('preserves rename opener focus when its pending terminal frame runs after the dialog already closed', () => {
+  const flushFrames = controlAnimationFrames();
+  const pane = props(makePane({ state: 'starting' }));
+  const view = render(<TerminalPane {...pane} />);
+  flushFrames();
+  const opener = screen.getByRole('button', { name: '重新命名面板 Shell' });
+  fireEvent.click(opener);
+  view.rerender(<TerminalPane {...pane} pane={{ ...pane.pane, state: 'running' }} />);
+  fireEvent.click(screen.getByRole('button', { name: '取消' }));
+  expect(opener).toHaveFocus();
+  flushFrames();
+  expect(opener).toHaveFocus();
 });
 
 describe('real plugin asynchronous confirmation safety', () => {
