@@ -1,5 +1,13 @@
 # MVP 實作與驗收紀錄
 
+## 2026-10-16 PR #3 獨立審查修正
+
+後續審查確認並修正三項 Windows 問題：設定 UI 原本只接受 `/` 開頭而阻擋原生首次設定保存；ConPTY 測試在 readiness／completion 之間重設 sequence cursor；Catalog／Grok 合成歷史使用 Unix 絕對路徑而在 Windows 失去原本測試語意。
+
+設定路徑檢查現在依原生平台接受 drive-absolute、UNC、extended-length 檔案系統路徑，拒絕 drive/root-relative、裝置、ADS 與控制字元；後端仍是安全檢查權威。新增 Win32 首次設定保存、來源偵測、目錄選擇結果字串保留及非法路徑阻擋回歸。事件測試以共用 cursor 保留所有輸出與 ACK，跨平台合成測試仍拒絕重複／跳號，不跳過原生測試；歷史 fixtures 改用平台原生絕對路徑並檢查確實分入專案。
+
+修正後 Linux cloud：**前端 15 檔 453／453、Rust core 251／251** 通過；typecheck、lint、production build、fmt、Linux core strict Clippy、Windows GNU desktop all-target strict Clippy 通過。Windows 全部 core test executables 的 `--no-run` 交叉連結亦通過；交叉編譯與模擬 Win32 DOM 回歸都不等於 Windows native、macOS native 或完整手動 matrix 通過。
+
 ## 2026-10-16 三平台獨立 PR 驗證
 
 基線為 main `a609f04101604501895186f14dad9ad77d44989c`。新增 Windows ConPTY backend、原生 Shell／執行檔／路徑偵測、安全唯讀歷史 handle identity、跨平台 Tauri launcher、NSIS 設定及手動 Windows CI。此 PR 與目錄選擇 dialog 獨立；不包含背景持續執行 broker。
