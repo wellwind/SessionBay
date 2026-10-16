@@ -8,6 +8,15 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use tempfile::TempDir;
 
+#[cfg(unix)]
+const CWD: &str = "/synthetic/project";
+#[cfg(windows)]
+const CWD: &str = "C:/synthetic/project";
+#[cfg(unix)]
+const ENCODED_CWD: &str = "%2Fsynthetic%2Fproject";
+#[cfg(windows)]
+const ENCODED_CWD: &str = "C%3A%2Fsynthetic%2Fproject";
+
 struct Harness {
     _temp: TempDir,
     catalog: Catalog,
@@ -93,7 +102,7 @@ fn append(path: &Path, text: &str) {
         .unwrap();
 }
 fn summary() -> Value {
-    json!({"info":{"id":"grok-session","cwd":"/synthetic/project"},"session_summary":"Fallback summary","generated_title":"Grok generated title","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-03T00:00:00Z","last_active_at":"2026-01-02T00:00:00Z","num_messages":2,"current_model_id":"grok-code-test","parent_session_id":"parent"})
+    json!({"info":{"id":"grok-session","cwd":CWD},"session_summary":"Fallback summary","generated_title":"Grok generated title","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-03T00:00:00Z","last_active_at":"2026-01-02T00:00:00Z","num_messages":2,"current_model_id":"grok-code-test","parent_session_id":"parent"})
 }
 fn chunk(role: &str, text: &str) -> Value {
     json!({"timestamp":1767312000,"method":"session/update","params":{"sessionId":"grok-session","update":{"sessionUpdate":format!("{role}_message_chunk"),"content":{"type":"text","text":text}}}})
@@ -109,7 +118,7 @@ fn rewind(target: u64) -> Value {
 
 #[test]
 fn grok_summary_authoritative_updates_and_read_only_preview() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.write_updates(&[
         chunk("user", "修正 parse_request"),
@@ -140,7 +149,7 @@ fn grok_summary_authoritative_updates_and_read_only_preview() {
     let s = &sessions[0];
     assert_eq!(s.external_id, "grok-session");
     assert_eq!(s.title, "Grok generated title");
-    assert_eq!(s.cwd.as_deref(), Some("/synthetic/project"));
+    assert_eq!(s.cwd.as_deref(), Some(CWD));
     assert_eq!(s.updated_at, "2026-01-02T00:00:00.000Z");
     assert_eq!(
         s.parent_id.as_deref(),
@@ -174,13 +183,13 @@ fn grok_hashed_cwd_legacy_missing_summary_and_metadata_repair() {
     let h = Harness::new("project-1234567890abcdef");
     fs::write(
         h.session_dir.parent().unwrap().join(".cwd"),
-        "/synthetic/project\n",
+        format!("{CWD}\n"),
     )
     .unwrap();
     let legacy = chunk("user", "Legacy content")["params"].clone();
     h.write_updates(&[legacy]);
     h.sync();
-    assert_eq!(h.sessions()[0].cwd.as_deref(), Some("/synthetic/project"));
+    assert_eq!(h.sessions()[0].cwd.as_deref(), Some(CWD));
     assert!(h.sessions()[0].partial);
     assert_eq!(h.total("Legacy content"), 1);
     h.write_summary(summary());
@@ -191,7 +200,7 @@ fn grok_hashed_cwd_legacy_missing_summary_and_metadata_repair() {
 
 #[test]
 fn grok_summary_only_sessions_and_later_stream_transition() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.sync();
     let s = h.sessions()[0].clone();
@@ -207,7 +216,7 @@ fn grok_summary_only_sessions_and_later_stream_transition() {
 
 #[test]
 fn grok_summary_changes_refresh_without_touching_updates() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.write_updates(&[chunk("user", "Searchable content")]);
     h.sync();
@@ -241,7 +250,7 @@ fn grok_summary_changes_refresh_without_touching_updates() {
 
 #[test]
 fn grok_incremental_rewind_removes_search_preview_and_title() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     let mut metadata = summary();
     metadata["generated_title"] = Value::Null;
     metadata["session_summary"] = json!("");
@@ -271,7 +280,7 @@ fn grok_incremental_rewind_removes_search_preview_and_title() {
 
 #[test]
 fn grok_prompt_index_chunks_and_phantom_runs_rewind_correctly() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.write_updates(&[
         indexed_chunk("user", "first part", 0),
@@ -295,7 +304,7 @@ fn grok_prompt_index_chunks_and_phantom_runs_rewind_correctly() {
 
 #[test]
 fn grok_malformed_unknown_tool_reasoning_and_partial_line_safety() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     let mut tool = chunk("user", "TOOL_SECRET");
     tool["params"]["update"]["sessionUpdate"] = json!("tool_call_update");
@@ -320,7 +329,7 @@ fn grok_malformed_unknown_tool_reasoning_and_partial_line_safety() {
 
 #[test]
 fn grok_identity_conflict_does_not_leak_foreign_prose_or_rewind() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     let mut foreign = chunk("user", "FOREIGN_SECRET");
     foreign["params"]["sessionId"] = json!("other-session");
@@ -350,9 +359,9 @@ fn grok_identity_conflict_does_not_leak_foreign_prose_or_rewind() {
 
 #[test]
 fn grok_cwd_conflicts_never_reassign_or_resume() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     let mut bad = summary();
-    bad["info"]["cwd"] = json!("/synthetic/unrelated");
+    bad["info"]["cwd"] = json!(format!("{CWD}-unrelated"));
     h.write_summary(bad);
     h.write_updates(&[chunk("user", "CONFLICT_CONTENT")]);
     h.sync();
@@ -361,13 +370,13 @@ fn grok_cwd_conflicts_never_reassign_or_resume() {
     assert!(h.catalog.resume_source(&h.sessions()[0].id).is_err());
     h.write_summary(summary());
     h.sync();
-    assert_eq!(h.sessions()[0].cwd.as_deref(), Some("/synthetic/project"));
+    assert_eq!(h.sessions()[0].cwd.as_deref(), Some(CWD));
     assert!(!h.sessions()[0].partial);
 }
 
 #[test]
 fn antigravity_does_not_import_grok_history_as_cli_transcripts() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.write_updates(&[chunk("user", "No fake import")]);
     let mut source = h.source.clone();
@@ -383,7 +392,7 @@ fn antigravity_does_not_import_grok_history_as_cli_transcripts() {
 
 #[test]
 fn grok_rewrite_removes_old_index_and_malformed_summary_recovers() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.write_updates(&[
         chunk("user", "Removed by rewrite"),
@@ -407,12 +416,12 @@ fn grok_rewrite_removes_old_index_and_malformed_summary_recovers() {
 fn grok_hashed_marker_change_invalidates_cached_preview_and_resume() {
     let h = Harness::new("project-1234567890abcdef");
     let marker = h.session_dir.parent().unwrap().join(".cwd");
-    fs::write(&marker, "/synthetic/project").unwrap();
+    fs::write(&marker, CWD).unwrap();
     h.write_summary(summary());
     h.write_updates(&[chunk("user", "Marker content")]);
     h.sync();
     let id = h.sessions()[0].id.clone();
-    fs::write(&marker, "/synthetic/conflicting-project").unwrap();
+    fs::write(&marker, format!("{CWD}-conflicting")).unwrap();
     assert!(h.catalog.transcript(&id, None, 10).unwrap().stale);
     assert!(h
         .catalog
@@ -426,7 +435,7 @@ fn grok_hashed_marker_change_invalidates_cached_preview_and_resume() {
 
 #[test]
 fn grok_read_only_files_and_duplicate_session_ids_are_safe() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.write_updates(&[chunk("user", "Read only content")]);
     for name in ["summary.json", "updates.jsonl"] {
@@ -437,10 +446,11 @@ fn grok_read_only_files_and_duplicate_session_ids_are_safe() {
     }
     h.sync();
     assert_eq!(h.texts(), vec!["Read only content"]);
-    let second = Path::new(&h.source.root).join("sessions/%2Fsynthetic%2Fother/grok-session");
+    let second =
+        Path::new(&h.source.root).join(format!("sessions/{ENCODED_CWD}-other/grok-session"));
     fs::create_dir_all(&second).unwrap();
     let mut metadata = summary();
-    metadata["info"]["cwd"] = json!("/synthetic/other");
+    metadata["info"]["cwd"] = json!(format!("{CWD}-other"));
     fs::write(second.join("summary.json"), metadata.to_string()).unwrap();
     fs::write(
         second.join("updates.jsonl"),
@@ -459,7 +469,7 @@ fn grok_read_only_files_and_duplicate_session_ids_are_safe() {
 
 #[test]
 fn grok_host_turn_does_not_consume_a_rewind_prompt_index() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     let mut host = chunk("user", "HOST_SECRET");
     host["params"]["update"]["_meta"] = json!({"hostTurn":true,"promptIndex":1});
@@ -480,7 +490,7 @@ fn grok_host_turn_does_not_consume_a_rewind_prompt_index() {
 
 #[test]
 fn grok_coalesces_text_chunks_for_search_preview_and_append() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     let mut metadata = summary();
     metadata["generated_title"] = Value::Null;
     metadata["session_summary"] = json!("");
@@ -524,7 +534,7 @@ fn grok_coalesces_text_chunks_for_search_preview_and_append() {
 
 #[test]
 fn grok_coalesced_rewind_drops_old_search_and_starts_a_new_message() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     h.write_updates(&[
         indexed_chunk("user", "Keep", 0),
@@ -552,7 +562,7 @@ fn grok_coalesced_rewind_drops_old_search_and_starts_a_new_message() {
 
 #[test]
 fn grok_coalescing_respects_prompt_and_omitted_event_boundaries() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     let mut thought = chunk("agent", "PRIVATE_THOUGHT");
     thought["params"]["update"]["sessionUpdate"] = json!("agent_thought_chunk");
@@ -581,7 +591,7 @@ fn grok_coalescing_respects_prompt_and_omitted_event_boundaries() {
 
 #[test]
 fn grok_empty_chunks_and_torn_append_preserve_logical_message_and_title() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     let mut metadata = summary();
     metadata["generated_title"] = json!("");
     metadata["session_summary"] = json!("");
@@ -618,7 +628,7 @@ fn grok_empty_chunks_and_torn_append_preserve_logical_message_and_title() {
 
 #[test]
 fn grok_many_streaming_chunks_remain_a_single_searchable_message() {
-    let h = Harness::new("%2Fsynthetic%2Fproject");
+    let h = Harness::new(ENCODED_CWD);
     h.write_summary(summary());
     let mut chunks = vec![chunk("user", "Long answer please")];
     chunks.extend((0..5000).map(|index| chunk("agent", &format!("token{index} "))));

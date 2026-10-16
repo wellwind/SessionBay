@@ -20,6 +20,7 @@ import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Sett
 import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions } from '../agents';
 import type { HistoryAgentKind } from '../agents';
+import { isAbsoluteFilesystemPath } from '../paths';
 import { Select } from './controls';
 import { AgentIcon } from './AgentIcon';
 import './settings.css';
@@ -218,8 +219,8 @@ export function validateSettings(settings: Settings): ValidationErrors {
     sourceIds.add(source.id);
     if (!(historyAgentKinds as readonly string[]).includes(source.kind))
       errors[`sources.${i}.kind`] = '請選擇支援的 Agent 類型。';
-    if (!validText(source.root, 4096) || !source.root.startsWith('/'))
-      errors[`sources.${i}.root`] = '請填寫完整的絕對路徑，例如 /Users/you/.codex。';
+    if (!validText(source.root, 4096) || !isAbsoluteFilesystemPath(source.root))
+      errors[`sources.${i}.root`] = '請填寫此平台的完整資料夾路徑，例如 C:\\Users\\you\\.codex 或 /Users/you/.codex。';
     const rootKey = `${source.kind}:${source.root.trim().replace(/[\\/]+$/, '')}`;
     if (sourceRoots.has(rootKey)) errors[`sources.${i}.root`] = '此 Agent 的相同資料目錄已經加入。';
     sourceRoots.add(rootKey);

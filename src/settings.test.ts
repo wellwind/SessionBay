@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import manifest from './agent-manifest.json';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SettingsPanel,
   normalizeShortcut,
@@ -55,6 +55,65 @@ function openAgentOptions(name: string) {
   const details = summary.closest('details')!;
   if (!details.open) fireEvent.click(summary);
 }
+
+describe('Windows history path settings', () => {
+  afterEach(() => vi.restoreAllMocks());
+  function windowsSettings(): Settings {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32');
+    const settings = validSettings();
+    settings.profiles[0] = { id: 'main', name: 'PowerShell', executable: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', args: ['-NoLogo'], env: {} };
+    settings.sources = historyAgentKinds.map((kind) => ({ id: `windows-${kind}`, kind, root: `C:\\Users\\Synthetic User\\.${kind}`, enabled: true }));
+    return settings;
+  }
+
+  it('saves first-run Windows defaults with all native history roots', async () => {
+    const settings = { ...windowsSettings(), onboardingComplete: false };
+    expect(validateSettings(settings)).toEqual({});
+    const config = props({ settings, onboarding: true });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '儲存並開始掃描' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledExactlyOnceWith({ ...settings, onboardingComplete: true }));
+    expect(config.onClose).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    String.raw`D:\History & 中文\.codex`,
+    String.raw`\\server\share\.codex`,
+    String.raw`\\?\C:\Users\Synthetic User\.codex`,
+    String.raw`\\?\UNC\server\share\.codex`,
+  ])('saves an unchanged native directory-picker result: %s', async (root) => {
+    const config = props({ settings: windowsSettings() });
+    render(createElement(SettingsPanel, config));
+    fireEvent.change(screen.getByRole('textbox', { name: 'CODEX_HOME 資料目錄' }), { target: { value: root } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].sources.find((source) => source.kind === 'codex')?.root).toBe(root);
+  });
+
+  it('adds and saves the canonical Windows path returned by source discovery', async () => {
+    const root = String.raw`\\?\C:\History & 中文\.codex`;
+    const config = props({ settings: windowsSettings(), onDetectHistorySources: vi.fn().mockResolvedValue({ kind: 'codex', supported: true, candidates: [
+      { kind: 'codex', root, status: 'found', configured: false },
+    ] }) });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '偵測 Codex 歷史來源' }));
+    fireEvent.click(await screen.findByRole('button', { name: `加入 Codex 偵測來源 ${root}` }));
+    expect(config.onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].sources).toEqual(expect.arrayContaining([expect.objectContaining({ root })]));
+  });
+
+  it.each(['C:relative', '/Users/test/.codex', String.raw`C:\data\file:stream`, String.raw`\\.\pipe\name`])('blocks an invalid Windows source before save: %s', async (root) => {
+    const settings = windowsSettings();
+    settings.sources[0].root = root;
+    const config = props({ settings, onboarding: true });
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '儲存並開始掃描' }));
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(validateSettings(settings)['sources.0.root']).toBeTruthy();
+  });
+});
 
 describe('settings validation', () => {
   it('accepts authoritative valid settings and an empty source list', () => {
