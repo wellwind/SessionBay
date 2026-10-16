@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api, isDesktop } from './api';
+import { canPickDirectory, pickDirectory } from './directory-picker';
+vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
 import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, Session, Workspace } from './types';
 import { emptyWorkspace } from './workspace';
 import { startup } from './startup';
@@ -199,6 +201,8 @@ async function nativeClose() {
 }
 
 beforeEach(() => {
+  vi.mocked(canPickDirectory).mockReturnValue(false);
+  vi.mocked(pickDirectory).mockReset();
   vi.useFakeTimers();
   native.handlers.clear();
   native.patch = undefined;
@@ -1685,4 +1689,56 @@ it('refuses a preview-only session even when a stale history callback attempts r
   expect(api.launch).not.toHaveBeenCalled();
   expect(api.preview).not.toHaveBeenCalled();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+
+describe('directory pickers in workspace flows', () => {
+  beforeEach(() => { vi.mocked(canPickDirectory).mockReturnValue(true); });
+  it('previews a selected launch cwd but never starts a process until submitted', async () => {
+    vi.mocked(pickDirectory).mockResolvedValue('/synthetic/chosen');
+    const dialog = await openLauncher();
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: '選擇工作目錄' })); });
+    expect(within(dialog).getByLabelText('工作目錄')).toHaveValue('/synthetic/chosen');
+    await tick(150);
+    expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: '/synthetic/chosen' }));
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(Object.keys(workspaceSnapshot().panes)).toEqual(['pane-a']);
+  });
+  it('ignores a selected launch cwd after cancelling and reopening the launcher', async () => {
+    let resolve!: (value: string) => void;
+    vi.mocked(pickDirectory).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const dialog = await openLauncher();
+    fireEvent.click(within(dialog).getByRole('button', { name: '選擇工作目錄' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    await act(async () => resolve('/late'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
+    expect(screen.getByRole('textbox', { name: '工作目錄' })).toHaveValue('/synthetic/project');
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('only saves a selected relocation through the existing validated project update', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(pickDirectory).mockResolvedValue('/synthetic/relocated');
+    const data = directoryOverviewBootstrap();
+    const unknown = data.projects.find((entry) => entry.id === 'unknown')!;
+    const saved = { ...unknown, curated: true, launchPath: '/synthetic/relocated', exists: true };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.updateProject).mockResolvedValue(saved);
+    vi.mocked(api.projects).mockResolvedValue(data.projects.map((entry) => entry.id === saved.id ? saved : entry));
+    render(<App />);
+    await tick();
+    changePage('所有目錄');
+    selectGroup('Unknown directory', '所有目錄');
+    fireEvent.click(screen.getByRole('button', { name: 'Curate synthetic history project' }));
+    const dialog = screen.getByRole('dialog', { name: '重新定位專案目錄' });
+    vi.mocked(api.scan).mockClear(); // The initial bootstrap scan predates opening this picker.
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: '選擇目錄路徑' })); });
+    expect(within(dialog).getByLabelText('目錄路徑')).toHaveValue('/synthetic/relocated');
+    expect(api.updateProject).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: '儲存新位置' }));
+    await tick();
+    expect(api.updateProject).toHaveBeenCalledExactlyOnceWith('unknown', { launchPath: '/synthetic/relocated', curated: true });
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.scan).not.toHaveBeenCalled();
+  });
 });

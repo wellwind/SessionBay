@@ -3,7 +3,10 @@ import { createElement } from 'react';
 import manifest from './agent-manifest.json';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { canPickDirectory, pickDirectory } from './directory-picker';
+vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
+beforeEach(() => { vi.mocked(canPickDirectory).mockReturnValue(false); vi.mocked(pickDirectory).mockReset(); });
 import {
   SettingsPanel,
   normalizeShortcut,
@@ -962,4 +965,44 @@ it('detects and explicitly saves a CLI-only Antigravity source without installin
   ]);
   expect(settings).toEqual(original);
   expect(config.onScan).not.toHaveBeenCalled();
+});
+
+
+describe('history root directory selection', () => {
+  beforeEach(() => { vi.mocked(canPickDirectory).mockReturnValue(true); });
+  it('only edits the selected source draft and saves through the existing action', async () => {
+    vi.mocked(pickDirectory).mockResolvedValue('/synthetic/.codex');
+    const config = props({ settings: olderHistorySettings() });
+    render(createElement(SettingsPanel, config));
+    await userEvent.click(providerHistory('codex').getByRole('button', { name: '選擇CODEX_HOME 資料目錄' }));
+    expect(providerHistory('codex').getByLabelText('CODEX_HOME 資料目錄')).toHaveValue('/synthetic/.codex');
+    expect(providerHistory('claude').getByLabelText('CLAUDE_CONFIG_DIR 資料目錄')).toHaveValue('/synthetic/custom-claude');
+    expect(config.onSave).not.toHaveBeenCalled();
+    expect(config.onScan).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    expect(config.onSave).toHaveBeenCalledOnce();
+    expect(vi.mocked(config.onSave).mock.calls[0][0].sources[0]).toEqual({ id: 'source-a', kind: 'codex', root: '/synthetic/.codex', enabled: true });
+  });
+  it('does not restore a deleted source when its picker completes', async () => {
+    let resolve!: (value: string) => void;
+    vi.mocked(pickDirectory).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const config = props();
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(providerHistory('codex').getByRole('button', { name: '選擇CODEX_HOME 資料目錄' }));
+    fireEvent.click(screen.getByRole('button', { name: '移除資料來源 1' }));
+    await act(async () => resolve('/late'));
+    expect(providerHistory('codex').queryByRole('textbox')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    expect(vi.mocked(config.onSave).mock.calls[0][0].sources).toEqual([]);
+  });
+  it('discards a pending selection after settings section navigation', async () => {
+    let resolve!: (value: string) => void;
+    vi.mocked(pickDirectory).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    render(createElement(SettingsPanel, props()));
+    fireEvent.click(providerHistory('codex').getByRole('button', { name: '選擇CODEX_HOME 資料目錄' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Shell Profiles' }));
+    await act(async () => resolve('/late'));
+    fireEvent.click(screen.getByRole('button', { name: '來源與工具' }));
+    expect(providerHistory('codex').getByLabelText('CODEX_HOME 資料目錄')).toHaveValue('/home/test/.codex');
+  });
 });

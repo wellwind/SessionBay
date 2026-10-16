@@ -6,6 +6,7 @@
 
 | 主題 | 來源 | 適用內容 |
 | --- | --- | --- |
+| Tauri 原生對話框 | [Dialog plugin](https://v2.tauri.app/plugin/dialog/)／[JavaScript API](https://v2.tauri.app/reference/javascript/dialog/) | 2026-10-16 查閱；單一資料夾選擇、取消回傳 null、macOS／Windows／Linux 支援及 `dialog:allow-open` 權限；不代表整個應用已通過各平台驗收 |
 | Tauri 程序模型 | [Process Model](https://v2.tauri.app/concept/process-model/) | Core、WebView 與平台差異 |
 | Tauri 串流傳輸 | [Calling the Frontend from Rust](https://v2.tauri.app/develop/calling-frontend/) | Events 限制與 Channels |
 | xterm.js | [官方儲存庫](https://github.com/xtermjs/xterm.js) | 終端元件、addons 與可選 renderer |

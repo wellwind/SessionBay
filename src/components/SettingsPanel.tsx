@@ -1,3 +1,4 @@
+import { DirectoryPathField } from './DirectoryPathField';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
@@ -772,13 +773,16 @@ export function SettingsPanel({
                                             onChange={(value) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, kind: value as AgentKind } : item))}
                                             options={historyAgentKinds.map((option) => ({ value: option, label: agentNames[option], icon: <AgentIcon kind={option} /> }))} />
                                         </label>
-                                        <label className="settings-field">
-                                          <span>{capability.history.sourceEnv || capability.name} 資料目錄</span>
-                                          <input id={`source-root-${source.id}`} value={source.root} placeholder={capability.history.rootPlaceholder!}
-                                            onChange={(event) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, root: event.target.value } : item))}
-                                            spellCheck={false} aria-invalid={Boolean(errors[`sources.${i}.root`])} aria-describedby={`source-${i}-error`} />
+                                        <DirectoryPathField key={`${source.id}:${source.kind}`} className="settings-field"
+                                          label={`${capability.history.sourceEnv || capability.name} 資料目錄`}
+                                          id={`source-root-${source.id}`} value={source.root} disabled={locked}
+                                          placeholder={capability.history.rootPlaceholder!}
+                                          onChange={(root) => setDraft((current) => ({ ...current,
+                                            sources: current.sources.map((item) => item.id === source.id ? { ...item, root } : item),
+                                          }))}
+                                          aria-invalid={Boolean(errors[`sources.${i}.root`])} aria-describedby={`source-${i}-error`}>
                                           <FieldError id={`source-${i}-error`} message={errors[`sources.${i}.root`] ?? errors[`sources.${i}.id`] ?? errors[`sources.${i}.kind`]} />
-                                        </label>
+                                        </DirectoryPathField>
                                       </div>
                                       {status.detail && <p className="settings-help">{status.detail}</p>}
                                     </div>
