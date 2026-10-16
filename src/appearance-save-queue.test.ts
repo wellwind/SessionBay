@@ -14,7 +14,7 @@ function harness() {
   let settings: Settings = {
     version: 1, theme: 'dark', terminalTheme: 'classic', fontFamily: 'monospace', fontSize: 14, appZoom: 100,
     defaultAgent: 'codex', defaultProfileId: 'shell', profiles: [{ id: 'shell', name: 'Shell', executable: '/bin/sh', args: [], env: {} }],
-    sources: [], executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+    sources: [], executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
     agentOptions: defaultAgentOptions(), shortcuts: { ...shortcutDefaults }, onboardingComplete: true,
   };
   const save = vi.fn(async (next: Settings) => next);

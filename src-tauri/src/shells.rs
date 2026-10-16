@@ -2,10 +2,12 @@
 //! An executable candidate does not establish that login/startup configuration works.
 
 use serde::{Deserialize, Serialize};
+#[cfg(not(windows))]
+use std::fs::OpenOptions;
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
-    fs::{self, OpenOptions},
+    fs,
     io::Read,
     path::{Path, PathBuf},
 };
@@ -20,8 +22,17 @@ pub const MAX_SAVED_SEARCH_DIRECTORIES: usize = 128;
 pub const MAX_SAVED_EXECUTABLE_PROBES: usize = 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_PATH_ENV_BYTES: usize = 64 * 1024;
+#[cfg(not(windows))]
 const COMMON_SHELLS: &[&str] = &[
     "zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu",
+];
+#[cfg(windows)]
+const COMMON_SHELLS: &[&str] = &[
+    "pwsh.exe",
+    "powershell.exe",
+    "cmd.exe",
+    "nu.exe",
+    "bash.exe",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,6 +49,8 @@ pub struct ShellDiscoveryInputs {
     pub shells_file: Option<PathBuf>,
     pub current_shell: Option<PathBuf>,
     pub path: Option<OsString>,
+    #[cfg(windows)]
+    pub pathext: Option<OsString>,
     pub standard_directories: Vec<PathBuf>,
     pub saved_executables: Vec<String>,
     /// Fallbacks after PATH, in the same order as config::resolve_executable.
@@ -45,30 +58,32 @@ pub struct ShellDiscoveryInputs {
 }
 
 pub fn detect_shells(saved_executables: &[String]) -> Vec<ShellCandidate> {
-    let mut profile_fallback_directories = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        profile_fallback_directories.push(home.join(".local/bin"));
-        profile_fallback_directories.push(home.join(".cargo/bin"));
-    }
-    profile_fallback_directories.extend(
-        ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
-            .into_iter()
-            .map(PathBuf::from),
-    );
+    let profile_fallback_directories = crate::config::executable_fallback_directories();
+    #[cfg(windows)]
+    let standard_directories = profile_fallback_directories.clone();
+    #[cfg(not(windows))]
+    let standard_directories = [
+        "/bin",
+        "/usr/bin",
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        "/run/current-system/sw/bin",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect();
     discover_shells(&ShellDiscoveryInputs {
-        shells_file: Some(PathBuf::from("/etc/shells")),
-        current_shell: std::env::var_os("SHELL").map(PathBuf::from),
+        shells_file: if cfg!(windows) {
+            None
+        } else {
+            Some(PathBuf::from("/etc/shells"))
+        },
+        current_shell: std::env::var_os(if cfg!(windows) { "COMSPEC" } else { "SHELL" })
+            .map(PathBuf::from),
         path: std::env::var_os("PATH"),
-        standard_directories: [
-            "/bin",
-            "/usr/bin",
-            "/usr/local/bin",
-            "/opt/homebrew/bin",
-            "/run/current-system/sw/bin",
-        ]
-        .into_iter()
-        .map(PathBuf::from)
-        .collect(),
+        #[cfg(windows)]
+        pathext: std::env::var_os("PATHEXT"),
+        standard_directories,
         saved_executables: saved_executables
             .iter()
             .take(MAX_SAVED_EXECUTABLES + 1)
@@ -90,6 +105,10 @@ pub fn discover_shells(inputs: &ShellDiscoveryInputs) -> Vec<ShellCandidate> {
 }
 
 fn valid_path(path: &Path) -> bool {
+    #[cfg(windows)]
+    if !crate::windows_fs::valid_filesystem_path(path) {
+        return false;
+    }
     path.is_absolute()
         && path.to_str().is_some_and(|value| {
             value.len() <= MAX_PATH_BYTES && !value.chars().any(char::is_control)
@@ -100,16 +119,21 @@ fn read_shell_list(path: &Path) -> Option<String> {
     if !valid_path(path) {
         return None;
     }
-    let mut options = OpenOptions::new();
-    options.read(true);
-    // Avoid following substituted links or blocking on a FIFO/device. Check the
-    // opened handle's type, not a racy pre-open metadata result.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
-    }
-    let file = options.open(path).ok()?;
+    #[cfg(not(windows))]
+    let file = {
+        let mut options = OpenOptions::new();
+        options.read(true);
+        // Avoid following substituted links or blocking on a FIFO/device. Check the
+        // opened handle's type, not a racy pre-open metadata result.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+        }
+        options.open(path).ok()?
+    };
+    #[cfg(windows)]
+    let file = crate::windows_fs::open_regular_readonly_nofollow(path).ok()?;
     let metadata = file.metadata().ok()?;
     if !metadata.is_file() || metadata.len() > MAX_SHELL_LIST_BYTES as u64 {
         return None;
@@ -138,9 +162,14 @@ fn executable_identity(path: &Path) -> Option<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         (metadata.permissions().mode() & 0o111 != 0).then_some(canonical)
     }
-    // This MVP supports macOS/Linux. Do not assume a Windows file is executable.
-    #[cfg(not(unix))]
-    None
+    #[cfg(windows)]
+    {
+        crate::config::is_windows_native_executable(path).then_some(canonical)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        None
+    }
 }
 
 /// Resolve saved commands without executing anything. A bounded, incomplete
@@ -152,6 +181,10 @@ fn saved_canonical_targets(
     if inputs.saved_executables.len() > MAX_SAVED_EXECUTABLES {
         return None;
     }
+    #[cfg(windows)]
+    let extensions = crate::config::windows_extensions(inputs.pathext.as_deref());
+    #[cfg(not(windows))]
+    let extensions = Vec::new();
     let mut targets = HashSet::new();
     let mut cache: HashMap<PathBuf, Option<PathBuf>> = HashMap::new();
     let mut probes = 0;
@@ -173,8 +206,11 @@ fn saved_canonical_targets(
         }
         let executable = Path::new(value);
         if executable.is_absolute() {
-            if let Some(target) = checked_probe(executable)? {
-                targets.insert(target);
+            for candidate in crate::config::executable_candidates(executable, &extensions) {
+                if let Some(target) = checked_probe(&candidate)? {
+                    targets.insert(target);
+                    break;
+                }
             }
         } else if executable.components().count() <= 1 {
             let path = inputs.path.as_deref().unwrap_or_default();
@@ -186,7 +222,7 @@ fn saved_canonical_targets(
             let directories = std::env::split_paths(path)
                 .chain(inputs.profile_fallback_directories.iter().cloned());
             let mut seen = HashSet::new();
-            for (index, directory) in directories
+            'directories: for (index, directory) in directories
                 .take(MAX_SAVED_SEARCH_DIRECTORIES + 1)
                 .enumerate()
             {
@@ -196,14 +232,17 @@ fn saved_canonical_targets(
                 if !directory.is_absolute() || !seen.insert(directory.clone()) {
                     continue;
                 }
-                let candidate = directory.join(executable);
-                if candidate.as_os_str().len() > MAX_PATH_BYTES {
-                    // An uninspected earlier executable could shadow later ones.
-                    return None;
-                }
-                if let Some(target) = checked_probe(&candidate)? {
-                    targets.insert(target);
-                    break;
+                for candidate in
+                    crate::config::executable_candidates(&directory.join(executable), &extensions)
+                {
+                    if candidate.as_os_str().len() > MAX_PATH_BYTES {
+                        // An uninspected earlier executable could shadow later ones.
+                        return None;
+                    }
+                    if let Some(target) = checked_probe(&candidate)? {
+                        targets.insert(target);
+                        break 'directories;
+                    }
                 }
             }
         }
@@ -281,7 +320,7 @@ fn discover_with_probe(
     candidates
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

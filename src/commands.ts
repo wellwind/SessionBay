@@ -49,7 +49,7 @@ export function reservedWorkspaceShortcut(shortcut: string, mac = isMac()): bool
   if (mac) fixed.push('Meta+Shift+[', 'Meta+Shift+]', 'Meta+Alt+ArrowLeft', 'Meta+Alt+ArrowRight');
   return fixed.some((binding) => normalizedShortcut(binding, mac) === normalizedShortcut(shortcut, mac));
 }
-export const workspaceTabShortcutHelp = '工作區分頁：macOS ⌘1–8／⌘9（最後）、⌘⇧[／⌘⇧]；Linux Ctrl+1–8／Ctrl+9。兩平台 Ctrl+Tab／Ctrl+Shift+Tab；macOS 亦可 ⌘⌥←／⌘⌥→。僅切換目前目錄的工作分頁，不切換導覽頁面。';
+export const workspaceTabShortcutHelp = '工作區分頁：macOS ⌘1–8／⌘9（最後）、⌘⇧[／⌘⇧]；Linux Ctrl+1–8／Ctrl+9。兩平台 Ctrl+Tab／Ctrl+Shift+Tab；macOS 亦可 ⌘⌥←／⌘⌥→。僅切換目前目錄或臨時 Terminal 的工作分頁，不切換導覽頁面。';
 const keyAlias = (value: string) =>
   ({
     esc: 'escape',

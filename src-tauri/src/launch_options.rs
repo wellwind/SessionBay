@@ -11,7 +11,8 @@ enum Arity {
 fn specification(kind: AgentKind, flag: &str) -> Option<Arity> {
     use Arity::{Flag, Value};
     match (kind, flag) {
-        (_, "--model") | (AgentKind::Codex | AgentKind::Claude | AgentKind::Grok, "-m") => {
+        (_, "--model")
+        | (AgentKind::Codex | AgentKind::Claude | AgentKind::Grok | AgentKind::OpenCode, "-m") => {
             Some(Value)
         }
         (
@@ -86,6 +87,8 @@ fn specification(kind: AgentKind, flag: &str) -> Option<Arity> {
         ) => Some(Flag),
         (AgentKind::Antigravity, "--effort" | "--agent") => Some(Value),
         (AgentKind::Antigravity, "--sandbox" | "--dangerously-skip-permissions") => Some(Flag),
+        (AgentKind::OpenCode, "--agent") => Some(Value),
+        (AgentKind::OpenCode, "--pure" | "--auto") => Some(Flag),
         _ => None,
     }
 }
@@ -96,6 +99,7 @@ pub fn supported_options(kind: AgentKind) -> &'static str {
         AgentKind::Claude => "--model/-m, --effort, --agent, --advisor, --append-system-prompt, --append-system-prompt-file, --system-prompt, --system-prompt-file, --permission-mode, --allowedTools/--allowed-tools, --disallowedTools/--disallowed-tools, --tools, --add-dir, --verbose, --bare, --ax-screen-reader, --dangerously-skip-permissions, --allow-dangerously-skip-permissions",
         AgentKind::Grok => "--model/-m, --effort, --rules/--append-system-prompt, --system-prompt-override/--system-prompt, --tools, --disallowed-tools/--disallowedTools, --max-turns, --allow/--allowedTools, --deny, --sandbox, --no-plan, --no-subagents, --no-memory, --disable-web-search, --experimental-memory, --always-approve/--yolo/--dangerously-skip-permissions",
         AgentKind::Antigravity => "--model, --effort, --agent, --sandbox, --dangerously-skip-permissions",
+        AgentKind::OpenCode => "--model/-m, --agent, --pure, --auto (explicit dangerous-options opt-in)",
     }
 }
 
@@ -103,7 +107,8 @@ fn risky(kind: AgentKind, flag: &str, value: Option<&str>) -> bool {
     if flag.starts_with("--dangerously-")
         || matches!(
             flag,
-            "--yolo"
+            "--auto"
+                | "--yolo"
                 | "--always-approve"
                 | "--allow-dangerously-skip-permissions"
                 | "--allowedTools"
@@ -165,6 +170,7 @@ fn permission_mode(kind: AgentKind, flag: &str) -> bool {
                 | "--disallowedTools"
         ),
         AgentKind::Antigravity => flag == "--dangerously-skip-permissions",
+        AgentKind::OpenCode => flag == "--auto",
     }
 }
 
@@ -287,6 +293,7 @@ mod tests {
             (AgentKind::Claude, "--dangerously-skip-permissions"),
             (AgentKind::Grok, "--always-approve"),
             (AgentKind::Antigravity, "--dangerously-skip-permissions"),
+            (AgentKind::OpenCode, "--auto"),
         ] {
             assert!(arguments(kind, &options(&[], false)).unwrap().is_empty());
             assert_eq!(arguments(kind, &options(&[], true)).unwrap(), vec![flag]);

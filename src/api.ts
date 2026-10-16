@@ -10,6 +10,7 @@ import type {
   LaunchPreview,
   Project,
   RuntimeInfo,
+  RuntimeRecord,
   SessionPage,
   SessionQuery,
   ShellCandidate,
@@ -22,6 +23,9 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
   if (!isDesktop()) throw new Error('桌面執行環境未連線。請以 Session Bay 桌面應用程式開啟。');
   return invoke<T>(command, args);
 }
+// Explicit pane-close waits for its outstanding launch before querying the broker.
+// UI/window detach deliberately never waits for or cancels these launches.
+const pendingLaunches = new Map<string, Set<Promise<RuntimeInfo>>>();
 export const api = {
   setWorkspaceZoom: async (percent: number): Promise<void> => {
     if (!isDesktop()) throw new Error('工作台縮放需要桌面執行環境。');
@@ -46,17 +50,40 @@ export const api = {
   clearIndex: () => call<void>('clear_index'),
   saveWorkspace: (workspace: unknown) => call<void>('save_workspace', { workspace }),
   preview: (request: LaunchRequest) => call<LaunchPreview>('preview_launch', { request }),
-  launch: (request: LaunchRequest, onMessage: (event: TerminalEvent) => void) => {
+  launch: (request: LaunchRequest, onMessage: (event: TerminalEvent) => void, attachmentId: string) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;
-    return call<RuntimeInfo>('launch_runtime', { request, onEvent });
+    const pending = Promise.resolve().then(() => call<RuntimeInfo>('launch_runtime', { request, onEvent, attachmentId }));
+    const launches = pendingLaunches.get(request.paneId) ?? new Set<Promise<RuntimeInfo>>();
+    launches.add(pending);
+    pendingLaunches.set(request.paneId, launches);
+    const remove = () => {
+      launches.delete(pending);
+      if (!launches.size) pendingLaunches.delete(request.paneId);
+    };
+    void pending.then(remove, remove);
+    return pending;
   },
+  settleLaunches: async (paneIds: string[]) => {
+    while (true) {
+      const pending = paneIds.flatMap((id) => [...(pendingLaunches.get(id) ?? [])]);
+      if (!pending.length) return;
+      await Promise.allSettled(pending);
+    }
+  },
+  attach: (runtimeId: string, onMessage: (event: TerminalEvent) => void, attachmentId: string) => {
+    const onEvent = new Channel<TerminalEvent>();
+    onEvent.onmessage = onMessage;
+    return call<RuntimeInfo>('attach_runtime', { runtimeId, onEvent, attachmentId });
+  },
+  detach: (runtimeId: string, attachmentId: string) => call<void>('detach_runtime', { runtimeId, attachmentId }),
+  forget: (runtimeId: string) => call<void>('forget_runtime', { runtimeId }),
   write: (runtimeId: string, data: string) => call<void>('write_runtime', { runtimeId, data }),
   resize: (runtimeId: string, cols: number, rows: number) =>
     call<void>('resize_runtime', { runtimeId, cols, rows }),
-  ack: (runtimeId: string, sequence: number) => call<void>('ack_runtime', { runtimeId, sequence }),
+  ack: (runtimeId: string, sequence: number, attachmentId: string) => call<void>('ack_runtime', { runtimeId, sequence, attachmentId }),
   stop: (runtimeId: string) => call<void>('stop_runtime', { runtimeId }),
-  runtimes: () => call<RuntimeInfo[]>('list_runtimes'),
+  runtimes: () => call<RuntimeRecord[]>('list_runtimes'),
   close: () => call<void>('close_application'),
 };
 export const errorMessage = (error: unknown) =>
