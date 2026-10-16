@@ -16,7 +16,7 @@ vi.mock('./startup', async (original) => ({
 vi.mock('./api', () => ({
   isDesktop: () => true, call: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
-  api: Object.fromEntries(['bootstrap', 'scan', 'index', 'projects', 'saveWorkspace', 'close', 'stop', 'runtimes',
+  api: Object.fromEntries(['bootstrap', 'scan', 'index', 'projects', 'saveWorkspace', 'close', 'stop', 'forget', 'settleLaunches', 'runtimes',
     'launch', 'detect', 'detectShells', 'cancelScan', 'clearIndex', 'saveSettings', 'updateProject', 'addProject',
     'createProject', 'preview', 'sessions', 'transcript', 'detectHistorySources'].map((name) => [name, vi.fn()])),
 }));
@@ -24,6 +24,7 @@ vi.mock('./api', () => ({
 const root = '/synthetic/isolated-home/sessionbay-smoke-fixture';
 function seed(theme: 'dark' | 'light'): Bootstrap {
   return {
+    runtimes: [],
     settings: {
       version: 1, theme, terminalTheme: 'bay', fontFamily: 'monospace', fontSize: 14,
       defaultAgent: 'codex', defaultProfileId: 'smoke-shell',
@@ -49,6 +50,8 @@ beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   vi.mocked(api.saveWorkspace).mockResolvedValue(undefined);
   vi.mocked(api.runtimes).mockResolvedValue([]);
+  vi.mocked(api.forget).mockResolvedValue(undefined);
+  vi.mocked(api.settleLaunches).mockResolvedValue(undefined);
 });
 afterEach(() => {
   vi.clearAllTimers();

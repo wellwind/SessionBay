@@ -19,7 +19,19 @@ import '@xterm/xterm/css/xterm.css';
 import { api, errorMessage } from '../api';
 import { TerminalInputQueue } from '../terminal-queue';
 import { shouldHandleTerminalKey } from '../terminal-ime';
-import type { Pane, RuntimeInfo, Settings } from '../types';
+import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
+interface Attachment {
+  lease: string;
+  id?: string;
+  retry: number;
+  ended: boolean;
+  failed: boolean;
+  ready: boolean;
+  disconnected: boolean;
+  lastSequence: number;
+  lastAcknowledged: number;
+  info?: RuntimeInfo;
+}
 const themes = {
   bay: {
     background: '#11151a',
@@ -99,10 +111,15 @@ export function TerminalPane({
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
   const search = useRef<SearchAddon | null>(null);
-  const runtime = useRef<string | undefined>(pane.runtimeId);
+  const runtime = useRef<string | undefined>(undefined);
+  const attachment = useRef<Attachment | null>(null);
+  const renderQueue = useRef<Array<(done: () => void) => void>>([]);
+  const rendering = useRef(false);
+  const [reconnect, setReconnect] = useState(0);
+  const [connecting, setConnecting] = useState(false);
+  const [connected, setConnected] = useState(false);
   const launched = useRef(0);
   const mounted = useRef(false);
-  const ended = useRef(false);
   const latest = useRef({ pane, onPatch, onAlreadyOpen, visible });
   latest.current = { pane, onPatch, onAlreadyOpen, visible };
   const inputQueue = useRef<TerminalInputQueue | null>(null);
@@ -119,10 +136,13 @@ export function TerminalPane({
       !term.current
     )
       return;
+    if (attachment.current && !attachment.current.ready) return;
     try {
       fit.current?.fit();
       const t = term.current;
-      if (runtime.current && t.cols >= 2 && t.rows >= 2) {
+      // Keep renderer geometry within the broker's bounded screen allocation.
+      if (t.cols > 320 || t.rows > 120) t.resize(Math.min(320, t.cols), Math.min(120, t.rows));
+      if (runtime.current && t.cols >= 2 && t.rows >= 1) {
         resizePending.current = { id: runtime.current, cols: t.cols, rows: t.rows };
         if (!resizing.current) {
           resizing.current = true;
@@ -148,6 +168,7 @@ export function TerminalPane({
   useEffect(() => {
     if (!host.current) return;
     mounted.current = true;
+    const queuedFrames = renderQueue.current;
     const terminal = new Terminal({
       scrollback: 5000,
       fontSize: settings.fontSize,
@@ -184,9 +205,14 @@ export function TerminalPane({
     fitNow();
     return () => {
       mounted.current = false;
-      const id = runtime.current;
+      const current = attachment.current;
+      attachment.current = null;
       runtime.current = undefined;
-      if (id) void api.stop(id).catch(() => undefined);
+      inputQueue.current?.cancel();
+      resizePending.current = null;
+      if (current?.id) void api.detach(current.id, current.lease).catch(() => undefined);
+      // Any queued frames acknowledge their own obsolete lease without repainting.
+      for (const frame of queuedFrames.splice(0)) frame(() => undefined);
       observer.disconnect();
       cancelAnimationFrame(frame);
       input.dispose();
@@ -216,89 +242,177 @@ export function TerminalPane({
   }, [visible, focused, fitNow, pane.state]);
   useEffect(() => {
     const token = pane.startToken ?? 0;
-    if (!token || token === launched.current || !term.current) return;
-    launched.current = token;
-    ended.current = false;
+    // A remounted component must attach its recorded runtime, never replay an old start action.
+    if (!attachment.current && pane.runtimeId) launched.current = Math.max(launched.current, token);
+    const starting = token > launched.current;
+    if (!term.current || (!starting && (!pane.runtimeId || pane.state === 'interrupted'))) return;
+    const previous = attachment.current;
+    if (!starting && previous && previous.id === pane.runtimeId && previous.retry === reconnect) return;
+    if (starting) launched.current = token;
+    if (previous?.id) void api.detach(previous.id, previous.lease).catch(() => undefined);
+    const active: Attachment = {
+      lease: crypto.randomUUID(), id: starting ? undefined : pane.runtimeId,
+      retry: reconnect, ended: false, failed: !starting && pane.state === 'failed',
+      ready: false, disconnected: false, lastSequence: -1, lastAcknowledged: -1,
+    };
+    attachment.current = active;
     runtime.current = undefined;
+    inputQueue.current?.cancel();
+    resizePending.current = null;
+    setConnecting(true);
+    setConnected(false);
     setNotice('');
-    term.current.reset();
-    onPatch(pane.id, {
-      state: 'starting',
-      error: undefined,
-      runtimeId: undefined,
-      exitCode: undefined,
-    });
-    fitNow();
+    const current = () => mounted.current && attachment.current === active;
     const terminal = term.current;
-    let failed = false;
-    void api
-      .launch(
-        {
-          paneId: pane.id,
-          kind: pane.kind,
-          projectId: projectAvailable ? pane.projectId : undefined,
-          sessionId: pane.sessionId,
-          resumeId: pane.resumeId,
-          cwd: pane.cwd || undefined,
-          profileId: pane.profileId,
-          cols: Math.max(2, terminal.cols),
-          rows: Math.max(2, terminal.rows),
-        },
-        (event) => {
-          if (token !== launched.current) {
-            if (event.type === 'output') void api.ack(event.runtimeId, event.sequence).catch(() => undefined);
-            return;
-          }
-          if (event.type === 'output') {
-            if (!mounted.current) {
-              void api.ack(event.runtimeId, event.sequence).catch(() => undefined);
-              return;
-            }
-            terminal.write(new Uint8Array(event.data), () => {
-              void api.ack(event.runtimeId, event.sequence).catch((error) => {
-                if (mounted.current) setNotice(errorMessage(error));
-              });
-            });
-          } else if (event.type === 'exit') {
-            ended.current = true;
-            runtime.current = undefined;
-            if (mounted.current)
-              latest.current.onPatch(pane.id, { state: failed ? 'failed' : 'exited', exitCode: event.exitCode });
-          } else if (mounted.current) {
-            failed = true;
-            ended.current = true;
-            latest.current.onPatch(pane.id, { state: 'failed', error: event.message });
-          }
-        },
-      )
-      .then((info) => {
-        if (!mounted.current || token !== launched.current) {
-          // A duplicate-session response belongs to another pane; never stop its runtime.
-          if (info.paneId === pane.id) void api.stop(info.id).catch(() => undefined);
-          return;
-        }
-        if (info.paneId !== pane.id) {
-          latest.current.onAlreadyOpen(info);
-          return;
-        }
-        if (!ended.current) {
-          runtime.current = info.id;
-          latest.current.onPatch(pane.id, {
-            runtimeId: info.id,
-            state: info.state === 'exited' ? 'exited' : 'running',
-            cwd: info.cwd,
-            exitCode: info.exitCode,
-          });
-          fitNow();
-        } else latest.current.onPatch(pane.id, { runtimeId: info.id });
-      })
-      .catch((error) => {
-        if (mounted.current && token === launched.current)
-          latest.current.onPatch(pane.id, { state: 'failed', error: errorMessage(error) });
+    const ack = (event: Extract<TerminalEvent, { sequence: number }>) => {
+      void api.ack(event.runtimeId, event.sequence, active.lease).catch((error) => {
+        if (current()) setNotice(errorMessage(error));
       });
-    // Start only for an explicit monotonically increasing user action token.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pane.startToken]);
+    };
+    const enableInput = () => {
+      if (!current() || !active.ready || !active.info || active.ended || active.disconnected) return;
+      if (['running', 'starting'].includes(active.info.state)) runtime.current = active.id;
+      setConnecting(false);
+      setConnected(true);
+      fitNow();
+    };
+    const drain = () => {
+      if (rendering.current) return;
+      const next = renderQueue.current.shift();
+      if (!next) return;
+      rendering.current = true;
+      next(() => { rendering.current = false; drain(); });
+    };
+    const onEvent = (event: TerminalEvent) => {
+      if (!current() || (active.id && active.id !== event.runtimeId)) {
+        if (event.type === 'output' || event.type === 'snapshot') ack(event);
+        return;
+      }
+      active.id = event.runtimeId;
+      if (event.type === 'output' || event.type === 'snapshot') {
+        if (event.sequence <= active.lastSequence) {
+          if (event.sequence <= active.lastAcknowledged) ack(event);
+          return;
+        }
+        active.lastSequence = event.sequence;
+        if (event.type === 'snapshot') {
+          active.ready = false;
+          runtime.current = undefined;
+          inputQueue.current?.cancel();
+          resizePending.current = null;
+          setConnected(false);
+        }
+        renderQueue.current.push((done) => {
+          if (!current()) { ack(event); done(); return; }
+          if (event.type === 'snapshot') {
+            terminal.reset();
+            terminal.resize(Math.min(320, Math.max(2, event.cols)), Math.min(120, Math.max(1, event.rows)));
+            if (event.truncated) setNotice('已恢復目前終端畫面；較早輸出超過保留上限，無法完整回放。');
+          }
+          terminal.write(new Uint8Array(event.data), () => {
+            active.lastAcknowledged = Math.max(active.lastAcknowledged, event.sequence);
+            ack(event);
+            if (current() && event.type === 'snapshot') {
+              active.ready = true;
+              setConnecting(false);
+              enableInput();
+            }
+            done();
+          });
+        });
+        drain();
+      } else if (event.type === 'disconnected') {
+        active.disconnected = true;
+        inputQueue.current?.cancel();
+        resizePending.current = null;
+        runtime.current = undefined;
+        active.ready = false;
+        setConnecting(false);
+        setConnected(false);
+        setNotice(event.message);
+        // A lost stream says nothing about whether the managed process is alive.
+        const state = latest.current.pane.state;
+        if (!active.ended && !['exited', 'failed', 'interrupted'].includes(state))
+          latest.current.onPatch(pane.id, { state: 'disconnected', runtimeId: event.runtimeId });
+      } else if (event.type === 'exit') {
+        active.ended = true;
+        inputQueue.current?.cancel();
+        resizePending.current = null;
+        runtime.current = undefined;
+        setConnecting(false);
+        setConnected(false);
+        latest.current.onPatch(pane.id, { state: active.failed ? 'failed' : 'exited', exitCode: event.exitCode });
+      } else {
+        active.failed = true;
+        active.ended = true;
+        inputQueue.current?.cancel();
+        resizePending.current = null;
+        runtime.current = undefined;
+        setConnecting(false);
+        setConnected(false);
+        latest.current.onPatch(pane.id, { state: 'failed', error: event.message });
+      }
+    };
+    if (starting) {
+      onPatch(pane.id, { state: 'starting', error: undefined, runtimeId: undefined, exitCode: undefined });
+      fitNow();
+    }
+    const task = starting
+      ? api.launch({ paneId: pane.id, kind: pane.kind,
+        projectId: projectAvailable ? pane.projectId : undefined, sessionId: pane.sessionId,
+        resumeId: pane.resumeId, cwd: pane.cwd || undefined, profileId: pane.profileId,
+        cols: Math.min(320, Math.max(2, terminal.cols)), rows: Math.min(120, Math.max(1, terminal.rows)),
+      }, onEvent, active.lease)
+      : api.attach(pane.runtimeId!, onEvent, active.lease);
+    void task.then((info) => {
+      if (!current()) {
+        // A duplicate-session response belongs to another pane's attachment.
+        if (info.paneId === pane.id) void api.detach(info.id, active.lease).catch(() => undefined);
+        return;
+      }
+      if (info.paneId !== pane.id) {
+        active.ended = true;
+        setConnecting(false);
+        latest.current.onAlreadyOpen(info);
+        return;
+      }
+      active.id = info.id;
+      active.info = info;
+      if (active.disconnected) {
+        const ended = ['exited', 'failed', 'interrupted'].includes(info.state);
+        if (ended && !active.ended) {
+          active.ended = true;
+          active.failed = info.state === 'failed';
+          latest.current.onPatch(pane.id, { runtimeId: info.id, state: info.state as Pane['state'], exitCode: info.exitCode });
+        } else latest.current.onPatch(pane.id, { runtimeId: info.id });
+      } else if (!active.ended) {
+        const state = ['starting', 'running', 'exited', 'failed', 'interrupted'].includes(info.state)
+          ? info.state as Pane['state'] : 'disconnected';
+        active.disconnected = state === 'disconnected';
+        if (active.disconnected || ['exited', 'failed', 'interrupted'].includes(state)) setConnecting(false);
+        active.ended = ['exited', 'failed', 'interrupted'].includes(state);
+        active.failed = state === 'failed';
+        latest.current.onPatch(pane.id, { runtimeId: info.id, state, cwd: info.cwd, exitCode: info.exitCode, error: undefined });
+        enableInput();
+      } else latest.current.onPatch(pane.id, { runtimeId: info.id });
+    }).catch((error) => {
+      if (!current()) return;
+      active.disconnected = true;
+      inputQueue.current?.cancel();
+      setConnecting(false);
+      setConnected(false);
+      runtime.current = undefined;
+      if (active.id) void api.detach(active.id, active.lease).catch(() => undefined);
+      if (starting) latest.current.onPatch(pane.id, {
+        state: active.id ? 'disconnected' : 'failed', runtimeId: active.id, error: errorMessage(error),
+      });
+      else {
+        setNotice(errorMessage(error));
+        if (!['exited', 'failed', 'interrupted'].includes(latest.current.pane.state))
+          latest.current.onPatch(pane.id, { state: 'disconnected' });
+      }
+    });
+  }, [pane, projectAvailable, reconnect, fitNow, onPatch]);
   const live = pane.state === 'running' || pane.state === 'starting';
   const copy = async () => {
     try {
@@ -311,7 +425,9 @@ export function TerminalPane({
   };
   const paste = async () => {
     try {
+      const target = attachment.current;
       const text = await navigator.clipboard.readText();
+      if (!mounted.current || !runtime.current || !target?.ready || target.ended || target.disconnected || attachment.current !== target) return;
       if (/[\r\n]/.test(text) && !window.confirm('貼上的內容含多行，可能立即執行指令。確定貼上？'))
         return;
       term.current?.paste(text);
@@ -354,7 +470,7 @@ export function TerminalPane({
             className="icon-button"
             title="貼上"
             aria-label="貼上"
-            disabled={!live}
+            disabled={!live || !connected}
             onClick={() => void paste()}
           >
             <ClipboardPaste size={14} />
@@ -391,7 +507,7 @@ export function TerminalPane({
       <div className="pane-meta">
         <span title={pane.cwd}>{pane.cwd || '未指定目錄'}</span>
         <span>
-          {pane.state === 'running'
+          {connecting ? (pane.state === 'starting' ? '正在啟動終端…' : '正在重新附接終端…') : pane.state === 'disconnected' ? '連線中斷 · 程序狀態待確認' : pane.state === 'interrupted' ? '背景程序已中斷' : pane.state === 'running'
             ? pane.sessionId
               ? '已啟動，待確認 Session'
               : '執行中'
@@ -466,9 +582,11 @@ export function TerminalPane({
                 ? '普通 Shell · 不自動關聯 Agent'
                 : '新的 Agent 工作'}
           </span>
-          {live ? (
+          {pane.state === 'disconnected' ? (
+            <button disabled={connecting} onClick={() => setReconnect((value) => value + 1)}>重新連線</button>
+          ) : live ? (
             <button
-              disabled={pane.state === 'starting'}
+              disabled={pane.state === 'starting' || !connected}
               onClick={() => {
                 if (
                   pane.runtimeId &&

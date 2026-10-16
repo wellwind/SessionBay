@@ -1,4 +1,5 @@
 use crate::{
+    broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
     models::{AgentKind, IndexStatus, Project},
@@ -47,12 +48,14 @@ pub struct Bootstrap {
     pub index: IndexStatus,
     pub workspace: serde_json::Value,
     pub warnings: Vec<String>,
+    pub runtimes: Vec<RuntimeRecord>,
 }
 
 pub struct Service {
     pub catalog: Catalog,
     pub config: ConfigStore,
     pub runtime: RuntimeManager,
+    broker: Option<BrokerClient>,
     settings: Mutex<Settings>,
     index: Mutex<IndexStatus>,
     scan_guard: Mutex<()>,
@@ -65,6 +68,19 @@ pub struct Service {
 
 impl Service {
     pub fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
+        Self::open_internal(directory, None)
+    }
+    pub fn open_desktop(directory: PathBuf) -> Result<Arc<Self>, String> {
+        // Establish local configuration storage before creating its private IPC child.
+        let config = ConfigStore::open(directory.clone())?;
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        let broker = BrokerClient::connect(&config.directory, &executable)?;
+        Self::open_internal(directory, Some(broker))
+    }
+    fn open_internal(
+        directory: PathBuf,
+        broker: Option<BrokerClient>,
+    ) -> Result<Arc<Self>, String> {
         let config = ConfigStore::open(directory)?;
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
@@ -72,6 +88,7 @@ impl Service {
             catalog,
             config,
             runtime: RuntimeManager::new(),
+            broker,
             settings: Mutex::new(settings),
             index: Mutex::new(empty_index()),
             scan_guard: Mutex::new(()),
@@ -103,6 +120,12 @@ impl Service {
             index: self.index_status()?,
             workspace,
             warnings,
+            runtimes: self
+                .broker
+                .as_ref()
+                .map(|broker| broker.list())
+                .transpose()?
+                .unwrap_or_default(),
         })
     }
     pub fn save_settings(self: &Arc<Self>, settings: Settings) -> Result<Settings, String> {
@@ -455,11 +478,28 @@ impl Service {
         let spec = self.plan_launch(request)?;
         self.runtime.launch(spec, request.cols, request.rows, emit)
     }
+    pub fn broker(&self) -> Result<&BrokerClient, String> {
+        self.broker
+            .as_ref()
+            .ok_or_else(|| "Persistent runtime broker is not connected".into())
+    }
+    pub fn launch_persistent(
+        &self,
+        request: &LaunchRequest,
+        attachment_id: String,
+        emit: UiEmitter,
+    ) -> Result<RuntimeInfo, String> {
+        let spec = self.plan_launch(request)?;
+        self.broker()?.launch(spec, request, attachment_id, emit)
+    }
     pub fn is_shutdown(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
     pub fn shutdown(&self) -> Result<(), String> {
         self.cancel.store(true, Ordering::Release);
+        if let Some(broker) = &self.broker {
+            broker.detach_all();
+        }
         self.runtime.shutdown()?;
         self.closed.store(true, Ordering::Release);
         Ok(())

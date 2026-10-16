@@ -44,7 +44,8 @@ compile_error!("Session Bay supports macOS, Linux, and Windows");
 
 type Emitter = Arc<dyn Fn(TerminalEvent) -> Result<(), String> + Send + Sync>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchSpec {
     pub executable: String,
     pub args: Vec<String>,

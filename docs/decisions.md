@@ -261,3 +261,14 @@
 - 新 PR 維持 Draft，沒有合併、部署或發行授權；所有測試結果以此 PR 的實際執行證據記錄，缺少原生 Windows／macOS 證據時明確保留待驗。
 
 - 2026-10-16 CI follow-up：JavaScript actions 與專案 Node 分開版本化。官方 Node 20 action runtime 移除後，兩份 workflows 改用 Node 24 的 checkout 7.0.1／setup-node 7.1.0／upload-artifact 7.0.2 完整 SHA。三 OS 完整 gate 需要同提交四個 jobs 成功；Linux lightweight 綠燈不替代平台驗收，不增加自動 matrix。
+
+## 2026-10-16 關閉介面後繼續執行與重新附接
+
+使用者將「關掉介面可以接回來、回來看每個已開狀態」列為最高優先，要求獨立 PR。這個決定取代先前「關閉程式停止所有 PTY、重開只還原 placeholder」的 MVP 行為；不是把舊 PID 存下來或重新執行相同指令。
+
+- 以同一個已安裝執行檔的 headless broker 模式持有 Shell／Agent 的 PTY。桌面 UI 關閉、WebView 重載或渲染 channel 消失只取消 UI attachment；明確「停止」／「關閉面板」才停止受管程序。
+- macOS／Linux 使用 owner-only Unix socket，Windows 使用拒絕遠端連入、限定目前使用者 SID 的 named pipe；不開 TCP listener、不建立登入啟動服務、不產生或保存憑證。單一 broker 以 OS 檔案鎖協調，不用 PID 存活猜測身分。
+- Broker 在記憶體消費 PTY 輸出，保留有上限的 VT 畫面、200 行回捲與 replay；UI ACK 僅影響該 attachment，不能停止背景工作。每次附接用不同 lease，舊 ACK／detach 不能影響新視圖。
+- 重開以 broker 的 runtime／pane／project metadata 為權威，保存的 layout 仍不接受 Runtime ID、PID、指令或 auto-start token。遺失 layout 的活躍面板會重建，不會悄悄藏起來。
+- 程序已退出時保留最後畫面與 exit code。Broker 或作業系統重啟後，上次執行中的 metadata 改為 `interrupted`；不冒稱仍在執行、不採用舊 PID、不自動重啟 Shell／Agent。終端輸出不落盤，broker 重啟後無法還原舊畫面。
+- 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。

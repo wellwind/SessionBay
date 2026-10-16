@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api, isDesktop } from './api';
-import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, Session, Workspace } from './types';
+import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, RuntimeRecord, Session, Workspace } from './types';
 import { emptyWorkspace } from './workspace';
 import { startup } from './startup';
 import { runSmokeInteraction } from './smoke';
@@ -36,6 +36,8 @@ vi.mock('./api', () => ({
     saveWorkspace: vi.fn(),
     close: vi.fn(),
     stop: vi.fn(),
+    forget: vi.fn(),
+    settleLaunches: vi.fn(),
     runtimes: vi.fn(),
     launch: vi.fn(),
     detect: vi.fn(),
@@ -121,6 +123,7 @@ vi.mock('./components/WorkspaceCanvas', () => ({
 
 function bootstrap(): Bootstrap {
   return {
+    runtimes: [],
     settings: {
       version: 1,
       theme: 'dark',
@@ -181,6 +184,11 @@ function bootstrap(): Bootstrap {
     },
   };
 }
+function brokerRecord(patch: Partial<RuntimeRecord> = {}): RuntimeRecord {
+  return { id: 'runtime-a', paneId: 'pane-a', kind: 'shell', projectId: 'project-a',
+    sessionId: null, resumeId: null, profileId: null, cwd: '/synthetic/project',
+    state: 'running', exitCode: null, ...patch };
+}
 async function tick(ms = 0) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -218,6 +226,8 @@ beforeEach(() => {
   vi.mocked(api.stop).mockResolvedValue(undefined);
   vi.mocked(api.preview).mockResolvedValue({ executable: '/bin/bash', args: ['-l'], cwd: '/synthetic/project' });
   vi.mocked(api.runtimes).mockResolvedValue([]);
+  vi.mocked(api.forget).mockResolvedValue(undefined);
+  vi.mocked(api.settleLaunches).mockResolvedValue(undefined);
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -332,6 +342,7 @@ describe('App desktop lifecycle', () => {
     changePage('所有目錄');
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     expect(screen.getByRole('heading', { name: 'Synthetic project' })).toBeInTheDocument();
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord()]);
     fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
     fireEvent.click(
       within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', {
@@ -455,21 +466,16 @@ describe('App desktop lifecycle', () => {
     );
     expect(api.stop).not.toHaveBeenCalled();
   });
-  it('does not stop or close active programs when native-close confirmation is cancelled', async () => {
+  it('closes the UI without stopping or forgetting active programs', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />);
     await tick();
     fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
     await nativeClose();
-    const confirmation = screen.getByRole('dialog', { name: '結束 1 個程序並退出？' });
-    expect(within(confirmation).getByText(/Saved shell/)).toBeInTheDocument();
-    expect(api.close).not.toHaveBeenCalled();
+    expect(api.close).toHaveBeenCalledOnce();
     expect(api.stop).not.toHaveBeenCalled();
-    fireEvent.click(within(confirmation).getByRole('button', { name: '取消' }));
+    expect(api.forget).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(api.close).not.toHaveBeenCalled();
-    expect(api.stop).not.toHaveBeenCalled();
-    expect(screen.getByText('1 個執行中程序')).toBeInTheDocument();
   });
   it('closes the latest runtime when a starting pane becomes running while confirmation is open', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
@@ -483,6 +489,7 @@ describe('App desktop lifecycle', () => {
     });
     vi.mocked(api.runtimes).mockResolvedValue([
       {
+        kind: 'shell', projectId: 'project-a', profileId: null, resumeId: null,
         id: 'runtime-a',
         paneId: 'pane-a',
         sessionId: null,
@@ -703,28 +710,21 @@ describe('App curated project navigation', () => {
   });
 });
 
-describe('App successful shell exit navigation', () => {
-  it('returns to history after a final shell exits successfully and never restores late duplicate patches', async () => {
+describe('App retained shell exit navigation', () => {
+  it('keeps a successful final shell and its output workspace until explicit close', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />);
     await tick();
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
     act(() => { native.patch?.('pane-a', { state: 'exited', exitCode: 0 }); });
-    act(() => {
-      native.patch?.('pane-a', { state: 'exited', exitCode: 0 });
-      native.patch?.('pane-a', { runtimeId: 'late-runtime' });
-    });
-    expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!)).toEqual(emptyWorkspace());
-    expect(screen.queryByRole('region', { name: '開啟中的工作區' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('history-view')).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!).panes['pane-a'])
+      .toMatchObject({ state: 'exited', exitCode: 0 });
+    expect(screen.getByRole('region', { name: '開啟中的工作區' })).toBeInTheDocument();
     expect(api.stop).not.toHaveBeenCalled();
-    await tick(500);
-    expect(api.saveWorkspace).toHaveBeenCalledExactlyOnceWith(emptyWorkspace());
+    expect(api.forget).not.toHaveBeenCalled();
   });
 });
-
 
 describe('App session-specific working directories', () => {
   it.each([
@@ -1081,9 +1081,10 @@ describe('backend-owned resume identity', () => {
       id: 'other-runtime', paneId: 'not-in-workspace', sessionId: 'synthetic-session',
       state: 'running', cwd: '/synthetic/new-source-worktree', exitCode: null,
     }));
+    await tick();
     const result = workspaceSnapshot();
     expect(result.panes['pane-a']).toEqual(original.panes['pane-a']);
-    expect(result.panes[newPane.id]).toMatchObject({ state: 'failed', error: expect.stringContaining('無法重新附接') });
+    expect(result.panes[newPane.id]).toMatchObject({ state: 'failed', error: expect.stringContaining('已不在背景程序清單') });
     expect(api.stop).not.toHaveBeenCalled();
   });
 });
@@ -1685,4 +1686,91 @@ it('refuses a preview-only session even when a stale history callback attempts r
   expect(api.launch).not.toHaveBeenCalled();
   expect(api.preview).not.toHaveBeenCalled();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+describe('persistent broker application lifecycle', () => {
+  it('reconciles broker identity and never relaunches restored live work', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.runtimes = [brokerRecord({ id: 'authoritative-id' })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    expect(workspaceSnapshot().panes['pane-a']).toMatchObject({ runtimeId: 'authoritative-id', state: 'running' });
+    expect(workspaceSnapshot().panes['pane-a'].startToken).toBeUndefined();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('recovers and saves an orphan runtime even when no layout or catalog project survived', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.workspace = emptyWorkspace();
+    data.projects = [];
+    data.runtimes = [brokerRecord({ paneId: 'orphan', projectId: null })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    expect(workspaceSnapshot().panes.orphan).toMatchObject({ runtimeId: 'runtime-a', state: 'running' });
+    expect(workspaceSnapshot().tabs).toHaveLength(1);
+    await tick(500);
+    const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)![0] as Workspace;
+    expect(saved.panes.orphan).toMatchObject({ state: 'placeholder' });
+    expect(saved.panes.orphan.runtimeId).toBeUndefined();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('waits for a pending launch before authoritative stop and forget on explicit pane close', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    let settle!: () => void;
+    vi.mocked(api.settleLaunches).mockImplementationOnce(() => new Promise<void>((resolve) => { settle = resolve; }));
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord()]);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime starting' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+    await tick();
+    expect(api.runtimes).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+    await act(async () => settle());
+    expect(api.stop).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(api.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(vi.mocked(api.stop).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(api.forget).mock.invocationCallOrder[0]);
+    expect(workspaceSnapshot().panes['pane-a']).toBeUndefined();
+  });
+  it('does not stop an old runtime when broker reports interrupted after a restart', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord({ state: 'interrupted' })]);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+    await tick();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.forget).toHaveBeenCalledWith('runtime-a');
+  });
+  it('removes a completed shell record only after explicit close, without stopping it', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.runtimes = [brokerRecord({ state: 'exited', exitCode: 0 })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.runtimes).mockResolvedValue(data.runtimes);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    await tick();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(workspaceSnapshot().panes['pane-a']).toBeUndefined();
+  });
+  it('recovers a broker-owned duplicate pane absent from saved layout instead of launching or stopping it', async () => {
+    const { newPane } = await resumeWithExistingLiveSession('/synthetic/new-source-worktree');
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord({ id: 'other-runtime', paneId: 'recovered-pane',
+      kind: 'codex', sessionId: 'synthetic-session', cwd: '/synthetic/new-source-worktree' })]);
+    act(() => native.alreadyOpen?.(newPane.id, { id: 'other-runtime', paneId: 'recovered-pane',
+      sessionId: 'synthetic-session', state: 'running', cwd: '/synthetic/new-source-worktree', exitCode: null }));
+    await tick();
+    expect(workspaceSnapshot().panes[newPane.id]).toBeUndefined();
+    expect(workspaceSnapshot().panes['recovered-pane']).toMatchObject({ state: 'running', runtimeId: 'other-runtime' });
+    expect(api.stop).not.toHaveBeenCalled();
+  });
 });
