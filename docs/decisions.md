@@ -248,3 +248,11 @@
 使用者明確表示「ok, 驗收完成, 確保 PR 標題內容描述等都正確後就可以 merge 了」，並補充「噢，還要把完成的都勾起來」。本次接受已交付 PR 的功能與介面，授權校正描述、勾選實際完成項目後合併；不新增功能或將未完成的規劃改為完成。
 
 已實作並有本機回歸的 UI／UX、工作分頁快捷鍵、來源候選偵測與 breadcrumb，依這次使用者驗收更新 ADD-13／17／18／20。完整三平台 CI、精確 macOS 圖示／IME 情境及 Antigravity CLI 1.3.5 磁碟樣本／互動接續沒有新增逐項證據，仍未勾選；原始任務完整條件與 17 項未來待辦不因合併自動完成。退出 UI 後持續執行／重新附接仍是下一階段最高優先。
+
+## 2026-10-16 索引效能量測與低風險熱路徑改善
+
+使用者要求索引速度獨立 PR。先以合成 1,000／10,000 Session 與多訊息長對話，分測空索引、未變更補掃、單檔追加、同大小重寫、搜尋 p95 與程序記憶體；不用真實私人歷史。量測為 backend release，來源剛生成，因此不宣稱冷磁碟／WebView／實機結果。
+
+初步診斷找到 Codex canonical／fallback 重複訊息的 correlated SQL 平方掃描。改善採操作本機的 SQLite TEMP digest lookup，hash 只縮小候選，仍核對原文字與角色，不以 hash 相同直接隱藏訊息。連線要求 FILE 暫存與約 2 MiB page-cache 目標，並非全程序記憶體硬上限；不把整份對話保留在 Rust HashMap，也不新增持久 schema。另重用 message INSERT 與 checkpoint 查詢的 prepared statements。
+
+原來源唯讀、來源與檔案身份、prefix hash、寫入前後校驗、重寫／compaction、取消與交易 rollback、stale／snapshot generation 均維持。同一 harness／環境的 before／after、全部核心回歸與未達標的高命中率搜尋見[索引效能量測](index-performance.md)；合成改善不等於使用者真實來源或全部效能驗收完成。
