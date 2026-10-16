@@ -134,3 +134,11 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [GitHub：Control workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)：同群 queued run 的取代語意；完整手動流程不共用自動取消群組。
 - [GitHub：Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)：未跑／略過不能作為本專案實際平台驗收證據。
 - [actionlint v1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)：本機以官方 release digest 核對後檢查 workflow 語法與 expressions；沒有新增第三方 CI action。
+
+## 索引效能與暫存候選索引
+
+查閱日期：2026-10-16。實測與限制見[索引效能量測](index-performance.md)。
+
+- [SQLite temp_store](https://www.sqlite.org/pragma.html#pragma_temp_store)：連線要求 FILE 暫存儲存；編譯期 `SQLITE_TEMP_STORE` 仍可影響行為，不將 pragma 當所有發行環境的硬性保證。
+- [SQLite cache_size](https://www.sqlite.org/pragma.html#pragma_cache_size)：負值以 KiB 指定建議 page-cache 大小；本次 TEMP 設為約 2 MiB，並非程序總記憶體上限。
+- [SQLite temporary files](https://www.sqlite.org/tempfiles.html)：TEMP table／index 屬連線本機暫存，可能先由 page cache 承載；不把它加入持久 schema，也不額外複製對話正文。
