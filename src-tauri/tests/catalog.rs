@@ -7,6 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tempfile::TempDir;
 
+#[cfg(unix)]
+const SHARED_CWD: &str = "/synthetic/shared";
+#[cfg(windows)]
+const SHARED_CWD: &str = "C:/synthetic/shared";
+
 const CODEX: &str = include_str!("../../fixtures/codex/standard.jsonl");
 const CLAUDE: &str = include_str!("../../fixtures/claude/standard.jsonl");
 const CHILD: &str = include_str!("../../fixtures/claude/subagent.jsonl");
@@ -38,7 +43,11 @@ impl Harness {
     fn write(&self, source: &HistorySource, relative: &str, text: &str) -> PathBuf {
         let path = Path::new(&source.root).join(relative);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, text).unwrap();
+        fs::write(
+            &path,
+            text.replace("\"/synthetic/shared\"", &format!("\"{SHARED_CWD}\"")),
+        )
+        .unwrap();
         path
     }
     fn sync(&self, sources: &[HistorySource]) {
@@ -61,7 +70,7 @@ impl Harness {
 fn codex(id: &str, text: &str) -> String {
     format!(
         "{}\n{}\n",
-        json!({"type":"session_meta","payload":{"id":id,"cwd":"/synthetic/shared"}}),
+        json!({"type":"session_meta","payload":{"id":id,"cwd":SHARED_CWD}}),
         json!({"timestamp":"2026-01-01T00:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}})
     )
 }
@@ -91,6 +100,7 @@ fn cross_agent_grouping_literal_unicode_search_and_safe_tool_omission() {
     h.sync(&[a, b]);
     let projects = h.catalog.projects().unwrap();
     assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].path.as_deref(), Some(SHARED_CWD));
     assert_eq!(projects[0].session_count, 2);
     assert_eq!(projects[0].agents.len(), 2);
     assert_eq!(h.total("中文"), 1);
@@ -619,7 +629,7 @@ fn project_overrides_and_clear_never_modify_original_history() {
         )
         .unwrap();
     assert!(updated.exists);
-    assert_eq!(updated.path.as_deref(), Some("/synthetic/shared"));
+    assert_eq!(updated.path.as_deref(), Some(SHARED_CWD));
     let manual = h
         .catalog
         .add_project(h.root.to_str().unwrap(), None)
@@ -745,8 +755,7 @@ fn existing_symlink_paths_merge_without_losing_original_cwd() {
     symlink(&real, &alias).unwrap();
     let source = h.source("a", AgentKind::Codex);
     for (id, path) in [("one", real), ("two", alias)] {
-        let content =
-            codex(id, "same project").replace("/synthetic/shared", path.to_str().unwrap());
+        let content = codex(id, "same project").replace(SHARED_CWD, path.to_str().unwrap());
         h.write(&source, &format!("sessions/{id}.jsonl"), &content);
     }
     h.sync(&[source]);
@@ -1169,7 +1178,7 @@ fn relative_cwd_is_preserved_but_never_resolved_against_application_directory() 
     h.write(
         &source,
         "sessions/a.jsonl",
-        &codex("s", "relative cwd").replace("/synthetic/shared", "."),
+        &codex("s", "relative cwd").replace(SHARED_CWD, "."),
     );
     h.sync(&[source]);
     let session = h
@@ -1374,7 +1383,7 @@ fn transcript_snapshot_is_stable_and_covers_older_codex_and_claude_pages() {
                     user("Fixed newest page")
                 )
             } else {
-                ["Fixed first title", middle, "Fixed newest page"].into_iter().map(|text| format!("{}\n", json!({"type":"user","sessionId":"snapshot-id","cwd":"/synthetic/shared","timestamp":"2026-02-01T00:00:00Z","message":{"role":"user","content":text}}))).collect::<String>()
+                ["Fixed first title", middle, "Fixed newest page"].into_iter().map(|text| format!("{}\n", json!({"type":"user","sessionId":"snapshot-id","cwd":SHARED_CWD,"timestamp":"2026-02-01T00:00:00Z","message":{"role":"user","content":text}}))).collect::<String>()
             }
         };
         let relative = if kind == AgentKind::Codex {
@@ -1426,7 +1435,7 @@ fn many_fallback_copies_preserve_exact_text_roles_append_and_rewrite() {
     let source = h.source("duplicates", AgentKind::Codex);
     let header = format!(
         "{}\n",
-        json!({"type":"session_meta","payload":{"id":"duplicates","cwd":"/synthetic/shared"}})
+        json!({"type":"session_meta","payload":{"id":"duplicates","cwd":SHARED_CWD}})
     );
     let mut text = header.clone();
     for i in 0..256 {
@@ -1440,6 +1449,8 @@ fn many_fallback_copies_preserve_exact_text_roles_append_and_rewrite() {
     text.push_str(&fallback("user", "Case_Sensitive_É"));
     text.push_str(&user("case_sensitive_É"));
     let path = h.write(&source, "sessions/duplicates.jsonl", &text);
+    // Keep the byte-for-byte baseline platform-correct before catalog sync.
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
     h.sync(std::slice::from_ref(&source));
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
     let db = h.root.join("app/index.sqlite");

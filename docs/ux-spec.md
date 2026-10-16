@@ -173,3 +173,7 @@ UI 框架採宣告式狀態。Terminal 高頻輸出由 xterm 實例接收，不�
 - 「偵測歷史來源」固定在各工具來源卡片，只有已支援 parser 的工具可用。檢查官方 env/home 候選，顯示完整根路徑、可讀／不存在／無權限／檢查失敗；找到目錄不能標成已有對話。使用者按加入後僅更新草稿，儲存與掃描仍需明確操作；已配置的 canonical 同目錄不可重複加入。
 - 日期顯示使用有效的瀏覽器語言偏好；Linux POSIX locale（例如 C）無法用作 BCP 47 時安全退回 zh-TW。日期輸入／篩選仍以本地 ISO 日期運作。
 - 特定 CapsLock 組字修正只防止 xterm 5.5.0 的提前 flush，不刪除或去重使用者輸入。兩次合法相同中文、一般文字與貼上均須原樣保留；macOS 真實 IME 仍待人工驗收。
+
+## 全域臨時 Terminal
+
+頂列常駐入口與命令面板可直接開預設 Shell，初始 cwd 由 Rust 取得家目錄。未選專案時普通 Terminal 快捷鍵亦使用此入口。全域分頁有獨立 active selection；側欄可從任一目錄頁切回，切換不 unmount／重啟程序。最後一個面板關閉後保留可再次開啟的空狀態，不落入假的 home 專案。完整行為、舊 explicit-cwd Shell 相容及原生待驗清單見[全域臨時 Terminal](temporary-terminal.md)。

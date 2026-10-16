@@ -1,6 +1,6 @@
 # Session Bay 開發路線圖
 
-> 2026-10-15 實作更新：本次包含 macOS＋Linux 的 P0 程式碼；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
+> 2026-10-16 實作更新：本次加入 Windows 原生支援；平台前提與待驗項目見[三平台支援](platform-support.md)。既有 macOS＋Linux P0 程式碼保留；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
 以完整工作恢復流程分階段交付。以下是工作順序與驗收門檻提案，尚未估算工期或指定發行日期。
 
 可執行的工作拆解見[完整功能與開發任務](development-tasks.md)，包含功能對照、任務 ID、前置相依與完成條件。任務相依優先於階段順序，設定與安全工作可依需求提前完成。
@@ -105,3 +105,16 @@
 ## 2026-10-15 試用回饋待排程
 
 使用者要求先記錄的 17 項需求見 [後續待辦](future-backlog.md)。第 09 項持續工作狀態已提升為下一階段最高優先（階段 4），其餘順序與工期未定，均不自動加入本輪實作。持續工作狀態不能以階段 3 的布局占位還原視為完成；中文輸入、Shift＋Enter 與索引時間須先重現／量測再排修復。
+
+## 最高優先：退出 UI 後持續執行
+
+- [ ] 獨立 broker／附接實作經同提交 Linux E2E 及三平台原生互動驗收。分支已加入實作與測試，仍為 Draft；不能將本機 socket 受限或 Windows 交叉編譯算成原生 passed。詳見[持續 Runtime](persistent-runtime.md)。
+
+## 日常體驗：全域臨時 Terminal
+
+- [x] 無專案 home Shell、null 分頁／面板、獨立選取、側欄找回與既有明確 cwd 相容的實作及單元回歸。
+- [ ] 同提交 Linux broker E2E 與原生三平台桌面驗收；不可將 socket 受限或交叉編譯算成原生通過。獨立 Draft PR 疊在持續 Runtime PR #7，詳見[驗證清單](temporary-terminal.md)。
+
+## 2026-10-16 OpenCode 獨立 PR
+
+第五 provider 的官方 SQLite v1/v2 reader、來源 UI、安全啟動／接續與合成回歸列為本 PR 交付；依賴原生平台 PR #3。舊 JSON 與任意 channel DB 不宣稱支援，真實 OpenCode 三平台接續仍待驗證，詳見 [OpenCode 整合與驗證](opencode-integration.md)。

@@ -135,6 +135,38 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [GitHub：Status checks](https://docs.github.com/en/pull-requests/reference/status-checks)：未跑／略過不能作為本專案實際平台驗收證據。
 - [actionlint v1.7.12](https://github.com/rhysd/actionlint/releases/tag/v1.7.12)：本機以官方 release digest 核對後檢查 workflow 語法與 expressions；沒有新增第三方 CI action。
 
+## Windows 原生支援（2026-10-16）
+
+查閱日期：2026-10-16；來源描述上游 API／安裝支援，不作為 Session Bay 原生驗收結果。
+
+- [Microsoft：建立 ConPTY session](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session)：獨立 I/O threads、初始 cursor handshake 與 attached-child teardown。
+- [Microsoft：ClosePseudoConsole](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)：Windows 10 1809 起提供；舊版本關閉須持續排空輸出，不能在 reader 本身等待關閉。
+- [portable-pty 0.9 原始碼](https://docs.rs/crate/portable-pty/0.9.0/source/src/win/conpty.rs)：本地 lockfile 使用 0.9.0；另外核對 `psuedocon.rs` 的 cursor flag 與 child HANDLE 行為，不將 API 表面跨平台視為 lifecycle 已驗。
+- [Microsoft：GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex) 與 [FILE_ID_INFO](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info)：volume／128-bit ID 可識別檔案替換；時間戳不能代替身分。
+- [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) 與 [Windows installer](https://v2.tauri.app/distribute/windows-installer/)：MSVC、WebView2、NSIS／MSI 差異；本 PR 使用 current-user NSIS，沒有替使用者安裝／發布。
+- 四個 CLI 的 Windows 官方安裝依據與限制集中於[三平台支援](platform-support.md#cli-相容性與限制)。
+
+### 2026-10-16 GitHub Actions Node 24
+
+- [Node 20 removal](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/)：2026-09-23 已移除，專案 Node 與 action runtime 不同。
+- [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1)、[setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0)、[upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2)：以 release tag 的 Git ref SHA 與 action.yml 核對 Node 24，並閱讀移轉限制。現有設定未使用 registry-url／always-auth／unsafe PR checkout，不受這些新增限制影響。
+
+## 2026-10-16 持續 Runtime
+
+- [interprocess 2.4.5 local sockets](https://docs.rs/interprocess/2.4.5/interprocess/local_socket/index.html)：Unix socket／Windows named pipe 抽象、peer credentials；實作仍需 private directory／SID ACL，不能把本機名稱當身分驗證。
+- [Windows named pipe listener options](https://docs.rs/interprocess/2.4.5/interprocess/os/windows/named_pipe/struct.PipeListenerOptions.html)：remote acceptance 預設 false，first-instance 與 security descriptor 行為以固定 lockfile 版本核對。
+- [vt100 0.16.2 Screen](https://docs.rs/vt100/0.16.2/vt100/struct.Screen.html)：有界 terminal state、formatted screen 與 input modes；不代表完整 xterm／所有 Agent TUI 相容。
+- [interprocess 2.4.5 Unix listener mode](https://docs.rs/interprocess/2.4.5/interprocess/os/unix/local_socket/trait.ListenerOptionsExt.html)：2026-10-16 核對本機 lockfile 對應原始碼；`.mode()` 在 bind 前執行 `fchmod`，不支援時回傳 `Unsupported`。本機 macOS 已重現；改用 0700 父目錄保護 bind 後的 0600 設定，其他平台未因此宣稱完成驗收。
+
+## OpenCode（查閱 2026-10-16）
+
+- [CLI 官方選項](https://opencode.ai/docs/cli/) 與 [Windows 原生安裝](https://opencode.ai/docs/windows/)：--version、--session、--auto 與平台安裝；文件會更新，不代表實機驗證。
+- [v1.19.2 release](https://github.com/anomalyco/opencode/releases/tag/v1.19.2)：本次固定參照版本。
+- [SQLite schema](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session/sql.ts)、[v1 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/v1/session.ts)、[v2 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/session-message.ts)：reader 與獨立合成 fixture 欄位依據，非穩定外部 API 保證。
+- [Global XDG paths](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/global.ts)、[DB override](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/database.ts)、[TUI argv](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/cli/cmd/tui.ts)、[global --pure](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/index.ts)：路徑、精確來源與權限選項依據。
+
+- OpenCode v2 reset 與原生讀取權威性（2026-10-16，固定 v1.19.2 source）：[reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts)、[V2Session reader](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session.ts)、[v2 experimental specification](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/specs/v2/session.md)。v2 state reset 不代表 v1 rows 仍屬現行 transcript；無權威標記的混合狀態採 metadata-only partial，不自動 fallback。
+
 ## 索引效能與暫存候選索引
 
 查閱日期：2026-10-16。實測與限制見[索引效能量測](index-performance.md)。
