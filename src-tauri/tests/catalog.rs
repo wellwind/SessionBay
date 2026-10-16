@@ -1421,3 +1421,135 @@ fn transcript_snapshot_is_stable_and_covers_older_codex_and_claude_pages() {
         assert_ne!(revised.snapshot_id, original.snapshot_id);
     }
 }
+
+fn fallback(role: &str, text: &str) -> String {
+    format!(
+        "{}\n",
+        json!({"type":"event_msg","payload":{"type": if role == "user" { "user_message" } else { "agent_message" },"message":text}})
+    )
+}
+
+#[test]
+fn many_fallback_copies_preserve_exact_text_roles_append_and_rewrite() {
+    let h = Harness::new();
+    let source = h.source("duplicates", AgentKind::Codex);
+    let header = format!(
+        "{}\n",
+        json!({"type":"session_meta","payload":{"id":"duplicates","cwd":SHARED_CWD}})
+    );
+    let mut text = header.clone();
+    for i in 0..256 {
+        let prose = format!("去重保留 Unicode {i} {}", "bounded message ".repeat(30));
+        text.push_str(&fallback("user", &prose));
+        text.push_str(&user(&prose));
+    }
+    text.push_str(&fallback("assistant", "same text different role"));
+    text.push_str(&user("same text different role"));
+    text.push_str(&fallback("user", "UNMATCHED_APPEND_TOKEN"));
+    text.push_str(&fallback("user", "Case_Sensitive_É"));
+    text.push_str(&user("case_sensitive_É"));
+    let path = h.write(&source, "sessions/duplicates.jsonl", &text);
+    // Keep the byte-for-byte baseline platform-correct before catalog sync.
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    let db = h.root.join("app/index.sqlite");
+    let count = |predicate: &str| -> i64 {
+        rusqlite::Connection::open(&db)
+            .unwrap()
+            .query_row(
+                &format!("SELECT COUNT(*) FROM messages WHERE {predicate}"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(count("hidden=1"), 256);
+    assert_eq!(count("hidden=0 AND role='assistant'"), 1);
+    assert_eq!(count("hidden=0 AND search_text='Case_Sensitive_É'"), 1);
+    assert_eq!(h.total("UNMATCHED_APPEND_TOKEN"), 1);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let before = h.catalog.transcript(&session.id, None, 200).unwrap();
+    append(&path, &user("UNMATCHED_APPEND_TOKEN"));
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(count("hidden=1"), 257);
+    assert_eq!(h.total("UNMATCHED_APPEND_TOKEN"), 1);
+    let after = h.catalog.transcript(&session.id, None, 200).unwrap();
+    assert_ne!(before.snapshot_id, after.snapshot_id);
+    assert_eq!(
+        after
+            .messages
+            .iter()
+            .filter(|message| message.text == "UNMATCHED_APPEND_TOKEN")
+            .count(),
+        1
+    );
+    // Rewriting away canonical rows restores the surviving fallback visibility.
+    let rewritten = format!("{header}{}", fallback("user", "UNMATCHED_APPEND_TOKEN"));
+    fs::write(&path, &rewritten).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(count("hidden=1"), 0);
+    assert_eq!(count("hidden=0"), 1);
+    assert_eq!(h.total("去重保留 Unicode"), 0);
+    assert_eq!(h.total("UNMATCHED_APPEND_TOKEN"), 1);
+    assert_eq!(fs::read_to_string(path).unwrap(), rewritten);
+    fts_integrity(&db);
+    // Scratch hashes never become part of the persistent catalog schema.
+    let conn = rusqlite::Connection::open(db).unwrap();
+    let persisted: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'message_dedup%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(persisted, 0);
+}
+
+#[test]
+fn fallback_digest_work_does_not_cross_source_or_file_boundaries() {
+    let h = Harness::new();
+    let first = h.source("first", AgentKind::Codex);
+    let second = h.source("second", AgentKind::Codex);
+    h.write(
+        &first,
+        "sessions/one.jsonl",
+        &format!(
+            "{}{}",
+            codex("one", "canonical only"),
+            fallback("user", "shared fallback")
+        ),
+    );
+    h.write(
+        &first,
+        "sessions/two.jsonl",
+        &format!(
+            "{}{}",
+            codex("two", "shared fallback"),
+            fallback("user", "shared fallback")
+        ),
+    );
+    h.write(
+        &second,
+        "sessions/three.jsonl",
+        &format!(
+            "{}{}",
+            codex("three", "other text"),
+            fallback("user", "shared fallback")
+        ),
+    );
+    h.sync(&[first, second]);
+    assert_eq!(h.total("shared fallback"), 3);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    let hidden: i64 = conn
+        .query_row("SELECT COUNT(*) FROM messages WHERE hidden=1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(hidden, 1);
+}

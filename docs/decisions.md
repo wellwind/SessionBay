@@ -294,3 +294,11 @@
 - source SQLite 永遠不直接交給 SQLite library。只複製受限 DB/WAL，檢查身分、大小、內容雜湊、WAL checksum 與完整性；在私人 copy 執行查詢。無 migration、登入或 auth.json 讀取。
 - 新工作無額外權限旗標；接續精確使用 --session 與單獨 ID，使用 OPENCODE_DB 指向選定的資料庫。只有明確高風險選項啟用才加入官方 --auto，不覆寫 HOME、XDG 設定或憑證。
 - 舊 JSON 儲存、任意名稱／channel DB、多數位於外部的遠端 server，以及未知未來版本不推測相容性。詳見 [OpenCode 整合與驗證](opencode-integration.md)。
+
+## 2026-10-16 索引效能量測與低風險熱路徑改善
+
+使用者要求索引速度獨立 PR。先以合成 1,000／10,000 Session 與多訊息長對話，分測空索引、未變更補掃、單檔追加、同大小重寫、搜尋 p95 與程序記憶體；不用真實私人歷史。量測為 backend release，來源剛生成，因此不宣稱冷磁碟／WebView／實機結果。
+
+初步診斷找到 Codex canonical／fallback 重複訊息的 correlated SQL 平方掃描。改善採操作本機的 SQLite TEMP digest lookup，hash 只縮小候選，仍核對原文字與角色，不以 hash 相同直接隱藏訊息。連線要求 FILE 暫存與約 2 MiB page-cache 目標，並非全程序記憶體硬上限；不把整份對話保留在 Rust HashMap，也不新增持久 schema。另重用 message INSERT 與 checkpoint 查詢的 prepared statements。
+
+原來源唯讀、來源與檔案身份、prefix hash、寫入前後校驗、重寫／compaction、取消與交易 rollback、stale／snapshot generation 均維持。同一 harness／環境的 before／after、全部核心回歸與未達標的高命中率搜尋見[索引效能量測](index-performance.md)；合成改善不等於使用者真實來源或全部效能驗收完成。

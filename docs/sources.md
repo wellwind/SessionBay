@@ -166,3 +166,11 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [Global XDG paths](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/global.ts)、[DB override](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/database.ts)、[TUI argv](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/cli/cmd/tui.ts)、[global --pure](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/index.ts)：路徑、精確來源與權限選項依據。
 
 - OpenCode v2 reset 與原生讀取權威性（2026-10-16，固定 v1.19.2 source）：[reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts)、[V2Session reader](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session.ts)、[v2 experimental specification](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/specs/v2/session.md)。v2 state reset 不代表 v1 rows 仍屬現行 transcript；無權威標記的混合狀態採 metadata-only partial，不自動 fallback。
+
+## 索引效能與暫存候選索引
+
+查閱日期：2026-10-16。實測與限制見[索引效能量測](index-performance.md)。
+
+- [SQLite temp_store](https://www.sqlite.org/pragma.html#pragma_temp_store)：連線要求 FILE 暫存儲存；編譯期 `SQLITE_TEMP_STORE` 仍可影響行為，不將 pragma 當所有發行環境的硬性保證。
+- [SQLite cache_size](https://www.sqlite.org/pragma.html#pragma_cache_size)：負值以 KiB 指定建議 page-cache 大小；本次 TEMP 設為約 2 MiB，並非程序總記憶體上限。
+- [SQLite temporary files](https://www.sqlite.org/tempfiles.html)：TEMP table／index 屬連線本機暫存，可能先由 page cache 承載；不把它加入持久 schema，也不額外複製對話正文。
