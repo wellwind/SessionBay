@@ -131,6 +131,8 @@ MVP 提供標題、使用者訊息與 agent 回覆的關鍵字搜尋。工具輸
 
 Shell 設定另驗收：全新預設選有效絕對 `$SHELL`，否則 macOS `/bin/zsh`、Linux `/bin/bash`，args `[-l]`；不匯入 Terminal Profiles 或 rc。重新偵測只回傳候選，使用者明確加入／保存，保留既有自訂 Profiles 與預設項。Shell 啟動檔由 Shell 本身載入。
 
+全域臨時 Terminal 補充：無任何專案時也能從頂列開啟，Rust 決定家目錄，採 null project 身分，不新增 catalog／假專案。多分頁、切頁找回、UI 關閉重開附接及明確關閉單一 Runtime 的驗收見[獨立規格](temporary-terminal.md)。
+
 ## F07 工作區分頁與分割面板
 
 結構為 Project → Workspace tab → Pane。單一分頁可只有一個面板，也可以左右或上下分割，混用 Agent 與普通 Terminal。

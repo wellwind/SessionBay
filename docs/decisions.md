@@ -274,3 +274,12 @@
 - 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。
 
 - 2026-10-16 macOS 啟動修正：interprocess 2.4.5 的 listener `.mode(0600)` 在 Darwin 回傳 `Unsupported`。macOS 改在已驗證的 0700 socket 目錄內 bind，再設定 socket 路徑為 0600；保留 peer UID 驗證與 broker 所有權鎖。Linux 維持 bind 前設定權限，Windows ACL 不變。
+
+## 2026-10-16：全域臨時 Terminal（獨立日常體驗 PR）
+
+- 使用者要求隨時開啟臨時 Terminal，預設家目錄，不必進入或新增任何專案。
+- 採真正 `projectId: null` 的工作區分頁／面板；全域分頁另存 active selection，不把家目錄建立為 catalog project，也不建立 workspace-only 假專案。
+- 啟動沿用設定中的預設 Shell Profile；只有 shell、無 project/session/resume 且未指定 cwd 時，由 Rust 取得並驗證本機家目錄。前端不推測 HOME／USERPROFILE，不傳入命令字串或任意環境變數。
+- UI 關閉／重開沿用 persistent runtime broker 的 detach／attach；明確關閉面板仍只停止該面板的受管程序。此 PR 疊在 persistent runtime PR #7（其依賴平台 PR #3），不重複實作 broker。
+- 範圍不含檔案瀏覽、遠端主機或 Web Terminal。原生跨平台驗證與 screenshot 限制需如實記錄。
+- 相容既有無 project、但指定 cwd 的 Shell：broker 另存 `homeDirectory` 啟動語意，舊 metadata 缺欄位視為 false。只有新 home Terminal 重啟時省略 cwd；既有無專案 Shell 保留 broker 確認的 cwd，不將 null 身分誤當家目錄策略。

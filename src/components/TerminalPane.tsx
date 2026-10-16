@@ -359,8 +359,8 @@ export function TerminalPane({
     }
     const task = starting
       ? api.launch({ paneId: pane.id, kind: pane.kind,
-        projectId: projectAvailable ? pane.projectId : undefined, sessionId: pane.sessionId,
-        resumeId: pane.resumeId, cwd: pane.cwd || undefined, profileId: pane.profileId,
+        projectId: projectAvailable ? pane.projectId ?? undefined : undefined, sessionId: pane.sessionId,
+        resumeId: pane.resumeId, cwd: pane.projectId === null && pane.kind === 'shell' && pane.homeDirectory === true ? undefined : pane.cwd || undefined, profileId: pane.profileId,
         cols: Math.min(320, Math.max(2, terminal.cols)), rows: Math.min(120, Math.max(1, terminal.rows)),
       }, onEvent, active.lease)
       : api.attach(pane.runtimeId!, onEvent, active.lease);

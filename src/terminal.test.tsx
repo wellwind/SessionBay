@@ -1,3 +1,4 @@
+import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
 import { defaultAgentOptions } from './agents';
 import { shouldHandleTerminalKey } from './terminal-ime';
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
@@ -531,4 +532,42 @@ it.each(['running', 'exited'] as const)('reattaches a remounted %s pane without 
   await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
   expect(mocks.launch).not.toHaveBeenCalled();
   expect(mocks.stop).not.toHaveBeenCalled();
+});
+
+describe('global temporary terminal launch and reconnect', () => {
+  it('leaves home resolution to Rust even when a saved layout claims another cwd', async () => {
+    const config = props(makePane({ projectId: null, homeDirectory: true, cwd: '/untrusted/saved/path', profileId: 'chosen-shell', startToken: 1 }));
+    render(<TerminalPane {...config} projectAvailable={false} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+    expect(mocks.launch.mock.calls[0][0]).toMatchObject({ kind: 'shell', projectId: undefined,
+      cwd: undefined, profileId: 'chosen-shell', sessionId: undefined, resumeId: undefined });
+    expect(JSON.stringify(mocks.launch.mock.calls[0][0])).not.toContain('/untrusted/saved/path');
+  });
+  it('detaches and reattaches a projectless runtime without a second launch', async () => {
+    const config = props(makePane({ projectId: null, cwd: '/trusted/home', runtimeId: 'runtime', state: 'running' }));
+    const first = render(<TerminalPane {...config} projectAvailable={false} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    const firstLease = mocks.attach.mock.calls[0][2];
+    first.unmount();
+    expect(mocks.detach).toHaveBeenCalledWith('runtime', firstLease);
+    render(<TerminalPane {...config} projectAvailable={false} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    expect(mocks.attach.mock.calls[1][0]).toBe('runtime');
+    expect(mocks.attach.mock.calls[1][2]).not.toBe(firstLease);
+    expect(mocks.launch).not.toHaveBeenCalled();
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
+});
+
+it('restarts a recovered legacy projectless shell in its broker-confirmed directory', async () => {
+  const saved = emptyWorkspace();
+  saved.panes.pane = makePane({ id: 'pane', projectId: 'removed-project', cwd: '/saved/old', homeDirectory: true });
+  saved.tabs.push({ id: 'old', name: 'Old shell', projectId: 'removed-project', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } });
+  const recovered = reconcileRuntimes(saved, [{ ...info, paneId: 'pane', kind: 'shell', projectId: null,
+    cwd: '/synthetic/confirmed-project', profileId: null, resumeId: null, state: 'exited' }]);
+  expect(recovered.panes.pane.homeDirectory).toBe(false);
+  const restored = restoreWorkspace(serializeWorkspace(recovered));
+  render(<TerminalPane {...props({ ...restored.panes.pane, startToken: 1 })} projectAvailable={false} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  expect(mocks.launch.mock.calls[0][0]).toMatchObject({ projectId: undefined, cwd: '/synthetic/confirmed-project' });
 });

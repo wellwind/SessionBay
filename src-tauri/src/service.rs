@@ -31,6 +31,16 @@ pub struct LaunchRequest {
     pub rows: u16,
 }
 
+impl LaunchRequest {
+    pub(crate) fn uses_home_directory(&self) -> bool {
+        self.kind == "shell"
+            && self.project_id.is_none()
+            && self.session_id.is_none()
+            && self.resume_id.is_none()
+            && self.cwd.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchPreview {
@@ -253,6 +263,16 @@ impl Service {
         let mut args = vec![];
         let mut resume_key = None;
         let mut cwd = request.cwd.clone();
+        if request.uses_home_directory() {
+            // An unscoped shell is a temporary terminal. Resolve its home in
+            // Rust, before applying profile environment; never trust a UI guess.
+            let home = temporary_terminal_home(dirs::home_dir())?;
+            cwd = Some(
+                home.to_str()
+                    .ok_or("家目錄路徑不是有效的 Unicode")?
+                    .to_owned(),
+            );
+        }
         if let Some(project_id) = &request.project_id {
             let project = self
                 .catalog
@@ -506,6 +526,14 @@ impl Service {
     }
 }
 
+fn temporary_terminal_home(home: Option<PathBuf>) -> Result<PathBuf, String> {
+    let home = home.ok_or("無法取得本機家目錄，請檢查系統使用者設定")?;
+    if !home.is_absolute() || !home.is_dir() {
+        return Err("本機家目錄不存在或不是絕對目錄".into());
+    }
+    Ok(home)
+}
+
 fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> String {
     let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
     let canonical_uuid = (kind == AgentKind::Antigravity)
@@ -593,14 +621,36 @@ mod tests {
         }
     }
     #[test]
-    fn launch_requires_explicit_valid_directory() {
+    fn explicit_directories_are_validated_and_unscoped_shell_uses_home() {
         let d = tempfile::tempdir().unwrap();
         let s = Service::open(d.path().join("app")).unwrap();
-        assert!(s.plan_launch(&request(None)).is_err());
+        assert_eq!(
+            s.plan_launch(&request(None)).unwrap().cwd,
+            dirs::home_dir().unwrap()
+        );
+        let mut agent = request(None);
+        agent.kind = "codex".into();
+        assert!(s.plan_launch(&agent).is_err());
         assert!(s.plan_launch(&request(Some("relative".into()))).is_err());
         assert!(s
             .plan_launch(&request(Some(d.path().to_string_lossy().into())))
             .is_ok());
+    }
+    #[test]
+    fn temporary_home_fails_closed_without_a_real_absolute_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        assert!(temporary_terminal_home(None).is_err());
+        assert!(temporary_terminal_home(Some(PathBuf::from("relative"))).is_err());
+        assert!(temporary_terminal_home(Some(temp.path().join("missing"))).is_err());
+        let file = temp.path().join("file");
+        std::fs::write(&file, "synthetic").unwrap();
+        assert!(temporary_terminal_home(Some(file)).is_err());
+        let unicode = temp.path().join("家目錄 with spaces");
+        std::fs::create_dir(&unicode).unwrap();
+        assert_eq!(
+            temporary_terminal_home(Some(unicode.clone())).unwrap(),
+            unicode
+        );
     }
     #[test]
     fn launch_keeps_metacharacter_path_out_of_shell() {
