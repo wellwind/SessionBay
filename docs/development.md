@@ -197,6 +197,7 @@ Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](
 
 ## 疑難排解
 
+- `npm run dev` 顯示 `Port 1420 is already in use`：先在原本啟動的 terminal 按 Ctrl+C；macOS／Linux 可用 `lsof -nP -iTCP:1420 -sTCP:LISTEN` 確認占用者。若接著出現 `Cannot connect to the runtime broker`，本分支已修正 macOS listener `.mode(0600)` 回傳 `Unsupported` 的相容性問題，重新建置後再啟動；不要刪除 broker 狀態或強制結束仍在工作的 Agent。
 - Tauri CLI 在 `interface/rust.rs` 出現 `Option::unwrap()` panic：先檢查 `rustc -vV` 是否正常輸出 `host:`。本機曾遇到 PATH 選到缺少 LLVM 動態函式庫的 Homebrew Rust，導致 Tauri 取得空輸出；專案 npm 指令已優先選取 rustup。若仍失敗，檢查 `CARGO_HOME` 與 rustup 安裝，確認可取得 `rust-toolchain.toml` 指定版本。Rust 安裝方式見 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#rust)。
 - 找不到 CLI：在設定填可執行檔絕對路徑。桌面 GUI 的 PATH 可能和 terminal 不同；本應用另搜尋 Homebrew、`~/.local/bin`、`~/.cargo/bin` 等常見位置。
 - 參數保存失敗：確認格式為 JSON 字串陣列，使用支援選項，並分開傳入參數和值；需同意的權限選項必須先勾選。取消勾選時要一併移除仍需同意的參數。

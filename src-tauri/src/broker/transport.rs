@@ -1,13 +1,13 @@
 //! Local-only, framed IPC. Filesystem permissions / named-pipe ACLs are the
 //! authentication boundary; no TCP port, reusable token, or PID adoption exists.
+#[cfg(unix)]
+use interprocess::local_socket::traits::StreamCommon;
 use interprocess::local_socket::{
     tokio::{prelude::*, Listener, Stream},
     ListenerOptions, Name,
 };
-#[cfg(unix)]
-use interprocess::{
-    local_socket::traits::StreamCommon, os::unix::local_socket::ListenerOptionsExt,
-};
+#[cfg(all(unix, not(target_os = "macos")))]
+use interprocess::os::unix::local_socket::ListenerOptionsExt;
 use std::{
     fs::{self, File, OpenOptions},
     io,
@@ -156,14 +156,22 @@ pub fn listener(directory: &Path) -> io::Result<Listener> {
     let options = ListenerOptions::new()
         .name(name(directory)?)
         .reclaim_name(false);
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     let options = options.mode(0o600);
     #[cfg(windows)]
     let options = {
         use interprocess::os::windows::local_socket::ListenerOptionsExt;
         options.security_descriptor(windows::security_descriptor()?)
     };
-    options.create_tokio()
+    let listener = options.create_tokio()?;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Darwin rejects fchmod on an unbound socket. The verified 0700 parent
+        // prevents other users from connecting while we set the bound path mode.
+        fs::set_permissions(socket_path(directory)?, fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(listener)
 }
 
 pub fn authenticate(stream: &Stream) -> io::Result<()> {
@@ -212,4 +220,50 @@ pub async fn request(directory: &Path, bytes: &[u8]) -> io::Result<Vec<u8>> {
         write_frame(&mut stream, bytes).await?;
         read_frame(&mut stream, MAX_FRAME).await
     }).await.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Runtime broker did not respond; the action may have completed. Reconnect before retrying."))?
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn private_listener_connects_and_authenticates_with_owner_only_permissions() {
+        let parent = tempfile::tempdir().unwrap();
+        let directory = private_directory(parent.path()).unwrap();
+        let _ownership = lock(&directory).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let socket = socket_path(&directory).unwrap();
+        runtime.block_on(async {
+            let listener = listener(&directory).unwrap();
+            assert_eq!(
+                fs::metadata(&socket).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(socket.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+            let server = tokio::spawn(async move {
+                let mut stream = listener.accept().await.unwrap();
+                authenticate(&stream).unwrap();
+                let data = read_frame(&mut stream, MAX_FRAME).await.unwrap();
+                write_frame(&mut stream, &data).await.unwrap();
+            });
+            assert_eq!(
+                request(&directory, b"broker-ready").await.unwrap(),
+                b"broker-ready"
+            );
+            server.await.unwrap();
+        });
+        fs::remove_file(&socket).unwrap();
+        fs::remove_dir(socket.parent().unwrap()).unwrap();
+    }
 }

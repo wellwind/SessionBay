@@ -186,7 +186,11 @@ fn global_terminals_reopen_same_broker_ids_and_explicit_close_keeps_the_other_ru
         assert!(record.home_directory);
         assert!(ids.contains(&record.info.id));
         assert_eq!(record.info.state, "running");
-        assert_eq!(PathBuf::from(&record.info.cwd), dirs::home_dir().unwrap());
+        // Runtime launch resolves filesystem aliases, including Windows' verbatim prefix.
+        assert_eq!(
+            PathBuf::from(&record.info.cwd),
+            dirs::home_dir().unwrap().canonicalize().unwrap()
+        );
     }
     let lease = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = mpsc::channel();

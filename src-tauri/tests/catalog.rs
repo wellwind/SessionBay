@@ -1435,7 +1435,7 @@ fn many_fallback_copies_preserve_exact_text_roles_append_and_rewrite() {
     let source = h.source("duplicates", AgentKind::Codex);
     let header = format!(
         "{}\n",
-        json!({"type":"session_meta","payload":{"id":"duplicates","cwd":"/synthetic/shared"}})
+        json!({"type":"session_meta","payload":{"id":"duplicates","cwd":SHARED_CWD}})
     );
     let mut text = header.clone();
     for i in 0..256 {
@@ -1449,6 +1449,8 @@ fn many_fallback_copies_preserve_exact_text_roles_append_and_rewrite() {
     text.push_str(&fallback("user", "Case_Sensitive_É"));
     text.push_str(&user("case_sensitive_É"));
     let path = h.write(&source, "sessions/duplicates.jsonl", &text);
+    // Keep the byte-for-byte baseline platform-correct before catalog sync.
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
     h.sync(std::slice::from_ref(&source));
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
     let db = h.root.join("app/index.sqlite");

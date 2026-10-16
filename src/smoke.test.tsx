@@ -109,7 +109,11 @@ describe('native visual smoke scenario against real React UI', () => {
     expect(advanceTimers).toHaveBeenCalledTimes(1);
     expect(advancing).toBeUndefined();
   });
-  it.each(['dark', 'light'] as const)('reaches all five %s states using only synthetic curation and indexing', async (theme) => {
+  it.each([
+    { theme: 'dark', delayedMixedList: false },
+    { theme: 'light', delayedMixedList: false },
+    { theme: 'dark', delayedMixedList: true },
+  ] as const)('reaches all five $theme states with delayed mixed list: $delayedMixedList', async ({ theme, delayedMixedList }) => {
     const boot = seed(theme);
     let projects: Project[] = [];
     let indexed = false;
@@ -133,12 +137,25 @@ describe('native visual smoke scenario against real React UI', () => {
     });
     vi.mocked(api.index).mockImplementation(async () => indexed
       ? { ...boot.index, revision: 1, processed: 4, total: 4 } : boot.index);
-    vi.mocked(api.sessions).mockImplementation(async ({ projectId, kind }) => ({ total: 1, items: [{
-      id: kind === 'antigravity' ? 'smoke-antigravity-session' : 'smoke-session', externalId: 'smoke-native-session',
-      sourceId: kind === 'antigravity' ? 'sessionbay-smoke-antigravity' : 'sessionbay-smoke-codex', kind: kind ?? 'codex',
-      projectId: projectId ?? 'harbor', cwd: `${root}/workspaces/harbor`, title: '合成歷史預覽',
-      updatedAt: '2026-01-15T09:00:00Z', timeSource: 'event', archived: false, parentId: null, partial: false, snippet: '合成內容',
-    } satisfies Session] }));
+    vi.mocked(api.sessions).mockImplementation(async ({ projectId, kind }) => {
+      const session = (agent: Session['kind']): Session => ({
+        id: agent === 'antigravity' ? 'smoke-antigravity-session' : 'smoke-session', externalId: 'smoke-native-session',
+        sourceId: agent === 'antigravity' ? 'sessionbay-smoke-antigravity' : 'sessionbay-smoke-codex', kind: agent,
+        projectId: projectId ?? 'harbor', cwd: `${root}/workspaces/harbor`, title: '合成歷史預覽',
+        updatedAt: agent === 'antigravity' ? '2026-01-17T09:00:00Z' : '2026-01-15T09:00:00Z',
+        timeSource: 'event', archived: false, parentId: null, partial: false, snippet: '合成內容',
+      });
+      if (delayedMixedList && kind === 'antigravity') {
+        // Native fixtures already select the newest CLI transcript before filtering.
+        // Its markers cannot establish that this asynchronous list refresh committed.
+        expect(screen.getByText(/SESSIONBAY_SYNTHETIC_AG_ASSISTANT/)).toBeInTheDocument();
+        expect(Array.from(document.querySelectorAll('.session-card .agent-badge')).map((badge) => badge.textContent))
+          .toEqual(['Antigravity CLI', 'Codex']);
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+      }
+      const items = delayedMixedList && !kind ? [session('antigravity'), session('codex')] : [session(kind ?? 'codex')];
+      return { total: items.length, items };
+    });
     vi.mocked(api.transcript).mockImplementation(async (id) => ({ messages: id === 'smoke-antigravity-session' ? [
       { role: 'user', text: 'SESSIONBAY_SYNTHETIC_AG_USER：檢查唯讀歷史預覽。', timestamp: null, line: 1 },
       { role: 'assistant', text: 'SESSIONBAY_SYNTHETIC_AG_ASSISTANT：合成回覆已顯示，沒有啟動 Agent。', timestamp: null, line: 2 },
