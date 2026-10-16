@@ -261,3 +261,14 @@
 - 新 PR 維持 Draft，沒有合併、部署或發行授權；所有測試結果以此 PR 的實際執行證據記錄，缺少原生 Windows／macOS 證據時明確保留待驗。
 
 - 2026-10-16 CI follow-up：JavaScript actions 與專案 Node 分開版本化。官方 Node 20 action runtime 移除後，兩份 workflows 改用 Node 24 的 checkout 7.0.1／setup-node 7.1.0／upload-artifact 7.0.2 完整 SHA。三 OS 完整 gate 需要同提交四個 jobs 成功；Linux lightweight 綠燈不替代平台驗收，不增加自動 matrix。
+
+## 2026-10-16 OpenCode 獨立整合
+
+使用者要求 OpenCode 與持續 Runtime、主題預覽、日常體驗、索引效能各自交付 PR。本 PR 僅新增第五個內建 provider，依賴原生三平台 PR #3 的執行檔解析與 Windows 安全唯讀 file handle；以該 branch 為 base，不重複修改 workflows。須先合併平台 PR，再重新指定 OpenCode 的 base 並驗證；本次不授權自動合併或發行。
+
+- 依官方 v1.19.2 固定原始碼定義 SQLite v1 message/part 與 v2 session_message reader。fixtures 明示為合成的最小 schema，不冒充實際 CLI 磁碟擷取。
+- source root 是含 opencode.db 的目錄；預設使用 XDG_DATA_HOME/opencode，未設定或無效時為 home/.local/share/opencode。Windows 也遵循 OpenCode 的 xdg-basedir 實作。
+- 設定固定顯示 OpenCode 來源卡片、下拉選項與 O monogram；舊設定只補執行檔／空選項，不自動新增或改動已保存來源。
+- source SQLite 永遠不直接交給 SQLite library。只複製受限 DB/WAL，檢查身分、大小、內容雜湊、WAL checksum 與完整性；在私人 copy 執行查詢。無 migration、登入或 auth.json 讀取。
+- 新工作無額外權限旗標；接續精確使用 --session 與單獨 ID，使用 OPENCODE_DB 指向選定的資料庫。只有明確高風險選項啟用才加入官方 --auto，不覆寫 HOME、XDG 設定或憑證。
+- 舊 JSON 儲存、任意名稱／channel DB、多數位於外部的遠端 server，以及未知未來版本不推測相容性。詳見 [OpenCode 整合與驗證](opencode-integration.md)。

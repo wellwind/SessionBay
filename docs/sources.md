@@ -150,3 +150,12 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - [Node 20 removal](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/)：2026-09-23 已移除，專案 Node 與 action runtime 不同。
 - [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1)、[setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0)、[upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2)：以 release tag 的 Git ref SHA 與 action.yml 核對 Node 24，並閱讀移轉限制。現有設定未使用 registry-url／always-auth／unsafe PR checkout，不受這些新增限制影響。
+
+## OpenCode（查閱 2026-10-16）
+
+- [CLI 官方選項](https://opencode.ai/docs/cli/) 與 [Windows 原生安裝](https://opencode.ai/docs/windows/)：--version、--session、--auto 與平台安裝；文件會更新，不代表實機驗證。
+- [v1.19.2 release](https://github.com/anomalyco/opencode/releases/tag/v1.19.2)：本次固定參照版本。
+- [SQLite schema](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session/sql.ts)、[v1 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/v1/session.ts)、[v2 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/session-message.ts)：reader 與獨立合成 fixture 欄位依據，非穩定外部 API 保證。
+- [Global XDG paths](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/global.ts)、[DB override](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/database.ts)、[TUI argv](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/cli/cmd/tui.ts)、[global --pure](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/index.ts)：路徑、精確來源與權限選項依據。
+
+- OpenCode v2 reset 與原生讀取權威性（2026-10-16，固定 v1.19.2 source）：[reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts)、[V2Session reader](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session.ts)、[v2 experimental specification](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/specs/v2/session.md)。v2 state reset 不代表 v1 rows 仍屬現行 transcript；無權威標記的混合狀態採 metadata-only partial，不自動 fallback。

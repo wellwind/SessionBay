@@ -1604,3 +1604,5 @@ kbd {
 .directory-empty{display:flex;min-height:260px;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;padding:25px}
 .directory-empty>svg{color:var(--accent)}.directory-empty h3{font-size:18px;margin:0}.directory-empty p{max-width:440px}
 @media(max-width:1000px){.navigation-tabs{padding-left:18px}.directory-overview{padding:22px 18px}.directory-overview-heading{flex-wrap:wrap}}
+
+.agent-badge.opencode { background: #243c45; color: #afe2e6; }

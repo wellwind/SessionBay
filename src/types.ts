@@ -1,4 +1,4 @@
-export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity';
+export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 export interface AgentOptions { extraArgs: string[]; bypassPermissions: boolean; }
 export interface HistorySource {
   id: string;

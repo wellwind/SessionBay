@@ -311,7 +311,7 @@ describe('bounded terminal input queue', () => {
 
 
 describe('additional agent workspace persistence', () => {
-  it.each(['grok', 'antigravity'] as const)('round-trips a %s conversation ID without its runtime or automatic start token', (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('round-trips a %s conversation ID without its runtime or automatic start token', (kind) => {
     const saved = workspace();
     saved.panes.a = { ...saved.panes.a, kind, resumeId: 'synthetic-conversation' };
     const serialized = serializeWorkspace(saved) as Workspace;

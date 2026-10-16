@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 
 describe('launch preview IPC contract', () => {
-  it.each(['grok', 'antigravity'] as const)('sends a %s preview request unchanged without creating an output channel or launching', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('sends a %s preview request unchanged without creating an output channel or launching', async (kind) => {
     vi.mocked(isTauri).mockReturnValue(true);
     const request: LaunchRequest = {
       paneId: 'synthetic-preview', kind, projectId: 'synthetic-project',
@@ -60,7 +60,7 @@ describe('shell discovery IPC contract', () => {
 });
 
 describe('history source discovery IPC contract', () => {
-  it.each(['codex', 'claude', 'grok', 'antigravity'] as const)('passes only the %s registry ID without launching or mutating settings', async (kind) => {
+  it.each(['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const)('passes only the %s registry ID without launching or mutating settings', async (kind) => {
     vi.mocked(isTauri).mockReturnValue(true);
     const result = { kind, supported: kind !== 'antigravity', candidates: [], message: null };
     vi.mocked(invoke).mockResolvedValue(result);

@@ -30,11 +30,11 @@ function seed(theme: 'dark' | 'light'): Bootstrap {
       profiles: [{ id: 'smoke-shell', name: 'POSIX Shell', executable: '/bin/sh', args: [], env: {} }],
       sources: [{ id: 'sessionbay-smoke-codex', kind: 'codex', root: `${root}/codex`, enabled: true },
         { id: 'sessionbay-smoke-antigravity', kind: 'antigravity', root: '/synthetic/isolated-home/.gemini/antigravity-cli', enabled: true }],
-      executables: { codex: '/missing/codex', claude: '/missing/claude', grok: '/missing/grok', antigravity: '/missing/agy' },
+      executables: { codex: '/missing/codex', claude: '/missing/claude', grok: '/missing/grok', antigravity: '/missing/agy', opencode: '/missing/opencode' },
       agentOptions: defaultAgentOptions(), shortcuts: {}, onboardingComplete: false,
     },
-    installations: ['codex', 'claude', 'grok', 'antigravity'].map((kind) => ({
-      kind: kind as 'codex' | 'claude' | 'grok' | 'antigravity', available: false,
+    installations: ['codex', 'claude', 'grok', 'antigravity', 'opencode'].map((kind) => ({
+      kind: kind as 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode', available: false,
       executable: null, version: null, error: null,
     })),
     projects: [], workspace: emptyWorkspace(), warnings: [],
@@ -118,12 +118,12 @@ describe('native visual smoke scenario against real React UI', () => {
       if (name.startsWith('projects')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('專案');
       if (name.startsWith('directories')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('所有目錄');
       if (name.startsWith('providers')) {
-        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(4);
+        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(5);
         expect(api.detectHistorySources).not.toHaveBeenCalled();
       }
       if (name.startsWith('launcher')) {
         expect(screen.getByRole('dialog', { name: '開始新的工作' })).toContainElement(screen.getByRole('listbox'));
-        expect(screen.getAllByRole('option')).toHaveLength(4);
+        expect(screen.getAllByRole('option')).toHaveLength(5);
       }
       if (name.startsWith('calendar')) expect(screen.getByRole('grid')).toBeInTheDocument();
     });

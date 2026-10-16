@@ -103,3 +103,7 @@
 ## 2026-10-15 試用回饋待排程
 
 使用者要求先記錄的 17 項需求見 [後續待辦](future-backlog.md)。第 09 項持續工作狀態已提升為下一階段最高優先（階段 4），其餘順序與工期未定，均不自動加入本輪實作。持續工作狀態不能以階段 3 的布局占位還原視為完成；中文輸入、Shift＋Enter 與索引時間須先重現／量測再排修復。
+
+## 2026-10-16 OpenCode 獨立 PR
+
+第五 provider 的官方 SQLite v1/v2 reader、來源 UI、安全啟動／接續與合成回歸列為本 PR 交付；依賴原生平台 PR #3。舊 JSON 與任意 channel DB 不宣稱支援，真實 OpenCode 三平台接續仍待驗證，詳見 [OpenCode 整合與驗證](opencode-integration.md)。

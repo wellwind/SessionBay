@@ -132,7 +132,7 @@ function bootstrap(): Bootstrap {
       profiles: [{ id: 'default', name: 'Shell', executable: '/bin/bash', args: ['-l'], env: {} }],
       sources: [],
       agentOptions: defaultAgentOptions(),
-      executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+      executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
       shortcuts: {},
       onboardingComplete: true,
     },
@@ -941,7 +941,7 @@ describe('exact agent launch preview and manual resume', () => {
     expect(reopened.querySelector('pre')?.textContent).toContain('/current');
     expect(Object.keys(workspaceSnapshot().panes)).toEqual(['pane-a']);
   });
-  it.each(['grok', 'antigravity'] as const)('previews and persists the trimmed manual %s resume ID separately from the catalog ID', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('previews and persists the trimmed manual %s resume ID separately from the catalog ID', async (kind) => {
     vi.mocked(api.preview).mockResolvedValue({ executable: kind === 'grok' ? '/synthetic/grok' : '/synthetic/agy',
       args: [kind === 'grok' ? '--resume' : '--conversation', 'synthetic-conversation'], cwd: '/synthetic/project' });
     const dialog = await openLauncher();
@@ -985,7 +985,7 @@ describe('exact agent launch preview and manual resume', () => {
     await tick(150);
     expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'grok', resumeId: undefined }));
   });
-  it.each(['grok', 'antigravity'] as const)('restores a %s manual conversation as a placeholder without previewing or starting it', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('restores a %s manual conversation as a placeholder without previewing or starting it', async (kind) => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();
     (data.workspace as Workspace).panes['pane-a'] = {
@@ -1487,7 +1487,7 @@ describe('shared launcher and scoped search controls', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
     const selector = within(dialog).getByRole('combobox', { name: 'Agent' });
     fireEvent.click(selector);
-    for (const kind of ['codex', 'claude', 'grok', 'antigravity'] as const)
+    for (const kind of ['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const)
       expect(screen.getByRole('option', { name: new RegExp(`^${agentNames[kind]}`) })).toBeInTheDocument();
     const missing = screen.getByRole('option', { name: /^Grok Build/ });
     expect(missing).toHaveAttribute('aria-disabled', 'true');

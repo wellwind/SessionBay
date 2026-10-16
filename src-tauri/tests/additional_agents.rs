@@ -31,6 +31,7 @@ fn old_settings_migrate_missing_agent_fields_without_resetting_preferences() {
     let executable = value["executables"].as_object_mut().unwrap();
     executable.remove("grok");
     executable.remove("antigravity");
+    executable.remove("opencode");
     executable.insert("codex".into(), "/synthetic/custom-codex".into());
     value["theme"] = "light".into();
     value["fontSize"] = 19.into();
@@ -49,6 +50,7 @@ fn old_settings_migrate_missing_agent_fields_without_resetting_preferences() {
     assert_eq!(settings.executables.codex, "/synthetic/custom-codex");
     assert_eq!(settings.executables.grok, "grok");
     assert_eq!(settings.executables.antigravity, "agy");
+    assert_eq!(settings.executables.opencode, "opencode");
     assert_eq!(settings.theme, "light");
     assert_eq!(settings.font_size, 19);
     assert!(settings.onboarding_complete);
@@ -97,7 +99,8 @@ fn all_agent_plans_and_previews_use_exact_arguments_without_starting_processes()
     settings.executables.codex = executable.clone();
     settings.executables.claude = executable.clone();
     settings.executables.grok = executable.clone();
-    settings.executables.antigravity = executable;
+    settings.executables.antigravity = executable.clone();
+    settings.executables.opencode = executable;
     settings.sources = vec![HistorySource {
         id: "grok-test".into(),
         kind: AgentKind::Grok,
@@ -159,7 +162,8 @@ fn manual_resume_rejects_unsafe_ids_wrong_agents_and_ambiguous_sources() {
     let mut settings = service.settings().unwrap();
     let executable = common::noop_executable(temp.path());
     settings.executables.grok = executable.clone();
-    settings.executables.antigravity = executable;
+    settings.executables.antigravity = executable.clone();
+    settings.executables.opencode = executable;
     settings.sources.clear();
     service.save_settings(settings.clone()).unwrap();
     for kind in ["grok", "antigravity"] {
@@ -210,10 +214,11 @@ fn detecting_installation_paths_ignores_dangerous_launch_options() {
     let executable = common::noop_executable(temp.path());
     let mut settings = Settings::default();
     settings.executables.grok = executable.clone();
-    settings.executables.antigravity = executable;
+    settings.executables.antigravity = executable.clone();
+    settings.executables.opencode = executable;
     settings.agent_options.grok.bypass_permissions = true;
     let installations = sessionbay_lib::config::detect_paths(&settings);
-    assert_eq!(installations.len(), 4);
+    assert_eq!(installations.len(), 5);
     for installation in &installations {
         assert_eq!(
             installation.login_status,
@@ -241,7 +246,8 @@ fn version_probe_uses_only_documented_version_argument_never_launch_flags() {
     settings.executables.codex = path.clone();
     settings.executables.claude = path.clone();
     settings.executables.grok = path.clone();
-    settings.executables.antigravity = path;
+    settings.executables.antigravity = path.clone();
+    settings.executables.opencode = path;
     settings.agent_options.codex.bypass_permissions = true;
     settings.agent_options.claude.bypass_permissions = true;
     settings.agent_options.grok.bypass_permissions = true;

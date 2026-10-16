@@ -248,12 +248,12 @@ impl Service {
         };
         if let Some(resume_id) = &request.resume_id {
             if !agent.is_some_and(|kind| crate::providers::definition(kind).resume.manual_id) {
-                return Err(
-                    "Manual resume IDs are supported for Grok Build and Antigravity CLI only."
-                        .into(),
-                );
+                return Err("Manual resume IDs are not supported by this provider.".into());
             }
             validate_resume_id(resume_id)?;
+            if agent == Some(AgentKind::OpenCode) && !crate::opencode::valid_session_id(resume_id) {
+                return Err("OpenCode resume IDs must use the native ses_ identifier.".into());
+            }
         }
         if let Some(session_id) = &request.session_id {
             let (session, source) = self.catalog.resume_source(session_id)?;
@@ -285,15 +285,18 @@ impl Service {
                 cwd = project.and_then(|p| p.launch_path).or(session.cwd);
             }
             if let Some(key) = history_environment(session.kind) {
-                resume_key = Some(provider_resume_key(session.kind, &source.root, id));
-                env.insert(key.into(), source.root);
+                resume_key = Some(provider_resume_key(session.kind, &source.root, id)?);
+                env.insert(
+                    key.into(),
+                    history_environment_value(session.kind, &source.root),
+                );
             } else if session.kind == AgentKind::Antigravity {
                 if let Some(reason) =
                     crate::catalog::antigravity_resume_disabled_reason(&source.root, id)
                 {
                     return Err(reason);
                 }
-                resume_key = Some(provider_resume_key(session.kind, &source.root, id));
+                resume_key = Some(provider_resume_key(session.kind, &source.root, id)?);
             } else {
                 return Err("This provider has no supported indexed resume source.".into());
             }
@@ -316,24 +319,40 @@ impl Service {
                     .iter()
                     .find(|s| s.enabled && s.kind == kind)
                 {
-                    env.insert(key.into(), source.root.clone());
+                    env.insert(key.into(), history_environment_value(kind, &source.root));
                 }
+            }
+            if kind == AgentKind::OpenCode && !env.contains_key("OPENCODE_DB") {
+                let root = crate::providers::definition(kind)
+                    .state_root(&dirs::home_dir().ok_or("Home directory unavailable")?);
+                env.insert(
+                    "OPENCODE_DB".into(),
+                    history_environment_value(kind, &root.to_string_lossy()),
+                );
             }
             if let Some(id) = &request.resume_id {
                 args = resume_arguments(kind, id);
                 let provider = crate::providers::definition(kind);
-                let source_root = provider
-                    .history
-                    .source_env
-                    .as_ref()
+                let source_root = history_environment(kind)
                     .and_then(|key| env.get(key).cloned())
+                    .map(|value| {
+                        if kind == AgentKind::OpenCode {
+                            PathBuf::from(&value)
+                                .parent()
+                                .unwrap()
+                                .to_string_lossy()
+                                .into_owned()
+                        } else {
+                            value
+                        }
+                    })
                     .unwrap_or_else(|| {
                         provider
                             .state_root(&config::default_home())
                             .to_string_lossy()
                             .into_owned()
                     });
-                resume_key = Some(provider_resume_key(kind, &source_root, id));
+                resume_key = Some(provider_resume_key(kind, &source_root, id)?);
             }
         }
         let cwd = cwd.ok_or("請先選擇專案或指定工作目錄；未分類歷史不會猜測目前目錄")?;
@@ -443,7 +462,7 @@ impl Service {
                                 session.kind,
                                 &source.root,
                                 &session.external_id,
-                            );
+                            )?;
                             if let Some(existing) = self.runtime.find_running_resume(&key) {
                                 return Ok(existing);
                             }
@@ -466,7 +485,7 @@ impl Service {
     }
 }
 
-fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> String {
+fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> Result<String, String> {
     let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| PathBuf::from(root));
     let canonical_uuid = (kind == AgentKind::Antigravity)
         .then(|| uuid::Uuid::parse_str(id).ok())
@@ -481,7 +500,15 @@ fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> String {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part.as_bytes());
     }
-    format!("provider-{:x}", hash.finalize())
+    // Bind an OpenCode runtime to the physical database it opened. Reindexing a
+    // replacement at the same root must never make the old runtime look current.
+    // Normal WAL/checkpoint writes preserve this identity and still deduplicate.
+    if kind == AgentKind::OpenCode {
+        let identity = crate::opencode::database_identity(PathBuf::from(root).as_path())?;
+        hash.update((identity.len() as u64).to_le_bytes());
+        hash.update(identity.as_bytes());
+    }
+    Ok(format!("provider-{:x}", hash.finalize()))
 }
 
 fn validate_resume_id(id: &str) -> Result<(), String> {
@@ -497,7 +524,21 @@ fn validate_resume_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn history_environment_value(kind: AgentKind, root: &str) -> String {
+    if kind == AgentKind::OpenCode {
+        std::path::Path::new(root)
+            .join("opencode.db")
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        root.into()
+    }
+}
+
 fn history_environment(kind: AgentKind) -> Option<&'static str> {
+    if kind == AgentKind::OpenCode {
+        return Some("OPENCODE_DB");
+    }
     crate::providers::definition(kind)
         .history
         .source_env
