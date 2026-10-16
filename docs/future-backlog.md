@@ -95,10 +95,11 @@
 
 ## 15 不綁定 Project 的臨時 Terminal
 
-- [ ] 待規劃與實作。
+- [x] 全域 home Terminal、null project 工作區與回歸實作。
+- [ ] 同提交 broker E2E 與三平台原生驗收。
 - 類型：功能
 - 需求與驗收重點：可隨時從全域入口開啟臨時 Terminal，初始工作目錄（cwd）預設為使用者家目錄；不必先進入、選取或加入任何 Project，也不因開啟臨時 Terminal 自動建立 Project。
-- 範圍：只記錄未來需求，不在本輪實作；不擴大為持續 Runtime 功能，第 09 項持續執行與重新附接仍為下一階段最高優先。
+- 已按使用者授權拆為獨立日常體驗 PR，依賴最高優先第 09 項的持續 Runtime PR #7。操作、舊 cwd 相容與未驗項見[全域臨時 Terminal](temporary-terminal.md)。
 
 ## 16 遠端機器與 Agents／Sessions 管理
 

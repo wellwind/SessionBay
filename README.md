@@ -32,6 +32,8 @@ npm run tauri -- build
 
 同一個工作區可以並排執行 Codex、Claude Code、Grok Build、Antigravity CLI、開發伺服器或測試指令。Agent 優先代表預設以專案與工作脈絡組織介面，普通 Shell 仍是完整的一等功能。
 
+也可從頂列「臨時 Terminal」直接在家目錄開啟預設 Shell，不必選取或新增專案；多分頁與重開附接沿用同一工作區／Runtime。操作及驗證邊界見[全域臨時 Terminal](docs/temporary-terminal.md)。
+
 ## 文件導覽
 
 | 文件 | 內容 |
@@ -50,6 +52,7 @@ npm run tauri -- build
 | [三平台支援與驗收](docs/platform-support.md) | 原生平台前提、Windows ConPTY／路徑邊界、可重複驗收與未驗證項目 |
 | [開發與試用](docs/development.md) | 實際安裝、啟動、測試、建置與資料邊界 |
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
+| [全域臨時 Terminal](docs/temporary-terminal.md) | 無專案 home Shell、舊 cwd 相容與驗證邊界 |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
 

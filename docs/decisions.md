@@ -272,3 +272,12 @@
 - 重開以 broker 的 runtime／pane／project metadata 為權威，保存的 layout 仍不接受 Runtime ID、PID、指令或 auto-start token。遺失 layout 的活躍面板會重建，不會悄悄藏起來。
 - 程序已退出時保留最後畫面與 exit code。Broker 或作業系統重啟後，上次執行中的 metadata 改為 `interrupted`；不冒稱仍在執行、不採用舊 PID、不自動重啟 Shell／Agent。終端輸出不落盤，broker 重啟後無法還原舊畫面。
 - 先疊在三平台 PR #3 的分支上，以避免複製或繞過 ConPTY／Unix 所有權實作。仍為獨立 Draft PR；完整 OS／WebView／實際 Agent 互動驗收未通過前不得宣告完成或 ready。
+
+## 2026-10-16：全域臨時 Terminal（獨立日常體驗 PR）
+
+- 使用者要求隨時開啟臨時 Terminal，預設家目錄，不必進入或新增任何專案。
+- 採真正 `projectId: null` 的工作區分頁／面板；全域分頁另存 active selection，不把家目錄建立為 catalog project，也不建立 workspace-only 假專案。
+- 啟動沿用設定中的預設 Shell Profile；只有 shell、無 project/session/resume 且未指定 cwd 時，由 Rust 取得並驗證本機家目錄。前端不推測 HOME／USERPROFILE，不傳入命令字串或任意環境變數。
+- UI 關閉／重開沿用 persistent runtime broker 的 detach／attach；明確關閉面板仍只停止該面板的受管程序。此 PR 疊在 persistent runtime PR #7（其依賴平台 PR #3），不重複實作 broker。
+- 範圍不含檔案瀏覽、遠端主機或 Web Terminal。原生跨平台驗證與 screenshot 限制需如實記錄。
+- 相容既有無 project、但指定 cwd 的 Shell：broker 另存 `homeDirectory` 啟動語意，舊 metadata 缺欄位視為 false。只有新 home Terminal 重啟時省略 cwd；既有無專案 Shell 保留 broker 確認的 cwd，不將 null 身分誤當家目錄策略。

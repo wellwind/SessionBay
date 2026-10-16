@@ -162,6 +162,8 @@ export interface RuntimeRecord extends RuntimeInfo {
   projectId: string | null;
   profileId: string | null;
   resumeId: string | null;
+  /** Broker-derived launch policy; absent on older explicit-cwd runtimes. */
+  homeDirectory?: boolean;
 }
 export type TerminalEvent =
   | { type: 'snapshot'; runtimeId: string; sequence: number; data: number[]; cols: number; rows: number; truncated: boolean }
@@ -174,8 +176,9 @@ export interface Pane {
   id: string;
   kind: 'shell' | AgentKind;
   title: string;
-  projectId: string;
+  projectId: string | null;
   cwd: string;
+  homeDirectory?: boolean;
   sessionId?: string;
   resumeId?: string;
   profileId?: string;
@@ -197,7 +200,7 @@ export type LayoutNode =
     };
 export interface WorkspaceTab {
   id: string;
-  projectId: string;
+  projectId: string | null;
   name: string;
   layout: LayoutNode;
   focusedPaneId: string;
@@ -207,4 +210,5 @@ export interface Workspace {
   tabs: WorkspaceTab[];
   panes: Record<string, Pane>;
   activeTabByProject: Record<string, string>;
+  activeTemporaryTabId?: string;
 }

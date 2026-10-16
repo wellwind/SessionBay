@@ -191,6 +191,7 @@ impl BrokerClient {
             project_id: request.project_id.clone(),
             profile_id: request.profile_id.clone(),
             resume_id: request.resume_id.clone(),
+            home_directory: request.uses_home_directory(),
             cols: request.cols,
             rows: request.rows,
         })?;

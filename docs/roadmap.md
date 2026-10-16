@@ -107,3 +107,8 @@
 ## 最高優先：退出 UI 後持續執行
 
 - [ ] 獨立 broker／附接實作經同提交 Linux E2E 及三平台原生互動驗收。分支已加入實作與測試，仍為 Draft；不能將本機 socket 受限或 Windows 交叉編譯算成原生 passed。詳見[持續 Runtime](persistent-runtime.md)。
+
+## 日常體驗：全域臨時 Terminal
+
+- [x] 無專案 home Shell、null 分頁／面板、獨立選取、側欄找回與既有明確 cwd 相容的實作及單元回歸。
+- [ ] 同提交 Linux broker E2E 與原生三平台桌面驗收；不可將 socket 受限或交叉編譯算成原生通過。獨立 Draft PR 疊在持續 Runtime PR #7，詳見[驗證清單](temporary-terminal.md)。
