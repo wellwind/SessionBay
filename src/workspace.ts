@@ -1,4 +1,4 @@
-import type { LayoutNode, Pane, Project, Workspace, WorkspaceTab } from './types';
+import type { LayoutNode, Pane, Project, RuntimeRecord, Workspace, WorkspaceTab } from './types';
 export const emptyWorkspace = (): Workspace => ({
   version: 1,
   tabs: [],
@@ -109,15 +109,44 @@ export function closePane(workspace: Workspace, id: string): Workspace {
     }
   return { ...workspace, panes, tabs, activeTabByProject };
 }
-/** A successful shell exit closes only its pane; errors and Agent transcripts stay inspectable. */
+/** Finished shells retain their final screen until explicitly closed. */
 export function patchWorkspacePane(workspace: Workspace, id: string, patch: Partial<Pane>): Workspace {
   const pane = workspace.panes[id];
   if (!pane) return workspace;
-  if (pane.kind === 'shell' && ['starting', 'running'].includes(pane.state) &&
-      patch.state === 'exited' && patch.exitCode === 0 && !pane.error) {
-    return closePane(workspace, id);
-  }
   return { ...workspace, panes: { ...workspace.panes, [id]: { ...pane, ...patch } } };
+}
+
+/** Runtime identities come only from the broker, never the saved layout. */
+export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]): Workspace {
+  let next = workspace;
+  const seen = new Set<string>();
+  for (const record of records) {
+    if (seen.has(record.paneId)) continue; // The broker returns the current generation first.
+    seen.add(record.paneId);
+    const existing = next.panes[record.paneId];
+    const projectId = record.projectId || existing?.projectId || `recovered-${record.id}`;
+    const state = ['starting', 'running', 'exited', 'failed', 'interrupted'].includes(record.state)
+      ? record.state as Pane['state'] : 'disconnected';
+    const pane: Pane = {
+      id: record.paneId, kind: record.kind, projectId, cwd: record.cwd,
+      title: existing?.title || (record.kind === 'shell' ? '已保留的 Shell' : `已保留的 ${record.kind}`),
+      sessionId: record.sessionId ?? undefined, resumeId: record.resumeId ?? undefined,
+      profileId: record.profileId ?? undefined,
+      runtimeId: record.id, state, exitCode: record.exitCode,
+      ...(state === 'interrupted' ? { error: '背景程序已中斷；請確認後明確重新啟動。' } : {}),
+    };
+    if (existing && existing.projectId !== projectId) next = closePane(next, record.paneId);
+    const hasTab = next.tabs.some((tab) => paneIds(tab.layout).includes(record.paneId));
+    next = { ...next, panes: { ...next.panes, [pane.id]: pane } };
+    if (!hasTab) {
+      let tabId = `recovered-${record.id}`;
+      while (next.tabs.some((tab) => tab.id === tabId)) tabId += '-tab';
+      next = { ...next, tabs: [...next.tabs, { id: tabId, projectId, name: pane.title,
+        layout: { kind: 'pane', paneId: pane.id }, focusedPaneId: pane.id }],
+        activeTabByProject: { ...next.activeTabByProject, [projectId]: next.activeTabByProject[projectId] || tabId } };
+    }
+  }
+  return next;
 }
 
 export function serializeWorkspace(workspace: Workspace): unknown {

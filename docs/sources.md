@@ -150,3 +150,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - [Node 20 removal](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/)：2026-09-23 已移除，專案 Node 與 action runtime 不同。
 - [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1)、[setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0)、[upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2)：以 release tag 的 Git ref SHA 與 action.yml 核對 Node 24，並閱讀移轉限制。現有設定未使用 registry-url／always-auth／unsafe PR checkout，不受這些新增限制影響。
+
+## 2026-10-16 持續 Runtime
+
+- [interprocess 2.4.5 local sockets](https://docs.rs/interprocess/2.4.5/interprocess/local_socket/index.html)：Unix socket／Windows named pipe 抽象、peer credentials；實作仍需 private directory／SID ACL，不能把本機名稱當身分驗證。
+- [Windows named pipe listener options](https://docs.rs/interprocess/2.4.5/interprocess/os/windows/named_pipe/struct.PipeListenerOptions.html)：remote acceptance 預設 false，first-instance 與 security descriptor 行為以固定 lockfile 版本核對。
+- [vt100 0.16.2 Screen](https://docs.rs/vt100/0.16.2/vt100/struct.Screen.html)：有界 terminal state、formatted screen 與 input modes；不代表完整 xterm／所有 Agent TUI 相容。
+- [interprocess 2.4.5 Unix listener mode](https://docs.rs/interprocess/2.4.5/interprocess/os/unix/local_socket/trait.ListenerOptionsExt.html)：2026-10-16 核對本機 lockfile 對應原始碼；`.mode()` 在 bind 前執行 `fchmod`，不支援時回傳 `Unsupported`。本機 macOS 已重現；改用 0700 父目錄保護 bind 後的 0600 設定，其他平台未因此宣稱完成驗收。

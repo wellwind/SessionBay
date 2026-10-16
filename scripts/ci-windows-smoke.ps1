@@ -60,6 +60,8 @@ try {
         if (@($saved.sources).Count -ne 0) { throw 'Smoke unexpectedly added a history source.' }
         $process.Dispose()
         $process = $null
+        & $Binary --sessionbay-runtime-broker-stop $state
+        if ($LASTEXITCODE -ne 0) { throw "Cannot stop isolated smoke runtime broker." }
     }
     'Native Windows dark/light startup, visible window, DOM interaction, and backend IPC passed with isolated empty sources. Terminal/IME, real CLI resume, and installer execution require separate acceptance.' |
         Set-Content -Encoding utf8 (Join-Path $output 'result.txt')
@@ -67,6 +69,11 @@ try {
     if ($null -ne $process) {
         if (!$process.HasExited) { $process.Kill($true); $process.WaitForExit() }
         $process.Dispose()
+    }
+    foreach ($state in Get-ChildItem -Directory $temporary) {
+        if (Test-Path (Join-Path $state.FullName "runtime-broker-v1")) {
+            & $Binary --sessionbay-runtime-broker-stop $state.FullName
+        }
     }
     Remove-Item -Recurse -Force $temporary
 }

@@ -79,3 +79,5 @@ npm run tauri -- build
 ## 試用後續待辦
 
 2026-10-15 新增的 17 項未來需求集中在 [後續待辦](docs/future-backlog.md)，均尚待安排與驗收；此清單不代表已實作。
+
+- [持續執行與重新附接](docs/persistent-runtime.md)：獨立 broker、關閉介面保留程序、狀態恢復與原生待驗項目。

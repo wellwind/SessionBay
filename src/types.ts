@@ -129,6 +129,7 @@ export interface Settings {
   onboardingComplete: boolean;
 }
 export interface Bootstrap {
+  runtimes: RuntimeRecord[];
   settings: Settings;
   projects: Project[];
   installations: Installation[];
@@ -156,11 +157,19 @@ export interface RuntimeInfo {
   cwd: string;
   exitCode: number | null;
 }
+export interface RuntimeRecord extends RuntimeInfo {
+  kind: 'shell' | AgentKind;
+  projectId: string | null;
+  profileId: string | null;
+  resumeId: string | null;
+}
 export type TerminalEvent =
+  | { type: 'snapshot'; runtimeId: string; sequence: number; data: number[]; cols: number; rows: number; truncated: boolean }
+  | { type: 'disconnected'; runtimeId: string; message: string }
   | { type: 'output'; runtimeId: string; sequence: number; data: number[] }
   | { type: 'exit'; runtimeId: string; exitCode: number | null }
   | { type: 'error'; runtimeId: string; message: string };
-export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed';
+export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed' | 'disconnected' | 'interrupted';
 export interface Pane {
   id: string;
   kind: 'shell' | AgentKind;

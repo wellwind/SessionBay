@@ -46,6 +46,7 @@ import {
   paneIds,
   patchWorkspacePane,
   restoreWorkspace,
+  reconcileRuntimes,
   serializeWorkspace,
   setRatio,
   splitNode,
@@ -223,8 +224,9 @@ export default function App() {
       setBoot(data);
       setProjects(data.projects);
       setIndex(data.index);
-      const restored = restoreWorkspace(data.workspace);
-      observedWorkspace.current = JSON.stringify(serializeWorkspace(restored));
+      const saved = restoreWorkspace(data.workspace);
+      const restored = reconcileRuntimes(saved, data.runtimes ?? []);
+      observedWorkspace.current = JSON.stringify(serializeWorkspace(saved));
       persistedWorkspace.current = observedWorkspace.current;
       setWorkspace(restored);
       setSettingsOpen(!data.settings.onboardingComplete);
@@ -300,9 +302,6 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   const closeApplication = useCallback(() => {
-    const live = Object.values(stateRef.current.workspace.panes).filter(
-      (p) => p.state === 'running' || p.state === 'starting',
-    );
     const action = async () => {
       closingApp.current = true;
       try {
@@ -321,13 +320,7 @@ export default function App() {
         throw error;
       }
     };
-    if (live.length)
-      setConfirmation({
-        title: `結束 ${live.length} 個程序並退出？`,
-        text: `將結束 Session Bay 管理的面板：${live.map((p) => p.title).join('、')}。布局會保存，重新開啟時不會自動執行指令。`,
-        action,
-      });
-    else void action().catch(notify);
+    if (!closingApp.current) void action().catch(notify);
   }, [notify]);
   useEffect(() => {
     if (!desktop) return;
@@ -370,14 +363,14 @@ export default function App() {
     (id: string, cwdOverride?: string) =>
       setWorkspace((w) => {
         const pane = w.panes[id];
-        if (!pane || pane.state === 'running' || pane.state === 'starting') return w;
+        if (!pane || ['running', 'starting', 'disconnected'].includes(pane.state)) return w;
         const project = stateRef.current.projects.find((p) => p.id === pane.projectId);
         const cwd =
           cwdOverride ??
           (pane.sessionId ? project?.launchPath || pane.cwd || project?.path || '' : pane.cwd);
         return {
           ...w,
-          panes: { ...w.panes, [id]: { ...pane, cwd, startToken: (pane.startToken ?? 0) + 1 } },
+          panes: { ...w.panes, [id]: { ...pane, cwd, runtimeId: undefined, startToken: (pane.startToken ?? 0) + 1 } },
         };
       }),
     [],
@@ -462,6 +455,10 @@ export default function App() {
     const needsLocation = !resumeCwd || (project && !project.path && !project.launchPath) || (project && !project.exists && resumeCwd === (project.launchPath || project.path));
     // The backend owns provider/source-qualified deduplication. A catalog ID can
     // survive a source-root change; never focus a live pane by catalog ID alone.
+    if (existing?.state === 'disconnected' && existing.projectId === project?.id) {
+      focus(existing.id);
+      return;
+    }
     if (existing && existing.projectId === project?.id && !['running', 'starting'].includes(existing.state)) {
       if (project && needsLocation) {
         setPathDialog({ project, path: project.launchPath || project.path || '', resume: session });
@@ -506,19 +503,16 @@ export default function App() {
   };
   const removePanes = (ids: string[]) => {
     const panes = ids.map((id) => workspace.panes[id]).filter(Boolean);
-    const live = panes.filter((p) => p.state === 'running' || p.state === 'starting');
+    const live = panes.filter((p) => ['running', 'starting', 'disconnected'].includes(p.state));
     const action = async () => {
+      await api.settleLaunches(ids);
       const managed = await api.runtimes();
-      const targets = new Set([
-        ...managed
-          .filter((r) => ids.includes(r.paneId) && ['running', 'starting'].includes(r.state))
-          .map((r) => r.id),
-        ...ids
-          .map((id) => stateRef.current.workspace.panes[id])
-          .filter((p) => p && ['running', 'starting'].includes(p.state) && p.runtimeId)
-          .map((p) => p.runtimeId!),
-      ]);
+      const targets = new Set(managed
+        .filter((record) => ids.includes(record.paneId) && ['running', 'starting'].includes(record.state))
+        .map((record) => record.id));
       await Promise.all([...targets].map((id) => api.stop(id)));
+      const retained = new Set(managed.filter((record) => ids.includes(record.paneId)).map((record) => record.id));
+      await Promise.all([...retained].map((id) => api.forget(id)));
       setWorkspace((w) => {
         const next = ids.reduce((result, id) => closePane(result, id), w);
         if (!next.tabs.some((t) => t.projectId === stateRef.current.selectedId)) setView('history');
@@ -1125,12 +1119,20 @@ export default function App() {
                       if (workspace.panes[info.paneId]) {
                         setWorkspace((w) => closePane(w, newId));
                         focus(info.paneId);
-                      } else
-                        patchPane(newId, {
-                          state: 'failed',
-                          error:
-                            '此 Session 已在受管程序中執行，但目前視圖無法重新附接。請先查看其他工作區。',
-                        });
+                      } else {
+                        void api.runtimes().then((records) => {
+                          if (!records.some((record) => record.id === info.id && record.paneId === info.paneId))
+                            throw new Error('此受管程序已不在背景程序清單中，請重新整理後再試。');
+                          const recovered = reconcileRuntimes(closePane(stateRef.current.workspace, newId), records);
+                          const tab = recovered.tabs.find((item) => paneIds(item.layout).includes(info.paneId));
+                          if (tab) recovered.activeTabByProject[tab.projectId] = tab.id;
+                          setWorkspace(recovered);
+                          if (tab) setSelectedId(tab.projectId);
+                          setAllSessionsSearch(false);
+                          setView('workspace');
+                          setMaximizedId(null);
+                        }).catch((error) => patchPane(newId, { state: 'failed', error: errorMessage(error) }));
+                      }
                     }}
                   />
                 )}

@@ -200,3 +200,7 @@ P2 包含獨立 Session daemon、重新附接、自動派工、同步與外掛�
 ## 整體驗收
 
 使用者能在同一專案找到不同 Agent 的歷史，預覽並恢復正確 Session，再分割出普通 Terminal 執行測試；索引同步與大量輸出時，仍可輸入、切換面板與搜尋。效能的量測方法與暫定門檻見[開發路線圖](roadmap.md)。
+
+## 2026-10-16 持續 Runtime 變更
+
+關閉 UI 不停止已開 Shell／Agent；重開須列出每個已開分頁／面板／專案狀態，附接相同受管程序並還原有界畫面。明確 Stop／關閉面板才結束程序。Broker／電腦重啟後以 interrupted 呈現，不得採用舊 PID 或自動執行指令。此規則取代本文件先前的 close-to-stop MVP 限制；驗收與已知終端限制見[持續執行](persistent-runtime.md)。
