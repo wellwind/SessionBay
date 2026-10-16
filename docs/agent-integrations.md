@@ -1,6 +1,6 @@
 # Session Bay Agent 整合規格
 
-Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋四工具，歷史列舉／解析僅由已實作 adapter 提供。各家沒有通用的本機歷史格式；目前不是動態外掛系統，未知工具或格式不會自動取得歷史能力。
+Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋五工具，歷史列舉／解析僅由已實作 adapter 提供。各家沒有通用的本機歷史格式；目前不是動態外掛系統，未知工具或格式不會自動取得歷史能力。
 
 ## Agent 能力矩陣
 
@@ -12,16 +12,21 @@ Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋�
 | Claude Code CLI／`claude` | `claude` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
 | Grok Build／`grok` | `grok` | 本批新增唯讀 summary／updates adapter | 新工作、索引 Session 或手動 ID 恢復 |
 | Antigravity CLI／`antigravity` | `agy` | CLI metadata＋持久化 step 防禦 reader；1.3.5 真實樣本待驗證 | 新工作、手動 ID；通過原生來源／身份檢查的索引 Session 接續 |
-| Gemini CLI、OpenCode、Aider 等 | 未整合 | 個別研究 | 後續候選 |
+| OpenCode／`opencode` | `opencode` | 官方 v1.19.2 SQLite v1/v2 唯讀 reader；舊 JSON 尚不支援 | 新工作、索引 Session 或手動 ses_ ID 恢復 |
+| Gemini CLI、Aider 等 | 未整合 | 個別研究 | 後續候選 |
 | 各工具桌面版、IDE 與雲端紀錄 | 分別評估 | 不因 CLI 支援就假定涵蓋 | 不自動附接外部程序 |
 
 工具名稱、可執行檔與模型供應商不同。此處 Grok 指 xAI 的 Grok Build CLI；Antigravity 指 `agy` CLI，並非同品牌 App 或 IDE 的通用歷史整合。
 
+## Windows 原生安裝邊界（2026-10-16）
+
+四個 CLI 的目前官方安裝文件均提供原生 Windows 安裝；這只確立上游平台能力，不代表 Session Bay 已通過各版本的新建、歷史與接續驗收。Windows 偵測 PATH／PATHEXT 與已知使用者安裝目錄，優先原生 `.exe`，不執行任意 `.cmd`／`.bat` shim。只找到 batch 時會提供改選官方 native binary 的診斷，不將探測存在視為可啟動；npm 管理的 wrapper 可能包含更新／環境語意，故不猜測拆解其內部腳本。來源、前提與測試清單見[三平台支援](platform-support.md)。
+
 ## 統一來源入口與升級
 
-設定以 TypeScript／Rust 共用的 `src/agent-manifest.json` 內建能力登錄固定列出四工具卡片，不依執行檔偵測、是否曾啟動或來源數量決定可見性。工具是否可執行、是否有歷史 adapter、來源是否已設定／啟用及來源健康各自呈現；多個自訂來源仍按工具管理，不合併來源身份。
+設定以 TypeScript／Rust 共用的 `src/agent-manifest.json` 內建能力登錄固定列出五工具卡片，不依執行檔偵測、是否曾啟動或來源數量決定可見性。工具是否可執行、是否有歷史 adapter、來源是否已設定／啟用及來源健康各自呈現；多個自訂來源仍按工具管理，不合併來源身份。
 
-全新設定依 registry 預置四個 CLI 來源；升級則保留原本來源的 ID、root 與 enabled。因此舊設定可能只有前兩者，原因與是否曾開啟 Grok 無關。Grok 卡片在缺來源時提供設定入口，先加入可編輯草稿，使用者填入絕對路徑並保存後才生效；不從前端猜使用者 home，也不在升級或開啟設定時自動開始索引新根目錄。Antigravity CLI 卡片沿用同一偵測／新增／保存流程；來源沒有環境變數 override，不因自訂備份 root 就改 HOME。
+全新設定依 registry 預置五個 CLI 來源；升級則保留原本來源的 ID、root 與 enabled。因此舊設定可能只有前兩者，原因與是否曾開啟 Grok 無關。Grok 卡片在缺來源時提供設定入口，先加入可編輯草稿，使用者填入絕對路徑並保存後才生效；不從前端猜使用者 home，也不在升級或開啟設定時自動開始索引新根目錄。Antigravity CLI 卡片沿用同一偵測／新增／保存流程；來源沒有環境變數 override，不因自訂備份 root 就改 HOME。
 
 ## 內建 provider 登錄與偵測
 
@@ -91,7 +96,7 @@ project 資料夾名稱可能來自路徑編碼，但編碼不保證可逆；優
 
 設定中的參數使用 JSON 字串陣列，例如 `["--model", "your-model-id"]`；每個元素就是一個 argv，含空白的值仍是一個元素，不需要 Shell 引號。最多 64 個非空參數，每項最多 8 KiB，不允許 NUL。模型 ID 需依安裝的 CLI 與帳號能力選擇。
 
-後端採工具專屬白名單，檢查 switch／帶值參數及已知權限值；未知參數、任意子命令、位置參數、工作目錄、來源、Session ID 與 config override 均不能繞過啟動計畫。這不是可任意填入整條 Shell 命令的欄位；完整白名單以 `src-tauri/src/launch_options.rs` 的 `supported_options` 為準，驗證錯誤也會列出可用選項。常用選項包括四工具的 `--model`、Claude／Grok／Antigravity 的 `--effort`，以及各工具自己的權限／沙箱選項。
+後端採工具專屬白名單，檢查 switch／帶值參數及已知權限值；未知參數、任意子命令、位置參數、工作目錄、來源、Session ID 與 config override 均不能繞過啟動計畫。這不是可任意填入整條 Shell 命令的欄位；完整白名單以 `src-tauri/src/launch_options.rs` 的 `supported_options` 為準，驗證錯誤也會列出可用選項。常用選項包括五工具的 `--model`、Claude／Grok／Antigravity 的 `--effort`，以及各工具自己的權限／沙箱選項。
 
 危險選項必須先明確勾選該 Agent 的高風險選項。預設不追加跳過權限旗標，不會只因填入 `--yolo` 就繞過同意；原 CLI 自己的設定仍可能影響實際權限，Session Bay 不強制覆蓋它。勾選並保存一次後，之後啟動沿用，Session Bay 不再逐次彈出確認；啟動器仍標示風險。CLI 登入、工作區信任或管理政策可能另外要求操作。
 
@@ -170,3 +175,7 @@ usage 解析保留來源 locator 與 token 包含關係。resume、fork、子代
 設定可透過共用 `detect_history_sources(kind)` 檢查 registry 的 `sourceEnv` 與 `defaultDirectory`，最多兩個 root，並用 canonical path 去重已儲存來源。`found` 只表示來源根目錄可讀，不表示已找到任何 Session。Grok 的 `probeDirectory=sessions` 另檢查歷史子目錄；加入值仍是 Grok 資料根。偵測不啟動 CLI、不讀 transcript、不遞迴掃描、不自動保存／索引。環境變數只讀取 registry allowlist。
 
 Antigravity CLI 使用 `defaultDirectory=.gemini/antigravity-cli`、`probeDirectory=brain`，不讀 App／IDE 根目錄。官方 `/resume` 與 Session Bay 的防禦 reader 是不同能力；後者的相容性證據與剩餘 1.3.5 驗收見[專章](antigravity-cli-history.md)。最近對話 cache 或 stdout stream-json 都不能冒充完整持久化歷史。
+
+## OpenCode（2026-10-16）
+
+SQLite 歷史、XDG 路徑、OPENCODE_DB 精確接續、--auto opt-in、合成 fixtures 與明確限制，見 [OpenCode 整合與驗證](opencode-integration.md)。

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeWorkspaceTabId,
+  selectWorkspaceTab,
+  mergeWorkspaceProjects,
   closePane,
   emptyWorkspace,
   layoutRects,
@@ -7,6 +10,7 @@ import {
   paneIds,
   patchWorkspacePane,
   restoreWorkspace,
+  reconcileRuntimes,
   serializeWorkspace,
   setRatio,
   splitNode,
@@ -18,7 +22,7 @@ import {
   shortcutDefaults,
 } from './commands';
 import { TerminalInputQueue } from './terminal-queue';
-import type { Pane, Workspace } from './types';
+import type { Pane, RuntimeRecord, Workspace } from './types';
 const pane = (id: string): Pane => ({
   id,
   kind: 'shell',
@@ -139,28 +143,25 @@ describe('workspace layout', () => {
     expect(new Date(localDayBound('2026-10-15', true)!).getMilliseconds()).toBe(999);
   });
 });
-describe('successful shell exit cleanup', () => {
-  it.each(['starting', 'running'] as const)('closes only a %s shell pane and preserves its split sibling', (state) => {
+describe('retained shell exits', () => {
+  it.each(['starting', 'running'] as const)('retains a completed %s shell pane and preserves its split sibling', (state) => {
     const previous = workspace();
     previous.panes.a.state = state;
     const next = patchWorkspacePane(previous, 'a', { state: 'exited', exitCode: 0 });
-    expect(next.panes.a).toBeUndefined();
-    expect(next.tabs[0]).toMatchObject({ focusedPaneId: 'b', layout: { kind: 'pane', paneId: 'b' } });
+    expect(next.panes.a).toMatchObject({ state: 'exited', exitCode: 0 });
+    expect(next.tabs[0]).toEqual(previous.tabs[0]);
     expect(next.panes.b).toEqual(previous.panes.b);
     expect(next.panes.c).toEqual(previous.panes.c);
     expect(next.tabs[1]).toEqual(previous.tabs[1]);
     expect(next.activeTabByProject).toEqual(previous.activeTabByProject);
     expect(previous.panes.a).toBeDefined();
   });
-  it('removes an exited last pane and tab, then focuses the surviving tab', () => {
+  it('retains the last pane and tab after exit', () => {
     const previous = closePane(workspace(), 'a');
     const next = patchWorkspacePane(previous, 'b', { state: 'exited', exitCode: 0 });
-    expect(next.tabs.map((tab) => tab.id)).toEqual(['second']);
-    expect(next.activeTabByProject.project).toBe('second');
-    expect(next.panes.c).toEqual(previous.panes.c);
-    const empty = patchWorkspacePane(next, 'c', { state: 'exited', exitCode: 0 });
-    expect(empty).toEqual(emptyWorkspace());
-    expect(patchWorkspacePane(empty, 'c', { state: 'exited', exitCode: 0 })).toBe(empty);
+    expect(next.tabs).toEqual(previous.tabs);
+    expect(next.activeTabByProject).toEqual(previous.activeTabByProject);
+    expect(next.panes.b).toMatchObject({ state: 'exited', exitCode: 0 });
   });
   it('keeps the active tab and another project unchanged when a background shell exits', () => {
     const previous = workspace();
@@ -168,7 +169,7 @@ describe('successful shell exit cleanup', () => {
     previous.tabs.push({ id: 'foreign-tab', projectId: 'other-project', name: 'Elsewhere', focusedPaneId: 'd', layout: { kind: 'pane', paneId: 'd' } });
     previous.activeTabByProject['other-project'] = 'foreign-tab';
     const next = patchWorkspacePane(previous, 'c', { state: 'exited', exitCode: 0 });
-    expect(next.tabs.map((tab) => tab.id)).toEqual(['tab', 'foreign-tab']);
+    expect(next.tabs.map((tab) => tab.id)).toEqual(['tab', 'second', 'foreign-tab']);
     expect(next.activeTabByProject).toEqual(previous.activeTabByProject);
     expect(next.panes.a).toEqual(previous.panes.a);
     expect(next.panes.d).toEqual(previous.panes.d);
@@ -195,7 +196,7 @@ describe('successful shell exit cleanup', () => {
     expect(next.activeTabByProject).toEqual(previous.activeTabByProject);
   });
   it('does not resurrect an already removed pane after duplicate exits or late runtime responses', () => {
-    const closed = patchWorkspacePane(workspace(), 'a', { state: 'exited', exitCode: 0 });
+    const closed = closePane(workspace(), 'a');
     expect(patchWorkspacePane(closed, 'a', { state: 'exited', exitCode: 0 })).toBe(closed);
     expect(patchWorkspacePane(closed, 'a', { runtimeId: 'late-runtime' })).toBe(closed);
   });
@@ -311,7 +312,7 @@ describe('bounded terminal input queue', () => {
 
 
 describe('additional agent workspace persistence', () => {
-  it.each(['grok', 'antigravity'] as const)('round-trips a %s conversation ID without its runtime or automatic start token', (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('round-trips a %s conversation ID without its runtime or automatic start token', (kind) => {
     const saved = workspace();
     saved.panes.a = { ...saved.panes.a, kind, resumeId: 'synthetic-conversation' };
     const serialized = serializeWorkspace(saved) as Workspace;
@@ -330,4 +331,127 @@ describe('additional agent workspace persistence', () => {
     expect(restored.panes.a).toMatchObject({ kind: 'grok', state: 'placeholder' });
     expect(restored.panes.a.resumeId).toBeUndefined();
   });
+});
+
+describe('authoritative broker reconciliation', () => {
+  const record = (patch: Partial<RuntimeRecord> = {}): RuntimeRecord => ({
+    id: 'broker-id', paneId: 'a', kind: 'shell', projectId: 'project', profileId: null,
+    resumeId: null, sessionId: null, cwd: '/broker/path', state: 'running', exitCode: null, ...patch,
+  });
+  it('uses broker identities and metadata while preserving saved split geometry', () => {
+    const saved = restoreWorkspace(workspace());
+    const next = reconcileRuntimes(saved, [record()]);
+    expect(next.tabs).toEqual(saved.tabs);
+    expect(next.panes.a).toMatchObject({ runtimeId: 'broker-id', state: 'running', cwd: '/broker/path' });
+    expect(next.panes.a.startToken).toBeUndefined();
+    expect(next.panes.b.runtimeId).toBeUndefined();
+    expect(next.panes.b.state).toBe('placeholder');
+    expect(JSON.stringify(serializeWorkspace(next))).not.toMatch(/broker-id|runtimeId|startToken/);
+  });
+  it('recovers orphan panes with no saved workspace or catalog project', () => {
+    const next = reconcileRuntimes(emptyWorkspace(), [record({ projectId: null })]);
+    expect(next.panes.a).toMatchObject({ projectId: null, runtimeId: 'broker-id' });
+    expect(next.tabs).toHaveLength(1);
+    expect(paneIds(next.tabs[0].layout)).toEqual(['a']);
+    expect(next.activeTemporaryTabId).toBe(next.tabs[0].id);
+    expect(next.activeTabByProject).toEqual({});
+    expect(mergeWorkspaceProjects([], next)).toEqual([]);
+  });
+  it('moves a mismatched saved pane to the authoritative project without removing its siblings', () => {
+    const next = reconcileRuntimes(restoreWorkspace(workspace()), [record({ projectId: 'correct-project' })]);
+    expect(next.panes.a.projectId).toBe('correct-project');
+    expect(paneIds(next.tabs[0].layout)).toEqual(['b']);
+    expect(next.tabs.find((tab) => tab.projectId === 'correct-project')?.focusedPaneId).toBe('a');
+  });
+  it.each(['exited', 'failed', 'interrupted'])('keeps %s records for inspection without a start token', (state) => {
+    const next = reconcileRuntimes(emptyWorkspace(), [record({ state, exitCode: state === 'exited' ? 0 : null })]);
+    expect(next.panes.a.state).toBe(state);
+    expect(next.panes.a.startToken).toBeUndefined();
+    if (state === 'interrupted') expect(next.panes.a.error).toContain('背景程序已中斷');
+  });
+  it('does not duplicate tabs when reapplying the same authoritative records', () => {
+    const first = reconcileRuntimes(emptyWorkspace(), [record()]);
+    expect(reconcileRuntimes(first, [record(), record()])).toEqual(first);
+  });
+});
+
+it('discards unsent input when its attachment is cancelled, including reuse of the same runtime ID', async () => {
+  const sent: string[] = [];
+  let finish!: () => void;
+  const queue = new TerminalInputQueue(async (_id, data) => {
+    sent.push(data);
+    if (data === 'sent') await new Promise<void>((resolve) => { finish = resolve; });
+  }, () => {});
+  queue.enqueue('runtime', 'sent');
+  queue.enqueue('runtime', 'stale');
+  await Promise.resolve();
+  queue.cancel();
+  queue.enqueue('runtime', 'new attachment');
+  finish();
+  await queue.drained();
+  expect(sent).toEqual(['sent', 'new attachment']);
+  expect(queue.pending).toBe(0);
+});
+
+
+describe('global temporary terminal workspace', () => {
+  const temporary = (): Workspace => {
+    const w = workspace();
+    w.panes.a.projectId = null;
+    w.panes.a.homeDirectory = true;
+    w.panes.b.projectId = null;
+    w.tabs[0].projectId = null;
+    w.activeTemporaryTabId = w.tabs[0].id;
+    w.activeTabByProject.project = 'second';
+    return w;
+  };
+  it('round-trips null scope without manufacturing catalog or workspace-only projects', () => {
+    const restored = restoreWorkspace(serializeWorkspace(temporary()));
+    expect(restored.tabs[0].projectId).toBeNull();
+    expect(restored.panes.a.projectId).toBeNull();
+    expect(restored.panes.a.homeDirectory).toBe(true);
+    expect(restored.activeTemporaryTabId).toBe('tab');
+    expect(restored.activeTabByProject).toEqual({ project: 'second' });
+    expect(mergeWorkspaceProjects([], { ...restored, tabs: [restored.tabs[0]] })).toEqual([]);
+    expect(JSON.stringify(restored)).not.toContain('recovered-');
+  });
+  it('keeps global and project selection independent, and closes only requested panes', () => {
+    const w = temporary();
+    w.tabs.push({ id: 'temporary-two', projectId: null, name: 'Terminal 2', focusedPaneId: 'd', layout: { kind: 'pane', paneId: 'd' } });
+    w.panes.d = { ...pane('d'), projectId: null };
+    const selected = selectWorkspaceTab(w, w.tabs[2]);
+    expect(activeWorkspaceTabId(selected, null)).toBe('temporary-two');
+    expect(activeWorkspaceTabId(selected, 'project')).toBe('second');
+    expect(activeWorkspaceTabId(selected, undefined)).toBeUndefined();
+    const closed = closePane(selected, 'd');
+    expect(closed.activeTemporaryTabId).toBe('tab');
+    expect(closed.panes.c.runtimeId).toBe('live-id');
+    expect(closed.activeTabByProject).toEqual({ project: 'second' });
+    expect(closePane(closePane(closed, 'a'), 'b').activeTemporaryTabId).toBeUndefined();
+  });
+  it('does not accept a saved global tab that embeds project-owned panes', () => {
+    const w = temporary();
+    w.tabs[0].layout = { kind: 'pane', paneId: 'c' };
+    const restored = restoreWorkspace(w);
+    expect(restored.tabs.some((tab) => tab.projectId === null)).toBe(false);
+    expect(restored.panes.c.projectId).toBe('project');
+  });
+  it('uses authoritative null identity even when a saved pane claims a project', () => {
+    const next = reconcileRuntimes(workspace(), [{ id: 'runtime-global', paneId: 'a', kind: 'shell',
+      projectId: null, profileId: 'default', resumeId: null, sessionId: null,
+      cwd: '/trusted/home', state: 'running', exitCode: null }]);
+    expect(next.panes.a).toMatchObject({ projectId: null, cwd: '/trusted/home', runtimeId: 'runtime-global' });
+    expect(next.panes.b.projectId).toBe('project');
+    expect(next.tabs.find((tab) => tab.projectId === null)?.focusedPaneId).toBe('a');
+    expect(next.panes.a.startToken).toBeUndefined();
+    expect(mergeWorkspaceProjects([], { ...next, tabs: next.tabs.filter((tab) => tab.projectId === null) })).toEqual([]);
+  });
+});
+
+it('takes home launch policy only from the broker when restoring a live global runtime', () => {
+  const next = reconcileRuntimes(emptyWorkspace(), [{ id: 'home-runtime', paneId: 'home-pane', kind: 'shell',
+    projectId: null, profileId: null, sessionId: null, resumeId: null, cwd: '/trusted/home',
+    state: 'running', exitCode: null, homeDirectory: true }]);
+  expect(next.panes['home-pane'].homeDirectory).toBe(true);
+  expect(restoreWorkspace(serializeWorkspace(next)).panes['home-pane'].homeDirectory).toBe(true);
 });

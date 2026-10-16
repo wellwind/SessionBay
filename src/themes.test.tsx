@@ -22,7 +22,7 @@ function contrast(a: string, b: string): number {
 const settings: Settings = {
   version: 1, theme: 'dark', terminalTheme: 'classic', fontFamily: 'monospace', fontSize: 14,
   defaultAgent: 'codex', defaultProfileId: 'shell', profiles: [{ id: 'shell', name: 'Shell', executable: '/bin/sh', args: [], env: {} }],
-  sources: [], executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy' },
+  sources: [], executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
   agentOptions: defaultAgentOptions(), shortcuts: { ...shortcutDefaults }, onboardingComplete: true,
 };
 const index = { running: false, processed: 0, total: 0, cancelled: false, errors: [], sources: [] };

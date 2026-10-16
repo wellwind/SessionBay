@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { ProjectDialog } from './components/ProjectDialog';
+import { canPickDirectory, pickDirectory } from './directory-picker';
+vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
 import type { Project } from './types';
 
 vi.mock('./api', () => ({
@@ -27,6 +29,8 @@ async function submit(name: string) {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name })); });
 }
 beforeEach(() => {
+  vi.mocked(canPickDirectory).mockReturnValue(false);
+  vi.mocked(pickDirectory).mockReset();
   vi.mocked(api.addProject).mockReset().mockResolvedValue(project);
   vi.mocked(api.createProject).mockReset().mockResolvedValue(project);
 });
@@ -116,5 +120,46 @@ describe('project dialog mutations', () => {
     expect(onSaved).not.toHaveBeenCalled();
     expect(api.addProject).not.toHaveBeenCalled();
     expect(api.createProject).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('project directory selection', () => {
+  beforeEach(() => { vi.mocked(canPickDirectory).mockReturnValue(true); });
+  it.each(['existing', 'create'] as const)('fills only the %s path draft until explicit submit', async (mode) => {
+    vi.mocked(pickDirectory).mockResolvedValue('/synthetic/picked');
+    const { onSaved } = setup();
+    if (mode === 'create') fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
+    const label = mode === 'create' ? '上層目錄路徑' : '目錄路徑';
+    await submit(`選擇${label}`);
+    expect(screen.getByLabelText(label)).toHaveValue('/synthetic/picked');
+    expect(api.addProject).not.toHaveBeenCalled();
+    expect(api.createProject).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    if (mode === 'create') fireEvent.change(screen.getByLabelText('專案名稱（新資料夾名稱）'), { target: { value: 'new-project' } });
+    await submit(mode === 'create' ? '建立並加入' : '加入專案');
+    if (mode === 'create') expect(api.createProject).toHaveBeenCalledExactlyOnceWith('/synthetic/picked', 'new-project');
+    else expect(api.addProject).toHaveBeenCalledExactlyOnceWith('/synthetic/picked', undefined);
+  });
+  it('ignores an old selection after switching between existing and create modes', async () => {
+    const pending = deferred<string | null>();
+    vi.mocked(pickDirectory).mockReturnValueOnce(pending.promise);
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: '選擇目錄路徑' }));
+    fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
+    await act(async () => pending.resolve('/old-selection'));
+    expect(screen.getByLabelText('上層目錄路徑')).toHaveValue('');
+    expect(api.addProject).not.toHaveBeenCalled();
+    expect(api.createProject).not.toHaveBeenCalled();
+  });
+  it('retains backend validation when a selected directory becomes inaccessible', async () => {
+    vi.mocked(pickDirectory).mockResolvedValue('/unavailable');
+    vi.mocked(api.addProject).mockRejectedValueOnce(new Error('Directory does not exist'));
+    setup();
+    await submit('選擇目錄路徑');
+    await submit('加入專案');
+    expect(screen.getByRole('alert')).toHaveTextContent('Directory does not exist');
+    expect(screen.getByLabelText('目錄路徑')).toHaveValue('/unavailable');
+    expect(screen.getByRole('button', { name: '選擇目錄路徑' })).toBeEnabled();
   });
 });

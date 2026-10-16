@@ -1,5 +1,50 @@
 # MVP 實作與驗收紀錄
 
+## 2026-10-16 PR #3 獨立審查修正
+
+後續審查確認並修正三項 Windows 問題：設定 UI 原本只接受 `/` 開頭而阻擋原生首次設定保存；ConPTY 測試在 readiness／completion 之間重設 sequence cursor；Catalog／Grok 合成歷史使用 Unix 絕對路徑而在 Windows 失去原本測試語意。
+
+設定路徑檢查現在依原生平台接受 drive-absolute、UNC、extended-length 檔案系統路徑，拒絕 drive/root-relative、裝置、ADS 與控制字元；後端仍是安全檢查權威。新增 Win32 首次設定保存、來源偵測、目錄選擇結果字串保留及非法路徑阻擋回歸。事件測試以共用 cursor 保留所有輸出與 ACK，跨平台合成測試仍拒絕重複／跳號，不跳過原生測試；歷史 fixtures 改用平台原生絕對路徑並檢查確實分入專案。
+
+修正後 Linux cloud：**前端 15 檔 453／453、Rust core 251／251** 通過；typecheck、lint、production build、fmt、Linux core strict Clippy、Windows GNU desktop all-target strict Clippy 通過。Windows 全部 core test executables 的 `--no-run` 交叉連結亦通過；交叉編譯與模擬 Win32 DOM 回歸都不等於 Windows native、macOS native 或完整手動 matrix 通過。
+
+## 2026-10-16 三平台獨立 PR 驗證
+
+基線為 main `a609f04101604501895186f14dad9ad77d44989c`。新增 Windows ConPTY backend、原生 Shell／執行檔／路徑偵測、安全唯讀歷史 handle identity、跨平台 Tauri launcher、NSIS 設定及手動 Windows CI。此 PR 與目錄選擇 dialog 獨立；不包含背景持續執行 broker。
+
+Linux cloud 最終執行：**前端 14 檔 401／401、Rust core 248／248** 通過；typecheck、lint、production build、fmt、core all-target strict Clippy、44 組語意色彩對比及 10 個 ICNS representations 通過。原有隔離 HOME helper 為 1 個 ignored 子程序入口，由 wrapper 實際呼叫；Windows-only 測試在 Linux 不執行，不能算進原生通過數。
+
+使用官方 Rust target 與 Debian 簽章索引／SHA-256 驗證後的 workspace MinGW，正式 repo **`x86_64-pc-windows-gnu` 的 core＋所有 test targets、包含 Tauri desktop 的 all-target check／strict Clippy 均通過**；bundled SQLite 使用真實 MinGW 編譯，沒有切換依賴或以 stub 取代。`cargo test --locked --no-default-features --target x86_64-pc-windows-gnu --no-run` 已成功連結全部 Windows test executables；這些 `.exe` 未執行，GNU 交叉編譯不等於 MSVC／NSIS 原生 build 通過。
+
+獨立 source review 找到並修復兩項：portable-pty 裸 `conpty.dll` 載入的 CWD／PATH 搜尋風險，以 checked process-local DLL search policy 封閉；ConPTY 控制字元污染版本結果，以版本專用 decoder 過濾。已加入 Windows CWD／PATH shadow DLL 與乾淨／silent version 合成 regression，修正後獨立複查沒有剩餘具體缺陷；原生執行仍待驗。ConPTY 所有權限於附著的 console descendants，不承諾清理刻意 detached／new-console 程序。
+
+GitHub Node 20 action runtime 已於 2026-09-23 移除。本 PR 更新兩份 workflows 的 checkout／setup-node／upload-artifact 至官方 Node 24 release 並固定完整 SHA；專案 Node 24 不變。日常仍只有 Linux lightweight；完整手動 matrix 為 Linux、macOS ARM64、macOS Intel、Windows x64，**四個 jobs 必須在同一提交全部成功才算三 OS CI 通過**。沒有手動觸發完整 matrix、修改帳務或 required checks。
+
+本環境沒有 Windows／macOS native executor，也缺 Linux WebKitGTK 開發套件。本輪未跑 native desktop build／NSIS installer／WebView／真實 CLI／IME，ADD-14 與相關原生清單保持未完成。驗收步驟及限制見[三平台支援](platform-support.md)。以下舊紀錄保留其當時範圍，不能取代本批 native 結果。
+
+
+## 2026-10-16 原生資料夾選擇器（獨立變更）
+
+本批從 main `a609f041` 分支，僅加入本機目錄選擇器；與三平台移植分開，不把 plugin 的 Windows API 支援視為應用程式的 Windows 驗收。
+
+- 加入既有專案、建立專案的上層目錄、歷史來源根目錄、重新定位與啟動工作目錄使用共同欄位元件；手動輸入、原本儲存／驗證／canonicalization 流程保留。
+- Tauri Rust 與 npm dialog plugin 固定為 `2.8.3`，兩份 lockfile 已更新；僅啟用 `dialog:allow-open` 與既有安全確認所需的 `dialog:allow-message`，不新增 filesystem／save API 權限。上游 dialog crate 依賴 filesystem crate，但應用未註冊 filesystem plugin 或授予其命令權限。對話框設定 `directory: true`、`multiple: false`、`recursive: false`。
+- 選取／取消均不自動提交、建立目錄、掃描或啟動；重複點擊、選取失敗、較新手動輸入（包含改回原值）、關閉／重新開啟、模式／設定區段切換、來源移除、儲存鎖定與焦點回復均有回歸測試。
+
+- PR review 修正官方 plugin 將 `window.confirm` 改為 Promise 的跨功能影響。測試執行固定版本原始 `init-iife.js`，核對真正 `Cancel`／`Ok`、IPC 拒絕與未處理 rejection；多行貼上與停止程序皆 fail closed，等待期間重新啟動、退出、切換分頁、關閉面板或較晚的剪貼簿結果不作用於新目標。這是合成 IPC 回歸，不冒充原生 OS modal 實機驗收。
+
+| 驗證 | 本批結果與限制 |
+| --- | --- |
+| 前端 aggregate | typecheck、ESLint、Vitest **16 檔 465 測試**與 production build 通過；包含官方 initializer 的 async confirmation 回歸。共用雲端預設並行曾出現測試逾時／worker SIGKILL，改以 `--maxWorkers=2` 完整重跑通過，沒有略過測試或放寬 timeout |
+| Rust 核心 | `cargo test --locked --no-default-features` **241 通過、1 個既有 ignore**；strict all-target core Clippy 與 rustfmt 通過 |
+| 靜態視覺資產 | 44 組語意色彩與 10 個 ICNS representations 檢查通過；不代表 painted-pixel／原生視窗驗收 |
+| 桌面 feature 檢查 | 已嘗試 `cargo check --locked`，在 `gobject-sys` 建置時因缺少 `gobject-2.0.pc`（GTK／WebKit 開發依賴）受阻，未通過，亦未宣稱原生 bundle 成功 |
+| 畫面截圖 | 雲端 Chromium 在啟動時因 `socket() failed: Operation not permitted` 退出，尚未載入頁面；沒有可作為驗收的截圖，未停用瀏覽器 sandbox 繞過 |
+| 三個 OS 原生選取 | macOS／Windows／Linux 實際系統對話框、OS 權限拒絕、隱藏資料夾及螢幕閱讀器互動尚待實機驗收；單元測試以合成回傳值驗證路徑／取消／錯誤契約 |
+| CI／發行 | 保持既有省成本工作流程；未手動觸發完整矩陣，未變更帳務、合併或發布。遠端 exact-commit 狀態以 PR Checks 為準 |
+
+原生驗收仍應涵蓋：各 OS 的選擇／取消、手動隱藏目錄、含空白／中文路徑、不可存取或已移除目錄、連續開關與焦點回到欄位，以及明確儲存前沒有新增專案／索引／程序。以下較舊檢查點只代表當時提交。
+
 日期：2026-10-15。狀態：**主要開發流程已有實作與自動回歸；部分原始任務及完整原生平台驗收尚未完成**。不能將本報告解讀成正式發布或兩個 OS 都已實機通過。
 
 ## 2026-10-15 使用者驗收與合併前紀錄
