@@ -21,6 +21,7 @@ import { api, errorMessage } from '../api';
 import { TerminalInputQueue } from '../terminal-queue';
 import { shouldHandleTerminalKey } from '../terminal-ime';
 import { RenameDialog } from './RenameDialog';
+import { hasBlockingDialog } from '../dialog-focus';
 import type { Pane, RuntimeInfo, Settings } from '../types';
 const themes = {
   bay: {
@@ -210,9 +211,11 @@ export function TerminalPane({
   }, [settings.fontSize, settings.fontFamily, settings.terminalTheme, fitNow]);
   useEffect(() => {
     if (visible) {
+      const scheduledFrom = document.activeElement;
       const frame = requestAnimationFrame(() => {
         fitNow();
-        if (focused && pane.state !== 'placeholder') term.current?.focus();
+        // Do not steal focus acquired by a modal or another control after scheduling.
+        if (focused && pane.state !== 'placeholder' && !hasBlockingDialog() && document.activeElement === scheduledFrom) term.current?.focus();
       });
       return () => cancelAnimationFrame(frame);
     }
@@ -337,7 +340,7 @@ export function TerminalPane({
           <span className={`runtime-dot ${pane.state}`} />
         </div>
         <div className="pane-actions">
-          <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={() => setRenameOpen(true)}><Pencil size={14} /></button>
+          <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
           <button
             className="icon-button"
             title="搜尋終端文字"

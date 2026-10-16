@@ -20,10 +20,11 @@
 
 ## 自動化驗證
 
-- 本機 Linux 前端 typecheck、lint、Vitest（14 suites／411 tests）與 production build 通過。
+- 本機 Linux 前端 typecheck、lint、Vitest（15 suites／421 tests）與 production build 通過。
 - 新增純函式與 UI 測試：名稱邊界／Unicode、取消與失敗重試、連按與忙碌鎖定、跨專案隔離、drop 前不寫、Escape／dragend 取消、外部拖曳拒絕、鍵盤移動與邊界、數字快捷鍵、名稱與順序 serialization round-trip。
 - App 整合測試：名稱與排序進入保存佇列、只送專案 name、不新增專案／目錄、未重建 workspace canvas。
 - Terminal 模擬回歸：改名保留實例，沒有 stop／relaunch，原 runtime 仍可接收輸入。
+- 焦點安全回歸：真實 textarea 焦點驗證未聚焦面板及 starting→running 的延遲 rAF 不會搶走名稱輸入框；即使先關閉對話框也保留 opener。共用 Dialog 涵蓋子元素 autoFocus、IME Escape 不丟草稿、Tab／Shift＋Tab 循環與正常 Escape 返回焦點；正常 Terminal 重新顯示仍可聚焦。
 - Rust 核心／PTY 測試包含既有專案改名後的 membership、Session metadata、重啟／重建索引保留，以及真實 PTY 輸入／輸出／退出處理；此 PR 沒有 Rust 程式碼變更。
 - 本機 Rust `--locked --no-default-features`：241 tests 通過；1 個隔離子程序 helper 預設 ignored，由父測試單獨執行。fmt、核心 Clippy、44 組語義色彩對比及 10 個圖示表示檢查通過；靜態資產檢查不是逐畫面驗收。
 

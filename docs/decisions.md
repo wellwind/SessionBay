@@ -259,3 +259,9 @@
 - 持續 Runtime PR 優先；若其先合併，此 PR 須 rebase 並重跑生命週期／保存驗證，不以自動合併代替整合檢查。原生 macOS／Linux 拖曳、焦點、視覺與重開驗收仍待執行，不能標成完成。
 
 詳細驗收與範圍見 [工作區整理](workspace-organization.md)。
+
+## 2026-10-16 工作區整理複查：對話框焦點與組字保護
+
+重新命名對話框開啟期間，Terminal 延後執行的 focus 必須在實際回呼時檢查阻擋式對話框及焦點是否已轉移；仍保留正常工作區重新顯示的 Terminal focus 與尺寸重算，不改 PTY 生命週期或輸入協定。共用 Dialog 在子元素自動聚焦前記住 opener，關閉後只恢復仍存在、且不在即將移除對話框內的元素；名稱入口明確聚焦以涵蓋不會自動聚焦按鈕的瀏覽器。
+
+Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode 229 路徑）不取消草稿；組字結束後仍可正常取消，Tab／Shift＋Tab 維持原焦點循環。新增真實 DOM 輸入焦點及可取消 rAF 回歸，涵蓋未聚焦面板開啟重新命名、starting 轉 running、對話框關閉後的延遲 focus、鍵盤關閉與焦點返回。原生 WebView／實際 IME 驗收仍待執行。

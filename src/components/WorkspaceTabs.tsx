@@ -75,7 +75,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
         <TerminalSquare size={13} /><span className="workspace-tab-name">{tab.name}</span>
         <span>{paneIds(tab.layout).length}</span>
       </button>
-      <button aria-label={`重新命名分頁 ${tab.name}`} title="重新命名分頁" onClick={() => onRename(tab)}><Pencil size={13} /></button>
+      <button aria-label={`重新命名分頁 ${tab.name}`} title="重新命名分頁" onClick={(event) => { event.currentTarget.focus(); onRename(tab); }}><Pencil size={13} /></button>
       <button aria-label={`關閉分頁 ${tab.name}`} onClick={() => onClose(tab)}><X size={12} /></button>
     </div>)}
   </>;

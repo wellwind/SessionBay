@@ -142,3 +142,27 @@ describe('tab reordering controls', () => {
     expect(screen.getByRole('status')).toHaveTextContent('第 3 個');
   });
 });
+
+
+it('regression: rename dialog returns focus to its invoking button after cancel', () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return <><button onClick={() => setOpen(true)}>Rename trigger</button>{open && <RenameDialog title="Rename" name="Old" description="Only a label" onSave={vi.fn()} onClose={() => setOpen(false)} />}</>;
+  }
+  render(<Harness />);
+  const trigger = screen.getByRole('button', { name: 'Rename trigger' });
+  trigger.focus();
+  fireEvent.click(trigger);
+  expect(screen.getByLabelText('顯示名稱')).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: '取消' }));
+  expect(trigger).toHaveFocus();
+});
+
+it('regression: Escape while composing a display name should not close rename', () => {
+  const close = vi.fn();
+  render(<RenameDialog title="Rename" name="Old" description="Only a label" onSave={vi.fn()} onClose={close} />);
+  const input = screen.getByLabelText('顯示名稱');
+  fireEvent.compositionStart(input);
+  fireEvent.keyDown(input, { key: 'Escape', isComposing: true, keyCode: 229 });
+  expect(close).not.toHaveBeenCalled();
+});

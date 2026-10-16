@@ -950,7 +950,7 @@ export default function App() {
                 {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
               </button>}
               {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}
-                onClick={() => setRenameTarget({ kind: 'project', id: current.id, name: current.name })}>
+                onClick={(event) => { event.currentTarget.focus(); setRenameTarget({ kind: 'project', id: current.id, name: current.name }); }}>
                 <Pencil size={14} />重新命名專案
               </button>}
               {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}

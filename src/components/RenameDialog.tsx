@@ -30,7 +30,7 @@ export function RenameDialog({ title, name, description, onSave, onClose }: {
     }}>
       <p className="dialog-description">{description}</p>
       <label className="field-label" htmlFor={id}>顯示名稱
-        <input id={id} autoFocus value={draft} disabled={busy} aria-invalid={!!validation || !!error}
+        <input id={id} value={draft} disabled={busy} aria-invalid={!!validation || !!error}
           aria-describedby={`${id}-help ${id}-error`} onFocus={(event) => event.currentTarget.select()}
           onChange={(event) => { setDraft(event.target.value); setError(''); }} />
       </label>
