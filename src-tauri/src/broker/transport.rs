@@ -8,8 +8,10 @@ use interprocess::local_socket::{
 };
 #[cfg(all(unix, not(target_os = "macos")))]
 use interprocess::os::unix::local_socket::ListenerOptionsExt;
+#[cfg(unix)]
+use std::fs::OpenOptions;
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io,
     path::{Path, PathBuf},
     time::Duration,
@@ -50,22 +52,20 @@ pub fn private_directory(parent: &Path) -> io::Result<PathBuf> {
 }
 
 pub fn lock(directory: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
-    {
+    let file = {
         use std::os::unix::fs::OpenOptionsExt;
-        options
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(directory.join("broker.lock"))?
+    };
     #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let file = options.open(directory.join("broker.lock"))?;
+    let file = windows::open_lock(&directory.join("broker.lock"))?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::other("Runtime lock is not a regular file"));
     }
@@ -85,9 +85,18 @@ pub fn lock(directory: &Path) -> io::Result<File> {
     }
     #[cfg(windows)]
     windows::verify_file(&file)?;
-    file.try_lock()
-        .map_err(|error| io::Error::new(io::ErrorKind::WouldBlock, error.to_string()))?;
+    // Preserve permission/unsupported/I/O errors. Only TryLockError::WouldBlock
+    // proves another handle currently owns the broker lock.
+    file.try_lock().map_err(io::Error::from)?;
     Ok(file)
+}
+
+pub fn ownership_available(directory: &Path) -> io::Result<bool> {
+    match lock(directory) {
+        Ok(_ownership) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
@@ -265,5 +274,85 @@ mod tests {
         });
         fs::remove_file(&socket).unwrap();
         fs::remove_dir(socket.parent().unwrap()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+
+    #[test]
+    fn lock_io_errors_keep_their_original_kind() {
+        let error = io::Error::from(std::fs::TryLockError::Error(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "synthetic access denial",
+        )));
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            io::Error::from(std::fs::TryLockError::WouldBlock).kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn concurrent_lock_creation_has_exactly_one_owner_and_releases_on_drop() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_directory(root.path()).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let readers: Vec<_> = (0..2)
+            .map(|_| {
+                let directory = directory.clone();
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    lock(&directory)
+                })
+            })
+            .collect();
+        let results: Vec<_> = readers
+            .into_iter()
+            .map(|reader| reader.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter_map(|result| result.as_ref().err())
+                .next()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(!ownership_available(&directory).unwrap());
+        drop(results);
+        assert!(ownership_available(&directory).unwrap());
+    }
+
+    #[test]
+    fn invalid_lock_is_reported_before_attempting_to_spawn_or_retry() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_directory(root.path()).unwrap();
+        std::fs::create_dir(directory.join("broker.lock")).unwrap();
+        assert_ne!(
+            ownership_available(&directory).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        let started = std::time::Instant::now();
+        let error = match crate::broker::BrokerClient::connect(
+            root.path(),
+            &root.path().join("missing-executable"),
+        ) {
+            Ok(_) => panic!("invalid ownership lock accepted"),
+            Err(error) => error,
+        };
+        assert!(
+            error.starts_with("Cannot verify runtime broker ownership lock:"),
+            "{error}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "lock errors must not take the 12-second retry path"
+        );
+        assert!(directory.join("broker.lock").is_dir());
     }
 }

@@ -2,6 +2,15 @@ name: Desktop acceptance (manual)
 # Complete acceptance is intentionally manual; a skipped/unrun matrix is not a pass.
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Acceptance scope (Windows-only is not three-OS acceptance)'
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - windows
 permissions:
   contents: read
 jobs:
@@ -9,15 +18,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            bundle: deb
-          - os: macos-15
-            bundle: app
-          - os: macos-15-intel
-            bundle: app
-          - os: windows-2022
-            bundle: nsis
+        # Missing inputs keep the full matrix; input never becomes a shell command or runner name.
+        include: >-
+          ${{ fromJSON(inputs.platform == 'windows' &&
+            '[{"os":"windows-2022","bundle":"nsis"}]' ||
+            '[{"os":"ubuntu-24.04","bundle":"deb"},{"os":"macos-15","bundle":"app"},{"os":"macos-15-intel","bundle":"app"},{"os":"windows-2022","bundle":"nsis"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:

@@ -389,3 +389,6 @@ Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode
 ## 2026-10-16 命令選色器與工作台縮放整合
 
 命令選色器、快速主題與縮放快捷鍵共用序列化外觀寫入佇列，合併等待中的窄欄位 patch；相同欄位採最後一次要求。每次呼叫取得自己的 Promise<boolean>，只有所要求的欄位確實保存才回傳 true，被後續同欄位要求取代回傳 false，寫入失敗會通知所有受影響呼叫。只有擁有 appZoom 的批次可要求原生縮放，命令主題預覽不擷取字型／縮放快照。設定完整編輯入口在寫入期間保持停用；命令選色器保留自己的取消、重試與世代檢查。
+
+- 2026-10-16 Windows broker 啟動候選修正：新 `broker.lock` 必須以目前 `TokenUser` SID 的明確 owner／protected DACL 原子建立，不能假設預設 `TokenOwner` 等同使用者 SID。既有 owner／ACL 異常仍拒絕，不自動修正。只有實際鎖占用才等待既有 broker；權限／I/O 錯誤直接回報。此來源層級原因仍須 Windows 原生回歸證實，不能以交叉檢查代替。
+- 2026-10-16 Windows 定向驗證沿用完整桌面驗收工作：手動 `platform` 選項限 `all`／`windows`，預設與缺少輸入時維持原四平台。Windows 單列仍執行完整 Rust／前端測試、Clippy、未簽章 NSIS 與原生 GUI smoke，不降為 headless；只代表 Windows 驗證。自動 Linux 工作不變，不由此更動觸發完整矩陣。

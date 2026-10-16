@@ -67,13 +67,17 @@ impl BrokerClient {
     /// never creates a broker and never signals an unverified process ID.
     pub fn stop_existing(parent: &Path) -> Result<(), String> {
         let directory = transport::private_directory(parent).map_err(|e| e.to_string())?;
-        if transport::lock(&directory).is_ok() {
+        if transport::ownership_available(&directory)
+            .map_err(|error| format!("Cannot verify runtime broker ownership lock: {error}"))?
+        {
             return Ok(());
         }
         Self::existing(&directory)?.shutdown_broker()?;
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if transport::lock(&directory).is_ok() {
+            if transport::ownership_available(&directory)
+                .map_err(|error| format!("Cannot verify runtime broker ownership lock: {error}"))?
+            {
                 return Ok(());
             }
             thread::sleep(Duration::from_millis(25));
@@ -87,7 +91,9 @@ impl BrokerClient {
         }
         // A held lock is evidence of a possibly unhealthy live broker. Never
         // displace it, kill a PID, or silently launch a second runtime owner.
-        let available = transport::lock(&directory).is_ok();
+        let available = transport::ownership_available(&directory)
+            .map_err(|error| format!("Cannot verify runtime broker ownership lock: {error}"))?;
+        let child_exit = Arc::new(Mutex::new(None));
         if available {
             let mut command = Command::new(executable);
             command
@@ -123,8 +129,11 @@ impl BrokerClient {
                 .map_err(|e| format!("Cannot start detached runtime broker: {e}"))?;
             // Reap if it exits while this UI remains open. Do not wait on or
             // retain ownership that kills the detached child when the UI closes.
+            let child_exit = Arc::clone(&child_exit);
             thread::spawn(move || {
-                let _ = child.wait();
+                // Store only bounded exit status, never inherited environment,
+                // terminal content, metadata, or potentially sensitive stderr.
+                *lock(&child_exit) = Some(child.wait().map(|status| status.code()));
             });
         }
         let deadline = Instant::now() + Duration::from_secs(12);
@@ -136,7 +145,13 @@ impl BrokerClient {
             }
             thread::sleep(Duration::from_millis(50));
         }
-        Err(format!("Cannot connect to the runtime broker. Existing sessions were not restarted: {last_error}"))
+        let startup = match lock(&child_exit).as_ref() {
+            Some(Ok(Some(code))) => format!(" Spawned broker exited with code {code}."),
+            Some(Ok(None)) => " Spawned broker exited without an exit code.".into(),
+            Some(Err(_)) => " Could not observe the spawned broker's exit status.".into(),
+            None => String::new(),
+        };
+        Err(format!("Cannot connect to the runtime broker. Existing sessions were not restarted: {last_error}.{startup}"))
     }
     fn existing(directory: &Path) -> Result<Self, String> {
         match exchange(directory, &Request::Hello { protocol: PROTOCOL })? {
