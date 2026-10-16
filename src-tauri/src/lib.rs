@@ -7,6 +7,7 @@ pub mod config;
 pub mod history_sources;
 pub mod launch_options;
 pub mod models;
+pub mod opencode;
 pub mod providers;
 pub mod runtime;
 pub mod service;

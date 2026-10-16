@@ -2,8 +2,7 @@
 
 `tauri-dialog-2.8.3-init.js.txt` is the unmodified `src/init-iife.js` from the official
 [tauri-plugin-dialog 2.8.3 crate](https://crates.io/crates/tauri-plugin-dialog/2.8.3),
-used by the native-folder-dialog integration. This fixture also exercises that contract
-when the plugin is not enabled in the current branch. It is distributed under
+matching the version pinned in Cargo.toml and package.json. It is distributed under
 MIT OR Apache-2.0; the MIT license is included alongside this fixture.
 
 SHA-256: `6d98742cc66d56668f4f4abac448a413a1abe48f945e16b7132942701edd92e7`.

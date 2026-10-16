@@ -18,6 +18,9 @@ use std::{
 use uuid::Uuid;
 
 pub const PROTOCOL: u32 = 1;
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 const MAX_RECORDS: usize = 128;
 const MAX_CLIENTS: usize = 64;
 pub type UiEmitter = Arc<dyn Fn(UiEvent) -> Result<(), String> + Send + Sync>;
@@ -31,6 +34,8 @@ pub struct RuntimeRecord {
     pub project_id: Option<String>,
     pub profile_id: Option<String>,
     pub resume_id: Option<String>,
+    #[serde(default)]
+    pub home_directory: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,6 +101,8 @@ enum Request {
         project_id: Option<String>,
         profile_id: Option<String>,
         resume_id: Option<String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        home_directory: bool,
         cols: u16,
         rows: u16,
     },
@@ -308,10 +315,19 @@ impl Host {
                 project_id,
                 profile_id,
                 resume_id,
+                home_directory,
                 cols,
                 rows,
                 ..
             } => {
+                if home_directory
+                    && (kind != "shell"
+                        || project_id.is_some()
+                        || resume_id.is_some()
+                        || spec.session_id.is_some())
+                {
+                    return Err("Home directory policy requires an unscoped shell".into());
+                }
                 screen::validate_size(cols, rows)?;
                 if kind != "shell" && crate::models::AgentKind::parse(&kind).is_err() {
                     return Err("Unknown runtime kind".into());
@@ -386,6 +402,7 @@ impl Host {
                             project_id,
                             profile_id,
                             resume_id,
+                            home_directory,
                         },
                         screen: Some(screen),
                     },
@@ -580,6 +597,7 @@ mod tests {
                 project_id: Some("project-test".into()),
                 profile_id: None,
                 resume_id: None,
+                home_directory: false,
                 cols: 80,
                 rows: 24,
             })
@@ -645,6 +663,23 @@ mod tests {
         assert!(host.records().is_empty());
     }
     #[test]
+    fn old_manifest_defaults_to_explicit_cwd_and_home_policy_round_trips() {
+        let base = serde_json::json!({"id":"synthetic", "paneId":"pane", "sessionId":null,
+            "state":"interrupted", "cwd":"/synthetic/explicit", "exitCode":null,
+            "kind":"shell", "projectId":null, "profileId":null, "resumeId":null});
+        let old: RuntimeRecord = serde_json::from_value(base.clone()).unwrap();
+        assert!(!old.home_directory);
+        assert_eq!(old.info.cwd, "/synthetic/explicit");
+        let mut home = base;
+        home["homeDirectory"] = true.into();
+        let record: RuntimeRecord = serde_json::from_value(home).unwrap();
+        assert!(record.home_directory);
+        let restored: RuntimeRecord =
+            serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(restored.home_directory);
+        assert!(restored.project_id.is_none());
+    }
+    #[test]
     fn metadata_only_recovery_marks_previous_live_records_interrupted() {
         let temp = tempfile::tempdir().unwrap();
         let record = RuntimeRecord {
@@ -660,13 +695,22 @@ mod tests {
             project_id: None,
             profile_id: None,
             resume_id: None,
+            home_directory: false,
         };
         fs::write(
             temp.path().join("sessions.json"),
             serde_json::to_vec(&vec![record]).unwrap(),
         )
         .unwrap();
+        // An older manifest has no home policy; its explicit cwd must remain authoritative.
+        let path = temp.path().join("sessions.json");
+        let mut records: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        records[0].as_object_mut().unwrap().remove("homeDirectory");
+        fs::write(&path, serde_json::to_vec(&records).unwrap()).unwrap();
         let host = Host::open(temp.path().into()).unwrap();
+        assert!(!host.records()[0].home_directory);
+        assert_eq!(host.records()[0].info.cwd, "/synthetic");
         assert_eq!(host.records()[0].info.state, "interrupted");
         assert!(host.runtime.list().is_empty());
         assert!(host.runtime.stop("synthetic-id").is_err());
@@ -685,6 +729,7 @@ mod tests {
                 project_id: None,
                 profile_id: None,
                 resume_id: None,
+                home_directory: false,
                 cols: 80,
                 rows: 24,
             })

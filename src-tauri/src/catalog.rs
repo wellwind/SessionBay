@@ -463,6 +463,13 @@ impl Catalog {
     /// An append is compatible with focusing a live runtime; a replaced file or
     /// repointed source symlink is not proof of the indexed conversation.
     pub fn indexed_files_still_match(&self, session_id: &str) -> Result<bool, String> {
+        let session = self.session(session_id)?;
+        if session.kind == AgentKind::OpenCode {
+            let conn = self.connect()?;
+            let (root, expected): (String, String) = conn.query_row("SELECT sources.root,files.identity FROM files JOIN sources ON sources.id=files.source_id WHERE files.session_id=?1", [session_id], |row| Ok((row.get(0)?,row.get(1)?))).map_err(error)?;
+            return Ok(crate::opencode::database_identity(Path::new(&root))
+                .is_ok_and(|identity| identity == expected));
+        }
         let conn = self.connect()?;
         let paths = conn
             .prepare("SELECT path,identity FROM files WHERE session_id=?1")
@@ -655,6 +662,17 @@ impl Catalog {
                 &session.partial.to_string()
             ])
         ));
+        if session.kind == AgentKind::OpenCode {
+            return opencode_transcript(
+                &conn,
+                &session,
+                file_id,
+                &prefix_hash,
+                before_line,
+                limit,
+                snapshot_id,
+            );
+        }
         let ag_checkpoint = if session.kind == AgentKind::Antigravity {
             let state: ParsedState = serde_json::from_str(&state_json).map_err(error)?;
             let root: String = conn
@@ -934,6 +952,25 @@ impl Catalog {
         if copies != 1 && session.kind != AgentKind::Antigravity {
             return Err("This session ID exists in multiple history sources. Disable the other source and refresh before resuming; Session Bay will not guess.".into());
         }
+        if session.kind == AgentKind::OpenCode {
+            let expected: String = conn
+                .query_row(
+                    "SELECT prefix_hash FROM files WHERE session_id=?1",
+                    [session_id],
+                    |row| row.get(0),
+                )
+                .map_err(error)?;
+            let current =
+                crate::opencode::read_metadata(Path::new(&source.root), &AtomicBool::new(false))?;
+            if current.fingerprint != expected
+                || !current.records.contains_key(&session.external_id)
+            {
+                return Err(
+                    "OpenCode history changed after indexing. Refresh before resuming.".into(),
+                );
+            }
+            return Ok((session, source));
+        }
         let mut stmt = conn
             .prepare("SELECT path,identity,size,modified FROM files WHERE session_id=?1")
             .map_err(error)?;
@@ -1053,6 +1090,10 @@ impl Catalog {
         progress: impl Fn(IndexStatus),
     ) -> Result<IndexStatus, String> {
         let mut conn = self.connect()?;
+        // Deduplication work contains only digests and row identities, never a
+        // second transcript copy. Set a page-cache target and allow disk spill.
+        conn.execute_batch("PRAGMA temp_store=FILE; PRAGMA temp.cache_size=-2048;")
+            .map_err(error)?;
         let mut status = IndexStatus {
             running: true,
             ..IndexStatus::default()
@@ -1114,6 +1155,35 @@ impl Catalog {
                 break;
             }
             if !source.enabled {
+                continue;
+            }
+            if source.kind == AgentKind::OpenCode {
+                match index_opencode(&mut conn, source, cancel) {
+                    Ok(health) => {
+                        status.processed += 1;
+                        if let Some(existing) =
+                            status.sources.iter_mut().find(|h| h.source_id == source.id)
+                        {
+                            *existing = health;
+                        }
+                    }
+                    Err(message) => {
+                        if cancel.load(Ordering::Relaxed) {
+                            status.cancelled = true;
+                            break;
+                        }
+                        if status.errors.len() < MAX_ERRORS {
+                            status.errors.push(format!("{}: {message}", source.id));
+                        }
+                        if let Some(health) =
+                            status.sources.iter_mut().find(|h| h.source_id == source.id)
+                        {
+                            health.status = "error".into();
+                            health.message = Some(message);
+                        }
+                    }
+                }
+                progress(status.clone());
                 continue;
             }
             let ag_metadata = if source.kind == AgentKind::Antigravity
@@ -1370,7 +1440,9 @@ fn session_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         )
     })?;
     let external_id: String = row.get(3)?;
-    let resume_disabled_reason = if kind == AgentKind::Antigravity {
+    let resume_disabled_reason = if kind == AgentKind::OpenCode && row.get::<_, bool>(11)? {
+        Some("OpenCode history is partial, unsupported, or reverted. Refresh after resolving it before indexed resume.".into())
+    } else if kind == AgentKind::Antigravity {
         let root: String = row.get(12)?;
         let identity: Option<String> = row.get(13)?;
         if row.get::<_, Option<String>>(10)?.is_some() {
@@ -1768,12 +1840,15 @@ fn discover(source: &HistorySource, cancel: &AtomicBool) -> (Vec<PathBuf>, Sourc
         health.message = Some("The history directory cannot be listed.".into());
         return (vec![], health, false);
     }
+    if source.kind == AgentKind::OpenCode {
+        return (vec![root.join("opencode.db")], health, true);
+    }
     let directories = match provider.history.parser_id {
         Some(ParserId::Codex) => vec!["sessions", "archived_sessions"],
         Some(ParserId::Claude) => vec!["projects"],
         Some(ParserId::Grok) => vec!["sessions"],
         Some(ParserId::Antigravity) => vec!["brain"],
-        None => vec![],
+        Some(ParserId::OpenCode) | None => vec![],
     };
     let mut files = Vec::new();
     let mut complete = true;
@@ -1924,8 +1999,9 @@ fn load_record(
     source: &HistorySource,
     path: &str,
 ) -> Result<Option<FileRecord>, String> {
-    let row:Option<CheckpointRow>=conn.query_row(
-        "SELECT id,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state FROM files WHERE source_id=?1 AND path=?2",params![source.id,path],
+    let row:Option<CheckpointRow>=conn.prepare_cached(
+        "SELECT id,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state FROM files WHERE source_id=?1 AND path=?2")
+        .map_err(error)?.query_row(params![source.id,path],
         |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?))).optional().map_err(error)?;
     row.map(
         |(
@@ -2419,7 +2495,7 @@ fn index_file(
             store = false;
         }
         if store {
-            tx.execute("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text,fallback,hidden,placeholder) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9) ON CONFLICT(file_id,line) DO UPDATE SET byte_offset=excluded.byte_offset,byte_len=excluded.byte_len,role=excluded.role,timestamp=excluded.timestamp,search_text=excluded.search_text,fallback=excluded.fallback,hidden=0,placeholder=excluded.placeholder",params![file_id,stored_line as i64,line_offset as i64,length as i64,role,timestamp,search,fallback,placeholder]).map_err(error)?;
+            tx.prepare_cached("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text,fallback,hidden,placeholder) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,?9) ON CONFLICT(file_id,line) DO UPDATE SET byte_offset=excluded.byte_offset,byte_len=excluded.byte_len,role=excluded.role,timestamp=excluded.timestamp,search_text=excluded.search_text,fallback=excluded.fallback,hidden=0,placeholder=excluded.placeholder").map_err(error)?.execute(params![file_id,stored_line as i64,line_offset as i64,length as i64,role,timestamp,search,fallback,placeholder]).map_err(error)?;
         }
     }
     flush_grok_append(&tx, file_id, &mut grok_append)?;
@@ -2477,8 +2553,7 @@ fn index_file(
     };
     tx.execute("UPDATE files SET session_id=?1,identity=?2,size=?3,modified=?4,offset=?5,lines=?6,prefix_hash=?7,parser_version=?8,state=?9,archived=?10,trailing_partial=?11 WHERE id=?12",
         params![session_id,identity,size as i64,modified,offset as i64,lines as i64,prefix_hash,PARSER_VERSION,serde_json::to_string(&state).map_err(error)?,archived,offset<size,file_id]).map_err(error)?;
-    // Some Codex versions repeat messages in event_msg and response_item records.
-    tx.execute("UPDATE messages SET hidden=CASE WHEN fallback=1 AND EXISTS(SELECT 1 FROM messages canonical WHERE canonical.file_id=messages.file_id AND canonical.fallback=0 AND canonical.role=messages.role AND canonical.search_text=messages.search_text AND canonical.search_text<>'') THEN 1 ELSE 0 END WHERE file_id=?1",[file_id]).map_err(error)?;
+    reconcile_fallback_messages(&tx, file_id, cancel)?;
     if let Some(id) = &session_id {
         if source.kind == AgentKind::Antigravity {
             // Transcript/metadata-only transitions are one atomic replacement, so concurrent
@@ -2503,6 +2578,83 @@ fn index_file(
     }
     tx.commit().map_err(error)?;
     Ok(state.bad_lines > 0 || state.unknown_events > 0 || offset < size)
+}
+
+// Some Codex versions repeat messages in event_msg and response_item records.
+// The previous correlated lookup scanned all canonical rows for every fallback.
+// A temporary digest index avoids quadratic scans without duplicating prose or
+// trusting hashes as equality: the final predicate still compares exact text.
+fn reconcile_fallback_messages(
+    conn: &Connection,
+    file_id: i64,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    let has_fallback: bool = conn
+        .prepare_cached("SELECT EXISTS(SELECT 1 FROM messages WHERE file_id=?1 AND fallback=1)")
+        .map_err(error)?
+        .query_row([file_id], |row| row.get(0))
+        .map_err(error)?;
+    if !has_fallback {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "CREATE TEMP TABLE IF NOT EXISTS message_dedup(
+            message_rowid INTEGER PRIMARY KEY, digest BLOB NOT NULL,
+            role TEXT NOT NULL, fallback INTEGER NOT NULL);
+         CREATE INDEX IF NOT EXISTS temp.message_dedup_lookup ON message_dedup(digest,role,fallback);
+         DELETE FROM temp.message_dedup;",
+    ).map_err(error)?;
+    let mut read = conn
+        .prepare_cached("SELECT rowid,role,search_text,fallback FROM messages WHERE file_id=?1")
+        .map_err(error)?;
+    let mut rows = read.query([file_id]).map_err(error)?;
+    let mut insert = conn.prepare_cached(
+        "INSERT INTO temp.message_dedup(message_rowid,digest,role,fallback) VALUES(?1,?2,?3,?4)"
+    ).map_err(error)?;
+    while let Some(row) = rows.next().map_err(error)? {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Indexing cancelled.".into());
+        }
+        let text: String = row.get(2).map_err(error)?;
+        let digest = Sha256::digest(text.as_bytes());
+        insert
+            .execute(params![
+                row.get::<_, i64>(0).map_err(error)?,
+                digest.as_slice(),
+                row.get::<_, String>(1).map_err(error)?,
+                row.get::<_, bool>(3).map_err(error)?
+            ])
+            .map_err(error)?;
+    }
+    drop(rows);
+    drop(read);
+    drop(insert);
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Indexing cancelled.".into());
+    }
+    apply_fallback_visibility(conn, file_id)?;
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Indexing cancelled.".into());
+    }
+    Ok(())
+}
+
+fn apply_fallback_visibility(conn: &Connection, file_id: i64) -> Result<(), String> {
+    conn.execute(
+        "UPDATE messages AS target SET hidden=CASE WHEN target.search_text<>'' AND EXISTS(
+            SELECT 1 FROM temp.message_dedup original
+            JOIN temp.message_dedup candidate ON candidate.digest=original.digest
+                AND candidate.role=original.role AND candidate.fallback=0
+            JOIN messages canonical ON canonical.rowid=candidate.message_rowid
+            WHERE original.message_rowid=target.rowid
+                AND canonical.file_id=target.file_id
+                AND canonical.role=target.role
+                AND canonical.search_text=target.search_text
+        ) THEN 1 ELSE 0 END WHERE file_id=?1 AND fallback=1",
+        [file_id],
+    )
+    .map_err(error)?;
+    Ok(())
 }
 
 fn refresh_source_titles(
@@ -2622,4 +2774,233 @@ fn rebuild_session(conn: &Connection, source: &HistorySource, id: &str) -> Resul
         ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,title=excluded.title,cwd=excluded.cwd,updated_at=excluded.updated_at,time_source=excluded.time_source,archived=excluded.archived,parent_id=excluded.parent_id,child=excluded.child,partial=excluded.partial",
         params![id,source.id,source.kind.as_str(),external_id,project_id,title,primary.cwd,updated_at,time_source,archived,parent,primary.child,partial]).map_err(error)?;
     Ok(())
+}
+
+fn index_opencode(
+    conn: &mut Connection,
+    source: &HistorySource,
+    cancel: &AtomicBool,
+) -> Result<SourceHealth, String> {
+    let index = crate::opencode::read_metadata(Path::new(&source.root), cancel)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    let mut seen = HashSet::new();
+    for record in index.records.values() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Indexing cancelled".into());
+        }
+        let id = session_identity(source, &record.id);
+        // Logical per-session records share one physical SQLite snapshot. This
+        // path is only a catalog key; it is never opened as a transcript file.
+        let path = format!(
+            "{}#{}",
+            Path::new(&source.root).join("opencode.db").display(),
+            record.id
+        );
+        seen.insert(path.clone());
+        let previous: Option<(i64, String)> = tx
+            .query_row(
+                "SELECT id,prefix_hash FROM files WHERE source_id=?1 AND path=?2",
+                params![source.id, path],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(error)?;
+        if previous
+            .as_ref()
+            .is_some_and(|(_, hash)| hash == &index.fingerprint)
+        {
+            continue;
+        }
+        let state = ParsedState {
+            external_id: Some(record.id.clone()),
+            cwd: record.cwd.clone(),
+            title: record.title.clone(),
+            event_at: record.updated_at.clone(),
+            parent_external: record.parent_id.clone(),
+            child: record.parent_id.is_some(),
+            recognized: true,
+            authoritative_cwd: true,
+            unknown_events: u64::from(record.partial),
+            ..Default::default()
+        };
+        tx.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived,trailing_partial) VALUES(?1,?2,?3,?10,0,'',0,?4,?5,?6,?7,?8,?9) ON CONFLICT(source_id,path) DO UPDATE SET session_id=excluded.session_id,identity=excluded.identity,lines=excluded.lines,prefix_hash=excluded.prefix_hash,parser_version=excluded.parser_version,state=excluded.state,archived=excluded.archived,trailing_partial=excluded.trailing_partial", params![source.id,path,id,record.messages.len(),index.fingerprint,PARSER_VERSION,serde_json::to_string(&state).map_err(error)?,record.archived,record.partial,index.identity]).map_err(error)?;
+        let file_id: i64 = tx
+            .query_row(
+                "SELECT id FROM files WHERE source_id=?1 AND path=?2",
+                params![source.id, path],
+                |row| row.get(0),
+            )
+            .map_err(error)?;
+        tx.execute("DELETE FROM messages WHERE file_id=?1", [file_id])
+            .map_err(error)?;
+        for (line, message) in record.messages.iter().enumerate() {
+            tx.execute("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text) VALUES(?1,?2,0,0,?3,?4,?5)", params![file_id,line+1,message.role,message.timestamp,message.text]).map_err(error)?;
+        }
+        rebuild_session(&tx, source, &id)?;
+    }
+    let old = tx
+        .prepare("SELECT id,path,session_id FROM files WHERE source_id=?1")
+        .map_err(error)?
+        .query_map([&source.id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(error)?;
+    for (id, path, session) in old {
+        if !seen.contains(&path) {
+            tx.execute("DELETE FROM files WHERE id=?1", [id])
+                .map_err(error)?;
+            rebuild_session(&tx, source, &session)?;
+        }
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Indexing cancelled".into());
+    }
+    tx.commit().map_err(error)?;
+    Ok(SourceHealth {
+        source_id: source.id.clone(),
+        status: if index.warnings.is_empty() {
+            if index.records.is_empty() {
+                "empty"
+            } else {
+                "ready"
+            }
+        } else {
+            "partial"
+        }
+        .into(),
+        files: index.records.len(),
+        message: (!index.warnings.is_empty()).then(|| index.warnings.join(" ")),
+    })
+}
+
+fn opencode_transcript(
+    conn: &Connection,
+    session: &Session,
+    file_id: i64,
+    expected: &str,
+    before: Option<u64>,
+    limit: usize,
+    snapshot_id: Option<String>,
+) -> Result<TranscriptPage, String> {
+    let root: String = conn
+        .query_row(
+            "SELECT root FROM sources WHERE id=?1",
+            [&session.source_id],
+            |row| row.get(0),
+        )
+        .map_err(error)?;
+    let current = crate::opencode::read_metadata(Path::new(&root), &AtomicBool::new(false));
+    if !current.is_ok_and(|index| {
+        index.fingerprint == expected && index.records.contains_key(&session.external_id)
+    }) {
+        return Ok(stale_page("OpenCode database or WAL changed or cannot be verified. Refresh before loading the transcript."));
+    }
+    let limit = limit.clamp(1, 200);
+    let mut messages = conn.prepare("SELECT role,search_text,timestamp,line FROM messages WHERE file_id=?1 AND line<?2 ORDER BY line DESC LIMIT ?3").map_err(error)?.query_map(params![file_id,before.unwrap_or(i64::MAX as u64).min(i64::MAX as u64) as i64,limit+1], |row| Ok(TranscriptMessage { role: row.get(0)?, text: row.get(1)?, timestamp: row.get(2)?, line: row.get(3)? })).map_err(error)?.collect::<Result<Vec<_>,_>>().map_err(error)?;
+    let mut has_more = messages.len() > limit;
+    messages.truncate(limit);
+    let mut bytes = 0;
+    let mut retained = Vec::new();
+    for mut message in messages {
+        if message.text.len() > MAX_PREVIEW_MESSAGE_BYTES {
+            let mut end = MAX_PREVIEW_MESSAGE_BYTES;
+            while !message.text.is_char_boundary(end) {
+                end -= 1;
+            }
+            message.text.truncate(end);
+            message
+                .text
+                .push_str("\n[Preview shortened; complete supported text remains searchable.]");
+        }
+        if !retained.is_empty() && bytes + message.text.len() > MAX_PREVIEW_PAGE_BYTES {
+            has_more = true;
+            break;
+        }
+        bytes += message.text.len();
+        retained.push(message);
+    }
+    retained.reverse();
+    Ok(TranscriptPage { before_line: retained.first().map(|m| m.line), messages: retained, has_more, stale: false, snapshot_id, warning: session.partial.then(|| "OpenCode history contains incomplete, reverted, or unsupported records. Only verified user/assistant text is shown.".into()) })
+}
+
+#[cfg(test)]
+mod dedup_tests {
+    use super::*;
+
+    #[test]
+    fn cancelled_digest_pass_rolls_back_and_can_retry() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE messages(file_id INTEGER,role TEXT,search_text TEXT,fallback INTEGER,hidden INTEGER);
+            CREATE TABLE checkpoint(offset INTEGER);
+            INSERT INTO checkpoint VALUES(1);
+            INSERT INTO messages VALUES(1,'user','same',1,0);").unwrap();
+        {
+            let tx = conn.transaction().unwrap();
+            tx.execute("UPDATE checkpoint SET offset=2", []).unwrap();
+            tx.execute("INSERT INTO messages VALUES(1,'user','same',0,0)", [])
+                .unwrap();
+            let error = reconcile_fallback_messages(&tx, 1, &AtomicBool::new(true)).unwrap_err();
+            assert_eq!(error, "Indexing cancelled.");
+            // Dropping the file transaction must undo both checkpoint and rows.
+        }
+        assert_eq!(
+            conn.query_row("SELECT offset FROM checkpoint", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM messages", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        let tx = conn.transaction().unwrap();
+        tx.execute("INSERT INTO messages VALUES(1,'user','same',0,0)", [])
+            .unwrap();
+        reconcile_fallback_messages(&tx, 1, &AtomicBool::new(false)).unwrap();
+        tx.commit().unwrap();
+        assert_eq!(
+            conn.query_row("SELECT SUM(hidden) FROM messages", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn digest_candidates_still_require_exact_text_role_and_file() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE messages(file_id INTEGER,line INTEGER,role TEXT,search_text TEXT,fallback INTEGER,hidden INTEGER);
+            CREATE TEMP TABLE message_dedup(message_rowid INTEGER PRIMARY KEY,digest BLOB,role TEXT,fallback INTEGER);
+            CREATE INDEX temp.message_dedup_lookup ON message_dedup(digest,role,fallback);
+            INSERT INTO messages VALUES
+                (1,1,'user','match',1,0),
+                (1,2,'user','match',0,0),
+                (1,3,'user','different',1,0),
+                (1,4,'user','other',0,0),
+                (1,5,'assistant','match',1,0),
+                (1,6,'user','',1,1),
+                (1,7,'user','',0,0),
+                (2,1,'user','different',0,0);
+            INSERT INTO temp.message_dedup SELECT rowid,x'00',role,fallback FROM messages;").unwrap();
+        // Deliberately force every digest to collide, including another file.
+        apply_fallback_visibility(&conn, 1).unwrap();
+        let hidden: Vec<i64> = conn
+            .prepare("SELECT hidden FROM messages ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(hidden, vec![1, 0, 0, 0, 0, 0, 0, 0]);
+    }
 }

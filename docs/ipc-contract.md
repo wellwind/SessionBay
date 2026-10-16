@@ -80,13 +80,13 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 
 ## Agent 選項與啟動計畫
 
-- 設定版本保留 `1`。缺少 `executables.grok`／`antigravity` 時補為 `grok`／`agy`；缺少或部分缺少 `agentOptions` 時逐工具／欄位補為 `extraArgs: []`、`bypassPermissions: false`。原來源清單不覆寫；只有全新預設設定依 registry 加入四工具來源，包含 `grok-default`（`GROK_HOME` 或 `~/.grok`）與 `antigravity-default`（`~/.gemini/antigravity-cli`）。
+- 設定版本保留 `1`。缺少 `executables.grok`／`antigravity`／`opencode` 時補為 `grok`／`agy`／`opencode`；缺少或部分缺少 `agentOptions` 時逐工具／欄位補為 `extraArgs: []`、`bypassPermissions: false`。原來源清單不覆寫；只有全新預設設定依 registry 加入五工具來源，包含 `grok-default`（`GROK_HOME` 或 `~/.grok`）、`antigravity-default`（`~/.gemini/antigravity-cli`）及 `opencode-default`（有效 `XDG_DATA_HOME/opencode`，否則 `~/.local/share/opencode`）。
 - `extraArgs` 是逐項 argv，最多 64 個非空字串，每個最多 8192 bytes 且無 NUL；不做 Shell split、變數展開、去引號或命令替換。帶值選項可用相鄰元素或 `--flag=value`；布林 switch 不接受 `=value`。
 - 儲存設定及啟動計畫都透過 `launch_options.rs` 驗證工具專屬白名單、參數數量與已知權限值。cwd、Session 身份、來源與 config／remote override、任意子命令、位置參數及 `--` 不對自訂參數開放；錯誤包含可接受的選項。
 - `bypassPermissions` 是持久的明確 opt-in，預設 false；需同意的旗標／權限值仍在後端強制檢查。true 且沒有明確權限模式時追加該工具預設；明確 Codex sandbox／approval 模式、Claude permission mode、受限工具 allow／deny／額外目錄政策或工具自己的 bypass 旗標會抑制重複預設。Grok sandbox 與 auto-approve 分開處理。詳見 [整合規格](agent-integrations.md#每個-agent-的自訂參數與危險模式)。
-- `resumeId` 只接受 Grok／Antigravity 的手動外部 ID，不能同時帶 `sessionId`。長度 1–256 個 ASCII 字元，首字元為英數字，其餘只可為英數字、`-`、`_`、`.`；不接受空白、路徑、選項注入或自動選最近一次的快捷寫法。
+- `resumeId` 接受 Grok／Antigravity／OpenCode 的手動外部 ID，不能同時帶 `sessionId`。長度 1–256 個 ASCII 字元，首字元為英數字，其餘只可為英數字、`-`、`_`、`.`；不接受空白、路徑、選項注入或自動選最近一次的快捷寫法。OpenCode 另外強制原生 `ses_` Session ID 格式；其來源限定與 DB 身分檢查見[OpenCode 整合](opencode-integration.md)。
 - 索引 `sessionId` 保持 catalog 身份與原有來源／歧義檢查；手動 `resumeId` 不建立 catalog 關聯，也不填入公開 `RuntimeInfo.sessionId`；Runtime 另外以工具、canonical 有效來源 root 與外部 ID 的私有 key 去重。同來源 Grok 手動與索引恢復互相去重；Antigravity 以 CLI 的資料 root 區分工具身份。Grok 手動恢復若有多個已啟用 Grok 來源會拒絕歧義。Antigravity 索引恢復只接受目前 HOME 的 canonical 原生 CLI root、可信 UUID 與仍一致的檔案／metadata；備份與缺 transcript 的記錄回 resumeDisabledReason，backend 仍強制拒絕，不虛構來源環境變數或改 HOME。
-- 恢復 argv 依工具為 `resume <id>`（Codex）、`--resume <id>`（Claude／Grok）、`--conversation <id>`（Antigravity）；其後加入已驗證自訂參數及必要預設。Codex 最後加入應用管理的 `--cd <cwd>`，其餘以獨立 cwd 啟動；受支援歷史來源使用各自的來源環境變數。
+- 恢復 argv 依工具為 `resume <id>`（Codex）、`--resume <id>`（Claude／Grok）、`--conversation <id>`（Antigravity）與 `--session <id>`（OpenCode）；其後加入已驗證自訂參數及必要預設。Codex 最後加入應用管理的 `--cd <cwd>`，其餘以獨立 cwd 啟動；受支援歷史來源使用各自的來源環境變數。
 - `preview_launch` 與真正啟動共用 `plan_launch`，會檢查工具、目錄、設定與來源，只回傳 executable／args／cwd。預覽不 spawn，真正啟動時重新預檢；CLI 自有設定仍可能影響實際權限，因此 argv 預覽不是有效權限或成功恢復的保證。
 
 ## 自選專案語意與驗證
@@ -94,7 +94,7 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 - Bootstrap 的 `projects` 與 `list_projects()` 保留完整目錄分組。「專案」預設頁的卡片／側欄以 `curated: true` 篩選；「所有目錄」頁以 `sessionCount > 0` 篩選，包含已加入、未加入、未知及失效目錄。已開啟工作區在兩頁皆可到達，不受這兩種投影限制。
 - 兩頁未選組時顯示總覽，不查詢混合 Session 清單；選組後以 `SessionQuery.projectId` 查詢該組歷史，既有文字、Agent、日期、封存及子代理篩選維持原語意。明確開啟全域搜尋時省略 `projectId` 查詢跨目錄結果，但不是兩頁的預設總覽 UI；`curated` 不新增為隱含搜尋條件。此導覽澄清不需要新增 IPC 或變更 catalog migration。
 - 自動探索、重掃與重建不自動加入 Projects。升級時僅把舊版手動加入或釘選專案遷移為 curated，其餘預設 false；此回填不可在日後掃描重複執行。
-- 路徑輸入必須是絕對路徑，前端目前沒有原生目錄選擇器。`add_project` 要求存在且為目錄；不建立輸入路徑。
+- 路徑輸入必須是絕對路徑，前端提供原生目錄選擇器，選取只更新草稿；後端仍驗證路徑。`add_project` 要求存在且為目錄；不建立輸入路徑。
 - `create_project` 的父目錄必須已存在且為目錄；`name` 不得為空、`.`、`..`、絕對路徑或多個路徑元件。只建立一個新資料夾，不覆寫任何既有目標，也不建立祖先目錄；錯誤由後端回報，不能僅依賴前端驗證。
 - `name` 是 Session Bay 的顯示名稱；修改名稱不重新命名磁碟目錄。建立時 `name` 同時作為新資料夾名稱與初始顯示名稱。
 - `update_project({projectId, curated: false})` 只取消加入與釘選，不刪任何來源、Session、索引、檔案、工作區或 Runtime，不修改 cwd／launch override。重新加入同一目錄仍使用原 Project 身份。
@@ -103,10 +103,16 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 
 ## Shell 退出事件的前端行為
 
-`TerminalEvent.exit` 的結構不變。前端只有在普通 Shell pane 原為 `starting`／`running` 且 `exitCode === 0` 時自動移除該 pane；最後一個 pane 移除時同步移除所屬 tab。Agent、非零／null 結束碼與 error 保留診斷；已退出或布局還原占位不重複觸發。移出專案不產生 exit event、不呼叫 `stop_runtime`。
+`TerminalEvent.exit` 保留結束碼並將面板更新為 exited／failed；包含正常退出 Shell 的所有面板均保留最後畫面，直到明確關閉。UI 退出僅 detach；明確關閉才 stop／forget 對應 Runtime。移出專案不產生 exit event、不呼叫 `stop_runtime`。
 
 ## Antigravity CLI 歷史追加
 
 `Session.resumeDisabledReason` 是 nullable 的逐筆能力原因，適用所有 provider；非空表示可預覽但不可直接索引接續，UI 同時顯示原因與 disabled 狀態。backend preflight 不信任 UI 狀態；手動 ID 沿用不同入口，不虛構 catalog 關聯。
 
 `TranscriptPage.warning` 與 `stale` 可同時存在，UI 不以通用 stale 字樣遮掉來源原因；翻頁保留已有警告。`snapshotId` 是同一已索引來源快照的 opaque token，各頁相同，任何已索引內容變更時改變；stale 回應為 null。不得由 token 推測路徑或內容。索引 revision 改變時，同一 Session ID 也會重新讀取；只有背景刷新且非空 snapshotId 與最新頁內容均未改變，才保留已載入的較早頁和捲動位置。手動刷新、背景刷新缺少 token、快照變更或已知 token 不同的跨快照翻頁皆重新載入；舊分頁回應不能混入新 generation。TypeScript 欄位可省略，以容納舊測試／IPC fixture，缺少時採保守重載。來源格式、metadata 私密快照及 compaction 重建語意見 [CLI 歷史專章](antigravity-cli-history.md)。
+
+## 全域臨時 Terminal
+
+- `LaunchRequest` 未新增可注入的 home／env 欄位。只有 shell 且 projectId/sessionId/resumeId/cwd 皆省略時，Rust 決定並驗證 home；其他啟動保持原驗證。
+- broker `RuntimeRecord.homeDirectory: boolean` 由 Rust 依啟動請求推導並持久化，舊 metadata 缺欄位為 false。projectId 仍為 null；明確 cwd 的舊無專案 Shell 不會改為 home 策略。
+- Workspace version 1 的 pane/tab `projectId` 接受明確 null；全域選取另存 `activeTemporaryTabId`。pane 保存 homeDirectory，但 Runtime ID／PID／startToken 仍不接受；broker reconcile 覆蓋策略與 cwd。

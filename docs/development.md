@@ -1,6 +1,6 @@
 # Session Bay 開發與試用
 
-本機優先的 Windows／macOS／Linux 工作台。可啟動你原先已安裝並登入的 Codex CLI、Claude Code、Grok Build 或 Antigravity CLI（`agy`）；即使未安裝 Agent，普通 Shell 與已存在的歷史仍可分開使用。
+本機優先的 Windows／macOS／Linux 工作台。可啟動你原先已安裝並登入的 Codex CLI、Claude Code、Grok Build、Antigravity CLI（`agy`）或 OpenCode；即使未安裝 Agent，普通 Shell 與已存在的歷史仍可分開使用。
 
 ## 平台與工具
 
@@ -65,15 +65,16 @@ node scripts/generate-macos-icon.mjs --preview-dir /tmp/sessionbay-icon-preview
 
 ## 第一次使用
 
-1. 開啟「設定與資料來源」。四 Agent 的能力卡片固定可見，與是否啟動過或找到執行檔無關；四工具可設定資料根目錄後啟用索引；Antigravity 只涵蓋 CLI，來源預設 ~/.gemini/antigravity-cli，App／IDE 不混用。舊設定以「偵測歷史來源」明確加入後保存。
+1. 開啟「設定與資料來源」。五 Agent 的能力卡片固定可見，與是否啟動過或找到執行檔無關；五工具可設定資料根目錄後啟用索引；Antigravity 只涵蓋 CLI，來源預設 ~/.gemini/antigravity-cli，App／IDE 不混用。舊設定以「偵測歷史來源」明確加入後保存。
 2. 全新設定的預設來源尊重 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`GROK_HOME`；否則為 `~/.codex`、`~/.claude`、`~/.grok`。升級保留既有來源清單；若缺少 Grok，使用卡片設定入口新增草稿，填入絕對路徑並明確保存，不會猜測 home 或自動新增索引根目錄。欄位輸入完整絕對路徑，依工具包含 `sessions`／`archived_sessions`、`projects` 或 Grok 的 `sessions`。
 3. 每個來源有獨立 ID。同一 Agent 的相同 canonical root 不可重複；不同來源同名 Session 不會被合併。
 4. 預設開啟「專案」總覽，管理自己加入的目錄；切到「所有目錄」可看所有有 Session 的分組，包含未知或失效路徑。兩頁都有卡片與側欄，選擇一組後才搜尋該目錄歷史；掃描不自動加入專案，總覽不混列各目錄的 Session。中文以連續子字串匹配；英文 ASCII 不分大小寫，`%`、`_` 不當 SQL wildcard；不提供模糊或語意搜尋。3 字元以上使用 compact trigram 候選索引再精確驗證，不足 3 字元掃描匹配。
 5. 點選對話只預覽，不啟動 CLI。接續時才會啟動原工具，沿用 CLI 權限及登入流程。
-6. 新增 Terminal 或左右／上下分割，兩邊各自有 PTY。切換分頁不結束程序；關閉面板／退出應用需確認結束受管程序。
-7. 重開只恢復布局占位，點「重新開啟」才執行。普通 Terminal 中手動啟動 Agent 不自動與歷史關聯。
+6. 新增 Terminal 或左右／上下分割，兩邊各自有 PTY。切換分頁不結束程序；明確停止／關閉面板才結束受管程序；退出 UI 僅 detach，broker 繼續執行。
+7. 重開從 broker 找回每個受管程序的真實狀態，附接相同 runtime，不重跑原指令；broker／電腦重啟後標示 interrupted，須明確重新啟動。普通 Terminal 中手動啟動 Agent 不自動與歷史關聯。
+8. 不需專案時，頂列「臨時 Terminal」使用預設 Shell Profile 在 Rust 確認的家目錄啟動；不新增 catalog project。
 
-普通 Shell 執行 `exit` 且以結束碼 `0` 正常離開時，面板會自動關閉；若是最後一個面板，該工作區分頁也會關閉。Agent、非零／未知結束碼與錯誤保留診斷畫面；重開後的布局占位不因此自動移除。
+所有已退出 Shell／Agent 均保留最後畫面與結束碼，直到明確關閉面板。UI 退出後的輸出有界保留在 broker 記憶體；broker 重啟不恢復舊畫面。詳見[持續 Runtime](persistent-runtime.md)。
 
 ## 管理自己的專案清單
 
@@ -84,7 +85,7 @@ node scripts/generate-macos-icon.mjs --preview-dir /tmp/sessionbay-icon-preview
 - **置頂**：保留 `pinned` 作為自選專案內的排序偏好；取消置頂不會移出專案。
 - **保存與升級**：加入狀態、名稱及釘選保存在自有 catalog；舊版手動加入或釘選項會保留為自選專案，其餘有 Session 的掃描目錄仍可在所有目錄找到。
 
-此版尚無原生目錄選擇器，請輸入完整絕對路徑，不使用 `~` 或相對路徑。專案更名只改顯示名稱；搬移後請用原有「重新定位」，仍保留原始 cwd／transcript。
+本機目錄欄位可用原生資料夾選擇器或手動輸入絕對路徑，不使用 `~` 或相對路徑；選取只更新草稿，仍須明確儲存。瀏覽器預覽使用手動輸入。專案更名只改顯示名稱；搬移後請用原有「重新定位」，仍保留原始 cwd／transcript。
 
 本次變更在隔離雲端使用合成資料與暫存路徑驗證，不存取使用者真實電腦或 Agent 歷史。具體測試結果與尚待驗收範圍見[變更紀錄](mvp-validation.md#2026-10-15-雙頁導覽來源入口與-macos-圖示修正)。
 
@@ -100,7 +101,7 @@ Shell「重新偵測」只列候選，由你選擇加入 Profile 並保存，保
 
 ## 自訂 Agent 啟動參數
 
-在「設定與資料來源」中，四個 Agent 都有獨立執行檔與參數設定。參數填 JSON 字串陣列，例如 `["--model", "your-model-id"]`，不要填整條命令或 Shell 引號。選項只接受後端支援的白名單；目錄、來源與 Session ID 由應用管理。設定會明文保存在本機，請勿填入密碼、API key 或 token。
+在「設定與資料來源」中，五個 Agent 都有獨立執行檔與參數設定。參數填 JSON 字串陣列，例如 `["--model", "your-model-id"]`，不要填整條命令或 Shell 引號。選項只接受後端支援的白名單；目錄、來源與 Session ID 由應用管理。設定會明文保存在本機，請勿填入密碼、API key 或 token。
 
 如需減少工具的權限提示，閱讀風險說明後明確勾選該 Agent 的高風險選項並保存。它預設關閉，勾選後跨重開沿用，不必每次在 Session Bay 重複確認；CLI 自身登入、工作區信任或政策仍可能要求操作。Codex 的預設會同時取消審批與沙箱；Grok 的預設只自動核准工具，沙箱另行設定。各工具實際旗標與自訂權限模式優先規則見 [Agent 整合規格](agent-integrations.md#每個-agent-的自訂參數與危險模式)。
 
@@ -118,10 +119,11 @@ Shell「重新偵測」只列候選，由你選擇加入 Profile 並保存，保
 - Claude Code：解析 `projects` 內的 user／assistant transcript JSONL，保留 parent／子代理關係；啟動使用 `claude --resume <id>`，獨立 cwd 與 `CLAUDE_CONFIG_DIR`。
 - Grok Build：唯讀解析 `sessions/<encoded-cwd>/<session-id>/summary.json` 與 `updates.jsonl` 的支援訊息／rewind 事件；使用 `grok --resume <id>`、獨立 cwd 與選中來源的 `GROK_HOME`。
 - Antigravity CLI：使用 `agy` 新建或 `agy --conversation <id>` 接續；支援 CLI metadata／持久化 transcript 的防禦讀取與預覽。備份來源只讀、缺 cwd 需明確選擇；1.3.5 實際資料仍待驗證，不涵蓋 App／IDE。見[相容性說明](antigravity-cli-history.md)。
+- OpenCode：唯讀複製並驗證 `opencode.db`／WAL，解析固定版本的支援 SQLite v1/v2 結構；以 `--session <id>` 與 `OPENCODE_DB` 接續，不改 HOME 或憑證。舊 JSON、任意 DB 檔名及 remote attach 不在範圍，見[整合限制](opencode-integration.md)。
 - CLI 格式不是本專案保證穩定的公開資料 API。實際版本相容性與尚未驗證項目列於驗收紀錄，不能把合成 fixture 通過等同真實版本已驗證。
 - 成功 spawn 只表示「已啟動，待確認 Session」，不表示原工具已載入正確對話。外部已啟動的程序狀態未知，不會被自動附接或關閉。
 - 同來源多個 transcript 同 ID、跨來源同 ID 造成 CLI 歧義、來源遺失或身分衝突時，恢復會被阻擋；先修正資料來源後重新索引。
-- 目前不提供 fork 副本、雲端／IDE 歷史、daemon 附接、用量分析、外掛或同步。
+- 目前不提供 fork 副本、雲端／IDE 歷史、任意外部 daemon 附接、用量分析、外掛或同步；內建 broker 只附接受管 Runtime。
 
 ## 本機資料與隱私
 
@@ -162,6 +164,15 @@ cargo run --release --manifest-path src-tauri/Cargo.toml \
 
 第一個參數為 Session 數，第二個為每個 Session 的近似 KiB。結果含實際來源 bytes、索引耗時、未變更補掃、20 次查詢 p50／p95；不是 WebView 互動或整體記憶體量測。
 
+較完整的多訊息／生命週期基準使用 `index_lifecycle_benchmark`，參數依序為 Session 數、每個 Session 近似 KiB、訊息數，可加 `duplicates` 產生 Codex fallback／canonical 雙份紀錄。它分測空索引、三次未變更補掃、單檔追加、同大小重寫與五類搜尋，並檢查來源內容及可見訊息數。大型資料請把 `TMPDIR` 指向空間充足的磁碟，而非小型 tmpfs；建議至少預留 8 GiB。
+
+```bash
+cargo run --release --locked --manifest-path src-tauri/Cargo.toml \
+  --no-default-features --example index_lifecycle_benchmark -- 1000 100 20
+```
+
+同環境 before／after、10k／長對話指令、記憶體欄位與尚未達標的搜尋情境見[索引效能量測](index-performance.md)。這些資料不能代替使用者真實來源與原生 UI 驗收。
+
 ## CI 省額度模式
 
 日常自動檢查由 `.github/workflows/light-checks.yml` 執行：本 repo 的 branch push 只跑一個 Ubuntu 24.04 job，不同時監聽 pull_request。結果仍附在同 repo PR 的 commit 上；同 branch 較新的程式提交會取消較舊的自動檢查。它驗證 branch head，不是合成 merge commit；fork PR 或只有 base branch 更新的整合相容性需另外安排，不假裝已覆蓋。
@@ -186,6 +197,7 @@ Artifact 封裝依據：[actions/upload-artifact v4 的 permission-loss 限制](
 
 ## 疑難排解
 
+- `npm run dev` 顯示 `Port 1420 is already in use`：先在原本啟動的 terminal 按 Ctrl+C；macOS／Linux 可用 `lsof -nP -iTCP:1420 -sTCP:LISTEN` 確認占用者。若接著出現 `Cannot connect to the runtime broker`，本分支已修正 macOS listener `.mode(0600)` 回傳 `Unsupported` 的相容性問題，重新建置後再啟動；不要刪除 broker 狀態或強制結束仍在工作的 Agent。
 - Tauri CLI 在 `interface/rust.rs` 出現 `Option::unwrap()` panic：先檢查 `rustc -vV` 是否正常輸出 `host:`。本機曾遇到 PATH 選到缺少 LLVM 動態函式庫的 Homebrew Rust，導致 Tauri 取得空輸出；專案 npm 指令已優先選取 rustup。若仍失敗，檢查 `CARGO_HOME` 與 rustup 安裝，確認可取得 `rust-toolchain.toml` 指定版本。Rust 安裝方式見 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#rust)。
 - 找不到 CLI：在設定填可執行檔絕對路徑。桌面 GUI 的 PATH 可能和 terminal 不同；本應用另搜尋 Homebrew、`~/.local/bin`、`~/.cargo/bin` 等常見位置。
 - 參數保存失敗：確認格式為 JSON 字串陣列，使用支援選項，並分開傳入參數和值；需同意的權限選項必須先勾選。取消勾選時要一併移除仍需同意的參數。

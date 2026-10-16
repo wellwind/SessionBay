@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import type { Project } from '../types';
 import { Dialog } from './Dialog';
+import { DirectoryPathField } from './DirectoryPathField';
 
 export function ProjectDialog({ onSaved, onClose }: {
   onSaved: (project: Project) => Promise<void>;
@@ -41,11 +42,9 @@ export function ProjectDialog({ onSaved, onClose }: {
         <p className="dialog-description">{mode === 'create'
           ? '在指定的上層目錄建立一個新資料夾，並加入專案清單。不會覆寫既有資料夾。'
           : '只將你選定的目錄加入專案清單。自動找到的歷史仍可在「所有工作階段」瀏覽。'}</p>
-        <label className="field-label">{mode === 'create' ? '上層目錄路徑' : '目錄路徑'}
-          <input required disabled={busy || !!saved.current} autoFocus value={path}
-            placeholder="/Users/you/projects 或 /home/you/projects"
-            onChange={(event) => setPath(event.target.value)} />
-        </label>
+        <DirectoryPathField key={mode} label={mode === 'create' ? '上層目錄路徑' : '目錄路徑'}
+          required disabled={busy || !!saved.current} autoFocus value={path}
+          placeholder="/Users/you/projects 或 /home/you/projects" onChange={setPath} />
         <label className="field-label">{mode === 'create' ? '專案名稱（新資料夾名稱）' : '專案名稱（選填）'}
           <input required={mode === 'create'} disabled={busy || !!saved.current} value={name} maxLength={120}
             placeholder={mode === 'create' ? 'my-project' : '預設使用目錄名稱'}

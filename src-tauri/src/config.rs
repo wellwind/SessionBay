@@ -31,6 +31,14 @@ pub struct Executables {
     pub grok: String,
     #[serde(default = "default_antigravity_executable")]
     pub antigravity: String,
+    #[serde(default = "default_opencode_executable")]
+    pub opencode: String,
+}
+
+fn default_opencode_executable() -> String {
+    providers::definition(AgentKind::OpenCode)
+        .executable
+        .clone()
 }
 
 fn default_grok_executable() -> String {
@@ -49,6 +57,7 @@ impl Executables {
             AgentKind::Claude => &self.claude,
             AgentKind::Grok => &self.grok,
             AgentKind::Antigravity => &self.antigravity,
+            AgentKind::OpenCode => &self.opencode,
         }
     }
 }
@@ -60,6 +69,7 @@ impl Default for Executables {
             claude: providers::definition(AgentKind::Claude).executable.clone(),
             grok: default_grok_executable(),
             antigravity: default_antigravity_executable(),
+            opencode: default_opencode_executable(),
         }
     }
 }
@@ -78,6 +88,7 @@ pub struct AgentOptions {
     pub claude: AgentLaunchOptions,
     pub grok: AgentLaunchOptions,
     pub antigravity: AgentLaunchOptions,
+    pub opencode: AgentLaunchOptions,
 }
 
 impl AgentOptions {
@@ -87,6 +98,7 @@ impl AgentOptions {
             AgentKind::Claude => &self.claude,
             AgentKind::Grok => &self.grok,
             AgentKind::Antigravity => &self.antigravity,
+            AgentKind::OpenCode => &self.opencode,
         }
     }
 }
@@ -96,9 +108,13 @@ impl AgentOptions {
 pub struct Settings {
     pub version: u32,
     pub theme: String,
+    #[serde(default = "default_theme_palette")]
+    pub theme_palette: String,
     pub terminal_theme: String,
     pub font_family: String,
     pub font_size: u16,
+    #[serde(default = "default_app_zoom")]
+    pub app_zoom: u16,
     pub default_agent: AgentKind,
     pub default_profile_id: String,
     pub profiles: Vec<ShellProfile>,
@@ -132,9 +148,11 @@ impl Default for Settings {
         Self {
             version: 1,
             theme: "dark".into(),
+            theme_palette: default_theme_palette(),
             terminal_theme: "bay".into(),
             font_family: "ui-monospace, SFMono-Regular, Menlo, monospace".into(),
             font_size: 14,
+            app_zoom: default_app_zoom(),
             default_agent: AgentKind::Codex,
             default_profile_id: "default".into(),
             profiles: vec![ShellProfile {
@@ -166,18 +184,40 @@ fn clean_string(s: &str, max: usize) -> bool {
     !s.is_empty() && s.len() <= max && !s.contains('\0')
 }
 
+fn default_app_zoom() -> u16 {
+    100
+}
+
+fn default_theme_palette() -> String {
+    "bay".into()
+}
+
+// Preserve future catalog IDs so a theme addition cannot reset unrelated settings.
+fn valid_theme_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.as_bytes()[0].is_ascii_alphanumeric()
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+}
+
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
             return Err("不支援的設定版本；請保留原檔並更新應用程式".into());
         }
         if !["dark", "light", "system"].contains(&self.theme.as_str())
-            || !["bay", "classic"].contains(&self.terminal_theme.as_str())
+            || !valid_theme_id(&self.theme_palette)
+            || !valid_theme_id(&self.terminal_theme)
         {
             return Err("主題設定無效".into());
         }
         if !(9..=32).contains(&self.font_size) || !clean_string(&self.font_family, 256) {
             return Err("字型大小須為 9–32，且字型名稱不可為空".into());
+        }
+        if !(50..=200).contains(&self.app_zoom) {
+            return Err("工作台縮放須為 50–200 的整數百分比".into());
         }
         if self.profiles.is_empty() || self.profiles.len() > 32 || self.sources.len() > 32 {
             return Err("至少需要一個 Shell Profile，最多 32 個 Profile／來源".into());
@@ -400,6 +440,7 @@ pub fn executable_fallback_directories() -> Vec<PathBuf> {
     if let Some(home) = dirs::home_dir() {
         paths.push(home.join(".local/bin"));
         paths.push(home.join(".cargo/bin"));
+        paths.push(home.join(".opencode/bin"));
         #[cfg(windows)]
         paths.push(home.join(".grok/bin"));
     }
@@ -796,6 +837,48 @@ mod tests {
         assert_eq!(settings.shortcuts["next-pane"], "Mod+Alt+ArrowDown");
     }
     #[test]
+    fn workspace_zoom_migrates_and_roundtrips_independently_of_font() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("appZoom");
+        old["fontSize"] = 21.into();
+        let mut settings: Settings = serde_json::from_value(old).unwrap();
+        assert_eq!(settings.app_zoom, 100);
+        settings.app_zoom = 150;
+        let loaded: Settings =
+            serde_json::from_value(serde_json::to_value(settings).unwrap()).unwrap();
+        assert_eq!(loaded.app_zoom, 150);
+        assert_eq!(loaded.font_size, 21);
+        loaded.validate().unwrap();
+    }
+    #[test]
+    fn workspace_zoom_rejects_out_of_range_and_noninteger_settings() {
+        for value in [0, 49, 201, u16::MAX] {
+            let settings = Settings {
+                app_zoom: value,
+                ..Settings::default()
+            };
+            assert!(settings.validate().is_err());
+        }
+        for value in [
+            serde_json::json!(99.5),
+            serde_json::json!(-1),
+            serde_json::json!("100"),
+            serde_json::Value::Null,
+        ] {
+            let mut settings = serde_json::to_value(Settings::default()).unwrap();
+            settings["appZoom"] = value;
+            assert!(serde_json::from_value::<Settings>(settings).is_err());
+        }
+        for value in [50, 100, 200] {
+            Settings {
+                app_zoom: value,
+                ..Settings::default()
+            }
+            .validate()
+            .unwrap();
+        }
+    }
+    #[test]
     fn reject_duplicate_shortcuts_and_profiles() {
         let mut s = Settings::default();
         s.shortcuts.insert("extra".into(), "Mod+Shift+F".into());
@@ -822,6 +905,58 @@ mod tests {
         assert!(!store.load_settings().1.is_empty());
         assert_eq!(fs::read(&path).unwrap(), b"broken");
     }
+    #[test]
+    fn legacy_settings_gain_palette_without_changing_the_terminal_or_other_fields() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("themePalette");
+        old["terminalTheme"] = "classic".into();
+        old["fontFamily"] = "Synthetic custom font".into();
+        let migrated: Settings = serde_json::from_value(old).unwrap();
+        assert_eq!(migrated.theme_palette, "bay");
+        assert_eq!(migrated.terminal_theme, "classic");
+        assert_eq!(migrated.font_family, "Synthetic custom font");
+        assert!(migrated.validate().is_ok());
+    }
+
+    #[test]
+    fn future_theme_ids_roundtrip_without_resetting_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ConfigStore::open(dir.path().join("app")).unwrap();
+        let mut settings = Settings {
+            theme_palette: "future-ui".into(),
+            terminal_theme: "future-terminal".into(),
+            font_size: 19,
+            ..Settings::default()
+        };
+        settings.profiles[0].name = "Keep my custom profile".into();
+        store.save_settings(&settings).unwrap();
+        let (loaded, warnings) = store.load_settings();
+        assert!(warnings.is_empty());
+        assert_eq!(loaded.theme_palette, "future-ui");
+        assert_eq!(loaded.terminal_theme, "future-terminal");
+        assert_eq!(loaded.font_size, 19);
+        assert_eq!(loaded.profiles[0].name, "Keep my custom profile");
+    }
+
+    #[test]
+    fn theme_ids_are_bounded_plain_identifiers() {
+        for id in ["bay", "classic", "ocean-dark", "rose-light", "future-42"] {
+            assert!(valid_theme_id(id));
+        }
+        for id in ["", "-bad", "UPPER", "url(example)", "has space", "bad\0"] {
+            assert!(!valid_theme_id(id));
+        }
+        assert!(!valid_theme_id(&"a".repeat(65)));
+        for field in ["themePalette", "terminalTheme"] {
+            let mut value = serde_json::to_value(Settings::default()).unwrap();
+            value[field] = "invalid value".into();
+            assert!(serde_json::from_value::<Settings>(value)
+                .unwrap()
+                .validate()
+                .is_err());
+        }
+    }
+
     #[test]
     fn workspace_rejects_persisted_runtime() {
         assert!(

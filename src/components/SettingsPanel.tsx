@@ -1,3 +1,5 @@
+import { DirectoryPathField } from './DirectoryPathField';
+import { workspaceZoomShortcutHelp } from '../workspace-zoom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
@@ -17,13 +19,15 @@ import {
   X,
 } from 'lucide-react';
 import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Settings, ShellCandidate, ShellProfile } from '../types';
-import { terminalDraftShortcutHelp } from '../terminal-draft';
-import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, reservedTerminalDraftShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
+import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions } from '../agents';
 import type { HistoryAgentKind } from '../agents';
 import { isAbsoluteFilesystemPath } from '../paths';
 import { Select } from './controls';
 import { AgentIcon } from './AgentIcon';
+import { ThemeControls, TerminalPreview } from './ThemeControls';
+import { appearanceOf, validThemeId } from '../themes';
+import type { Appearance } from '../themes';
 import './settings.css';
 
 export interface SettingsPanelProps {
@@ -34,6 +38,7 @@ export interface SettingsPanelProps {
   busy?: boolean;
   onSave: (settings: Settings) => Promise<void>;
   onClose: () => void;
+  onPreviewAppearance?: (appearance: Appearance | null) => void;
   onScan: (rebuild: boolean) => Promise<void>;
   onCancelScan: () => Promise<void>;
   onClearIndex: () => Promise<void>;
@@ -170,12 +175,16 @@ export function validateSettings(settings: Settings): ValidationErrors {
   if (settings.version !== 1) errors.version = '不支援的設定版本。';
   if (!['dark', 'light', 'system'].includes(settings.theme))
     errors.theme = '請選擇有效的介面主題。';
-  if (!['bay', 'classic'].includes(settings.terminalTheme))
+  if (!validThemeId(settings.themePalette ?? 'bay'))
+    errors.themePalette = '請選擇有效的介面色系。';
+  if (!validThemeId(settings.terminalTheme))
     errors.terminalTheme = '請選擇有效的終端色票。';
   if (!validText(settings.fontFamily, 256))
     errors.fontFamily = '請填寫有效的字型名稱，最多 256 bytes。';
   if (!Number.isInteger(settings.fontSize) || settings.fontSize < 9 || settings.fontSize > 32)
     errors.fontSize = '字型大小請填寫 9 到 32 的整數。';
+  if (!Number.isInteger(settings.appZoom ?? 100) || (settings.appZoom ?? 100) < 50 || (settings.appZoom ?? 100) > 200)
+    errors.appZoom = '工作台縮放請填寫 50 到 200 的整數百分比。';
   if (!agentKinds.includes(settings.defaultAgent))
     errors.defaultAgent = '請選擇預設 Agent。';
   if (!settings.profiles.length || settings.profiles.length > 32)
@@ -237,7 +246,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
     if (parsed.error) errors[`agentOptions.${kind}`] = parsed.error;
     if (typeof options.bypassPermissions !== 'boolean') errors[`agentOptions.${kind}`] = '請確認工具權限設定。';
     if (!options.bypassPermissions && options.extraArgs.some((arg) =>
-      /^(--yolo|--always-approve|--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--allow-dangerously-skip-permissions)(=|$)/.test(arg)))
+      /^(--auto|--yolo|--always-approve|--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--allow-dangerously-skip-permissions)(=|$)/.test(arg)))
       errors[`agentOptions.${kind}`] = '高風險參數需要先明確勾選下方的略過權限確認選項。';
   }
   const bindings = new Map<string, string[]>();
@@ -248,8 +257,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
       continue;
     }
     if (!binding.trim()) continue;
-    if (reservedTerminalDraftShortcut(binding)) errors[`shortcuts.${action}`] = 'Shift+Enter 保留給終端多行草稿，請選擇其他快捷鍵。';
-    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換，請選擇其他快捷鍵。';
+    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換、全工作台縮放或 Terminal Shift+Enter，請選擇其他快捷鍵。';
     const parts = binding
       .trim()
       .split('+')
@@ -312,6 +320,7 @@ export function SettingsPanel({
   busy = false,
   onSave,
   onClose,
+  onPreviewAppearance,
   onScan,
   onCancelScan,
   onClearIndex,
@@ -343,6 +352,23 @@ export function SettingsPanel({
     setShowErrors(false);
     setSourceDiscoveries({});
   }, [settings]);
+
+  useEffect(() => {
+    // Preview only valid appearance fields; unrelated draft edits never reach running panes.
+    const appearance = appearanceOf(draft);
+    if (!Number.isInteger(appearance.fontSize) || appearance.fontSize < 9 || appearance.fontSize > 32)
+      appearance.fontSize = settings.fontSize;
+    if (!validText(appearance.fontFamily, 256)) appearance.fontFamily = settings.fontFamily;
+    if (!Number.isInteger(appearance.appZoom) || appearance.appZoom! < 50 || appearance.appZoom! > 200)
+      appearance.appZoom = settings.appZoom ?? 100;
+    onPreviewAppearance?.(appearance);
+  }, [draft, settings.fontSize, settings.fontFamily, settings.appZoom, onPreviewAppearance]);
+  useEffect(() => () => onPreviewAppearance?.(null), [onPreviewAppearance]);
+  useEffect(() => {
+    const back = () => { if (!operationInFlight.current && !busy) onClose(); };
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, [onClose, busy]);
 
   useEffect(() => {
     if (!focusSourceId) return;
@@ -406,7 +432,7 @@ export function SettingsPanel({
       ),
     }));
   const close = () => {
-    if (locked) return;
+    if (locked || operationInFlight.current) return;
     if (dirty) setConfirmation('discard');
     else onClose();
   };
@@ -775,13 +801,16 @@ export function SettingsPanel({
                                             onChange={(value) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, kind: value as AgentKind } : item))}
                                             options={historyAgentKinds.map((option) => ({ value: option, label: agentNames[option], icon: <AgentIcon kind={option} /> }))} />
                                         </label>
-                                        <label className="settings-field">
-                                          <span>{capability.history.sourceEnv || capability.name} 資料目錄</span>
-                                          <input id={`source-root-${source.id}`} value={source.root} placeholder={capability.history.rootPlaceholder!}
-                                            onChange={(event) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, root: event.target.value } : item))}
-                                            spellCheck={false} aria-invalid={Boolean(errors[`sources.${i}.root`])} aria-describedby={`source-${i}-error`} />
+                                        <DirectoryPathField key={`${source.id}:${source.kind}`} className="settings-field"
+                                          label={`${capability.history.sourceEnv || capability.name} 資料目錄`}
+                                          id={`source-root-${source.id}`} value={source.root} disabled={locked}
+                                          placeholder={capability.history.rootPlaceholder!}
+                                          onChange={(root) => setDraft((current) => ({ ...current,
+                                            sources: current.sources.map((item) => item.id === source.id ? { ...item, root } : item),
+                                          }))}
+                                          aria-invalid={Boolean(errors[`sources.${i}.root`])} aria-describedby={`source-${i}-error`}>
                                           <FieldError id={`source-${i}-error`} message={errors[`sources.${i}.root`] ?? errors[`sources.${i}.id`] ?? errors[`sources.${i}.kind`]} />
-                                        </label>
+                                        </DirectoryPathField>
                                       </div>
                                       {status.detail && <p className="settings-help">{status.detail}</p>}
                                     </div>
@@ -1081,39 +1110,22 @@ export function SettingsPanel({
                         <p>選一個適合專注工作的環境。</p>
                       </div>
                     </div>
-                    <div className="settings-field">
-                      <span>介面主題</span>
-                      <div className="settings-theme-options">
-                        {(
-                          [
-                            { value: 'dark', label: '深色', symbol: '◐' },
-                            { value: 'light', label: '淺色', symbol: '☼' },
-                            { value: 'system', label: '跟隨系統', symbol: '◒' },
-                          ] as const
-                        ).map((theme) => (
-                          <button
-                            type="button"
-                            key={theme.value}
-                            className={`settings-theme-option ${theme.value}${draft.theme === theme.value ? ' selected' : ''}`}
-                            aria-pressed={draft.theme === theme.value}
-                            onClick={() => update('theme', theme.value)}
-                          >
-                            <span aria-hidden="true">{theme.symbol}</span>
-                            <strong>{theme.label}</strong>
-                            {draft.theme === theme.value && <Check size={14} aria-hidden="true" />}
-                          </button>
-                        ))}
-                      </div>
-                      <FieldError id="theme-error" message={errors.theme} />
+                    <p className="settings-help theme-quick-help">立即預覽整個工作台與所有終端；儲存後保留，取消並捨棄則還原。</p>
+                    <div className="settings-field settings-section-space">
+                      <label id="app-zoom-label" htmlFor="app-zoom">工作台縮放 <small>%</small></label>
+                      <input id="app-zoom" type="number" min={50} max={200} step={10} aria-labelledby="app-zoom-label"
+                        value={Number.isFinite(draft.appZoom ?? 100) ? (draft.appZoom ?? 100) : ''}
+                        onChange={(event) => update('appZoom', event.target.value === '' ? Number.NaN : Number(event.target.value))}
+                        aria-invalid={Boolean(errors.appZoom)} aria-describedby="app-zoom-error app-zoom-help" />
+                      <FieldError id="app-zoom-error" message={errors.appZoom} />
+                      <p className="settings-help" id="app-zoom-help">{workspaceZoomShortcutHelp} 儲存保留、取消捨棄還原；終端基準字級不變。</p>
+                      <button className="secondary" type="button" onClick={() => update('appZoom', 100)}>還原工作台縮放 100%</button>
                     </div>
+                    <ThemeControls value={appearanceOf(draft)} disabled={locked}
+                      onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
+                    <FieldError id="theme-error" message={errors.theme || errors.themePalette} />
+                    <FieldError id="terminal-theme-error" message={errors.terminalTheme} />
                     <div className="settings-two-columns settings-section-space">
-                      <label className="settings-field">
-                        <span>終端色票</span>
-                        <Select aria-label="終端色票" value={draft.terminalTheme} disabled={locked}
-                          onChange={(value) => update('terminalTheme', value as Settings['terminalTheme'])}
-                          options={[{ value: 'bay', label: 'Bay · 柔和暖色' }, { value: 'classic', label: 'Classic · 經典對比' }]} />
-                        <FieldError id="terminal-theme-error" message={errors.terminalTheme} />
-                      </label>
                       <label className="settings-field">
                         <span>
                           終端字型大小 <small>px</small>
@@ -1134,6 +1146,7 @@ export function SettingsPanel({
                           aria-describedby="font-size-error"
                         />
                         <FieldError id="font-size-error" message={errors.fontSize} />
+                        <p className="settings-help">終端的基準字級；全工作台縮放另外作用於介面與終端，不會改寫此數值。此欄位立即預覽，儲存保留、取消捨棄還原。</p>
                       </label>
                     </div>
                     <label className="settings-field">
@@ -1151,22 +1164,7 @@ export function SettingsPanel({
                         使用這台電腦已安裝的字型，可用逗號指定備用字型。
                       </span>
                     </label>
-                    <div
-                      className={`settings-terminal-preview ${draft.terminalTheme}`}
-                      style={{
-                        fontFamily: draft.fontFamily || 'monospace',
-                        fontSize: Number.isFinite(draft.fontSize)
-                          ? Math.min(Math.max(draft.fontSize, 9), 32)
-                          : 14,
-                      }}
-                    >
-                      <span className="settings-preview-label">Aa · 字型預覽</span>
-                      <p>
-                        <span>❯</span> Session Bay
-                      </p>
-                      <p>讓每一次工作，都能接續。</p>
-                      <span className="settings-preview-cursor" aria-hidden="true" />
-                    </div>
+                    <TerminalPreview value={appearanceOf(draft)} />
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
                         <h3>開始新工作時</h3>
@@ -1207,7 +1205,7 @@ export function SettingsPanel({
                         Mod+Shift+T。留空可停用快捷鍵。衝突會顯示在下方；請避開終端程式與作業系統常用組合。
                       </p>
                     </div>
-                    <p className="settings-help">{terminalDraftShortcutHelp} {workspaceTabShortcutHelp} 這些應用保留組合不會傳送至終端；組字期間或對話框內不攔截。舊版「下一個面板」預設改為 Mod+Alt+ArrowDown。</p>
+                    <p className="settings-help">{workspaceTabShortcutHelp} 這些應用保留組合不會傳送至終端；組字期間或對話框內不攔截。舊版「下一個面板」預設改為 Mod+Alt+ArrowDown。</p>
                     {!Object.keys(draft.shortcuts).length && (
                       <div className="settings-empty">
                         <Keyboard size={24} />

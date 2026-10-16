@@ -59,12 +59,16 @@ pub fn detect_history_sources(
     }
     let inputs = HistorySourceDiscoveryInputs {
         home: dirs::home_dir(),
-        source_env: provider
-            .history
-            .source_env
-            .as_ref()
-            .and_then(std::env::var_os)
-            .map(PathBuf::from),
+        source_env: if kind == AgentKind::OpenCode {
+            dirs::home_dir().map(|home| provider.state_root(&home))
+        } else {
+            provider
+                .history
+                .source_env
+                .as_ref()
+                .and_then(std::env::var_os)
+                .map(PathBuf::from)
+        },
     };
     discover_history_sources(kind, &inputs, saved_sources)
 }
@@ -105,7 +109,7 @@ pub fn discover_history_sources(
     for (origin, root) in inputs
         .source_env
         .iter()
-        .filter(|_| provider.history.source_env.is_some())
+        .filter(|_| provider.history.source_env.is_some() || kind == AgentKind::OpenCode)
         .map(|root| ("provider environment", root))
         .chain(default_root.iter().map(|root| ("home default", root)))
     {

@@ -15,7 +15,7 @@
 
 ## 階段 1 唯讀歷史瀏覽
 
-交付 Codex、Claude Code adapters，並依 2026-10-15 追加 Grok Build 與 Antigravity CLI 防禦 adapter、工具與來源設定、目錄分組、SQLite migration、增量索引、分組後的 Session 清單、搜尋與預覽。依 2026-10-15 最新決策，專案為預設首頁，所有目錄為獨立頁；兩頁均以總覽卡片與側欄先選組，前者僅 curated，後者保留全部有 Session 的目錄（含未知／失效）。總覽不是平面混合 Session 清單。設定固定呈現四工具歷史能力卡片，舊設定可明確新增 Grok／Antigravity CLI 來源，不自動改寫既有來源；真實 CLI 發行版本驗收另列。
+交付 Codex、Claude Code adapters，並依 2026-10-15 追加 Grok Build 與 Antigravity CLI 防禦 adapter、工具與來源設定、目錄分組、SQLite migration、增量索引、分組後的 Session 清單、搜尋與預覽。依 2026-10-15 最新決策，專案為預設首頁，所有目錄為獨立頁；兩頁均以總覽卡片與側欄先選組，前者僅 curated，後者保留全部有 Session 的目錄（含未知／失效）。總覽不是平面混合 Session 清單。設定固定呈現五工具歷史能力卡片，舊設定可明確新增 Grok／Antigravity CLI 來源，不自動改寫既有來源；真實 CLI 發行版本驗收另列。
 
 退出條件：跨工具找到正確對話；未知或損壞事件不造成整批失敗；取消、重掃、刪除來源與封存移動可正確處理。自選專案狀態跨重開及重建保留，舊版手動加入／釘選能正確遷移，未加入及移出專案的目錄仍在所有目錄頁，選組後可搜尋歷史。此階段可以獨立試用，但不稱為完整 MVP。
 
@@ -23,7 +23,7 @@
 
 接上 Agent resume、新工作與普通 Terminal，完成 Runtime Manager、cwd 檢查、重複開啟處理、程序退出與錯誤回饋。追加 Grok Build 與 Antigravity CLI 啟動、各工具自訂 argv、持久的明確危險模式 opt-in 及共用後端計畫的啟動預覽。使用者後續將 Antigravity CLI 歷史明確納入 PR #1；防禦 reader 與真實 1.3.5 相容性驗收分開追蹤，不把未驗證資料版本列為完成。
 
-專案入口提供加入既有目錄（可選顯示名稱）及在已存在絕對父路徑下建立單一新資料夾；預覽可明確加入目錄。此輪先使用絕對路徑欄位，原生目錄選擇器尚未提供。建立不得覆寫目標或補建祖先目錄，導覽變更不影響原始 cwd／重新定位規則。
+專案入口提供加入既有目錄（可選顯示名稱）及在已存在絕對父路徑下建立單一新資料夾；預覽可明確加入目錄。本機目錄欄位已接入 Tauri 原生選擇器並保留手動輸入；原生平台互動驗收仍待完成。建立不得覆寫目標或補建祖先目錄，導覽變更不影響原始 cwd／重新定位規則。
 
 退出條件：從歷史啟動正確工具與工作環境；有資料但工具不存在時能修正；失敗時能保留診斷與重試。以受支援 CLI 版本驗證新建與恢復。
 
@@ -31,7 +31,7 @@
 
 交付多分頁、左右及上下分割、焦點切換、比例拖曳、暫時最大化、基本主題、字型、快捷鍵與布局保存。
 
-退出條件：完成產品規格的 P0 驗收；至少兩個可見 Terminal 同時執行，背景索引與大量輸出不妨礙操作。移出專案不停止 Runtime，未加入或已移出的開啟工作區在兩頁均可從獨立入口切回。重開只還原布局占位，不假裝保留先前程序。
+退出條件：完成產品規格的 P0 驗收；至少兩個可見 Terminal 同時執行，背景索引與大量輸出不妨礙操作。移出專案不停止 Runtime，未加入或已移出的開啟工作區在兩頁均可從獨立入口切回。原階段 3 只恢復布局；本批以階段 4 的 broker 真實狀態重新附接，broker／OS 重啟仍標示 interrupted。
 
 ## 階段 4 介面退出後持續執行（下一階段最高優先）
 
@@ -39,13 +39,13 @@
 
 規劃順序：
 
-1. 比較獨立本機 daemon 與 tmux 等方案，記錄 macOS／Linux 支援、安裝負擔、PTY ownership、權限及重新附接限制；目前不預先選定。
+1. 已採同一 executable 的 headless broker，沿用 Unix／ConPTY PTY ownership；本機 IPC 權限、輸出上限及限制見[持續 Runtime](persistent-runtime.md)。
 2. 定義 UI 連線與工作程序分離的生命週期、本機 IPC 授權、服務版本相容、明確停止與孤兒程序清理。
 3. 定義累積輸出／scrollback 保留上限、cwd、分頁／面板、終端尺寸與前景程式狀態的重附接模型。
 4. 驗證 UI 關窗／退出／崩潰後仍能執行；重新進入看見所有已開工作與真實狀態，不重複啟動。區分服務中斷與 Agent 執行失敗。
 5. OS 重開後以中斷狀態呈現；使用者理解原程序不會繼續，不能把布局／歷史恢復誤稱活程序續跑。
 
-退出條件：兩平台完成多 Shell／Agent 工作的離開、背景輸出、重附接與明確停止驗證；無未知孤兒程序或無界輸出保存。詳見[後續待辦第 09 項](future-backlog.md#09-介面退出後持續執行與重新附接下一階段最高優先)。本 PR 僅更新計畫，不實作背景服務。
+退出條件：三平台完成多 Shell／Agent 工作的離開、背景輸出、重附接與明確停止驗證；無未知孤兒程序或無界輸出保存。詳見[後續待辦第 09 項](future-backlog.md#09-介面退出後持續執行與重新附接下一階段最高優先)。本批已有 broker 實作與合成回歸，原生三平台互動仍待驗收。
 
 ## 階段 5 工作脈絡加強
 
@@ -76,6 +76,8 @@
 
 初次完整索引另量測總耗時、CPU、峰值記憶體與可取消性，不與有索引啟動混成同一數字。中文短詞、英文詞與程式碼識別字分別測量召回率與延遲。
 
+2026-10-16 第一階段索引熱路徑改善及合成 1k／10k／長對話 before／after 見[索引效能量測](index-performance.md)。原生 UI、真實資料及 CPU profiling 尚待驗收，10k 高命中率識別字搜尋仍未達上述目標；不將這一輪局部改善視為全數完成。
+
 記憶體分別報告 Session Bay Core、WebView 及 GPU 相關程序，以及 Agent 子程序；避免只取主程序的數字。不同平台無共同基線前不宣稱比 Electron 快多少。
 
 ## 必要驗證清單
@@ -84,7 +86,7 @@
 - 索引整合：追加、替換、截斷、刪除、重建與 migration。
 - 專案導覽：掃描不自動加入、舊版手動／釘選遷移、加入／更名／移出持久化、重建後保留；專案預設首頁與所有目錄頁均有分組總覽，未知／失效分組保留，選組後查詢不受加入狀態影響。
 - 專案建立：合成絕對路徑、單層名稱、既有目標／不存在父目錄／無效名稱拒絕，取消與失敗不誤建資料夾。
-- Agent 擴充：四工具能力卡片固定可見、舊 Grok 缺來源的草稿／明確保存、來源狀態分離、四工具設定隔離與舊設定遷移、白名單／危險參數 opt-in、精確 argv 預覽與啟動一致、手動 ID／索引 ID 互斥與來源歧義阻擋。
+- Agent 擴充：五工具能力卡片固定可見、舊 Grok 缺來源的草稿／明確保存、來源狀態分離、五工具設定隔離與舊設定遷移、白名單／危險參數 opt-in、精確 argv 預覽與啟動一致、手動 ID／索引 ID 互斥與來源歧義阻擋。
 - Grok 歷史：summary／stream 配對、cwd 身份核對、rewind、跨檔變更、缺檔／部分寫入、來源唯讀。
 - Antigravity CLI 歷史：官方 transcript.jsonl 的防禦 reader、metadata 唯讀快照、rewind／compaction 重寫保護、未知格式警告及受限制接續；full-only 不復活正文。真實 CLI 1.3.5 樣本／互動接續與 App／IDE 能力不得由合成 fixtures 推論。
 - Runtime 整合：啟動、輸入、resize、退出、關閉與子程序清理。
@@ -92,7 +94,7 @@
 - 工具登錄：共用 manifest 的前後端契約、安裝／版本重新偵測；內建 parser 與 argv 安全邊界不因 metadata 改動而放寬。
 - Shell 設定：有效 `$SHELL`／平台 fallback、預設 `[-l]`、唯讀候選偵測與明確加入，保留自訂 Profiles／預設且不匯入 rc。
 - 工作區保留：未加入歷史直接接續、執行中移出專案、切回已開啟工作區，不終止或遺失程序入口。
-- Shell 正常退出：starting／running Shell 結束碼 0 移除面板及最後分頁；Agent、非零／未知退出、錯誤與還原占位不被誤關閉。
+- Shell／Agent 退出：所有結束碼保留最後畫面及面板；重附接不重跑原指令，明確關閉僅停止並移除指定 Runtime。
 - 人工相容性：中文輸入法、快捷鍵、Vim、tmux 與 Agent 互動式畫面。
 - macOS 圖示：專用留白向量、可重複 ICNS 產生、各尺寸 alpha 邊界與其他平台圖示不變；原生 Cmd+Tab／Dock 視覺比較另驗收。
 
@@ -106,8 +108,25 @@
 
 ## 最高優先：退出 UI 後持續執行
 
-- [ ] 獨立 broker／附接實作經同提交 Linux E2E 及三平台原生互動驗收。分支已加入實作與測試，仍為 Draft；不能將本機 socket 受限或 Windows 交叉編譯算成原生 passed。詳見[持續 Runtime](persistent-runtime.md)。
+- [x] 獨立 broker／附接實作與個別功能 PR 同提交 Linux E2E。
+- [ ] 最終整合樹未過濾 Linux socket E2E 與三平台原生互動驗收。不能將本機 socket 受限或 Windows 交叉編譯算成原生 passed。詳見[持續 Runtime](persistent-runtime.md)。
 
-### 2026-10-16 終端多行草稿
+## 日常體驗：全域臨時 Terminal
 
-使用者選定本機編輯框方案；Shift+Enter 開草稿、明確確認後貼上、原 attachment 綁定與失敗保留已加入前端回歸。跨工具原生 Shift+Enter 不在此批宣稱範圍；三平台真實 GUI／輸入法仍待驗。詳見 [多行草稿](terminal-drafts.md)。
+- [x] 無專案 home Shell、null 分頁／面板、獨立選取、側欄找回與既有明確 cwd 相容的實作及單元回歸。
+- [x] 原功能 PR 同提交 Linux broker E2E。
+- [ ] 最終整合樹未過濾 Linux socket E2E 與原生三平台桌面驗收；不可將 socket 受限或交叉編譯算成原生通過。獨立 Draft PR 疊在持續 Runtime PR #7，詳見[驗證清單](temporary-terminal.md)。
+
+## 2026-10-16 OpenCode 獨立 PR
+
+第五 provider 的官方 SQLite v1/v2 reader、來源 UI、安全啟動／接續與合成回歸列為本 PR 交付；依賴原生平台 PR #3。舊 JSON 與任意 channel DB 不宣稱支援，真實 OpenCode 三平台接續仍待驗證，詳見 [OpenCode 整合與驗證](opencode-integration.md)。
+
+### Shift＋Enter 原位輸入（取代未合併的 modal 方案）
+
+- 實作 registry 驅動的單鍵 CSI-u 相容模式與面板覆寫；Shell／未知工具不猜測，無 LF／CR fallback。
+- 自動化與原生驗收分開；完整 CLI、三平台 WebView／ConPTY、IME、tmux／SSH／WSL 尚待驗收，不能標成全工具通過。見 [版本與驗證清單](terminal-keyboard.md)。
+
+
+### 外觀修訂與命令面板
+
+保留既有十個色系，新增 Code Modern／Code 2026 深／淺色 UI 與 Terminal；命令面板可搜尋、鍵盤預覽、Enter 保存及 Escape 還原。全工作台 page zoom 使用獨立 appZoom，與主題共用序列化保存，不乘改 Terminal 基準字級。修訂後整合樹的自動化與原生待驗項目見[批次整合驗證](batch-integration-validation.md)。

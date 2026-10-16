@@ -3,7 +3,8 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { api } from './api';
 import type { LaunchRequest } from './types';
 
-const native = vi.hoisted(() => ({ channels: vi.fn() }));
+const native = vi.hoisted(() => ({ channels: vi.fn(), setZoom: vi.fn() }));
+vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ setZoom: native.setZoom }) }));
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
   isTauri: vi.fn(() => false),
@@ -18,7 +19,7 @@ beforeEach(() => {
 });
 
 describe('launch preview IPC contract', () => {
-  it.each(['grok', 'antigravity'] as const)('sends a %s preview request unchanged without creating an output channel or launching', async (kind) => {
+  it.each(['grok', 'antigravity', 'opencode'] as const)('sends a %s preview request unchanged without creating an output channel or launching', async (kind) => {
     vi.mocked(isTauri).mockReturnValue(true);
     const request: LaunchRequest = {
       paneId: 'synthetic-preview', kind, projectId: 'synthetic-project',
@@ -60,7 +61,7 @@ describe('shell discovery IPC contract', () => {
 });
 
 describe('history source discovery IPC contract', () => {
-  it.each(['codex', 'claude', 'grok', 'antigravity'] as const)('passes only the %s registry ID without launching or mutating settings', async (kind) => {
+  it.each(['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const)('passes only the %s registry ID without launching or mutating settings', async (kind) => {
     vi.mocked(isTauri).mockReturnValue(true);
     const result = { kind, supported: kind !== 'antigravity', candidates: [], message: null };
     vi.mocked(invoke).mockResolvedValue(result);
@@ -114,4 +115,16 @@ it('settles only the requested panes before explicit close, including failed lau
   finish();
   await two;
   await api.settleLaunches(['closing', 'other']);
+});
+
+describe('native zoom API', () => {
+  it('uses the current WebView page zoom factor without changing runtime IPC', async () => {
+    vi.mocked(isTauri).mockReturnValue(true); native.setZoom.mockResolvedValue(undefined);
+    await api.setWorkspaceZoom(150);
+    expect(native.setZoom).toHaveBeenCalledWith(1.5); expect(invoke).not.toHaveBeenCalled();
+  });
+  it('does not claim a browser-only preview changed native zoom', async () => {
+    await expect(api.setWorkspaceZoom(150)).rejects.toThrow('桌面');
+    expect(native.setZoom).not.toHaveBeenCalled();
+  });
 });

@@ -302,6 +302,7 @@ async fn close_application(app: tauri::AppHandle, state: AppState<'_>) -> Result
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let directory = smoke_data_directory()?.unwrap_or(app.path().app_data_dir()?);
             let service = Service::open_desktop(directory).map_err(std::io::Error::other)?;

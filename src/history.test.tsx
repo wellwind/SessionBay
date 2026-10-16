@@ -680,7 +680,7 @@ describe('additional agent history capabilities', () => {
     const filter = screen.getByRole('combobox', { name: '篩選 Agent' });
     fireEvent.click(filter);
     expect(screen.getAllByRole('option').map((option) => option.textContent))
-      .toEqual(['所有 Agent', 'CCodex', '✳Claude Code', 'GGrok Build', 'AAntigravity CLI']);
+      .toEqual(['所有 Agent', 'CCodex', '✳Claude Code', 'GGrok Build', 'AAntigravity CLI', 'OOpenCode']);
     fireEvent.click(screen.getByRole('option', { name: 'Antigravity CLI' }));
     await tick();
     expect(api.sessions).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'antigravity' }));

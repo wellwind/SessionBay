@@ -17,6 +17,7 @@ pub enum ParserId {
     Claude,
     Grok,
     Antigravity,
+    OpenCode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +49,26 @@ pub struct LaunchCapability {
     pub cwd_args: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShiftEnterEncoding {
+    Native,
+    CsiU,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlatformKeyEncoding {
+    pub posix: ShiftEnterEncoding,
+    pub windows: ShiftEnterEncoding,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct KeyboardCapability {
+    pub shift_enter: PlatformKeyEncoding,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderDefinition {
@@ -56,6 +77,7 @@ pub struct ProviderDefinition {
     pub executable: String,
     pub logo: String,
     pub bypass_flag: String,
+    pub keyboard: KeyboardCapability,
     pub history: HistoryCapability,
     pub resume: ResumeCapability,
     pub launch: LaunchCapability,
@@ -63,6 +85,9 @@ pub struct ProviderDefinition {
 
 impl ProviderDefinition {
     pub fn state_root(&self, home: &Path) -> PathBuf {
+        if self.id == AgentKind::OpenCode {
+            return opencode_data_root(home, std::env::var_os("XDG_DATA_HOME").as_deref());
+        }
         self.state_root_with_override(
             home,
             self.history
@@ -144,14 +169,16 @@ impl Manifest {
                 AgentKind::Claude => ParserId::Claude,
                 AgentKind::Grok => ParserId::Grok,
                 AgentKind::Antigravity => ParserId::Antigravity,
+                AgentKind::OpenCode => ParserId::OpenCode,
             };
             if history
                 .parser_id
                 .is_some_and(|parser| parser != expected_parser)
                 || (history.supported
                     && history.source_env.is_none()
-                    && provider.id != AgentKind::Antigravity)
-                || (provider.id == AgentKind::Antigravity && history.source_env.is_some())
+                    && !matches!(provider.id, AgentKind::Antigravity | AgentKind::OpenCode))
+                || (matches!(provider.id, AgentKind::Antigravity | AgentKind::OpenCode)
+                    && history.source_env.is_some())
             {
                 return Err(
                     "Provider parser or source environment does not match its reviewed integration"
@@ -250,6 +277,23 @@ pub fn lookup(id: &str) -> Option<&'static ProviderDefinition> {
         .find(|provider| provider.id.as_str() == id)
 }
 
+/// OpenCode uses xdg-basedir on all three OSes, including Windows.
+pub fn opencode_data_root(home: &Path, xdg: Option<&std::ffi::OsStr>) -> PathBuf {
+    xdg.map(PathBuf::from)
+        .filter(|path| {
+            #[cfg(windows)]
+            if !crate::windows_fs::valid_filesystem_path(path) {
+                return false;
+            }
+            path.is_absolute()
+                && path
+                    .to_str()
+                    .is_some_and(|s| s.len() <= 4096 && !s.chars().any(char::is_control))
+        })
+        .unwrap_or_else(|| home.join(".local/share"))
+        .join("opencode")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,7 +320,7 @@ mod tests {
             )
             .unwrap();
         }
-        assert!(lookup("opencode").is_none());
+        assert!(lookup("unregistered").is_none());
         assert_eq!(definition(AgentKind::Grok).launch.version_args, ["version"]);
         assert_eq!(
             definition(AgentKind::Grok)
@@ -290,6 +334,35 @@ mod tests {
             .history
             .source_env
             .is_none());
+    }
+
+    #[test]
+    fn shift_enter_defaults_are_explicit_and_platform_bounded() {
+        for provider in definitions() {
+            let verified = matches!(
+                provider.id,
+                AgentKind::Codex | AgentKind::Claude | AgentKind::OpenCode
+            );
+            assert_eq!(
+                provider.keyboard.shift_enter.posix,
+                if verified {
+                    ShiftEnterEncoding::CsiU
+                } else {
+                    ShiftEnterEncoding::Native
+                }
+            );
+            assert_eq!(
+                provider.keyboard.shift_enter.windows,
+                if verified && provider.id != AgentKind::Codex {
+                    ShiftEnterEncoding::CsiU
+                } else {
+                    ShiftEnterEncoding::Native
+                }
+            );
+        }
+        let mut invalid: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
+        invalid["providers"][0]["keyboard"]["shiftEnter"]["posix"] = "lf".into();
+        assert!(Manifest::parse(&invalid.to_string()).is_err());
     }
 
     #[test]

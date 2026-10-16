@@ -22,6 +22,33 @@ vi.mock('./api', () => ({
 }));
 
 const root = '/synthetic/isolated-home/sessionbay-smoke-fixture';
+// These are complete UI scenarios, not individual control tests. Keep their
+// virtual-time bound below, but allow slower standard CI runners enough wall time.
+const scenarioTimeout = 30_000;
+let stopped = false;
+let advancing: Promise<void> | undefined;
+
+async function advance(milliseconds: number) {
+  if (stopped) throw new Error('smoke test driver stopped');
+  const pending = (async () => {
+    await act(async () => { await vi.advanceTimersByTimeAsync(milliseconds); });
+  })();
+  advancing = pending;
+  try {
+    await pending;
+  } finally {
+    if (advancing === pending) advancing = undefined;
+  }
+  if (stopped) throw new Error('smoke test driver stopped');
+}
+
+async function stopDriver() {
+  stopped = true;
+  // A Vitest wall-time timeout does not cancel the test body. Drain the current
+  // act before restoring fake timers / cleaning the DOM for the next scenario.
+  await advancing?.catch(() => undefined);
+}
+
 function seed(theme: 'dark' | 'light'): Bootstrap {
   return {
     runtimes: [],
@@ -31,11 +58,11 @@ function seed(theme: 'dark' | 'light'): Bootstrap {
       profiles: [{ id: 'smoke-shell', name: 'POSIX Shell', executable: '/bin/sh', args: [], env: {} }],
       sources: [{ id: 'sessionbay-smoke-codex', kind: 'codex', root: `${root}/codex`, enabled: true },
         { id: 'sessionbay-smoke-antigravity', kind: 'antigravity', root: '/synthetic/isolated-home/.gemini/antigravity-cli', enabled: true }],
-      executables: { codex: '/missing/codex', claude: '/missing/claude', grok: '/missing/grok', antigravity: '/missing/agy' },
+      executables: { codex: '/missing/codex', claude: '/missing/claude', grok: '/missing/grok', antigravity: '/missing/agy', opencode: '/missing/opencode' },
       agentOptions: defaultAgentOptions(), shortcuts: {}, onboardingComplete: false,
     },
-    installations: ['codex', 'claude', 'grok', 'antigravity'].map((kind) => ({
-      kind: kind as 'codex' | 'claude' | 'grok' | 'antigravity', available: false,
+    installations: ['codex', 'claude', 'grok', 'antigravity', 'opencode'].map((kind) => ({
+      kind: kind as 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode', available: false,
       executable: null, version: null, error: null,
     })),
     projects: [], workspace: emptyWorkspace(), warnings: [],
@@ -44,6 +71,7 @@ function seed(theme: 'dark' | 'light'): Bootstrap {
 }
 
 beforeEach(() => {
+  stopped = false;
   vi.useFakeTimers();
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 400, height: 40, top: 0, bottom: 40, left: 0, right: 400 } as DOMRect);
@@ -53,7 +81,8 @@ beforeEach(() => {
   vi.mocked(api.forget).mockResolvedValue(undefined);
   vi.mocked(api.settleLaunches).mockResolvedValue(undefined);
 });
-afterEach(() => {
+afterEach(async () => {
+  await stopDriver();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -64,14 +93,27 @@ async function drive(probe: Promise<void>) {
   let failure: unknown;
   void probe.then(() => { settled = true; }, (error) => { failure = error; settled = true; });
   for (let i = 0; i < 450 && !settled; i++) {
-    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await advance(50);
   }
   if (failure) throw failure;
   expect(settled, 'smoke interaction should settle within its bounded wait').toBe(true);
 }
 
 describe('native visual smoke scenario against real React UI', () => {
-  it.each(['dark', 'light'] as const)('reaches all five %s states using only synthetic curation and indexing', async (theme) => {
+  it('stops an active driver before the next test can replace fake timers and DOM', async () => {
+    const advanceTimers = vi.spyOn(vi, 'advanceTimersByTimeAsync');
+    const pending = drive(new Promise<void>(() => {}));
+    const rejection = expect(pending).rejects.toThrow('smoke test driver stopped');
+    await stopDriver();
+    await rejection;
+    expect(advanceTimers).toHaveBeenCalledTimes(1);
+    expect(advancing).toBeUndefined();
+  });
+  it.each([
+    { theme: 'dark', delayedMixedList: false },
+    { theme: 'light', delayedMixedList: false },
+    { theme: 'dark', delayedMixedList: true },
+  ] as const)('reaches all five $theme states with delayed mixed list: $delayedMixedList', async ({ theme, delayedMixedList }) => {
     const boot = seed(theme);
     let projects: Project[] = [];
     let indexed = false;
@@ -95,12 +137,25 @@ describe('native visual smoke scenario against real React UI', () => {
     });
     vi.mocked(api.index).mockImplementation(async () => indexed
       ? { ...boot.index, revision: 1, processed: 4, total: 4 } : boot.index);
-    vi.mocked(api.sessions).mockImplementation(async ({ projectId, kind }) => ({ total: 1, items: [{
-      id: kind === 'antigravity' ? 'smoke-antigravity-session' : 'smoke-session', externalId: 'smoke-native-session',
-      sourceId: kind === 'antigravity' ? 'sessionbay-smoke-antigravity' : 'sessionbay-smoke-codex', kind: kind ?? 'codex',
-      projectId: projectId ?? 'harbor', cwd: `${root}/workspaces/harbor`, title: '合成歷史預覽',
-      updatedAt: '2026-01-15T09:00:00Z', timeSource: 'event', archived: false, parentId: null, partial: false, snippet: '合成內容',
-    } satisfies Session] }));
+    vi.mocked(api.sessions).mockImplementation(async ({ projectId, kind }) => {
+      const session = (agent: Session['kind']): Session => ({
+        id: agent === 'antigravity' ? 'smoke-antigravity-session' : 'smoke-session', externalId: 'smoke-native-session',
+        sourceId: agent === 'antigravity' ? 'sessionbay-smoke-antigravity' : 'sessionbay-smoke-codex', kind: agent,
+        projectId: projectId ?? 'harbor', cwd: `${root}/workspaces/harbor`, title: '合成歷史預覽',
+        updatedAt: agent === 'antigravity' ? '2026-01-17T09:00:00Z' : '2026-01-15T09:00:00Z',
+        timeSource: 'event', archived: false, parentId: null, partial: false, snippet: '合成內容',
+      });
+      if (delayedMixedList && kind === 'antigravity') {
+        // Native fixtures already select the newest CLI transcript before filtering.
+        // Its markers cannot establish that this asynchronous list refresh committed.
+        expect(screen.getByText(/SESSIONBAY_SYNTHETIC_AG_ASSISTANT/)).toBeInTheDocument();
+        expect(Array.from(document.querySelectorAll('.session-card .agent-badge')).map((badge) => badge.textContent))
+          .toEqual(['Antigravity CLI', 'Codex']);
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
+      }
+      const items = delayedMixedList && !kind ? [session('antigravity'), session('codex')] : [session(kind ?? 'codex')];
+      return { total: items.length, items };
+    });
     vi.mocked(api.transcript).mockImplementation(async (id) => ({ messages: id === 'smoke-antigravity-session' ? [
       { role: 'user', text: 'SESSIONBAY_SYNTHETIC_AG_USER：檢查唯讀歷史預覽。', timestamp: null, line: 1 },
       { role: 'assistant', text: 'SESSIONBAY_SYNTHETIC_AG_ASSISTANT：合成回覆已顯示，沒有啟動 Agent。', timestamp: null, line: 2 },
@@ -121,17 +176,17 @@ describe('native visual smoke scenario against real React UI', () => {
       if (name.startsWith('projects')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('專案');
       if (name.startsWith('directories')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('所有目錄');
       if (name.startsWith('providers')) {
-        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(4);
+        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(5);
         expect(api.detectHistorySources).not.toHaveBeenCalled();
       }
       if (name.startsWith('launcher')) {
         expect(screen.getByRole('dialog', { name: '開始新的工作' })).toContainElement(screen.getByRole('listbox'));
-        expect(screen.getAllByRole('option')).toHaveLength(4);
+        expect(screen.getAllByRole('option')).toHaveLength(5);
       }
       if (name.startsWith('calendar')) expect(screen.getByRole('grid')).toBeInTheDocument();
     });
     render(<App />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await advance(50);
     await drive(runSmokeInteraction());
     expect(vi.mocked(smokeSnapshot).mock.calls.map(([name]) => name)).toEqual(
       ['projects', 'directories', 'providers', 'launcher', 'calendar'].map((state) => `${state}-${theme}`),
@@ -149,7 +204,7 @@ describe('native visual smoke scenario against real React UI', () => {
     expect(api.stop).not.toHaveBeenCalled();
     expect(api.preview).toHaveBeenCalledWith(expect.objectContaining({ kind: 'shell', cwd: `${root}/workspaces/harbor` }));
     expect((screen.getByRole('textbox', { name: '開始日期' }) as HTMLInputElement).value).toContain('2026');
-  });
+  }, scenarioTimeout);
 
   it('rejects a reserved fixture ID with a non-fixture path before any write', async () => {
     const boot = seed('dark');
@@ -157,7 +212,7 @@ describe('native visual smoke scenario against real React UI', () => {
     vi.mocked(api.bootstrap).mockResolvedValue(boot);
     vi.mocked(api.index).mockResolvedValue(boot.index);
     render(<App />);
-    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+    await advance(50);
     await expect(drive(runSmokeInteraction())).rejects.toThrow('invalid synthetic fixture source');
     expect(api.addProject).not.toHaveBeenCalled();
     expect(api.scan).not.toHaveBeenCalled();

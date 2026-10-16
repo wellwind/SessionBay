@@ -1207,6 +1207,7 @@ kbd {
 }
 .pane-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   background: var(--panel);
@@ -1605,16 +1606,47 @@ kbd {
 .directory-empty>svg{color:var(--accent)}.directory-empty h3{font-size:18px;margin:0}.directory-empty p{max-width:440px}
 @media(max-width:1000px){.navigation-tabs{padding-left:18px}.directory-overview{padding:22px 18px}.directory-overview-heading{flex-wrap:wrap}}
 
-/* The draft editor stays local until an explicit, destination-labelled paste. */
-.terminal-draft .dialog-description { font-size: 13px; margin-bottom: 14px; }
-.terminal-draft-target { display: flex; flex-direction: column; gap: 5px; padding: 12px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; overflow-wrap: anywhere; }
-.terminal-draft .field-label { color: var(--text); font-size: 13px; margin-bottom: 8px; }
-.terminal-draft textarea { display: block; width: 100%; min-height: 180px; max-height: 45vh;
-  resize: vertical; font-family: ui-monospace, monospace; font-size: 14px; line-height: 1.6; }
-.terminal-draft-summary { font-size: 12px; color: var(--text); margin: 8px 0; }
-.terminal-draft-warning, .terminal-draft [role="alert"], .terminal-draft [role="status"] {
-  font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
-.terminal-draft-warning { border-left: 3px solid var(--warning); padding-left: 10px; }
-.terminal-draft .dialog-actions { flex-wrap: wrap; }
-.terminal-draft .dialog-actions button { min-height: 40px; padding: 10px 14px; }
+/* Global temporary terminals use the existing semantic button treatment. */
+.temporary-terminal-button { white-space: nowrap; min-height: 44px; }
+@media (max-width: 1100px) {
+  .topbar-actions { gap: 8px; }
+  .topbar-actions .local-badge { display: none; }
+}
+@media (max-width: 900px) {
+  .temporary-terminal-button span { display: none; }
+  .temporary-terminal-button { min-width: 44px; min-height: 44px; padding: 8px; }
+}
+
+.agent-badge.opencode { background: #243c45; color: #afe2e6; }
+
+/* Shared manual path input and native directory chooser. */
+.directory-path-controls { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
+.directory-path-controls > input { flex: 1; min-width: 0; }
+.directory-picker-button { flex-shrink: 0; white-space: nowrap; min-height: 36px; }
+.directory-path-field > .inline-warning { overflow-wrap: anywhere; }
+.settings-field.directory-path-field > label { font-size: 11px; font-weight: 500; }
+.settings-panel .directory-picker-button { min-height: 34px; padding: 6px 10px; font-size: 11px;
+  color: var(--settings-text); background: var(--settings-surface); border-color: var(--settings-border); }
+@media (max-width: 520px) {
+  .directory-path-controls { flex-wrap: wrap; }
+  .directory-path-controls > input { flex-basis: 100%; }
+}
+
+.terminal-keyboard-mode {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+}
+.terminal-keyboard-mode select {
+  min-width: 0;
+  max-width: 190px;
+  padding: 3px;
+  font-size: 11px;
+}
+.terminal-keyboard-help { font-size: 11px; }
+.terminal-keyboard-help summary { cursor: pointer; }
+.terminal-keyboard-help[open] { flex-basis: 100%; }
+.terminal-keyboard-help p { color: var(--muted); line-height: 1.5; max-width: 70ch; }
