@@ -2,7 +2,10 @@ use crate::{
     broker::{RuntimeRecord, UiEvent},
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
-    models::{AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
+    models::{
+        AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage,
+        WorkspaceFilePage, WorkspaceFilePreview,
+    },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
     shells::{self, ShellCandidate},
@@ -117,6 +120,34 @@ async fn save_settings(state: AppState<'_>, settings: Settings) -> Result<Settin
 async fn list_projects(state: AppState<'_>) -> Result<Vec<Project>, String> {
     let s = state.inner().clone();
     blocking(move || s.catalog.projects()).await
+}
+#[tauri::command]
+async fn list_workspace_files(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+    offset: Option<usize>,
+    show_hidden: Option<bool>,
+) -> Result<WorkspaceFilePage, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.list_workspace_files(
+            &project_id,
+            &path,
+            offset.unwrap_or(0),
+            show_hidden.unwrap_or(false),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn read_workspace_file(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+) -> Result<WorkspaceFilePreview, String> {
+    let s = state.inner().clone();
+    blocking(move || s.read_workspace_file(&project_id, &path)).await
 }
 #[tauri::command]
 async fn add_project(
@@ -417,6 +448,8 @@ pub fn run() {
             detect_shells,
             save_settings,
             list_projects,
+            list_workspace_files,
+            read_workspace_file,
             add_project,
             create_project,
             update_project,

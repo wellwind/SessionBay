@@ -218,3 +218,18 @@ export interface Workspace {
   activeTabByProject: Record<string, string>;
   activeTemporaryTabId?: string;
 }
+
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  kind: 'directory' | 'file' | 'blocked';
+}
+export interface WorkspaceFilePage {
+  entries: WorkspaceFileEntry[];
+  nextOffset: number | null;
+}
+export interface WorkspaceFilePreview {
+  path: string;
+  text: string;
+  sizeBytes: number;
+}

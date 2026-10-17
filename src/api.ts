@@ -1,6 +1,8 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
+  WorkspaceFilePage,
+  WorkspaceFilePreview,
   AgentKind,
   HistorySourceDiscovery,
   Bootstrap,
@@ -36,6 +38,10 @@ export const api = {
   detectShells: () => call<ShellCandidate[]>('detect_shells'),
   detectHistorySources: (kind: AgentKind) => call<HistorySourceDiscovery>('detect_history_sources', { kind }),
   saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
+  listWorkspaceFiles: (projectId: string, path: string, offset = 0, showHidden = false) =>
+    call<WorkspaceFilePage>('list_workspace_files', { projectId, path, offset, showHidden }),
+  readWorkspaceFile: (projectId: string, path: string) =>
+    call<WorkspaceFilePreview>('read_workspace_file', { projectId, path }),
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
   createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),

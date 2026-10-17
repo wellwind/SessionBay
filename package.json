@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "lint": "eslint src",
     "tauri": "node scripts/tauri.mjs",
+    "test:files": "playwright test --config playwright.files.config.ts",
     "test:layout": "playwright test --config playwright.layout.config.ts"
   },
   "dependencies": {
