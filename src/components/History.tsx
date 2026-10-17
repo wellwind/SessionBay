@@ -328,9 +328,12 @@ export function HistoryView({
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
   return (
     <div className="history-view">
-      {undoId && <div className="inline-warning" role="status">已移入資源回收筒。
-        <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>
-        <button aria-label="關閉復原提示" disabled={trashBusy} onClick={() => setUndoId(null)}>×</button>
+      {undoId && <div className="history-undo" role="status">
+        <p>已移入資源回收筒。</p>
+        <div className="history-undo-actions">
+          <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>
+          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => setUndoId(null)}><X size={15} /></button>
+        </div>
       </div>}
       {trashError && !trashTarget && <p className="inline-error" role="alert">{trashError}</p>}
       {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
@@ -339,7 +342,7 @@ export function HistoryView({
         {trashError && <p className="inline-error" role="alert">{trashError}</p>}
         <div className="dialog-actions">
           <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>取消</button>
-          <button className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
+          <button data-dialog-confirm className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
         </div>
       </Dialog>}
       <div className="history-controls">
@@ -514,21 +517,23 @@ export function HistoryView({
             {selected ? (
               <>
                 <header className="transcript-header">
-                  <div>
+                  <div className="transcript-heading">
                     <span className="eyebrow">對話預覽</span>
                     <h3>{selected.title || selected.externalId}</h3>
                   </div>
-                  <button className="icon-button" aria-label="刪除 Session" title="移入資源回收筒，可還原"
-                    disabled={disabled || trashBusy || !selected.trashIdentity} onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(selected); }}><Trash2 size={17} /></button>
-                  <button
-                    className="primary"
-                    disabled={disabled || !!selected.resumeDisabledReason}
-                    aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
-                    onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
-                  >
-                    接續工作
-                    <ArrowRight size={15} />
-                  </button>
+                  <div className="transcript-actions">
+                    <button className="icon-button" aria-label="刪除 Session" title="移入資源回收筒，可還原"
+                      disabled={disabled || trashBusy || !selected.trashIdentity} onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(selected); }}><Trash2 size={17} /></button>
+                    <button
+                      className="primary"
+                      disabled={disabled || !!selected.resumeDisabledReason}
+                      aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
+                      onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
+                    >
+                      接續工作
+                      <ArrowRight size={15} />
+                    </button>
+                  </div>
                 </header>
                 {selected.resumeDisabledReason && (
                   <div className="inline-warning" id={resumeReasonId} role="status">

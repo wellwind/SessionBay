@@ -61,7 +61,7 @@ const shortcutNames: Record<string, string> = {
   'close-pane': '關閉面板',
   'command-palette': '命令面板',
   'toggle-sidebar': '顯示／隱藏側邊欄',
-  'toggle-focus-mode': '進入／退出專注模式',
+  'toggle-focus-mode': '進入／退出專注模式（Zen Mode）',
 };
 const sections = [
   { id: 'sources' as const, label: '來源與工具', icon: Folder },
@@ -348,6 +348,7 @@ export function SettingsPanel({
   const [confirmation, setConfirmation] = useState<'clear' | 'discard' | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const operationInFlight = useRef(false);
+  const composing = useRef(false);
   const locked = busy || working;
 
   useEffect(() => {
@@ -393,7 +394,8 @@ export function SettingsPanel({
   useEffect(() => {
     if (!confirmation) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    panelRef.current?.querySelector<HTMLElement>('[role="alertdialog"] button')?.focus();
+    (panelRef.current?.querySelector<HTMLElement>('[role="alertdialog"] [data-dialog-confirm]:not(:disabled)') ??
+      panelRef.current?.querySelector<HTMLElement>('[role="alertdialog"] button:not(:disabled)'))?.focus();
     return () => {
       previous?.focus();
     };
@@ -476,6 +478,7 @@ export function SettingsPanel({
     });
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
@@ -554,6 +557,15 @@ export function SettingsPanel({
         aria-describedby="settings-description"
         tabIndex={-1}
         ref={panelRef}
+        onCompositionStartCapture={() => { composing.current = true; }}
+        onCompositionEndCapture={() => { composing.current = false; }}
+        onBlurCapture={() => { composing.current = false; }}
+        onKeyDownCapture={event => {
+          if (confirmation && event.key === 'Enter' &&
+              (event.nativeEvent.isComposing || composing.current || event.keyCode === 229 || event.repeat)) {
+            event.preventDefault(); event.stopPropagation();
+          }
+        }}
         onKeyDown={onKeyDown}
       >
         <header className="settings-header" inert={Boolean(confirmation)}>
@@ -1336,8 +1348,10 @@ export function SettingsPanel({
                 <button
                   type="button"
                   className="settings-button danger-fill"
+                  data-dialog-confirm
                   disabled={locked || (confirmation === 'clear' && index.running)}
                   onClick={() => {
+                    if (locked || operationInFlight.current) return;
                     if (confirmation === 'discard') {
                       setConfirmation(null);
                       onClose();

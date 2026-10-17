@@ -96,7 +96,7 @@ test('opaque SVG bytes drop into the explicitly selected pane without rendering 
     document.querySelector('.xterm-host')!.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
   }, svg);
   await expect(page.locator('.terminal-pane')).toHaveClass(/focused/);
-  await expect.poll(() => page.evaluate(() => window.fileTrace.writes)).toEqual(['\x1b[200~file:///private/synthetic/file-1/scene.svg \x1b[201~']);
+  await expect.poll(() => page.evaluate(() => window.fileTrace.writes)).toEqual(['\x1b[200~"/private/synthetic/file-1/scene.svg" \x1b[201~']);
   expect(await page.evaluate(() => window.fileTrace.names)).toEqual(['scene.svg']);
   expect(await page.evaluate(() => window.fileTrace.payloads.flat())).toEqual(Array.from(new TextEncoder().encode(svg)));
   expect(await page.evaluate(() => window.fileTrace.retained)).toEqual(['file-1']);

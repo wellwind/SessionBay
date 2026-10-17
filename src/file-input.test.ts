@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fileInputChangesPrompt, fileLimits, filePasteText, fileProvider, fileUnsupportedReason, insertFiles, validateFiles, FileInputError, hasDirectory, clipboardFileName, displayFileName, type FileInputApi } from './file-input';
+import { fileInputGuidance, filePasteMode, fileInputChangesPrompt, fileLimits, filePasteText, fileProvider, fileUnsupportedReason, insertFiles, validateFiles, FileInputError, hasDirectory, clipboardFileName, displayFileName, type FileInputApi } from './file-input';
 const file = (size = 20, name = 'synthetic.png', type = 'image/png') => ({ name, type, size, slice: (start: number, end: number) => ({ arrayBuffer: async () => new Uint8Array(Math.min(end, size) - start).buffer }) }) as File;
 function fixture() {
   const api: FileInputApi = {
@@ -29,6 +29,20 @@ describe('file input adapters and bounded staging', () => {
   });
   it.each(['/tmp/a\n.png', '/tmp/a\r.png', '/tmp/a\x1b.png', '/tmp/$(touch hacked).png', '/tmp/a".png', '/tmp/a\'.png', '../escape.png', '//server/a.png', '\\\\server\\a.png', '/tmp/' + 'a'.repeat(513)])('rejects unsafe paths: %s', (path) => {
     expect(() => filePasteText('codex', path)).toThrow();
+  });
+  it('keeps generic Codex/OpenCode files as readable paths without claiming an attachment', () => {
+    for (const provider of ['codex', 'opencode', 'claude'] as const) {
+      expect(filePasteText(provider, '/private/專案 alpha/note.txt')).toBe('"/private/專案 alpha/note.txt" ');
+      expect(filePasteMode(provider, 'note.txt')).toBe('reference');
+    }
+    expect(filePasteText('codex', '/private/document.pdf')).toBe('"/private/document.pdf" ');
+    expect(filePasteMode('opencode', 'document.pdf')).toBe('document');
+    expect(filePasteMode('opencode', 'diagram.svg')).toBe('svg-text');
+    expect(filePasteMode('claude', 'photo.png')).toBe('reference');
+    expect(fileInputGuidance('codex', ['photo.png', 'note.txt'])).toContain('確認圖片／PDF 附件標記');
+    expect(fileInputGuidance('codex', ['photo.png', 'note.txt'])).toContain('其他檔案請要求 Agent 讀取路徑');
+    expect(fileInputGuidance('grok', ['photo.png'])).toContain('確認附件標記');
+    expect(fileInputGuidance('opencode', ['diagram.svg'])).toContain('路徑參照');
   });
   it('validates type, count and bytes before any reads', () => {
     expect(() => validateFiles([file(0)])).not.toThrow();
@@ -113,7 +127,7 @@ describe('general file behavior', () => {
     vi.mocked(o.api.finishFile).mockResolvedValue({ id: 'owned-id', path: '/private/safe.txt', originalName: '../unsafe.txt', name: 'safe.txt' });
     await insertFiles({ ...o, onRenamed });
     expect(onRenamed).toHaveBeenCalledWith('../unsafe.txt', 'safe.txt');
-    expect(o.paste.mock.calls[0][0]).toBe('file:///private/safe.txt ');
+    expect(o.paste.mock.calls[0][0]).toBe('"/private/safe.txt" ');
   });
   it('recognizes directories even in mixed drops', () => {
     const items = [{ kind: 'file', webkitGetAsEntry: () => ({ isDirectory: false }) }, { kind: 'file', webkitGetAsEntry: () => ({ isDirectory: true }) }] as unknown as DataTransferItem[];

@@ -25,7 +25,7 @@ import { api, errorMessage } from '../api';
 import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { workspaceZoomEvent } from '../workspace-zoom';
-import { fileInputChangesPrompt, fileLimits, fileProvider, fileUnsupportedReason, insertFiles, hasDirectory, FileInputError, clipboardFileName, displayFileName } from '../file-input';
+import { fileInputChangesPrompt, fileLimits, fileProvider, fileUnsupportedReason, fileInputGuidance, insertFiles, hasDirectory, FileInputError, clipboardFileName, displayFileName } from '../file-input';
 import { handleTerminalKey } from '../terminal-keyboard';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
@@ -516,7 +516,7 @@ export function TerminalPane({
           try { markAttempted(); target.terminal.paste(text); } finally { filePasting.current = false; }
         } });
       if (targetIsCurrent(target)) {
-        setNotice(`已插入 ${count} 個檔案的本機路徑參照，未送出。請確認 Agent 能讀取此類檔案；檔案會保留供接續對話使用。${renamed.length ? `檔名已清理（原名 → 存入名；長名稱會縮短顯示）：${renamed.join('；')}。` : ''}`);
+        setNotice(`已加入 ${count} 個檔案路徑，未送出。${fileInputGuidance(fileProvider(target.kind)!, files.map((file) => file.name))}${renamed.length ? `檔名已清理（原名 → 存入名；長名稱會縮短顯示）：${renamed.join('；')}。` : ''}`);
         target.terminal.focus();
       }
     } finally { fileStaging.current = false; }

@@ -37,7 +37,31 @@ export function validateFiles(files: readonly File[]): void {
   if (total > fileLimits.total) throw new Error('一次加入的檔案合計不得超過 20 MiB。');
 }
 
-/** Plain local file references only; this does not claim a native provider attachment. */
+/** Native paste candidates are hints, not validation or a delivery receipt.
+ * Keep other files as filesystem paths that the agent can read with its tools. */
+export function filePasteMode(provider: FileProvider, path: string): 'image' | 'document' | 'svg-text' | 'reference' {
+  const ext = path.split('.').pop()?.toLowerCase();
+  if (provider === 'claude') return 'reference';
+  if (provider === 'opencode') {
+    if (ext === 'pdf') return 'document';
+    if (ext === 'svg') return 'svg-text';
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif'].includes(ext ?? '')) return 'image';
+  }
+  if (provider === 'codex' || provider === 'grok') {
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tiff', 'tif'].includes(ext ?? '')) return 'image';
+  }
+  return 'reference';
+}
+
+export function fileInputGuidance(provider: FileProvider, names: readonly string[]): string {
+  const modes = new Set(names.map((name) => filePasteMode(provider, name)));
+  const native = modes.has('image') || modes.has('document');
+  if (native && (modes.has('reference') || modes.has('svg-text'))) return '請確認圖片／PDF 附件標記；其他檔案請要求 Agent 讀取路徑。';
+  if (native) return '請在 Agent 確認附件標記後送出。';
+  return '目前為路徑參照，請補充讀取要求後送出。';
+}
+
+/** One complete path per paste; no caption or Enter is mixed into native detection. */
 export function filePasteText(provider: FileProvider, path: string): string {
   // eslint-disable-next-line no-control-regex -- Reject terminal control bytes before insertion.
   if (!path || /[\x00-\x1f\x7f'"`$;|&<>()]/.test(path)) throw new Error('檔案路徑含不安全字元。');
@@ -47,7 +71,7 @@ export function filePasteText(provider: FileProvider, path: string): string {
   if (!windows && !local.startsWith('/')) throw new Error('檔案路徑必須是本機絕對路徑。');
   if (local.startsWith('//') || local.startsWith('\\')) throw new Error('網路檔案路徑尚未支援。');
   if (new TextEncoder().encode(local).length > 512) throw new Error('檔案暫存路徑過長。');
-  if (provider === 'claude') return `"${local}" `;
+  if (provider === 'claude' || (provider !== 'grok' && filePasteMode(provider, local) === 'reference')) return `"${local}" `;
   const slashPath = windows ? `/${local.replaceAll('\\', '/')}` : local;
   const encoded = slashPath.split('/').map((part, index) => windows && index === 1 ? part : encodeURIComponent(part)).join('/');
   if (encoded.length > 512) throw new Error('檔案暫存路徑編碼後過長。');

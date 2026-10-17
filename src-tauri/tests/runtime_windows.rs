@@ -40,7 +40,13 @@ fn spec(cwd: &Path, mode: &str) -> LaunchSpec {
             "--nocapture".into(),
         ],
         cwd: cwd.into(),
-        env: HashMap::from([(FIXTURE_MODE.into(), mode.into())]),
+        // Keep libtest's terminfo discovery inside this synthetic directory.
+        // Default discovery can stall before fixture_entry on native Windows.
+        env: HashMap::from([
+            (FIXTURE_MODE.into(), mode.into()),
+            ("TERMINFO".into(), ".".into()),
+            ("TERMINFO_DIRS".into(), ".".into()),
+        ]),
         session_id: None,
         resume_key: None,
         pane_id: uuid::Uuid::new_v4().to_string(),
@@ -334,7 +340,14 @@ fn untrusted_cwd_and_path_cannot_supply_the_conpty_dll() {
     // The native Rust test runner already requires this toolchain. The fixture
     // is benign and compiled from the source above, never downloaded.
     let compiler = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let target_arch = match std::env::consts::ARCH {
+        "x86" => "i686",
+        arch => arch,
+    };
     let compilation = Command::new(compiler)
+        // An x64 test can run under ARM64 Windows emulation. The shadow DLL
+        // must match the running test, not rustc's host architecture.
+        .args(["--target", &format!("{target_arch}-pc-windows-msvc")])
         .args([
             "--crate-type",
             "cdylib",
@@ -481,9 +494,13 @@ fn fixture_entry() {
             }
         }
         "descendant" => {
+            let ready = std::env::current_dir()
+                .unwrap()
+                .join("descendant-ready.marker");
             let mut child = Command::new(std::env::current_exe().unwrap())
                 .args(["--ignored", "--exact", "fixture_entry", "--nocapture"])
                 .env(FIXTURE_MODE, "sleep")
+                .env("SESSIONBAY_CHILD_READY_FILE", &ready)
                 .spawn()
                 .unwrap();
             std::fs::write(
@@ -491,11 +508,18 @@ fn fixture_entry() {
                 child.id().to_string(),
             )
             .unwrap();
+            // CreateProcess returning does not mean the child has attached to
+            // its console. Exercise attached-descendant closure only once the
+            // child's own code has run; startup Stop has a separate regression.
+            wait_until(|| ready.exists());
             println!("descendant-ready");
             std::io::stdout().flush().unwrap();
             child.wait().unwrap();
         }
         "sleep" => {
+            if let Some(path) = std::env::var_os("SESSIONBAY_CHILD_READY_FILE") {
+                std::fs::write(path, b"ready").unwrap();
+            }
             println!("ready");
             std::io::stdout().flush().unwrap();
             loop {

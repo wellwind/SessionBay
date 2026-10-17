@@ -4,6 +4,7 @@ import { api } from './api';
 import { HistoryView } from './components/History';
 import { Dialog } from './components/Dialog';
 import { SessionTrash } from './components/SessionTrash';
+import userEvent from '@testing-library/user-event';
 import type { Session } from './types';
 
 vi.mock('./api', () => ({
@@ -20,6 +21,26 @@ beforeEach(() => {
   vi.mocked(api.restoreSession).mockResolvedValue();
   vi.mocked(api.trash).mockResolvedValue({ items: [entry], total: 1 });
 });
+it('defaults recoverable delete to confirm, preserves Escape and prevents pending duplicate Enter', async () => {
+  const user = userEvent.setup();
+  let resolve!: (id: string) => void;
+  vi.mocked(api.trashSession).mockImplementation(() => new Promise(done => { resolve = done; }));
+  render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} />);
+  const opener = await screen.findByRole('button', { name: '刪除 Session' });
+  opener.focus();
+  await user.keyboard('{Enter}');
+  expect(screen.getByRole('button', { name: '確認移入資源回收筒' })).toHaveFocus();
+  expect(api.trashSession).not.toHaveBeenCalled();
+  await user.keyboard('{Escape}');
+  expect(opener).toHaveFocus();
+  await user.keyboard('{Enter}');
+  await user.keyboard('{Enter}{Enter}');
+  expect(api.trashSession).toHaveBeenCalledOnce();
+  expect(screen.getByRole('button', { name: '確認移入資源回收筒' })).toBeDisabled();
+  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  await act(async () => resolve(entry.id));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
 it('confirms recoverable deletion, supports undo and never stops or launches runtime', async () => {
   const changed = vi.fn();
   render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} onHistoryChanged={changed} />);
@@ -30,7 +51,12 @@ it('confirms recoverable deletion, supports undo and never stops or launches run
   fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
   vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
   fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
-  fireEvent.click(await screen.findByRole('button', { name: '復原刪除' }));
+  const undo = await screen.findByRole('button', { name: '復原刪除' });
+  const dismiss = screen.getByRole('button', { name: '關閉復原提示' });
+  expect(undo.parentElement).toBe(dismiss.parentElement);
+  expect(undo.parentElement).toHaveClass('history-undo-actions');
+  expect(dismiss).not.toHaveTextContent('×');
+  fireEvent.click(undo);
   await waitFor(() => expect(api.restoreSession).toHaveBeenCalledWith(entry.id));
   expect(api.trashSession).toHaveBeenCalledWith(session.id, session.trashIdentity);
   expect(changed).toHaveBeenCalledTimes(2);

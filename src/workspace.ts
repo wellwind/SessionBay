@@ -158,16 +158,16 @@ export function closeConfirmedPane(workspace: Workspace, target: Pane): Workspac
   return closePane(workspace, target.id);
 }
 
-/** Only a confirmed successful Shell exit is eligible; saved layouts have no runtime ID. */
-export function isSuccessfulShellExit(pane: Pane): boolean {
-  return pane.kind === 'shell' && pane.state === 'exited' && pane.exitCode === 0 &&
+/** A successful managed process exit closes its pane, never a nested Shell command. */
+export function isSuccessfulAutoCloseExit(pane: Pane): boolean {
+  return pane.state === 'exited' && pane.exitCode === 0 &&
     !!pane.runtimeId && !pane.error;
 }
 
 /** A delayed forget response must not remove a restarted/replaced pane. */
-export function closeSuccessfulShell(workspace: Workspace, exited: Pane): Workspace {
+export function closeSuccessfulExit(workspace: Workspace, exited: Pane): Workspace {
   const current = workspace.panes[exited.id];
-  if (!current || !isSuccessfulShellExit(current) || current.runtimeId !== exited.runtimeId ||
+  if (!current || !isSuccessfulAutoCloseExit(current) || current.runtimeId !== exited.runtimeId ||
     current.startToken !== exited.startToken) return workspace;
   return closePane(workspace, exited.id);
 }

@@ -19,10 +19,11 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await expect(tab).toBeVisible();
     await page.evaluate(() => {
       const fixture = (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture;
-      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
-      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
+      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 7 });
+      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 7 });
     });
-    await expect(tab).toHaveAttribute('title', /已結束/);
+    await expect(tab).toHaveAttribute('title', '已保留的 codex');
+    await expect(tab).toHaveAccessibleDescription(/已結束/);
     await tab.scrollIntoViewIfNeeded();
     expect(await tab.evaluate(element => {
       const rect = element.getBoundingClientRect();
@@ -131,3 +132,23 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
     }
   });
 }
+
+
+test('successful Agent exit removes only its tab, while abnormal Agent and original Shell remain', async ({ page }) => {
+  await page.goto('/tests/browser/agent-status.html');
+  const project = page.locator('.project-group').filter({ has: page.getByRole('button', { name: /^工作台介面 / }) });
+  const tab = project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
+  await expect(project).toContainText('3 分頁 · 2 Agent');
+  await tab.click();
+  await page.evaluate(() => {
+    const fixture = (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture;
+    fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
+    fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
+  });
+  await expect(tab).toHaveCount(0);
+  await expect(project).toContainText('2 分頁 · 1 Agent');
+  await expect(project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 claude' })).toBeVisible();
+  await expect(project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 Shell' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { agentStatusFixture: { operations: string[] } }).agentStatusFixture.operations))
+    .toEqual(['forget:runtime-a']);
+});

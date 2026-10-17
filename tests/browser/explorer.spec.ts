@@ -1,0 +1,56 @@
+import { expect, test } from '@playwright/test';
+for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
+  test(`Explorer ${theme} ${width}: tabs, search, restore and retained terminal`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto(`/tests/browser/workspace-files.html?theme=${theme}`);
+    const terminal = page.locator('.xterm-screen:visible');
+    await expect(terminal).toHaveCount(1);
+    await terminal.evaluate(node => { (window as unknown as { originalTerminal: Element }).originalTerminal = node; });
+    await page.getByRole('button', { name: '檔案預覽', exact: true }).click();
+    await page.getByRole('button', { name: 'README.md', exact: true }).dblclick();
+    await page.getByRole('button', { name: 'large.ts', exact: true }).dblclick();
+    await expect(page.getByRole('tab')).toHaveCount(2);
+    const editor = page.getByLabel('唯讀內容：large.ts');
+    await editor.focus(); await page.keyboard.press('Control+f');
+    const find = page.getByRole('textbox', { name: '搜尋文字（區分大小寫）' });
+    await find.fill('END_SENTINEL');
+    const mark = page.locator('mark.current-match');
+    await expect(mark).toHaveText('END_SENTINEL');
+    await expect.poll(async () => {
+      const a = await mark.boundingBox(); const b = await editor.boundingBox();
+      return !!a && !!b && a.x >= b.x && a.x + a.width <= b.x + b.width;
+    }).toBe(true);
+    await editor.focus(); await page.keyboard.press('Control+f'); await expect(find).toBeFocused();
+    await page.keyboard.press('Escape');
+    const scroll = await editor.evaluate(node => node.scrollTop);
+    await page.getByRole('tab', { name: /README.md/ }).click();
+    await expect(page.getByLabel('唯讀內容：README.md')).toContainText('<script>');
+    await page.getByRole('tab', { name: /large.ts/ }).click();
+    await expect.poll(() => editor.evaluate(node => node.scrollTop)).toBe(scroll);
+    expect(await page.locator('[data-line]').count()).toBeLessThan(100);
+    await page.getByRole('button', { name: '最大化檔案區' }).click();
+    await expect(page.locator('.workspace-terminal-surface')).toHaveAttribute('inert', '');
+    await page.getByRole('button', { name: 'Synthetic view switch' }).click();
+    await expect(page.locator('.workspace-terminal-surface')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('[data-file-explorer]')).toBeHidden();
+    await page.getByRole('button', { name: 'Synthetic view switch' }).click();
+    await expect(page.locator('.workspace-terminal-surface')).toHaveAttribute('inert', '');
+    await page.getByRole('button', { name: '收合目錄樹' }).click();
+    await expect(page.getByRole('tree')).toBeHidden();
+    await page.screenshot({ path: info.outputPath(`explorer-${theme}-${width}-max.png`) });
+    await page.getByRole('button', { name: '顯示目錄樹' }).click();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: '最大化檔案區' })).toBeVisible();
+    await expect(page.locator('.workspace-terminal-surface')).not.toHaveAttribute('inert', '');
+    await page.getByRole('tab', { name: /README.md/ }).click();
+    await expect(page.getByLabel('唯讀內容：README.md')).toBeVisible();
+    await expect(page.locator('[data-tree-row][data-path="README.md"]')).toHaveClass('selected');
+    await page.screenshot({ path: info.outputPath(`explorer-${theme}-${width}.png`) });
+    const pane = page.locator('.workspace-files-pane'); const before = (await pane.boundingBox())!.width;
+    await page.getByRole('separator', { name: '調整檔案區寬度' }).focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await terminal.evaluate(node => node === (window as unknown as { originalTerminal: Element }).originalTerminal)).toBe(true);
+  });
+}

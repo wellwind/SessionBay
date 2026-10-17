@@ -1,4 +1,78 @@
 import { expect, test } from '@playwright/test';
+test('project actions follow the left-aligned folder in visual and keyboard order', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 850 });
+  await page.goto('/tests/browser/sidebar.html');
+  const rows = page.locator('.project-row');
+  await expect(rows).toHaveCount(3);
+  for (const row of await rows.all()) {
+    const bounds = (await row.boundingBox())!;
+    const main = row.locator('.project-main');
+    const folder = (await main.locator(':scope > svg').boundingBox())!;
+    const handle = row.locator('.project-drag');
+    expect(folder.x - bounds.x).toBeGreaterThanOrEqual(12);
+    expect(folder.x - bounds.x).toBeLessThanOrEqual(16);
+    expect((await main.boundingBox())!.x).toBeLessThan((await handle.boundingBox())!.x);
+    await main.focus();
+    await page.keyboard.press('Tab');
+    const toggle = row.locator('.project-runtime-toggle');
+    if (await toggle.count()) {
+      await expect(toggle).toBeFocused();
+      expect((await toggle.boundingBox())!.x).toBeGreaterThan(folder.x);
+      await page.keyboard.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await page.keyboard.press('Space');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await page.keyboard.press('Tab');
+    }
+    await expect(handle).toBeFocused();
+  }
+});
+test('large counts and missing-directory warnings do not overlap', async ({ page }, info) => {
+  await page.setViewportSize({ width: 800, height: 850 });
+  await page.goto('/tests/browser/sidebar.html?large-count=1');
+  const main = page.locator('.project-main').filter({ has: page.getByText('123456', { exact: true }) });
+  await expect(main).toBeVisible();
+  const count = main.locator('.project-count');
+  expect(await count.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const name = (await main.locator('strong').boundingBox())!;
+  const number = (await count.boundingBox())!;
+  const warning = (await main.locator('.warning-icon').boundingBox())!;
+  expect(name.x + name.width).toBeLessThanOrEqual(number.x);
+  expect(number.x + number.width).toBeLessThanOrEqual(warning.x);
+  await page.screenshot({ path: info.outputPath('large-count-warning.png') });
+});
+for (const width of [800, 1200]) {
+  test(`project parent columns stay aligned at ${width}`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto('/tests/browser/sidebar.html');
+    const rows = page.locator('.project-row');
+    await expect(rows).toHaveCount(3);
+    const geometry = () => rows.evaluateAll(elements => elements.map(row => {
+      const rect = row.getBoundingClientRect();
+      const folder = row.querySelector('.project-main > svg')!.getBoundingClientRect();
+      const name = row.querySelector('strong')!.getBoundingClientRect();
+      return { folderX: folder.x, folderY: folder.y - rect.y, nameX: name.x, nameY: name.y - rect.y, height: rect.height };
+    }));
+    const before = await geometry();
+    await page.screenshot({ path: info.outputPath('columns-expanded.png') });
+    expect(new Set(before.map(item => item.folderX)).size).toBe(1);
+    expect(new Set(before.map(item => item.nameX)).size).toBe(1);
+    expect(new Set(before.map(item => item.folderY)).size).toBe(1);
+    expect(new Set(before.map(item => item.height)).size).toBe(1);
+    await page.getByRole('button', { name: '收合 工作台介面 的分頁' }).click();
+    expect(await geometry()).toEqual(before);
+    await page.getByRole('button', { name: '展開 工作台介面 的分頁' }).click();
+    expect(await geometry()).toEqual(before);
+    await rows.first().locator('strong').evaluate(element => { element.textContent = 'Synthetic long project title '.repeat(8); });
+    expect(await geometry()).toEqual(before);
+    // Vary the status line's content independently of disclosure and title length.
+    await rows.first().locator('.project-runtime-summary').evaluate(element => { element.textContent = '2 個執行中 · 1 個新輸出'; });
+    expect(await geometry()).toEqual(before);
+    await rows.first().locator('.project-runtime-summary').evaluate(element => { element.textContent = ''; });
+    expect(await geometry()).toEqual(before);
+    await page.screenshot({ path: info.outputPath('columns-long-title.png') });
+  });
+}
 for (const viewport of [{ width: 1200, height: 850 }, { width: 1000, height: 650 }]) {
 test(`sidebar drag, collapse, navigation and reload at ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
   await page.setViewportSize(viewport);
@@ -71,4 +145,30 @@ test('expanded project child tab is not a project reorder target', async ({ page
   await expect.poll(() => handles.evaluateAll(elements => elements.map(el => el.getAttribute('aria-label')))).toEqual(before);
   await child.click();
   await expect(page.locator('.workspace-tab.active')).toBeVisible();
+});
+
+for (const theme of ['dark', 'light']) test(`project inset stays stable ${theme}`, async ({ page }, info) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await page.goto(`/tests/browser/sidebar.html?theme=${theme}&large-count=1`);
+  const row = page.locator('.project-row').first();
+  const main = row.locator('.project-main');
+  const geometry = () => row.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const icon = element.querySelector('.project-main > svg')!.getBoundingClientRect();
+    return { inset: icon.x - rect.x, y: icon.y - rect.y, width: rect.width };
+  });
+  const normal = await geometry();
+  await main.hover();
+  const hover = await geometry();
+  await main.click();
+  const selected = await geometry();
+  await main.focus();
+  const focused = await geometry();
+  await page.screenshot({ path: info.outputPath('sidebar-inset.png'), fullPage: true });
+  expect(normal.inset).toBeGreaterThanOrEqual(12);
+  expect(normal.inset).toBeLessThanOrEqual(16);
+  expect(hover).toEqual(normal);
+  expect(selected).toEqual(normal);
+  expect(focused).toEqual(normal);
+  expect(await main.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 });

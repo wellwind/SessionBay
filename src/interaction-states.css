@@ -66,6 +66,8 @@
   overflow: hidden;
 }
 .project-title-row > .project-rename { flex-shrink: 0; }
+.project-title-row > .project-membership { flex-shrink: 0; }
+.project-membership[aria-pressed='true'] { color: var(--accent); }
 .project-heading .breadcrumb { height: 20px; min-width: 0; flex-wrap: nowrap; white-space: nowrap; }
 .project-heading .breadcrumb > [aria-current="page"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-heading .breadcrumb > :not([aria-current="page"]) { flex-shrink: 0; }

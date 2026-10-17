@@ -200,9 +200,19 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - Microsoft VS Code 固定 commit 3588843f05a21bfdeada83a9799d87f19de0fadd 的 [default themes](https://github.com/microsoft/vscode/tree/3588843f05a21bfdeada83a9799d87f19de0fadd/extensions/theme-defaults/themes)：Modern 與 2026 深／淺色及完整 include 鏈的語意配色。
 - 同一版本的 [Terminal color registry](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/src/vs/workbench/contrib/terminal/common/terminalColorRegistry.ts) 與 [editor selection defaults](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/src/vs/platform/theme/common/colors/editorColors.ts)：未被主題覆蓋的 ANSI／選取色來源。
 - [MIT license](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/LICENSE.txt) 隨 public/third-party/VSCode-LICENSE.txt 保留。適用範圍、可及性調整與非官方合作聲明見 [主題說明](theme-preview.md)。
+- [Windows Owner of a New Object](https://learn.microsoft.com/en-us/windows/win32/secauthz/owner-of-a-new-object)、[CreateFileW security attributes](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)：2026-10-16 核對新物件 owner 來自 TokenOwner、非父目錄 owner；明確 security descriptor 只套用新檔，既有檔不得藉 OPEN_ALWAYS 改權限。用於 Windows broker lock 原子建立修正，原生結果另行驗證。
+- [GitHub 手動執行 workflow](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)、[workflow_dispatch inputs](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatchinputs)：2026-10-16 核對 default branch 須有 workflow、可指定 branch/ref 與有預設值的 choice input。Windows 單列驗收仍須核對實際 run 的 head SHA 與 job 清單，不能只憑本機矩陣展開就宣稱已執行。
+- [PowerShell NativeCommandProcessor v7.5.4](https://github.com/PowerShell/PowerShell/blob/v7.5.4/src/System.Management.Automation/engine/NativeCommandProcessor.cs#L638-L652)、[Engine WG 對 GUI 非同步執行的說明](https://github.com/PowerShell/PowerShell/issues/26455)、[Process.Kill](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.kill)：2026-10-17 核對 GUI-subsystem 原生命令的背景執行／結束碼規則，以及 WaitForExit 不代表所有被 Kill(true) 的後代都已退出。用於 smoke 清理同步與只停止自有程序的修正；Windows 原生重跑結果另行記錄。
+- [PowerShell Start-Process Windows implementation](https://github.com/PowerShell/PowerShell/blob/v7.5.4/src/Microsoft.PowerShell.Commands.Management/commands/management/Process.cs#L2349-L2355)、[Windows standard-handle redirection](https://github.com/PowerShell/PowerShell/blob/v7.5.4/src/Microsoft.PowerShell.Commands.Management/commands/management/Process.cs#L2446-L2466)、[Pipe Handle Inheritance](https://learn.microsoft.com/en-us/windows/win32/ipc/pipe-handle-inheritance)：2026-10-17 核對 Windows Start-Process 的 output/error redirection 直接使用 File.OpenHandle，與必須等所有 write handles 關閉才到 EOF 的匿名 pipe 不同。用於 synthetic UI 記錄擷取；broker 停止／state 清除仍獨立驗證，不由 log 讀取成功推定。
 
 - Tauri 2.12.4 Menu 預設原始碼與 PredefinedMenuItem（查閱 2026-10-17）：https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/menu.rs 、https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/predefined.rs 。macOS 預設 File／Window 含 CloseWindow，單靠 WebView keydown 不能取代原生 accelerator；本次使用自訂 Close Tab 選單事件。文件／原始碼查核不代表原生 macOS 驗收。
 
+## Windows 工作區安全檔案預覽（2026-10-17）
+
+- [NtCreateFile / ZwCreateFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-zwcreatefile)：RootDirectory 相對名稱、FILE_OPEN 與 FILE_OPEN_REPARSE_POINT；使用者模式透過 ntdll NtCreateFile。
+- [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)：共享模式與開啟 reparse object；只共享讀取可能因現有寫入 handle 失敗。
+- [GetFinalPathNameByHandleW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew)：以已開啟 handle 的 GUID volume path 拒絕子目錄磁碟別名，查詢失敗則拒絕。
+- [GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex)：handle 上的目錄列舉及 FILE_STANDARD_INFO 硬連結數；不依賴檢查後重開完整路徑。
 ## 圖片輸入來源（2026-10-17）
 
 固定官方來源 commit、版本與適用限制集中於 [圖片輸入來源](image-input.md#固定來源2026-10-17-查閱)。
@@ -226,3 +236,20 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - OpenCode v1.19.2 固定 commit `7901b7d325c34852caa84fc2c325f3a08dd7a473`，Grok Build 固定 commit `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`：官方契約、資料表、sidecar 與 CLI 限制的逐項來源見[調查](permanent-deletion-investigation.md)。不能套用到未知版本或視為已完成刪除 adapter。
 - SQLite NOFOLLOW／HAS_MOVED／WAL／transaction 的官方依據見[安全分析](permanent-deletion-safety-review.md#官方來源)；Linux SQLite 3.46.1 和 3.53.1 的[合成負面探針](permanent-deletion-probes.md)不代表跨平台功能驗收。
+
+## Windows ConPTY 關閉與測試隔離（2026-10-17）
+
+- [Microsoft ClosePseudoConsole](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)：24H2 起關閉 API 立即返回；輸出 reader 仍需排空到 EOF。實作讓輸入在初始 handshake 完成後釋放，輸出維持獨立排空。
+- [Microsoft TerminateProcess](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess)：外部終止為非同步操作，應等待原始 process handle；對已終止程序重送可能取得 access denied。
+- [Rust 1.99 libtest terminfo searcher](https://github.com/rust-lang/rust/blob/1.99.0/library/test/src/term/terminfo/searcher.rs)：TERMINFO、TERMINFO_DIRS 與預設 home／系統目錄的搜尋規則。Windows acceptance fixtures 明確限制搜尋到本次合成目錄，不依賴主機的終端資料庫。
+
+## Windows installer 隔離驗收（2026-10-17 查閱）
+
+- [GitHub hosted runner 規格與權限](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)：Windows disposable VM、x64／ARM64 labels 與管理員／UAC 預設。
+- [GitHub runner 環境變數](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)：RUNNER_ENVIRONMENT 等執行環境防呆訊號。
+- [NSIS command line](https://nsis.sourceforge.io/Docs/Chapter3.html)：正式 installer／uninstaller silent 參數及安裝路徑語法。
+- [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/)：currentUser NSIS 與 WebView2 封裝行為。適用範圍與限制見 [測試說明](windows-installer-smoke.md)。
+
+### 檔案輸入真實接收核對（2026-10-17）
+
+[檔案輸入驗收](file-input-validation.md)列出固定 Codex 0.163、OpenCode 1.19.3 與 Grok source、Claude 官方路徑工作流程及適用限制。staging 與 PTY bytes 不能替代 CLI composer 辨識與模型接收證據；尚未宣稱 Mac 驗收通過。

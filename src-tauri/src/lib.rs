@@ -16,6 +16,7 @@ pub mod providers;
 pub mod runtime;
 pub mod service;
 pub mod shells;
+mod workspace_files;
 
 #[cfg(feature = "desktop")]
 mod desktop;
@@ -24,3 +25,6 @@ pub use desktop::run;
 
 #[cfg(windows)]
 mod windows_fs;
+#[cfg(windows)]
+#[path = "broker/windows_security.rs"]
+mod windows_security;

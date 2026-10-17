@@ -1,3 +1,4 @@
+import { call } from './api';
 import { agentKinds, agentNames } from './agents';
 import { smokeSnapshot } from './startup';
 
@@ -247,6 +248,22 @@ export async function runSmokeInteraction(): Promise<void> {
       Array.from(document.querySelectorAll('.session-card .agent-badge')).some((badge) => badge.textContent !== 'Antigravity CLI') ||
       document.querySelector('.workspace-tab, .xterm-host'))
       throw new Error('UI smoke: CLI filter must show only its real synthetic transcript without launching work');
+  }
+  if (await call<boolean>('frontend_diagnostic', { phase: 'terminal-probe', message: 'enabled' })) {
+    if (projectDialog()) {
+      click(projectButton('取消'));
+      await waitFor(() => !projectDialog(), 'project dialog did not dismiss before terminal smoke');
+    }
+    const { runTerminalSmoke } = await import('./terminal-smoke');
+    await runTerminalSmoke();
+  }
+  if (await call<boolean>('frontend_diagnostic', { phase: 'files-probe', message: 'enabled' })) {
+    if (projectDialog()) {
+      click(projectButton('取消'));
+      await waitFor(() => !projectDialog(), 'project dialog did not dismiss before files smoke');
+    }
+    const { runFilesSmoke } = await import('./files-smoke');
+    await runFilesSmoke();
   }
   // Allow the final committed layout to reach the compositor before capture.
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));

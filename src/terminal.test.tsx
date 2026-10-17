@@ -1181,12 +1181,12 @@ describe('general file drop and paste events', () => {
     const { input } = await ready();
     mocks.finishFile.mockResolvedValue({ id: 'image-id', path: '/private/safe.txt', originalName: '../notes.txt', name: 'safe.txt' });
     pasteEvent(input, '', [new File([], '../notes.txt', { type: 'text/plain' })]);
-    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('file:///private/safe.txt '));
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('"/private/safe.txt" '));
     expect(mocks.beginFile).toHaveBeenCalledWith('runtime', '../notes.txt', 0);
     expect(mocks.appendFile).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('檔名已清理');
     expect(screen.getByRole('alert')).toHaveTextContent('"../notes.txt" → "safe.txt"');
-    expect(screen.getByRole('alert')).toHaveTextContent('本機路徑參照');
+    expect(screen.getByRole('alert')).toHaveTextContent('路徑參照');
   });
   it('rejects directories in mixed drops without staging any file', async () => {
     const { host } = await ready();
@@ -1400,7 +1400,7 @@ describe('general file drop and paste events', () => {
     pasteEvent(input, '', [synthetic(), synthetic()]);
     await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledTimes(2));
     expect(mocks.retainFile).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('alert')).toHaveTextContent('已插入 2 個');
+    expect(screen.getByRole('alert')).toHaveTextContent('已加入 2 個');
   });
   it('toolbar gives SVG clipboard bytes an SVG filename', async () => {
     await ready();
