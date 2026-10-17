@@ -249,3 +249,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [GitHub runner 環境變數](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)：RUNNER_ENVIRONMENT 等執行環境防呆訊號。
 - [NSIS command line](https://nsis.sourceforge.io/Docs/Chapter3.html)：正式 installer／uninstaller silent 參數及安裝路徑語法。
 - [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/)：currentUser NSIS 與 WebView2 封裝行為。適用範圍與限制見 [測試說明](windows-installer-smoke.md)。
+
+## Caps Lock 上游對齊（2026-10-17）
+
+前述 xterm 5.5 為歷史調查，本候選已鎖定 6.0.0。
+- [xterm #5282](https://github.com/xtermjs/xterm.js/pull/5282)：已納入 6.0 的 CapsLock 修正。
+- [xterm #6191](https://github.com/xtermjs/xterm.js/pull/6191)：尚未合併；isComposing keydown 不應以 legacy code 提前 finalize 的原則。
+- [VS Code terminalInstance](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts)：公開 custom keyboard handler 分流，沒有自製 composition finalizer。

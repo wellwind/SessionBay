@@ -598,6 +598,6 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 
 正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。
 
-## 2026-10-17：Caps Lock 候選使用可取消的 composition 交易
+## 2026-10-17：Caps Lock 改採上游穩定版與公開 hook
 
-拒絕只關閉 xterm 共用 pending 布林的舊候選：下一次組字會讓舊 callback 復活而重送，或取消上一筆尚未送出的內容。固定 xterm 5.5.0，相容層以交易 identity 與真正可取消的 0ms callback 管理全部 composition finalizer；只在 CapsLock pending 交易與 insertText 範圍吻合時攔截雙路輸入。沒有任意延遲或 PTY 字串去重。普通組字也受 finalizer 替換影響，必須覆蓋 rollover、下一鍵與 dispose。詳見 [候選範圍、反例及原生驗收限制](capslock-ime.md)；尚未通過 macOS 中文 IME，禁止標記完成或自動合併。
+可取消 private finalizer 候選 e750ad1 原生驗收失敗：真實事件沒有 insertText，不能延續該假設。依使用者要求參照 VS Code／xterm，升級精確 6.0.0 與相容 addons，移除 private helper 改寫。既有公開 custom handler 依尚未合併的上游 #6191 原則保留 browser-marked composing key；原生 input/composition 決定提交。不做時間窗或文字去重。原生 trace 缺少 legacy keyCode，因此 0／229 分支皆測，不能推定實機數值。詳見 [證據、差異與驗收限制](capslock-ime.md)。新候選仍待原生驗收，不可合併。

@@ -1,4 +1,3 @@
-import { installCapsLockCommitGuard } from '../terminal-ime';
 import { useRuntimeActivity } from './RuntimeActivity';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
 import './agent-status.css';
@@ -157,7 +156,7 @@ export function TerminalPane({
       cursorBlink: true,
       allowProposedApi: false,
       convertEol: false,
-      overviewRulerWidth: 0,
+      overviewRuler: { width: 0 },
     });
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
@@ -205,7 +204,6 @@ export function TerminalPane({
       });
     });
     terminal.open(element);
-    const disposeCommitGuard = installCapsLockCommitGuard(element, terminal);
     term.current = terminal;
     fit.current = fitAddon;
     search.current = searchAddon;
@@ -254,7 +252,6 @@ export function TerminalPane({
       element.removeEventListener('dragover', dragImages, true);
       element.removeEventListener('drop', dropImages, true);
       clipboardBlock.dispose();
-      disposeCommitGuard();
       terminal.dispose();
       term.current = null;
     };

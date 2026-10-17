@@ -1,5 +1,6 @@
 // Paste into the app's Web Inspector only while testing a synthetic empty
-// terminal. Records metadata/lengths, never composition data or textarea text.
+// terminal. Key codes reveal sample keystrokes: NEVER use real/private input.
+// Records metadata/lengths, never composition data or textarea text.
 // stopSessionBayImeTrace() removes listeners and returns at most 256 rows.
 (() => {
   if (typeof window.stopSessionBayImeTrace === 'function') {
@@ -17,6 +18,7 @@
       milliseconds: +(performance.now() - started).toFixed(3),
       event: event.type, trusted: event.isTrusted, composed: event.composed,
       key: safeKeys.has(event.key) ? event.key : (typeof event.key === 'string' ? 'other' : undefined),
+      code: event.code, keyCode: event.keyCode, which: event.which,
       composing: typeof event.isComposing === 'boolean' ? event.isComposing : undefined,
       inputType: event.inputType,
       dataLength: typeof event.data === 'string' ? event.data.length : undefined,
