@@ -1480,6 +1480,90 @@ describe('directory navigation interruptions and direct management', () => {
 
 
 describe('shared launcher and scoped search controls', () => {
+  async function terminalSearchFixture(mac: boolean, focus: boolean, shortcuts: Record<string, string> = {}) {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue(mac ? 'MacIntel' : 'Win32');
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.settings.shortcuts = shortcuts;
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal 1' }));
+    expect(screen.getByRole('button', { name: '歷史 Session' })).not.toHaveClass('active');
+    if (focus) fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+    const textarea = document.createElement('textarea');
+    screen.getByTestId('workspace-canvas').append(textarea);
+    textarea.focus();
+    return { textarea, keys: { key: 'F', code: 'KeyF', metaKey: mac, ctrlKey: !mac, shiftKey: true } };
+  }
+
+  it.each([
+    [false, false], [false, true], [true, false], [true, true],
+  ])('captures scoped search before terminal handlers (Mac=%s, focus=%s)', async (mac, focus) => {
+    const { textarea, keys } = await terminalSearchFixture(mac, focus);
+    // Model xterm's target listener consuming the event before window bubbling.
+    const pty = vi.fn((event: KeyboardEvent) => { event.preventDefault(); event.stopPropagation(); });
+    textarea.addEventListener('keydown', pty, true);
+    expect(fireEvent.keyDown(textarea, keys)).toBe(false);
+    await tick();
+    expect(pty).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '歷史 Session' })).toHaveClass('active');
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    expect(screen.getByRole('textbox', { name: '搜尋 Session' })).toHaveFocus();
+    expect(document.querySelector('.app-shell')).toHaveAttribute('data-focus-mode', String(focus));
+    expect(screen.queryByRole('heading', { name: '所有工作階段' })).not.toBeInTheDocument();
+  });
+
+  it.each([false, true])('preserves dialog, composition and prevented-event guards (Mac=%s)', async mac => {
+    const { textarea, keys } = await terminalSearchFixture(mac, false);
+    const history = screen.getByRole('button', { name: '歷史 Session' });
+    for (const guard of [{ isComposing: true }, { keyCode: 229 }]) {
+      expect(fireEvent.keyDown(textarea, { ...keys, ...guard })).toBe(true);
+      expect(history).not.toHaveClass('active');
+    }
+    fireEvent.compositionStart(textarea);
+    expect(fireEvent.keyDown(textarea, keys)).toBe(true);
+    expect(history).not.toHaveClass('active');
+    fireEvent.compositionEnd(textarea);
+    const prevented = new KeyboardEvent('keydown', { ...keys, bubbles: true, cancelable: true });
+    prevented.preventDefault();
+    fireEvent(textarea, prevented);
+    expect(history).not.toHaveClass('active');
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    const dialog = screen.getByRole('dialog');
+    const focused = document.activeElement;
+    expect(fireEvent.keyDown(focused!, keys)).toBe(true);
+    await tick();
+    expect(dialog).toBeInTheDocument();
+    expect(document.activeElement).toBe(focused);
+    expect(history).not.toHaveClass('active');
+  });
+
+  it.each([false, true])('honors remapped search and leaves the old binding to the terminal (Mac=%s)', async mac => {
+    const { textarea, keys } = await terminalSearchFixture(mac, true, { 'search-sessions': 'Mod+Shift+Y' });
+    const pty = vi.fn();
+    textarea.addEventListener('keydown', pty);
+    expect(fireEvent.keyDown(textarea, keys)).toBe(true);
+    expect(pty).toHaveBeenCalledOnce();
+    pty.mockClear();
+    expect(fireEvent.keyDown(textarea, { ...keys, key: 'Y', code: 'KeyY' })).toBe(false);
+    await tick();
+    expect(pty).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: '搜尋 Session' })).toHaveFocus();
+  });
+
+  it.each(['', 'Mod+Shift+T', 'Mod+1'])('does not capture disabled or conflicting search binding %s', async binding => {
+    const { textarea, keys } = await terminalSearchFixture(false, false, { 'search-sessions': binding });
+    const pty = vi.fn();
+    textarea.addEventListener('keydown', pty);
+    expect(fireEvent.keyDown(textarea, binding === 'Mod+Shift+T' ? { ...keys, key: 'T' } : keys)).toBe(true);
+    await tick();
+    expect(pty).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: '歷史 Session' })).not.toHaveClass('active');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('keeps the project search shortcut scoped and focuses its complete search field', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />);

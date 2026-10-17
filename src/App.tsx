@@ -911,17 +911,19 @@ export default function App() {
         command.run();
       }
     };
-    // A configured focus binding must be consumed before xterm can forward it to PTY.
-    const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => item.id === 'toggle-focus-mode');
-      if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
+    // Search and focus bindings must run before xterm consumes or forwards the key.
+    const workspaceKey = (event: KeyboardEvent) => {
+      const command = commandRef.current.find((item) =>
+        (item.id === 'toggle-focus-mode' || item.id === 'search-sessions') &&
+        item.shortcut && !item.disabled && !conflicts.has(item.id) && matchesShortcut(event, item.shortcut));
+      if (command) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
       }
     };
-    window.addEventListener('keydown', focusKey, true);
+    window.addEventListener('keydown', workspaceKey, true);
     window.addEventListener('keydown', key);
-    return () => { window.removeEventListener('keydown', focusKey, true); window.removeEventListener('keydown', key); };
+    return () => { window.removeEventListener('keydown', workspaceKey, true); window.removeEventListener('keydown', key); };
   }, [conflicts]);
   const runCommand = (id: string) => commands.find((c) => c.id === id && !c.disabled)?.run();
   const detectAgents = async () => {
