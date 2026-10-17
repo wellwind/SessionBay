@@ -601,6 +601,11 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 
 父列左側直接顯示資料夾與名稱；展開箭頭及拖曳把手依序放在右側，沒有分頁時仍在右側保留箭頭槽位。DOM 與鍵盤順序同為專案、展開箭頭、排序把手，資料夾前不保留操作空槽。資料夾對齊名稱第一行，活動摘要放在名稱與路徑之下並保留行高，避免活動文字或收合狀態讓名稱與圖示跳動。拖曳仍只以父列作為落點，不改排序或展開功能語意。
 
+
+## 2026-10-17 控制項留白與焦點一致性
+
+Agent 搜尋欄與下拉選單共用 surface／control-border／radius／spacing tokens，輸入本身透明且不另畫 focus ring，由外層保留單一清楚外框；維持 combobox／listbox 與鍵盤操作語意。專案列資料夾前固定保留 space-3（12px）內距，一般、hover、selected、focus 不改幾何位置。工作分頁列容器左右 padding 歸零，保留歷史與專注按鈕內距、44px 專注操作高度及內縮焦點框。
+
 ## 2026-10-17 專注模式英文搜尋名稱
 
 命令面板的進入／退出專注模式名稱加入「（Zen Mode）」，設定快捷鍵名稱同步，讓英文 Zen Mode 可找到對應命令。維持 toggle-focus-mode ID 及使用者綁定；分頁工具列不改名。新增預設 Mod+Shift+Enter（macOS Cmd+Shift+Enter，Windows／Linux Ctrl+Shift+Enter），只填補缺少的設定鍵；明確空字串仍停用，既有自訂值不覆蓋，同組合衝突沿用停用與提示。避免 Ctrl+K chord 吞掉 shell 輸入，不加入前綴緩衝或補送；重複 keydown 不反覆切換，對話框、一般輸入欄與 IME 不搶鍵。此組合未與目前 app 預設／保留鍵衝突，不保證所有外部終端程式都沒有自訂用途。

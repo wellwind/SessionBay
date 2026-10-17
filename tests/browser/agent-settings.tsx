@@ -8,7 +8,10 @@ import '../../src/styles.css';
 import '../../src/workbench.css';
 
 const mode = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark';
-for (const [key, value] of Object.entries(uiTokens('bay', mode))) document.documentElement.style.setProperty(`--${key}`, value);
+const palette = new URLSearchParams(location.search).get('palette') ?? 'bay';
+document.documentElement.dataset.theme = mode;
+document.documentElement.dataset.themePalette = palette;
+for (const [key, value] of Object.entries(uiTokens(palette, mode))) document.documentElement.style.setProperty(`--${key}`, value);
 const settings: Settings = {
   version: 1, theme: mode, terminalTheme: 'bay', fontFamily: 'monospace', fontSize: 14,
   defaultAgent: 'codex', defaultProfileId: 'shell', profiles: [{ id: 'shell', name: 'Shell', executable: '/bin/sh', args: [], env: {} }],
