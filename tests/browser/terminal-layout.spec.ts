@@ -44,7 +44,15 @@ for (const [name, width, height, zoom] of [
     }).toBe(true);
     const after = await bounds(page);
     expect(after.screen.top).toBeGreaterThanOrEqual(after.meta.bottom);
-    expect(await page.locator('.xterm-viewport').evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    // xterm 6 uses a custom scrollable element, not DOM viewport overflow.
+    // Verify real wheel behavior and rendered scrollback rather than its internals.
+    const bottomText = await page.locator('.xterm-rows').innerText();
+    await page.locator('.xterm-screen').hover();
+    await page.mouse.wheel(0, -10000);
+    await expect.poll(() => page.locator('.xterm-rows').innerText()).not.toBe(bottomText);
+    await expect.poll(() => page.locator('.xterm-rows').innerText()).toContain('Synthetic terminal output line 1:');
+    await page.mouse.wheel(0, 10000);
+    await expect.poll(() => page.locator('.xterm-rows').innerText()).toBe(bottomText);
     await page.locator('.xterm-screen').click();
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
     await page.screenshot({ path: testInfo.outputPath(`${name}-after.png`), fullPage: true });
