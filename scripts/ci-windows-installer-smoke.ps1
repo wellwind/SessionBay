@@ -54,6 +54,7 @@ function Assert-NoProductProcesses {
 
 function Invoke-OwnedExecutable {
     param([string]$Path, [string]$Arguments, [int]$TimeoutSeconds = 120)
+    if (![IO.Path]::IsPathFullyQualified($Path)) { throw 'Process executable must be absolute.' }
     # Raw argument string is intentional: NSIS /D must be last and unquoted.
     # Every argument comes from test-owned paths, never user shell text.
     $start = [Diagnostics.ProcessStartInfo]::new($Path)
@@ -107,9 +108,9 @@ try {
     if ($LASTEXITCODE -ne 0 -or $origin -notmatch '^https://github\.com/wellwind/SessionBay(?:\.git)?$') { throw 'Not the official source checkout.' }
     $dirty = git status --porcelain
     if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Source checkout must start clean.' }
-    if (Test-Path 'src-tauri/target') { throw 'Refusing reused build output.' }
-    $config = Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
-    $windows = Get-Content 'src-tauri/tauri.windows.conf.json' -Raw | ConvertFrom-Json
+    if (Test-Path -LiteralPath (Join-Path $source 'src-tauri/target')) { throw 'Refusing reused build output.' }
+    $config = Get-Content -LiteralPath (Resolve-SessionBayContainedFile $source 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
+    $windows = Get-Content -LiteralPath (Resolve-SessionBayContainedFile $source 'src-tauri/tauri.windows.conf.json') -Raw | ConvertFrom-Json
     if ($config.productName -cne 'Session Bay' -or $config.identifier -cne $bundleId -or
         $windows.bundle.windows.nsis.installMode -cne 'currentUser') { throw 'Official product/currentUser config mismatch.' }
     New-Item -ItemType Directory -Path $output, $testRoot | Out-Null
@@ -130,17 +131,18 @@ try {
         $dirty = git status --porcelain --untracked-files=no
         if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Build modified tracked source.' }
         if ((git rev-parse HEAD).Trim() -cne $head -or $LASTEXITCODE -ne 0) { throw 'Source HEAD changed during build.' }
-        $packages = @(Get-ChildItem 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' -File)
+        $release = Assert-SessionBayChildPath $source (Join-Path $source 'src-tauri/target/release')
+        $packages = @(Get-ChildItem -LiteralPath (Join-Path $release 'bundle/nsis') -Filter '*-setup.exe' -File)
         if ($packages.Count -ne 1) { throw 'Expected exactly one freshly built installer.' }
-        $package = $packages[0].FullName
-        $nsi = Get-Content 'src-tauri/target/release/nsis/x64/installer.nsi' -Raw
+        $package = Resolve-SessionBayContainedFile $source $packages[0].FullName
+        $nsi = Get-Content -LiteralPath (Resolve-SessionBayContainedFile $source (Join-Path $release 'nsis/x64/installer.nsi')) -Raw
         foreach ($definition in @('!define INSTALLMODE "currentUser"', '!define ARCH "x64"', '!define BUNDLEID "dev.sessionbay.desktop"')) {
             if (!$nsi.Contains($definition)) { throw "Generated NSIS does not match expected product: $definition" }
         }
         if ((Get-SessionBayPeMachine $package) -ne 0x014c) { throw 'Unexpected NSIS loader architecture.' }
         $hashes = @{}
         foreach ($name in @('sessionbay.exe', 'sessionbay-broker.exe')) {
-            $binary = Join-Path 'src-tauri/target/release' $name
+            $binary = Resolve-SessionBayContainedFile $source (Join-Path $release $name)
             if ((Get-SessionBayPeMachine $binary) -ne 0x8664) { throw 'Payload must be native x64.' }
             $hashes[$name] = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
         }
@@ -158,14 +160,15 @@ try {
             $_.Uninstall.Trim('"') -ne (Join-Path $install 'uninstall.exe')
         }).Count) { throw 'Uninstall registration is missing or has unexpected scope/path/version.' }
         foreach ($name in $hashes.Keys) {
-            $binary = Join-Path $install $name
+            $binary = Resolve-SessionBayContainedFile $install $name
             if ((Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash -ne $hashes[$name] -or
                 (Get-SessionBayPeMachine $binary) -ne 0x8664) { throw 'Installed payload mismatch.' }
         }
-        if (!(Test-Path -LiteralPath (Join-Path $install 'uninstall.exe') -PathType Leaf)) { throw 'Missing uninstaller.' }
-        $result.installedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $install 'sessionbay.exe')).ProductVersion
+        $uninstaller = Resolve-SessionBayContainedFile $install 'uninstall.exe'
+        $installedBinary = Resolve-SessionBayContainedFile $install 'sessionbay.exe'
+        $result.installedVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($installedBinary).ProductVersion
         if ($result.installedVersion -ne $config.version) { throw 'Installed executable version mismatch.' }
-        $uninstallerHash = (Get-FileHash -LiteralPath (Join-Path $install 'uninstall.exe')).Hash
+        $uninstallerHash = (Get-FileHash -LiteralPath $uninstaller).Hash
         $result.uninstallerSha256 = $uninstallerHash
         $installed = $true
         $result.install = 'PASS'
@@ -182,7 +185,7 @@ try {
         $result.launch = 'STARTED'
         # Existing native smoke seeds complete empty-source state, waits for a
         # window and frontend/IPC markers, then stops only its own UI and broker.
-        & "$source/scripts/ci-windows-smoke.ps1" -Binary (Join-Path $install 'sessionbay.exe')
+        & (Resolve-SessionBayContainedFile $source 'scripts/ci-windows-smoke.ps1') -Binary $installedBinary
         $result.launch = 'PASS'
     } catch {
         $primaryError = $_.Exception.Message
@@ -193,12 +196,13 @@ try {
         if ($installed) {
             try {
                 Assert-NoProductProcesses
-                if ((Get-FileHash -LiteralPath (Join-Path $install 'uninstall.exe')).Hash -ne $uninstallerHash) {
+                $uninstaller = Resolve-SessionBayContainedFile $install 'uninstall.exe'
+                if ((Get-FileHash -LiteralPath $uninstaller).Hash -ne $uninstallerHash) {
                     throw 'Test-owned uninstaller changed; refusing execution.'
                 }
                 $result.uninstall = 'STARTED'
                 # Normal /S, not /UPDATE or _?=. The uninstaller must remove itself.
-                $result.uninstallLauncherExitCode = Invoke-OwnedExecutable (Join-Path $install 'uninstall.exe') '/S'
+                $result.uninstallLauncherExitCode = Invoke-OwnedExecutable $uninstaller '/S'
                 $result.uninstallCompletion = Wait-SessionBayUninstallCompletion -Snapshot {
                     [pscustomobject]@{
                         DirectoryExists = Test-Path -LiteralPath $install
