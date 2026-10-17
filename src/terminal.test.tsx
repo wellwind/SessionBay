@@ -1,3 +1,4 @@
+import { RuntimeActivityIndicator, RuntimeActivityProvider } from './components/RuntimeActivity';
 import { AgentStatusOverview } from './components/AgentStatusOverview';
 import { useState } from 'react';
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
@@ -1316,5 +1317,47 @@ describe('Agent overview lifecycle signal integration', () => {
     expect(screen.getByText('1 存活 / 1 已開啟')).toBeInTheDocument();
     expect(screen.getByText('已開啟 1 · 存活 1 · 已結束 0 · 中斷 0')).toBeInTheDocument();
     expect(mocks.launch).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('guarded terminal output activity', () => {
+  function ActivityHarness({ visible = false }: { visible?: boolean }) {
+    const [pane, setPane] = useState(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));
+    return <RuntimeActivityProvider>
+      <TerminalPane {...props(pane)} visible={visible} onPatch={(_id, patch) => setPane(current => ({ ...current, ...patch }))} />
+      <RuntimeActivityIndicator tab={{ id: 'tab', name: 'Work', projectId: 'project', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }} panes={{ pane }} />
+    </RuntimeActivityProvider>;
+  }
+  it('marks only accepted new rendered output, excludes replay and stale attachment callbacks', async () => {
+    const view = render(<ActivityHarness />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    const old = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(old);
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    act(() => old({ type: 'output', runtimeId: 'runtime', sequence: 1, data: [65] }));
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    act(() => mocks.termWrite.mock.calls.at(-1)![1]());
+    await waitFor(() => expect(screen.getByRole('img', { name: /有新輸出.*未讀輸出/ })).toBeInTheDocument());
+    act(() => old({ type: 'disconnected', runtimeId: 'runtime', message: 'Offline' }));
+    await waitFor(() => expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument());
+    view.rerender(<ActivityHarness visible />);
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    completeSnapshot(mocks.attach.mock.calls[1][1]);
+    act(() => old({ type: 'output', runtimeId: 'runtime', sequence: 80, data: [66] }));
+    await act(async () => { await new Promise(done => setTimeout(done, 150)); });
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    const current = mocks.attach.mock.calls[1][1] as (event: TerminalEvent) => void;
+    act(() => current({ type: 'output', runtimeId: 'runtime', sequence: 1, data: [67] }));
+    const completion = mocks.termWrite.mock.calls.at(-1)![1];
+    act(() => current({ type: 'exit', runtimeId: 'runtime', exitCode: 0 }));
+    act(() => completion());
+    await act(async () => { await new Promise(done => setTimeout(done, 150)); });
+    expect(screen.getByRole('img', { name: /已結束/ })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    expect(mocks.disposed).not.toHaveBeenCalled();
+    view.unmount();
+    act(() => current({ type: 'output', runtimeId: 'runtime', sequence: 2, data: [68] }));
   });
 });

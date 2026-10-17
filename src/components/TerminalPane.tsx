@@ -1,3 +1,4 @@
+import { useRuntimeActivity } from './RuntimeActivity';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
 import './agent-status.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -47,6 +48,7 @@ export function TerminalPane({
   projectAvailable = true,
   settings,
   visible,
+  activityVisible = visible,
   focused,
   maximized,
   onPatch,
@@ -61,6 +63,7 @@ export function TerminalPane({
   projectAvailable?: boolean;
   settings: Settings;
   visible: boolean;
+  activityVisible?: boolean;
   focused: boolean;
   maximized: boolean;
   onPatch: (id: string, patch: Partial<Pane>) => void;
@@ -71,6 +74,8 @@ export function TerminalPane({
   onSplit: (axis: 'horizontal' | 'vertical') => void;
   onAlreadyOpen: (runtime: RuntimeInfo) => void;
 }) {
+  const activity = useRuntimeActivity();
+  useEffect(() => { activity?.visible(pane.id, activityVisible); }, [activity, pane.id, activityVisible]);
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -84,8 +89,8 @@ export function TerminalPane({
   const [connected, setConnected] = useState(false);
   const launched = useRef(0);
   const mounted = useRef(false);
-  const latest = useRef({ pane, onPatch, onAlreadyOpen, visible, focused });
-  latest.current = { pane, onPatch, onAlreadyOpen, visible, focused };
+  const latest = useRef({ pane, onPatch, onAlreadyOpen, visible, focused, activityVisible });
+  latest.current = { pane, onPatch, onAlreadyOpen, visible, focused, activityVisible };
   const inputQueue = useRef<TerminalInputQueue | null>(null);
   const resizePending = useRef<{ id: string; cols: number; rows: number } | null>(null);
   const resizing = useRef(false);
@@ -230,6 +235,7 @@ export function TerminalPane({
       mounted.current = false;
       const current = attachment.current;
       attachment.current = null;
+      if (current) activity?.remove(pane.id, current.lease);
       runtime.current = undefined;
       inputQueue.current?.cancel();
       resizePending.current = null;
@@ -290,6 +296,7 @@ export function TerminalPane({
       ready: false, disconnected: false, lastSequence: -1, lastAcknowledged: -1,
     };
     attachment.current = active;
+    activity?.begin(pane.id, active.lease, active.id, latest.current.activityVisible, starting || !['exited', 'failed', 'interrupted'].includes(pane.state));
     runtime.current = undefined;
     inputQueue.current?.cancel();
     resizePending.current = null;
@@ -323,6 +330,7 @@ export function TerminalPane({
         return;
       }
       active.id = event.runtimeId;
+      activity?.bind(pane.id, active.lease, event.runtimeId);
       if (event.type === 'output' || event.type === 'snapshot') {
         if (event.sequence <= active.lastSequence) {
           if (event.sequence <= active.lastAcknowledged) ack(event);
@@ -346,7 +354,10 @@ export function TerminalPane({
           terminal.write(new Uint8Array(event.data), () => {
             active.lastAcknowledged = Math.max(active.lastAcknowledged, event.sequence);
             ack(event);
+            if (current() && event.type === 'output' && active.ready && !active.ended && !active.disconnected && event.data.length > 0)
+              activity?.output(pane.id, active.lease, event.runtimeId, event.sequence);
             if (current() && event.type === 'snapshot') {
+              activity?.ready(pane.id, active.lease);
               active.ready = true;
               setConnecting(false);
               enableInput();
@@ -356,6 +367,7 @@ export function TerminalPane({
         });
         drain();
       } else if (event.type === 'disconnected') {
+        activity?.end(pane.id, active.lease);
         active.disconnected = true;
         inputQueue.current?.cancel();
         resizePending.current = null;
@@ -369,6 +381,7 @@ export function TerminalPane({
         if (!active.ended && !['exited', 'failed', 'interrupted'].includes(state))
           latest.current.onPatch(pane.id, { state: 'disconnected', runtimeId: event.runtimeId });
       } else if (event.type === 'exit') {
+        activity?.end(pane.id, active.lease);
         active.ended = true;
         inputQueue.current?.cancel();
         resizePending.current = null;
@@ -377,6 +390,7 @@ export function TerminalPane({
         setConnected(false);
         latest.current.onPatch(pane.id, { runtimeId: event.runtimeId, state: active.failed ? 'failed' : 'exited', exitCode: event.exitCode });
       } else {
+        activity?.end(pane.id, active.lease);
         active.failed = true;
         active.ended = true;
         inputQueue.current?.cancel();
@@ -405,11 +419,13 @@ export function TerminalPane({
         return;
       }
       if (info.paneId !== pane.id) {
+        activity?.end(pane.id, active.lease);
         active.ended = true;
         setConnecting(false);
         latest.current.onAlreadyOpen(info);
         return;
       }
+      activity?.bind(pane.id, active.lease, info.id);
       active.id = info.id;
       active.info = info;
       if (active.disconnected) {
@@ -426,11 +442,13 @@ export function TerminalPane({
         if (active.disconnected || ['exited', 'failed', 'interrupted'].includes(state)) setConnecting(false);
         active.ended = ['exited', 'failed', 'interrupted'].includes(state);
         active.failed = state === 'failed';
+        if (active.ended || active.disconnected) activity?.end(pane.id, active.lease);
         latest.current.onPatch(pane.id, { runtimeId: info.id, state, cwd: info.cwd, exitCode: info.exitCode, error: undefined });
         enableInput();
       } else latest.current.onPatch(pane.id, { runtimeId: info.id });
     }).catch((error) => {
       if (!current()) return;
+      activity?.end(pane.id, active.lease);
       active.disconnected = true;
       inputQueue.current?.cancel();
       setConnecting(false);
@@ -446,7 +464,7 @@ export function TerminalPane({
           latest.current.onPatch(pane.id, { state: 'disconnected' });
       }
     });
-  }, [pane, projectAvailable, reconnect, fitNow, onPatch]);
+  }, [pane, projectAvailable, reconnect, fitNow, onPatch, activity]);
   const live = pane.state === 'running' || pane.state === 'starting';
   const copy = async () => {
     try {

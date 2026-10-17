@@ -520,6 +520,21 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。
 
+## 專案目錄內的工作區與活動狀態（2026-10-17）
+
+- 專案父列保留歷史筆數，另列已開分頁與 Agent 數；展開顯示既有 tabs 的生命週期摘要，切換重用既有 focus 路徑，不重掛 Terminal。
+- 取代側欄獨立 Agent 狀態與重複的所有工作區列表；臨時／未列出的工作區仍有獨立入口。
+- 目前五個 provider 均只有 PTY 生命週期，無可信工作開始／完成訊號。running 顯示「已開啟 · 活動未知」，不以存活、輸出、輸入、靜默時間推定 busy／idle，不顯示假忙碌 spinner。
+- 未來 provider event adapter 必須提供結構化、版本驗證的 task-start/task-end 與 runtime 身分／連線 generation／單調 sequence；只有同 generation 的有效 start 才可顯示 busy，配對 end 才可 idle。斷線、未知事件與程序結束清除活動證據；重新連線先 unknown。不能從歷史尾端猜目前狀態，不新增高頻輪詢，不自動修改全域 hooks、設定或權限。
+
+### 新輸出提示，不代表忙碌（2026-10-17）
+
+使用者同意：有新輸出時小點輕微脈動，停止輸出後淡回靜態；背景 tab 保留未讀點，切回可見工作後清除。啟動／重新附接短暫轉圈只表示連線；確定退出、失敗、中斷採固定圖示。不猜 busy／idle／等待輸入。
+
+實作採 App 範圍的 ephemeral metadata store：pane、runtime、attachment lease、sequence、可見性與時間。只有目前租約且 snapshot 完成後實際繪製的新 output 會記活動；snapshot、重複 sequence、過期租約、結束／已移除 pane 不記。100ms 合併通知只更新小型 indicator，持續輸出僅延後 1.4s 衰減時間，不逐 chunk 重繪 App／sidebar；共用一個過期 timer，無新增輪詢或輸出正文副本。
+
+只有目前工作區 tab 且視窗前景／頁面 visible 才視為已讀；同 tab 最大化暫遮住的 sibling panes 也一起視為已讀，正在看的 tab 不留未讀。history、其他 project/tab、背景視窗輸出留未讀；重新可見時清除。重連同 runtime 保留未讀，但不回放新輸出提示；新 runtime 清除舊 generation。關閉／App 卸載清理 metadata 與 timers。reduced-motion 停止 pulse／spin／淡出動畫。
+
 ## 2026-10-17：拖曳排序以實際項目讓位預覽
 
 專案垂直排序與工作區分頁水平排序共用 Pointer Events 預覽。超過 5px 門檻後，來源項目沿排序軸跟隨指標，其餘項目以 transform 平滑讓位，取代插入 border 線；拖曳中不改 DOM 順序、不保存後端，放開才交回原有一次排序／持久化管線。Escape、失焦、capture 遺失、pointercancel、外部或遮擋區域放開均取消。量測使用未變形的位置，避免動畫中的項目反覆改變落點；捲動座標與裁切區域另外檢查。

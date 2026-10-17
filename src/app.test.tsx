@@ -622,7 +622,7 @@ describe('App curated project navigation', () => {
     expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!)).toEqual(before);
     expect(screen.getByText('1 個執行中程序')).toBeInTheDocument();
     changePage('所有目錄');
-    fireEvent.click(within(screen.getByRole('region', { name: '開啟中的工作區' })).getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
+    fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     expect(screen.getByRole('heading', { name: 'Synthetic project' })).toBeInTheDocument();
     expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!)).toEqual(before);
     expect(api.stop).not.toHaveBeenCalled();
@@ -1321,7 +1321,7 @@ describe('Projects and All Directories pages', () => {
       expect(screen.getByRole('heading', { name: page, level: 1 })).toBeInTheDocument();
       expect(workspaceSnapshot()).toEqual(original);
       expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
-      fireEvent.click(within(screen.getByRole('region', { name: '開啟中的工作區' })).getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
+      fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
       expect(screen.getByRole('heading', { name: 'Synthetic project', level: 1 })).toBeInTheDocument();
       expect(workspaceSnapshot()).toEqual(original);
       expect(screen.getByText('1 個執行中程序')).toBeInTheDocument();
@@ -2758,13 +2758,14 @@ describe('sidebar organization persistence', () => {
     fireEvent.click(screen.getByRole('button', { name: '專案' }));
     expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('textbox', { name: '搜尋專案' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /開啟工作區 Synthetic/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '開啟中的工作區' }));
+    expect(screen.queryByRole('region', { name: '開啟中的工作區' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /開啟工作區 Synthetic/ })).not.toBeInTheDocument();
     expect(api.stop).not.toHaveBeenCalled(); expect(api.updateProject).not.toHaveBeenCalled();
     first.unmount(); render(<App />); await tick();
     expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: '開啟中的工作區' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: /開啟工作區 Synthetic/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '專案' }));
+    expect(screen.getByRole('button', { name: /開啟工作區 Synthetic/ })).toBeInTheDocument();
   });
   it('restores manual order after reload without changing project records or runtime state', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
@@ -2938,6 +2939,12 @@ describe('workspace focus presentation', () => {
 
 it('preserves persisted sidebar section preferences across focus controls reveal', async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
+  // Project-owned tabs now live in their project; a temporary tab keeps the separate section meaningful.
+  const data = bootstrap();
+  const saved = data.workspace as Workspace;
+  saved.panes['temporary-pane'] = { ...saved.panes['pane-a'], id: 'temporary-pane', projectId: null, runtimeId: undefined, state: 'exited' };
+  saved.tabs.push({ id: 'temporary-tab', projectId: null, name: 'Temporary', focusedPaneId: 'temporary-pane', layout: { kind: 'pane', paneId: 'temporary-pane' } });
+  vi.mocked(api.bootstrap).mockResolvedValue(data);
   render(<App />);
   await tick();
   selectGroup();
