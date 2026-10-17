@@ -92,9 +92,9 @@ export function VirtualSessionList<T extends { id: string }>({ items, total, lab
           style={{ top: index * rowHeight, height: rowHeight }}>{renderRow(items[index])}</div>)}
       </div>
     </div>
-    <div className="session-feed-status" role="status">
+    {(loading || error || !done) && <div className="session-feed-status" role="status">
       {error ? <><span role="alert">{error}</span><button onClick={retry}>重試載入</button></> :
-        loading ? '讀取中…' : done ? `已載入全部 ${items.length} 個結果` : <button onClick={loadMore}>載入更多 Session</button>}
-    </div>
+        loading ? '讀取中…' : <button onClick={loadMore}>載入更多 Session</button>}
+    </div>}
   </>;
 }

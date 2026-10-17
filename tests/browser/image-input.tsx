@@ -13,30 +13,41 @@ const settings: Settings = {
   shortcuts: {}, onboardingComplete: true,
 };
 // Pure synthetic bridge. Never reads OS clipboard/user files, runs agents, or uploads bytes.
-const trace: { writes: string[]; begins: number; retained: string[]; discarded: string[]; chunks: number[] } = {
-  writes: [], begins: 0, retained: [], discarded: [], chunks: [],
+const trace: { writes: string[]; begins: number; retained: string[]; discarded: string[]; chunks: number[]; names: string[]; payloads: number[][] } = {
+  writes: [], begins: 0, retained: [], discarded: [], chunks: [], names: [], payloads: [],
 };
-Object.assign(window, { imageTrace: trace });
+Object.assign(window, { fileTrace: trace });
 api.attach = async (id, callback) => {
   callback({ type: 'snapshot', runtimeId: id, sequence: 1, data: Array.from(new TextEncoder().encode('\x1b[?2004hSynthetic Agent prompt > ')), cols: 100, rows: 30, truncated: false });
   return { id, paneId: 'pane', sessionId: null, state: 'running', cwd: '/synthetic/project', exitCode: null };
 };
-api.beginImage = async () => `image-${++trace.begins}`;
-api.appendImage = async (_runtime, _id, _offset, bytes) => {
+const staged = new Map<string, { originalName: string; name: string }>();
+api.beginFile = async (_runtime, originalName) => {
+  const id = `file-${++trace.begins}`;
+  trace.names.push(originalName);
+  // Only synthetic fixture names. Production filename handling is tested in Rust.
+  staged.set(id, { originalName, name: originalName.includes('/') || originalName.includes('\n') ? 'safe.png' : originalName });
+  return id;
+};
+api.appendFile = async (_runtime, _id, _offset, bytes) => {
   trace.chunks.push(bytes.length);
-  if (new URLSearchParams(location.search).has('pauseImage')) {
-    await new Promise<void>(resolve => Object.assign(window, { releaseImage: resolve }));
+  trace.payloads.push([...bytes]);
+  if (new URLSearchParams(location.search).has('pauseFile')) {
+    await new Promise<void>(resolve => Object.assign(window, { releaseFile: resolve }));
   }
 };
-api.finishImage = async (_runtime, id) => ({ id, path: `/private/synthetic/${id}.png` });
-api.retainImage = async (_runtime, id) => { trace.retained.push(id); };
-api.discardImage = async (_runtime, id) => { trace.discarded.push(id); };
+api.finishFile = async (_runtime, id) => {
+  const name = staged.get(id)!;
+  return { id, path: `/private/synthetic/${id}/${name.name}`, ...name };
+};
+api.retainFile = async (_runtime, id) => { trace.retained.push(id); };
+api.discardFile = async (_runtime, id) => { trace.discarded.push(id); };
 api.write = async (_runtime, data) => { trace.writes.push(data); };
 api.detach = api.ack = api.resize = async () => {};
 function Fixture() {
   const [focused, setFocused] = useState(true);
   return <div style={{ width: 1000, height: 650, margin: 12, display: 'flex', flexDirection: 'column' }}>
-    <p>Image input · actual TerminalPane + xterm · synthetic browser events and bridge</p>
+    <p>General file input · actual TerminalPane + xterm · synthetic browser events and bridge</p>
     <button onClick={() => setFocused(!focused)}>Toggle pane focus</button>
     <div style={{ flex: 1, minHeight: 0 }}><TerminalPane
       pane={{ id: 'pane', kind: 'codex', title: 'Codex synthetic', projectId: null, cwd: '/synthetic/project', state: 'running', runtimeId: 'runtime' }}

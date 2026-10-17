@@ -15,7 +15,7 @@ const records: RuntimeRecord[] = [
   ['c', 'opencode', 'p1', 'interrupted'], ['global', 'grok', null, 'running'],
   ['shell', 'shell', 'p0', 'running'],
 ].map(([id, kind, projectId, state]) => ({ id: `runtime-${id}`, paneId: id!, kind: kind as RuntimeRecord['kind'],
-  projectId, state: state!, sessionId: null, resumeId: null, profileId: null, cwd: '/synthetic', exitCode: state === 'exited' ? 0 : null }));
+  projectId, state: state!, sessionId: null, resumeId: null, profileId: null, cwd: '/synthetic', exitCode: state === 'exited' ? 7 : null }));
 const data: Bootstrap = {
   runtimes: records, installations: [], warnings: [],
   index: { running: false, processed: 0, total: 0, cancelled: false, errors: [], sources: [] },
@@ -26,14 +26,19 @@ const data: Bootstrap = {
     exists: true, curated: true, pinned: false, sessionCount: 99, updatedAt: null, agents: ['codex'] })),
   workspace: null,
 };
+const operations: string[] = [];
 const channels = new Map<string, (event: TerminalEvent) => void>();
 Object.assign(window, { agentStatusFixture: {
+  operations,
   emit: (event: TerminalEvent) => channels.get(event.runtimeId)?.(event),
 } });
 api.bootstrap = async () => data;
 api.projects = async () => data.projects;
 api.scan = api.index = async () => data.index;
 api.runtimes = async () => records;
+api.forget = async id => { operations.push(`forget:${id}`); };
+api.stop = async id => { operations.push(`stop:${id}`); };
+api.launch = async () => { operations.push('launch'); throw new Error('Unexpected automatic relaunch'); };
 api.saveWorkspace = api.setWorkspaceZoom = api.ack = api.write = api.detach = api.resize = async () => {};
 api.sessions = async () => ({ catalogRevision: 'fixture', items: [], total: 0 });
 api.attach = async (id, callback) => {

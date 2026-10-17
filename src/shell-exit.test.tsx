@@ -6,7 +6,7 @@ import type { Bootstrap, Settings, TerminalEvent, RuntimeRecord, Workspace } fro
 
 const bridge = vi.hoisted(() => ({
   bootstrap: vi.fn(), scan: vi.fn(), index: vi.fn(), projects: vi.fn(), saveWorkspace: vi.fn(), runtimes: vi.fn(),
-  launch: vi.fn(), attach: vi.fn(), detach: vi.fn(), write: vi.fn(), resize: vi.fn(), ack: vi.fn(),
+  preview: vi.fn(), launch: vi.fn(), launchFresh: vi.fn(), attach: vi.fn(), detach: vi.fn(), write: vi.fn(), resize: vi.fn(), ack: vi.fn(),
   stop: vi.fn(), forget: vi.fn(), settleLaunches: vi.fn(), close: vi.fn(), detect: vi.fn(),
   saveSettings: vi.fn(), setWorkspaceZoom: vi.fn(), reset: vi.fn(), dispose: vi.fn(),
 }));
@@ -137,8 +137,6 @@ describe('successful Shell exit lifecycle', () => {
     await waitFor(() => expect(bridge.saveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ tabs: [] })));
   });
   it.each([
-    { kind: 'codex', state: 'exited', exitCode: 0 },
-    { kind: 'opencode', state: 'exited', exitCode: 0 },
     { state: 'exited', exitCode: 7 }, { state: 'exited', exitCode: null },
     { state: 'failed', exitCode: 0 }, { state: 'interrupted', exitCode: null },
     { state: 'disconnected', exitCode: null },
@@ -252,4 +250,143 @@ it.each([false, true])('defers new exits after native close starts (close failur
     await act(async () => finishClose());
     expect(bridge.forget).not.toHaveBeenCalled();
   }
+});
+
+
+describe('resumed Agent exit lifecycle', () => {
+  it.each(['codex', 'claude', 'antigravity'] as const)('closes only the resumed %s split pane without launching or stopping another process', async kind => {
+    setup([{ ...record, kind, sessionId: 'indexed-session' }, shell({ id: 'runtime-b', paneId: 'pane-b' })], true);
+    await mountProject();
+    exit('runtime-a');
+    await waitFor(() => expect(document.querySelector('strong[title="pane-a"]')).not.toBeInTheDocument());
+    expect(document.querySelector('strong[title="pane-b"]')).toBeInTheDocument();
+    exit('runtime-a');
+    expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
+    expect(bridge.launch).not.toHaveBeenCalled();
+    expect(bridge.stop).not.toHaveBeenCalled();
+    expect(bridge.settleLaunches).not.toHaveBeenCalled();
+  });
+  it.each(['codex', 'claude', 'antigravity'] as const)('cleans an already exited manual %s resume on reattach, including its last tab', async kind => {
+    setup([{ ...record, kind, resumeId: 'manual-id', state: 'exited', exitCode: 0 }]);
+    render(<App />);
+    await waitFor(() => expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('runtime-a'));
+    await waitFor(() => expect(bridge.saveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ panes: {}, tabs: [] })));
+    expect(bridge.launch).not.toHaveBeenCalled();
+    expect(bridge.stop).not.toHaveBeenCalled();
+  });
+  it.each([
+    { exitCode: 7 }, { exitCode: null },
+    { state: 'failed' }, { state: 'interrupted' },
+  ].flatMap(patch => (['codex', 'claude', 'antigravity'] as const).map(kind => ({ ...patch, kind }))))('retains abnormal Agent exits: %j', async patch => {
+    setup([{ ...record, state: 'exited', exitCode: 0, ...patch }]);
+    render(<App />);
+    await screen.findByRole('navigation', { name: '專案' });
+    expect(document.querySelector('strong[title="pane-a"]')).toBeInTheDocument();
+    expect(bridge.forget).not.toHaveBeenCalled();
+    expect(bridge.launch).not.toHaveBeenCalled();
+  });
+  it('keeps a Shell running after its nested Agent returns a prompt', async () => {
+    setup([shell()]);
+    await mountProject();
+    const callback = bridge.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => callback({ type: 'output', runtimeId: 'runtime-a', sequence: 1,
+      data: Array.from(new TextEncoder().encode('Agent exited\r\n$ ')) }));
+    expect(document.querySelector('strong[title="pane-a"]')).toBeInTheDocument();
+    expect(bridge.forget).not.toHaveBeenCalled();
+    expect(bridge.launch).not.toHaveBeenCalled();
+    expect(bridge.stop).not.toHaveBeenCalled();
+  });
+});
+
+
+it('does not close a restarted resumed Agent when old cleanup finishes late', async () => {
+  setup([{ ...record, sessionId: 'indexed-session' }]);
+  let finishForget!: () => void;
+  bridge.forget.mockImplementation(() => new Promise<void>(done => { finishForget = done; }));
+  bridge.launch.mockResolvedValue({ ...record, id: 'new-runtime' });
+  await mountProject();
+  fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project pane-a' }));
+  exit('runtime-a');
+  await waitFor(() => expect(bridge.forget).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole('button', { name: '重新啟動' }));
+  await waitFor(() => expect(bridge.launch).toHaveBeenCalledOnce());
+  await act(async () => finishForget());
+  expect(document.querySelector('strong[title="pane-a"]')).toBeInTheDocument();
+  exit('runtime-a');
+  expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
+  expect(bridge.stop).not.toHaveBeenCalled();
+});
+
+it('cleans a background resumed Agent without changing another tab or project', async () => {
+  setup([shell(), { ...record, id: 'runtime-b', paneId: 'pane-b', resumeId: 'manual-id' }]);
+  await mountProject();
+  exit('runtime-b');
+  await waitFor(() => expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('runtime-b'));
+  expect(document.querySelector('strong[title="pane-a"]')).toBeInTheDocument();
+  await waitFor(() => expect(bridge.saveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({
+    activeTabByProject: { 'project-a': 'pane-a-tab' },
+    panes: expect.not.objectContaining({ 'pane-b': expect.anything() }),
+  })));
+  expect(bridge.launch).not.toHaveBeenCalled();
+  expect(bridge.stop).not.toHaveBeenCalled();
+});
+
+it('closes a resumed launch that exits before its launch response arrives', async () => {
+  setup([{ ...record, sessionId: 'indexed-session', state: 'exited', exitCode: 7 }]);
+  let finishLaunch!: (value: RuntimeRecord) => void;
+  bridge.launch.mockImplementation(() => new Promise<RuntimeRecord>(done => { finishLaunch = done; }));
+  await mountProject();
+  fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project pane-a' }));
+  fireEvent.click(screen.getByRole('button', { name: '重新啟動' }));
+  await waitFor(() => expect(bridge.launch).toHaveBeenCalledOnce());
+  const callback = bridge.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+  act(() => callback({ type: 'exit', runtimeId: 'early-exit-runtime', exitCode: 0 }));
+  await waitFor(() => expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('early-exit-runtime'));
+  await act(async () => finishLaunch({ ...record, id: 'early-exit-runtime' }));
+  await waitFor(() => expect(bridge.saveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ panes: {}, tabs: [] })));
+  expect(bridge.launch).toHaveBeenCalledOnce();
+  expect(bridge.stop).not.toHaveBeenCalled();
+});
+
+
+it.each((['codex', 'claude', 'antigravity'] as const).flatMap(kind => [true, false].map(split => ({ kind, split }))))('closes a newly launched $kind pane (right split=$split) while retaining the original resumed Agent', async ({ kind, split }) => {
+  setup([{ ...record, sessionId: 'original-resume' }]);
+  bridge.preview.mockResolvedValue({ executable: kind, args: [], cwd: '/synthetic/project' });
+  const fresh = { ...record, id: 'fresh-runtime', paneId: 'backend-fresh-pane', kind };
+  bridge.launchFresh.mockResolvedValue(fresh);
+  bridge.attach.mockImplementation(async (id: string) => id === fresh.id ? fresh : { ...record, sessionId: 'original-resume' });
+  await mountProject();
+  fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project pane-a' }));
+  fireEvent.click(screen.getByRole('button', { name: split ? '左右分割' : 'Terminal' }));
+  const dialog = screen.getByRole('dialog', { name: split ? '分割並新增面板' : '開始新的工作' });
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
+  fireEvent.click(within(dialog).getByRole('combobox', { name: 'Agent' }));
+  fireEvent.click(screen.getByRole('option', { name: new RegExp(`^${kind}`) }));
+  const start = within(dialog).getByRole('button', { name: '開始工作' });
+  await waitFor(() => expect(start).toBeEnabled());
+  fireEvent.click(start);
+  await waitFor(() => expect(bridge.launchFresh).toHaveBeenCalledOnce());
+  expect(bridge.launchFresh.mock.calls[0][0]).toMatchObject({ kind });
+  expect(bridge.launchFresh.mock.calls[0][0]).not.toHaveProperty('sessionId');
+  expect(bridge.launchFresh.mock.calls[0][0]).not.toHaveProperty('resumeId');
+  expect(bridge.launch).not.toHaveBeenCalled();
+  await waitFor(() => expect(bridge.attach).toHaveBeenCalledWith('fresh-runtime', expect.any(Function), expect.any(String)));
+  const callback = bridge.attach.mock.calls.find(call => call[0] === 'fresh-runtime')![1] as (event: TerminalEvent) => void;
+  act(() => callback({ type: 'exit', runtimeId: 'fresh-runtime', exitCode: 0 }));
+  await waitFor(() => expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('fresh-runtime'));
+  await waitFor(() => expect(bridge.saveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({
+    tabs: [expect.objectContaining({ layout: { kind: 'pane', paneId: 'pane-a' } })],
+    panes: { 'pane-a': expect.anything() },
+  })));
+  expect(bridge.launchFresh).toHaveBeenCalledOnce();
+  expect(bridge.stop).not.toHaveBeenCalled();
+});
+
+it.each(['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const)('closes a fresh %s main tab on confirmed success, including reattachment', async kind => {
+  setup([{ ...record, kind, sessionId: null, resumeId: null, state: 'exited', exitCode: 0 }]);
+  render(<App />);
+  await waitFor(() => expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('runtime-a'));
+  await waitFor(() => expect(bridge.saveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ panes: {}, tabs: [] })));
+  expect(bridge.launch).not.toHaveBeenCalled();
+  expect(bridge.stop).not.toHaveBeenCalled();
 });

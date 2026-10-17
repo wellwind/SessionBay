@@ -16,8 +16,8 @@ export const shortcutDefaults: Record<string, string> = {
   'maximize-pane': 'Mod+Shift+M',
   'close-pane': 'Mod+Shift+W',
   'toggle-sidebar': 'Mod+Shift+B',
-  // Opt-in: avoid stealing terminal/application shortcuts or native fullscreen.
-  'toggle-focus-mode': '',
+  // Single stroke: keep Ctrl+K available to shells; explicit empty bindings still disable it.
+  'toggle-focus-mode': 'Mod+Shift+Enter',
 };
 const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export function normalizeLegacyShortcuts(shortcuts: Record<string, string>): Record<string, string> {

@@ -162,7 +162,7 @@ Runtime Manager 擁有 PTY handle 與子程序監督責任；UI 元件 mount 或
 
 切換分頁與退出 UI 保留 broker 擁有的程序；關閉面板則明確結束其受管程序。UI 關窗、重載或 channel 消失僅 detach，原生程序樹清理與超時處理仍需平台驗收。
 
-前端收到 exit event 後更新 exited／failed 與結束碼，保留面板及有界最後畫面，包含結束碼 `0` 的普通 Shell。明確關閉面板才 stop／forget；移出專案與切換導覽不停止程序。
+前端收到 exit event 後更新 exited／failed 與結束碼。受管 Shell 或 Agent（新建與接續）確認正常退出、結束碼為 `0` 且沒有錯誤時，forget 該 Runtime 並關閉對應面板；最後面板才關 tab，不呼叫 stop，也不重啟程序。非零／未知結束碼及失敗保留有界最後畫面。非同步清理核對 Runtime ID 與啟動世代；Shell 內 Agent 返回提示字元不代表 Shell 退出。移出專案與切換導覽不停止程序。
 
 本批採內建 headless broker，使用 owner-only Unix socket／Windows named pipe，並以 attachment lease、snapshot-first replay 與有界輸出分離 UI 及程序生命週期。這項最高優先實作的原生驗收仍待完成；broker／OS 重啟後 metadata 為 interrupted，不憑舊 PID 收養程序。詳見[持續 Runtime](persistent-runtime.md)。
 

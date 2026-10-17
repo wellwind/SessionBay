@@ -14,7 +14,7 @@ Object.assign(window, { __TAURI_INTERNALS__: { invoke: async () => 1, transformC
 const data: Bootstrap = {
   runtimes: [], installations: [], warnings: [],
   index: { running: false, processed: 0, total: 0, cancelled: false, errors: [], sources: [] },
-  settings: { version: 1, theme: 'dark', terminalTheme: 'bay', fontFamily: 'monospace', fontSize: 14,
+  settings: { version: 1, theme: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark', terminalTheme: 'bay', fontFamily: 'monospace', fontSize: 14,
     appZoom: 100, defaultAgent: 'codex', defaultProfileId: 'default', profiles: [], sources: [],
     agentOptions: defaultAgentOptions(), executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' }, shortcuts: {}, onboardingComplete: true },
   projects: ['工作台介面', '文件與設計', 'API 開發'].map((name, i) => ({ id: `p${i}`, name, path: `/synthetic/project-${i}`, launchPath: null,

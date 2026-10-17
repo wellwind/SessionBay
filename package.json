@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "lint": "eslint src",
     "tauri": "node scripts/tauri.mjs",
+    "test:files": "playwright test --config playwright.files.config.ts",
     "test:images": "playwright test --config playwright.images.config.ts",
 
     "test:agent-status": "playwright test --config playwright.agent-status.config.ts",
@@ -21,14 +22,15 @@
     "test:flicker": "playwright test --config playwright.flicker.config.ts",
     "test:interactions": "playwright test --config playwright.interactions.config.ts",
     "test:sidebar": "playwright test --config playwright.sidebar.config.ts",
+    "test:ime": "playwright test --config playwright.ime.config.ts",
     "test:focus-mode": "playwright test --config playwright.focus-mode.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "2.8.3",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/addon-search": "^0.15.0",
-    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/xterm": "6.0.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

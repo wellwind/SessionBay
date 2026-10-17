@@ -207,6 +207,12 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - Tauri 2.12.4 Menu 預設原始碼與 PredefinedMenuItem（查閱 2026-10-17）：https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/menu.rs 、https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/predefined.rs 。macOS 預設 File／Window 含 CloseWindow，單靠 WebView keydown 不能取代原生 accelerator；本次使用自訂 Close Tab 選單事件。文件／原始碼查核不代表原生 macOS 驗收。
 
+## Windows 工作區安全檔案預覽（2026-10-17）
+
+- [NtCreateFile / ZwCreateFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-zwcreatefile)：RootDirectory 相對名稱、FILE_OPEN 與 FILE_OPEN_REPARSE_POINT；使用者模式透過 ntdll NtCreateFile。
+- [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)：共享模式與開啟 reparse object；只共享讀取可能因現有寫入 handle 失敗。
+- [GetFinalPathNameByHandleW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew)：以已開啟 handle 的 GUID volume path 拒絕子目錄磁碟別名，查詢失敗則拒絕。
+- [GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex)：handle 上的目錄列舉及 FILE_STANDARD_INFO 硬連結數；不依賴檢查後重開完整路徑。
 ## 圖片輸入來源（2026-10-17）
 
 固定官方來源 commit、版本與適用限制集中於 [圖片輸入來源](image-input.md#固定來源2026-10-17-查閱)。
@@ -236,3 +242,23 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [Microsoft ClosePseudoConsole](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)：24H2 起關閉 API 立即返回；輸出 reader 仍需排空到 EOF。實作讓輸入在初始 handshake 完成後釋放，輸出維持獨立排空。
 - [Microsoft TerminateProcess](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess)：外部終止為非同步操作，應等待原始 process handle；對已終止程序重送可能取得 access denied。
 - [Rust 1.99 libtest terminfo searcher](https://github.com/rust-lang/rust/blob/1.99.0/library/test/src/term/terminfo/searcher.rs)：TERMINFO、TERMINFO_DIRS 與預設 home／系統目錄的搜尋規則。Windows acceptance fixtures 明確限制搜尋到本次合成目錄，不依賴主機的終端資料庫。
+
+## Windows installer 隔離驗收（2026-10-17 查閱）
+
+- [GitHub hosted runner 規格與權限](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)：Windows disposable VM、x64／ARM64 labels 與管理員／UAC 預設。
+- [GitHub runner 環境變數](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)：RUNNER_ENVIRONMENT 等執行環境防呆訊號。
+- [NSIS command line](https://nsis.sourceforge.io/Docs/Chapter3.html)：正式 installer／uninstaller silent 參數及安裝路徑語法。
+- [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/)：currentUser NSIS 與 WebView2 封裝行為。適用範圍與限制見 [測試說明](windows-installer-smoke.md)。
+
+### 檔案輸入真實接收核對（2026-10-17）
+
+[檔案輸入驗收](file-input-validation.md)列出固定 Codex 0.163、OpenCode 1.19.3 與 Grok source、Claude 官方路徑工作流程及適用限制。staging 與 PTY bytes 不能替代 CLI composer 辨識與模型接收證據；尚未宣稱 Mac 驗收通過。
+
+## Caps Lock 上游對齊（2026-10-17）
+
+前述 xterm 5.5 為歷史調查，本候選已鎖定 6.0.0。
+- [xterm #5282](https://github.com/xtermjs/xterm.js/pull/5282)：已納入 6.0 的 CapsLock 修正。
+- [xterm #6191](https://github.com/xtermjs/xterm.js/pull/6191)：尚未合併；isComposing keydown 不應以 legacy code 提前 finalize 的原則。
+- [VS Code terminalInstance](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts)：公開 custom keyboard handler 分流，沒有自製 composition finalizer。
+
+- [FitAddon 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/addons/addon-fit/src/FitAddon.ts) 與 [DOM renderer 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/renderer/dom/DomRenderer.ts)：公開 fit/proposeDimensions 與 canvas/cols 取整的相容依據；來源層模型與 Chromium zoom 回歸不等同原生 WebView。

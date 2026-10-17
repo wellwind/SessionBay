@@ -358,6 +358,22 @@ describe('SettingsPanel', () => {
     expect(config.onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '儲存設定' })).toBeEnabled();
   });
+  it.each([undefined, '', 'Mod+Shift+Z'])('preserves Zen shortcut %s through save and reload', async binding => {
+    const shortcuts: Record<string, string> = binding === undefined ? {} : { 'toggle-focus-mode': binding };
+    const config = props({ settings: { ...validSettings(), shortcuts } });
+    const view = render(createElement(SettingsPanel, config));
+    await userEvent.click(screen.getByRole('button', { name: '鍵盤快捷鍵' }));
+    expect(screen.getByRole('textbox', { name: /進入／退出專注模式/ })).toHaveValue(binding ?? 'Mod+Shift+Enter');
+    await userEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    const saved = vi.mocked(config.onSave).mock.calls[0][0];
+    expect(saved.shortcuts['toggle-focus-mode']).toBe(binding ?? 'Mod+Shift+Enter');
+    view.unmount();
+    render(createElement(SettingsPanel, props({ settings: saved })));
+    await userEvent.click(screen.getByRole('button', { name: '鍵盤快捷鍵' }));
+    expect(screen.getByRole('textbox', { name: /進入／退出專注模式/ })).toHaveValue(binding ?? 'Mod+Shift+Enter');
+  });
+
   it('renders effective shortcut defaults and visible conflicts before save', async () => {
     const config = props({ settings: { ...validSettings(), shortcuts: {} } });
     render(createElement(SettingsPanel, config));

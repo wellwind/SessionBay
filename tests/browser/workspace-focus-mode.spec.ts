@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
-type Call = { command: string; cols?: number; rows?: number };
+type Call = { command: string; data?: string; cols?: number; rows?: number };
 const lifecycle = (page: Page) => page.evaluate(() => {
   const { calls } = (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture;
   return calls.filter(call => ['launch_runtime', 'attach_runtime', 'detach_runtime', 'stop_runtime', 'forget_runtime'].includes(call.command));
@@ -37,6 +37,21 @@ test.beforeEach(async ({ page }, testInfo) => {
     originalTerminal: document.querySelector('.xterm'),
     originalCanvas: document.querySelector('.workspace-canvas'),
   }));
+});
+
+test('English Zen Mode search enters and exits focus mode', async ({ page }, testInfo) => {
+  for (const [label, focused] of [['進入專注模式（Zen Mode）', 'true'], ['退出專注模式（Zen Mode）', 'false']]) {
+    if (focused === 'false') await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+    await page.getByRole('button', { name: /搜尋專案或執行命令/ }).click();
+    await page.getByRole('combobox', { name: '搜尋命令或專案', exact: true }).fill('Zen Mode');
+    const command = page.getByRole('option', { name: new RegExp(label) });
+    await expect(command).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`zen-mode-${focused}.png`) });
+    await command.click();
+    await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', focused);
+    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+    await sameTerminal(page);
+  }
 });
 
 test('focus gains terminal area, fits on resize, and preserves runtime and terminal identity', async ({ page, browser }, testInfo) => {
@@ -101,6 +116,32 @@ test('history, settings, theme and project navigation remain reachable without r
   await sameTerminal(page);
   await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
   await expect(page.locator('.app-topbar')).toBeVisible();
+});
+
+test('preview tabstrip control preserves full-height pane and focus lifecycle', async ({ page }) => {
+  const toggle = page.getByRole('button', { name: '檔案預覽', exact: true });
+  await expect(page.locator('.workspace-tabs').getByRole('button', { name: '檔案預覽', exact: true })).toBeVisible();
+  const verticalBounds = () => page.locator('.terminal-pane:visible').evaluate(element => {
+    const pane = element.getBoundingClientRect();
+    const work = document.querySelector('.main-work-area')!.getBoundingClientRect();
+    return { top: pane.top - work.top, bottom: work.bottom - pane.bottom };
+  });
+  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
+  await toggle.click();
+  await page.getByRole('button', { name: 'synthetic.txt', exact: true }).click();
+  const preview = page.getByLabel('唯讀內容：synthetic.txt');
+  await expect(preview).toContainText('synthetic preview only');
+  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
+  await preview.focus();
+  await page.keyboard.press('Escape');
+  await expect(toggle).toBeFocused();
+  await page.getByRole('button', { name: '歷史 Session', exact: true }).click();
+  await expect(toggle).toHaveCount(0);
+  await page.locator('.workspace-tab-select').click();
+  await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+  await expect(toggle).toBeVisible();
+  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
+  await sameTerminal(page);
 });
 
 test('long tab names keep a keyboard-operable focus exit at supported narrow width', async ({ page }) => {
@@ -270,3 +311,19 @@ for (const [size, width, height, zoom] of [
     });
   }
 }
+
+test('default Zen shortcut toggles symmetrically without writing to PTY', async ({ page }) => {
+  const input = page.locator('.xterm-helper-textarea');
+  await input.focus();
+  for (const state of ['true', 'false']) {
+    await input.press('Control+Shift+Enter');
+    await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', state);
+    await expect(input).toBeFocused();
+  }
+  expect(await page.evaluate(() => (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture.calls.filter(call => call.command === 'write_runtime'))).toEqual([]);
+  await input.press('Control+k');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture.calls.filter(call => call.command === 'write_runtime').map(call => call.data).join(''))).toBe('\x0b');
+  await input.press('z');
+  await expect.poll(() => page.evaluate(() => (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture.calls.filter(call => call.command === 'write_runtime').map(call => call.data).join(''))).toBe('\x0bz');
+  await sameTerminal(page);
+});

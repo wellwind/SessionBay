@@ -191,3 +191,61 @@ for (const palette of ['code-modern', 'code-2026']) {
     });
   }
 }
+
+for (const theme of ['dark', 'light']) for (const palette of ['bay', 'code-modern', 'code-2026']) {
+  test(`${theme} ${palette}: project card highlight meets footer without rounded gaps`, async ({ page }, info) => {
+    await page.goto(`/tests/browser/interactions.html?theme=${theme}&palette=${palette}`);
+    const card = page.locator('.directory-cards > li').first();
+    const main = card.locator('.directory-card-main');
+    const footer = card.locator('.directory-card-actions');
+    const action = footer.getByRole('button');
+    await expect(card).toBeVisible();
+    const before = await card.boundingBox();
+    const footerBackground = await footer.evaluate(el => getComputedStyle(el).backgroundColor);
+    const assertSeam = async () => {
+      await expect(main).toHaveCSS('border-bottom-left-radius', '0px');
+      await expect(main).toHaveCSS('border-bottom-right-radius', '0px');
+      await expect(card).toHaveCSS('border-radius', '12px');
+      await expect(card).toHaveCSS('overflow', 'hidden');
+      const a = (await main.boundingBox())!;
+      const b = (await footer.boundingBox())!;
+      expect(a.y + a.height).toBeCloseTo(b.y, 3);
+      expect(a.x).toEqual(b.x);
+      expect(a.width).toEqual(b.width);
+      expect(await card.boundingBox()).toEqual(before);
+      expect(await footer.evaluate(el => getComputedStyle(el).backgroundColor)).toEqual(footerBackground);
+    };
+    await assertSeam();
+    await main.hover();
+    const hoverColor = await main.evaluate(el => {
+      const probe = document.createElement('div');
+      probe.style.backgroundColor = 'var(--surface-hover)';
+      el.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    await expect(main).toHaveCSS('background-color', hoverColor);
+    await assertSeam();
+    await page.screenshot({ path: info.outputPath('project-card-hover.png') });
+    await page.mouse.move(0, 0);
+    await main.focus();
+    await expect(main).toBeFocused();
+    await expect(main).toHaveCSS('outline-style', 'solid');
+    await expect(main).toHaveCSS('outline-width', '2px');
+    await expect(main).toHaveCSS('outline-offset', '-3px');
+    await assertSeam();
+    await page.screenshot({ path: info.outputPath('project-card-focus.png') });
+    await page.keyboard.press('Tab');
+    await expect(action).toBeFocused();
+    await action.hover();
+    await expect(main).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await assertSeam();
+    await main.hover();
+    await page.mouse.down();
+    await assertSeam();
+    await page.mouse.move(0, 0);
+    await page.mouse.up();
+    await expect(card).toBeVisible();
+  });
+}

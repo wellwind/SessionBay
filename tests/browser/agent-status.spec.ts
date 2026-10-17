@@ -19,8 +19,8 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await expect(tab).toBeVisible();
     await page.evaluate(() => {
       const fixture = (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture;
-      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
-      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
+      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 7 });
+      fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 7 });
     });
     await expect(tab).toHaveAttribute('title', '已保留的 codex');
     await expect(tab).toHaveAccessibleDescription(/已結束/);
@@ -39,8 +39,8 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     const global = page.getByRole('button', { name: /開啟工作區 臨時 Terminal 已保留的 grok/ });
     await global.click();
     await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('程序存活 · 活動未知');
-    await page.locator('.sidebar-bottom').scrollIntoViewIfNeeded();
-    await expect(page.locator('.sidebar-bottom')).toBeInViewport();
+    await expect(page.locator('.sidebar-bottom')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '設定與資料來源' })).toBeEnabled();
   });
 }
 
@@ -90,14 +90,14 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
     }, scale);
     const tab = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex', exact: true });
     const search = page.getByRole('textbox', { name: '搜尋專案', exact: true });
-    const footer = page.locator('.sidebar-bottom button');
+    const addProject = page.locator('.add-project');
     for (const revealed of [false, true]) {
       if (revealed) {
         await tab.scrollIntoViewIfNeeded(); await tab.click();
         await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
         await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
       }
-      for (const control of [search, tab, footer]) {
+      for (const control of [search, tab, addProject]) {
         await control.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
         await expect(control).toBeInViewport({ ratio: 1 });
         expect(await control.evaluate(element => {
@@ -105,7 +105,7 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
           return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
         })).toBe(true);
       }
-      await page.screenshot({ path: info.outputPath(`${label}-${revealed ? 'focus-reveal' : 'normal'}-footer.png`) });
+      await page.screenshot({ path: info.outputPath(`${label}-${revealed ? 'focus-reveal' : 'normal'}-controls.png`) });
       await search.fill('no matching synthetic project');
       await expect(page.locator('.project-runtime-tabs')).toHaveCount(0);
       await expect(page.locator('.open-workspaces')).toBeVisible();
@@ -132,3 +132,23 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
     }
   });
 }
+
+
+test('successful Agent exit removes only its tab, while abnormal Agent and original Shell remain', async ({ page }) => {
+  await page.goto('/tests/browser/agent-status.html');
+  const project = page.locator('.project-group').filter({ has: page.getByRole('button', { name: /^工作台介面 / }) });
+  const tab = project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
+  await expect(project).toContainText('3 分頁 · 2 Agent');
+  await tab.click();
+  await page.evaluate(() => {
+    const fixture = (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture;
+    fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
+    fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
+  });
+  await expect(tab).toHaveCount(0);
+  await expect(project).toContainText('2 分頁 · 1 Agent');
+  await expect(project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 claude' })).toBeVisible();
+  await expect(project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 Shell' })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { agentStatusFixture: { operations: string[] } }).agentStatusFixture.operations))
+    .toEqual(['forget:runtime-a']);
+});

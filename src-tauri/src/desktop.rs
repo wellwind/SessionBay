@@ -4,6 +4,7 @@ use crate::{
     history_sources::{self, HistorySourceDiscovery},
     models::{
         AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
+        WorkspaceFilePage, WorkspaceFilePreview,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
@@ -57,11 +58,14 @@ fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
     if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
         return Ok(false);
     }
-    if phase == "terminal-probe" {
-        return Ok(
-            std::env::var("SESSIONBAY_SMOKE_TERMINAL").as_deref() == Ok("1")
-                && smoke_data_directory().map_err(|e| e.to_string())?.is_some(),
-        );
+    if phase == "terminal-probe" || phase == "files-probe" {
+        let flag = if phase == "files-probe" {
+            "SESSIONBAY_SMOKE_FILES"
+        } else {
+            "SESSIONBAY_SMOKE_TERMINAL"
+        };
+        return Ok(std::env::var(flag).as_deref() == Ok("1")
+            && smoke_data_directory().map_err(|e| e.to_string())?.is_some());
     }
     let line = diagnostic_line(&phase, &message)?;
     if FRONTEND_DIAGNOSTICS.fetch_add(1, Ordering::Relaxed) < 32 {
@@ -125,6 +129,34 @@ async fn save_settings(state: AppState<'_>, settings: Settings) -> Result<Settin
 async fn list_projects(state: AppState<'_>) -> Result<Vec<Project>, String> {
     let s = state.inner().clone();
     blocking(move || s.catalog.projects()).await
+}
+#[tauri::command]
+async fn list_workspace_files(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+    offset: Option<usize>,
+    show_hidden: Option<bool>,
+) -> Result<WorkspaceFilePage, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.list_workspace_files(
+            &project_id,
+            &path,
+            offset.unwrap_or(0),
+            show_hidden.unwrap_or(false),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn read_workspace_file(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+) -> Result<WorkspaceFilePreview, String> {
+    let s = state.inner().clone();
+    blocking(move || s.read_workspace_file(&project_id, &path)).await
 }
 #[tauri::command]
 async fn add_project(
@@ -258,26 +290,17 @@ async fn launch_runtime(
     })
     .await
 }
+#[tauri::command]
+async fn launch_fresh_runtime(
+    state: AppState<'_>,
+    request: LaunchRequest,
+) -> Result<RuntimeInfo, String> {
+    let s = state.inner().clone();
+    blocking(move || s.launch_fresh(&request)).await
+}
 // The broker is authoritative for runtime identity. A pane label alone is insufficient.
 fn image_runtime(s: &Service, runtime_id: &str) -> Result<(), String> {
-    let record = s
-        .broker()?
-        .list()?
-        .into_iter()
-        .find(|r| r.info.id == runtime_id)
-        .ok_or("圖片目標工作階段不存在。")?;
-    if record.info.state != "running"
-        || !matches!(
-            record.kind.as_str(),
-            "codex" | "claude" | "grok" | "opencode"
-        )
-    {
-        return Err("此工作階段尚未支援圖片路徑輸入。".into());
-    }
-    if !record.image_input {
-        return Err("此工作階段未確認本機圖片輸入能力。自訂／遠端包裝程式不支援；舊版背景程序需結束後重新啟動。".into());
-    }
-    Ok(())
+    s.check_file_runtime(runtime_id)
 }
 fn with_images<T>(
     s: &Service,
@@ -345,6 +368,75 @@ async fn discard_image_input(
 ) -> Result<(), String> {
     let s = state.inner().clone();
     blocking(move || with_images(&s, |store| store.discard(&runtime_id, &id))).await
+}
+fn file_runtime(s: &Service, runtime_id: &str) -> Result<(), String> {
+    s.check_file_runtime(runtime_id)
+}
+fn with_files<T>(
+    s: &Service,
+    f: impl FnOnce(&mut crate::file_input::FileStaging) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut store = s.file_staging.lock().map_err(|_| "檔案暫存鎖定失敗。")?;
+    if store.is_none() {
+        *store = Some(crate::file_input::FileStaging::open(&s.config.directory)?);
+    }
+    f(store.as_mut().ok_or("檔案暫存未就緒。")?)
+}
+#[tauri::command]
+async fn begin_file_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    name: String,
+    size: usize,
+) -> Result<String, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        file_runtime(&s, &runtime_id)?;
+        with_files(&s, |store| store.begin(&runtime_id, &name, size))
+    })
+    .await
+}
+#[tauri::command]
+async fn append_file_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+    offset: usize,
+    bytes: crate::file_input::FileChunk,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || with_files(&s, |store| store.append(&runtime_id, &id, offset, &bytes.0))).await
+}
+#[tauri::command]
+async fn finish_file_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<crate::file_input::StagedFile, String> {
+    let s = state.inner().clone();
+    blocking(move || with_files(&s, |store| store.finish(&runtime_id, &id))).await
+}
+#[tauri::command]
+async fn retain_file_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        file_runtime(&s, &runtime_id)?;
+        with_files(&s, |store| store.retain(&runtime_id, &id))
+    })
+    .await
+}
+#[tauri::command]
+async fn discard_file_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || with_files(&s, |store| store.discard(&runtime_id, &id))).await
 }
 #[tauri::command]
 async fn write_runtime(
@@ -540,6 +632,8 @@ pub fn run() {
             detect_shells,
             save_settings,
             list_projects,
+            list_workspace_files,
+            read_workspace_file,
             add_project,
             create_project,
             update_project,
@@ -555,10 +649,16 @@ pub fn run() {
             save_workspace,
             preview_launch,
             launch_runtime,
+            launch_fresh_runtime,
             attach_runtime,
             detach_runtime,
             forget_runtime,
             write_runtime,
+            begin_file_input,
+            append_file_input,
+            finish_file_input,
+            retain_file_input,
+            discard_file_input,
             begin_image_input,
             append_image_input,
             finish_image_input,

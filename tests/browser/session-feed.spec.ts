@@ -32,7 +32,10 @@ for (const theme of ['dark', 'light']) for (const width of [1440, 600]) {
     await writeFile(info.outputPath('performance.json'), measurement);
     await info.attach('performance.json', { body: measurement, contentType: 'application/json' });
     await page.getByRole('textbox', { name: '搜尋 Session' }).fill('short');
-    await expect(page.getByText('已載入全部 3 個結果')).toBeVisible();
+    await expect(list.getByRole('listitem')).toHaveCount(3);
+    await expect(list).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('.session-feed-status')).toHaveCount(0);
+    await expect(page.locator('.transcript-footer')).toHaveCount(0);
     expect(await list.getByRole('listitem').count()).toBe(3);
     await page.getByRole('button', { name: '資源回收筒', exact: true }).click();
     const trash = page.getByRole('list', { name: '資源回收筒清單' });
@@ -72,6 +75,9 @@ test('retry, deep deletion and undo preserve navigation without loading the data
   await page.getByRole('textbox', { name: '搜尋 Session' }).fill('slow');
   await page.waitForTimeout(250);
   await page.getByRole('textbox', { name: '搜尋 Session' }).fill('new');
-  await expect(page.getByText('已載入全部 3 個結果')).toBeVisible();
+  await expect(list.getByRole('listitem')).toHaveCount(3);
+    await expect(list).toHaveAttribute('aria-busy', 'false');
+    await expect(page.locator('.session-feed-status')).toHaveCount(0);
+    await expect(page.locator('.transcript-footer')).toHaveCount(0);
   await expect.poll(() => list.evaluate(el => el.scrollTop)).toBe(0);
 });

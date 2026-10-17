@@ -410,6 +410,24 @@ impl Catalog {
         load_projects(&tx, None)
     }
 
+    /// Resolve preview authorization from catalog identity, never from a UI root
+    /// or launch override. A launch override can deliberately point elsewhere.
+    pub(crate) fn workspace_root(&self, project_id: &str) -> Result<PathBuf, String> {
+        let conn = self.connect()?;
+        let path: Option<Option<String>> = conn
+            .query_row(
+                "SELECT path FROM projects WHERE id=?1",
+                [project_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(error)?;
+        let path = path
+            .ok_or("找不到專案，無法預覽檔案")?
+            .ok_or("此專案沒有本機目錄；暫存終端無法預覽檔案")?;
+        Ok(PathBuf::from(path))
+    }
+
     pub fn add_project(&self, path: &str, name: Option<&str>) -> Result<Project, String> {
         validate_absolute_directory(path)?;
         if let Some(name) = name {

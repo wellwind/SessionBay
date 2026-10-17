@@ -10,6 +10,13 @@
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
 
+## 2026-10-17 Agent 正常退出（含新建分割面板）
+
+- Session Bay 直接啟動的 Agent（新建、歷史接續、手動 resume）正常退出（結束碼 0）後，關閉該面板；tab 尚有其他面板時保留 tab。右側新增的 Agent 分割面板亦適用。
+- 普通 Terminal 內自行啟動的 Agent 退出後，回到原本 Shell；Shell 仍執行時不關閉，不另開、不重啟 Shell，也不重新 resume。
+- 清理依受管程序的確認退出狀態判斷，不再區分新建／接續或依後續關聯的 Session 推測；不新增 Broker 協定或持久化欄位，舊 Runtime 亦適用。
+- 非零／未知結束碼、失敗及中斷保留供檢查。非同步清理必須核對 runtime 與啟動世代，不能關掉後來重啟的工作。
+
 ## 2026-10-17 Terminal 內容重繪與有界輸出批次
 
 - 問題範圍為 Agent 執行時 Terminal 內容閃爍；既有 xterm 實例生命週期、React UI 與主題切換不因此重寫。
@@ -17,7 +24,7 @@
 - 原本逐事件的 lease／取消／30 秒 ACK 等待不變；前端必須等整批 xterm.write callback 完成才 ACK。1 MiB／128 frame 的 replay 上限、過期後 snapshot 重建、OSC 52 與查詢過濾均維持。
 - 合成延遲模型每個 write／ACK 往返期間產生四個小 chunk，30 次 Poll：原逐 chunk 模型為 513 次 write 與 9 次 snapshot；批次模型為 30 次 write、0 次 snapshot。這是固定條件的單元模型，不是實際使用者效能或 macOS 視覺驗收。
 - 真實 TerminalPane／xterm 的 Chrome fixture 分開觀察跨 write 的同步清除／重繪與同一批次 write；只記錄 reset、write、ACK、resize、render 與空白 render 計數，不擷取使用者輸入。CI 證據與原生桌面驗收需分別確認。
-- xterm 5.5 尚未支援 DEC 2026；跨 Poll 的同步 repaint 仍可能閃爍。6.0 升級需獨立審查 Fit／Search addon、鍵盤與 IME 相容性，本次不升級、不加入私有 renderer hook。
+- 此節為 xterm 5.5 時期紀錄：當時未支援 DEC 2026，跨 Poll 同步 repaint 仍可能閃爍。後續 CapsLock 候選升級 6.0 與相容 Fit／Search addons，已取得同步分幀 blank=0 的 Chromium 合成證據；原生顯示與 IME 驗收另列，未加入私有 renderer hook。
 
 ## 2026-10-17 啟動時最大化
 
@@ -477,6 +484,13 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
 
+## 2026-10-17：工作區唯讀檔案預覽
+
+依使用者要求以獨立 PR 實作，不混入側欄排序、Agent 設定或垃圾桶。工作分頁可開啟檔案側面板，Terminal 維持掛載與 Runtime；目錄及選檔狀態只保留於該分頁的記憶體，關頁／重開不保存內容。
+
+IPC 僅接受 catalog Project ID 與相對路徑；根目錄採原始 project.path，不採可能指向其他位置的 launchPath，也不從臨時 Terminal 推導 HOME。只讀單層目錄及 256 KiB 以下 UTF-8 一般文字檔；每頁 200 項，明確載入更多，不遞迴掃描 node_modules。隱藏檔案預設隱藏，可明確開啟顯示。
+
+Linux／macOS 以開啟的目錄 descriptor 逐段 O_NOFOLLOW 解析，不依賴先 canonicalize 再 open 的競態檢查。根及祖先路徑含符號連結亦拒絕，檔案以開啟後 metadata 驗證；一般檔案 nlink > 1 一律拒絕，避免預覽與根目錄外共用 inode 的硬連結。目錄不套用連結數限制。Windows 使用 NtCreateFile 相對於已持有的目錄 handle 逐段開啟，拒絕所有 reparse points 與多重硬連結；從已開啟 handle 驗證磁碟根為 volume root，拒絕 UNC、網路磁碟與映射到子目錄的磁碟別名。目錄列舉也使用同一 handle；開啟的項目不共享寫入／刪除，忙碌檔案可能明確失敗。Windows native GUI 尚未驗收。內容以 React 純文字呈現，不執行 HTML／Markdown、不啟動外部應用、不編輯／刪除檔案。詳見[檔案預覽](workspace-file-preview.md)。
 ## 2026-10-17：Agent 生命週期總覽
 
 Agent 狀態以共享 provider registry 辨識，不把 Shell 或歷史 Session 數當成 Agent 數。側欄按專案彙總已開啟、存活、已結束、中斷等數量；全域工作階段獨立一組。同一 runtime ID 只計一次，尚無 runtime 的面板按 pane ID 計數。已開啟包含尚未啟動及保留的結束面板，關閉後不再計數；存活只包含已有 runtime 的 starting／running，不代表忙碌或等待輸入。停用 provider 不排除既有程序。
@@ -513,7 +527,7 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 - 專注模式為獨立、可逆的 UI 狀態，不切換作業系統全螢幕，不修改分割比例、面板最大化、側欄偏好或持久化 workspace。
 - 專案／臨時 Terminal 可從分頁列進入；保留歷史、工作分頁、新增、面板工具列與明確退出入口。專案名稱按鈕暫時展開原有完整控制列與側欄，提供所有原有操作；總覽自動顯示完整導覽。
-- 命令面板可進入／退出；快捷鍵預設空白，可於設定自行配置並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
+- 命令面板可進入／退出；快捷鍵預設 Mod+Shift+Enter，可於設定自行配置或留空停用並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
 - 相同 WorkspaceCanvas 與 TerminalPane 持續掛載，依 ResizeObserver 更新終端尺寸。索引進行／失敗、縮放失敗、目錄警告與面板錯誤保留可見。原生桌面驗收仍待完成。
 
 ## 2026-10-17 單面板滿版布局
@@ -532,6 +546,17 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。
 
+## 2026-10-17：Agent 入口擴充為一般檔案參照（候選實作，待驗收）
+
+- 取代僅接受 PNG／JPEG 的 UI 入口：使用者拖放或貼上實際 File 時接受所有類型，包括空檔、文字、PDF、SVG、壓縮檔與二進位。內容只按 bytes 保存，不執行、渲染或套用影像解碼；Agent 能否讀取／理解另外取決於該 CLI 與模型。
+- 一次最多 4 個、單檔 10 MiB、合計 20 MiB；一般檔案持久暫存另有 512 MiB／2048 個上傳目錄上限。每個檔案在獨立私有唯一目錄保留可用 basename 與副檔名，同批同名不覆蓋。跨平台不安全字元、控制與方向控制字元、Windows 保留名、尾點／空白及過長檔名需要安全清理，介面顯示原名與存入名稱。
+- 保留直接本機 Codex／Claude／Grok／OpenCode 路由守衛、create_new、owner-only 權限、跨程序 quota lock、retain-before-paste、lease／generation／輸入目標檢查及手動 Enter 取消；不自動送出，不自動停止 Agent。資料夾整批明確拒絕，不遞迴讀取。
+- 新 broker record 用有值的布林 capability 區分不支援路由與缺少能力資訊。PR27 broker 已記錄的本機路由可繼續提供一般路徑參照；更舊 broker 缺資訊時操作失敗並提示保留工作，不能靠可變設定／檔名繞過。錯誤只有已嘗試終端插入時才提示檢查重複。
+- 詳見[一般檔案輸入](file-input.md)。舊圖片 staging 與已保留路徑維持有效；本次不刪除歷史保留檔。
+
+## 2026-10-17：檔案附帶文字與拖放焦點
+
+實際 File 拖放／系統貼上以檔案為準，忽略 Finder／檔案管理員附帶的名稱或 URL 文字，不雙重插入、不自動 Enter。工具列剪貼簿有二進位檔案表示時採相同規則；純文字仍走原有路徑。拖放是明確選擇該面板的操作，先同步完成焦點更新，再重新擷取目標並核對 pane、runtime、kind、terminal、attachment lease 與 launch/start token；不移除原 generation 或輸入守衛。目標不可接受時游標顯示拒絕，聚焦未成立時明確拒絕，不把檔案偷偷送到其他面板。
 ## 專案目錄內的工作區與活動狀態（2026-10-17）
 
 - 專案父列保留歷史筆數，另列已開分頁與 Agent 數；展開顯示既有 tabs 的生命週期摘要，切換重用既有 focus 路徑，不重掛 Terminal。
@@ -571,6 +596,10 @@ Session 列新增同層刪除按鈕，hover／focus-within 顯示，無 hover �
 
 專案頁標題旁以小鉛筆開啟重新命名；資源回收筒與移出／加入專案改圖示按鈕。保留 Terminal／新增工作文字按鈕及既有確認流程；移出採資料夾減號，並明示不刪對話、檔案或關閉程序。長名稱可換行，圖示固定尺寸不被壓縮。
 
+
+## 2026-10-17：新 Agent 的可信啟動證明與背景程序共存
+
+真正新開、無 session/resume 身分的 Agent 由 backend 產生 pane UUID、凍結 LaunchSpec，再透過既有 broker Launch/List 驗證 generation 與 runtime 身分。已確認的 runtime 即使快速退出仍顯示診斷；只有仍存活且通過既有直接路由檢查者，可用私有最小證明補上舊 broker 缺少的能力資訊。明確拒絕不覆蓋，舊 runtime 不從可變設定推導權限；不重啟 broker 或停止既有 Agent。這補充上面的缺能力失敗規則，詳細 idempotency、quota、retention 與 native 驗收限制見[一般檔案輸入](file-input.md)。
 ## 2026-10-17：工具設定改為可搜尋下拉選擇
 
 來源與工具以單一 editable combobox 取代常駐 Agent 按鈕。只顯示所選工具的「啟用與安裝狀態」、「啟動設定」、「歷史資料來源」；歷史區不再重複 CLI 狀態，保持安裝與索引診斷分離。選擇不保存、不偵測、不啟動，跨工具草稿保留至儲存或取消。清單限制高度並支援鍵盤、組字與無結果提示。
@@ -600,3 +629,42 @@ OFFSET 與穩定排序不能防止批次之間刪除、插入或排序欄位更�
 ## 2026-10-17：專案父列固定對齊槽位
 
 父列左側直接顯示資料夾與名稱；展開箭頭及拖曳把手依序放在右側，沒有分頁時仍在右側保留箭頭槽位。DOM 與鍵盤順序同為專案、展開箭頭、排序把手，資料夾前不保留操作空槽。資料夾對齊名稱第一行，活動摘要放在名稱與路徑之下並保留行高，避免活動文字或收合狀態讓名稱與圖示跳動。拖曳仍只以父列作為落點，不改排序或展開功能語意。
+
+
+## 2026-10-17 控制項留白與焦點一致性
+
+Agent 搜尋欄與下拉選單共用 surface／control-border／radius／spacing tokens，輸入本身透明且不另畫 focus ring，由外層保留單一清楚外框；維持 combobox／listbox 與鍵盤操作語意。專案列資料夾前固定保留 space-3（12px）內距，一般、hover、selected、focus 不改幾何位置。工作分頁列容器左右 padding 歸零，保留歷史與專注按鈕內距、44px 專注操作高度及內縮焦點框。
+
+## 2026-10-17 專注模式英文搜尋名稱
+
+命令面板的進入／退出專注模式名稱加入「（Zen Mode）」，設定快捷鍵名稱同步，讓英文 Zen Mode 可找到對應命令。維持 toggle-focus-mode ID 及使用者綁定；分頁工具列不改名。新增預設 Mod+Shift+Enter（macOS Cmd+Shift+Enter，Windows／Linux Ctrl+Shift+Enter），只填補缺少的設定鍵；明確空字串仍停用，既有自訂值不覆蓋，同組合衝突沿用停用與提示。避免 Ctrl+K chord 吞掉 shell 輸入，不加入前綴緩衝或補送；重複 keydown 不反覆切換，對話框、一般輸入欄與 IME 不搶鍵。此組合未與目前 app 預設／保留鍵衝突，不保證所有外部終端程式都沒有自訂用途。
+## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
+
+正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。
+
+## 2026-10-17：檔案輸入區分原生辨識與工具讀取，接收仍以真 Agent 證據為準
+
+PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一一次 Agent 回覆為「no image received」，不能標記通過。Codex 0.163 官方原始碼本身支援 file URL，所以在取得輸入區圖片標記、有效影像內容與完整 paste frame 證據前，不把 URI 格式斷言為根因。
+
+保留各 CLI 已知圖片辨識的單一路徑貼上。Codex／OpenCode 的一般檔案改用引用的本機絕對路徑，避免要求工具把 URL 當 filesystem path。Claude 維持官方文件的路徑參照，Grok 維持其 dropped-path parser 的 file URL。介面分別提示圖片／PDF 辨識、SVG 文字與一般參照；這是預期模式，不是確認已附上或模型已收到。仍不自動 Enter，不新增 clipboard 改寫、不讀私人歷史。
+
+以[合成原生驗收流程](file-input-validation.md)區分 staging、CLI composer 與模型內容三層證據；任何一層未證實都不能替代完整驗收。
+
+
+## 2026-10-17：使用者豁免 PR31 Mac 驗收等待
+
+使用者明確允許 #31 不再等 Mac 驗收並進入合併流程（#46 仍排除）。保留既有 PNG「no image received」失敗與缺少 composer／PTY 實測證據；不把豁免寫成通過。隔離 parser／xterm queue 檢查未重現 URI 尾空白或 percent-decode 問題，圖片 transport 不盲改。詳細限制見[檔案輸入驗收](file-input-validation.md)。
+
+## 2026-10-17：Caps Lock 改採上游穩定版與公開 hook
+
+可取消 private finalizer 候選 e750ad1 原生驗收失敗：真實事件沒有 insertText，不能延續該假設。依使用者要求參照 VS Code／xterm，升級精確 6.0.0 與相容 addons，移除 private helper 改寫。既有公開 custom handler 依尚未合併的上游 #6191 原則保留 browser-marked composing key；原生 input/composition 決定提交。不做時間窗或文字去重。原生 trace 缺少 legacy keyCode，因此 0／229 分支皆測，不能推定實機數值。詳見 [證據、差異與驗收限制](capslock-ime.md)。新版原生驗收為 NOTRUN；使用者後續明確要求 #49 不用 Mac 驗證直接合併，已豁免該門檻。仍須通過最新 exact-commit CI，不能把豁免記為原生 PASS。
+
+## 2026-10-17：移除重複的介面輔助文案
+
+專案／目錄總覽、設定、快速主題及歷史搜尋移除重複 subtitle、操作說明和本機儲存成功文案，連同不再需要的容器一起移除，不保留空白列。保留欄位標籤、載入／儲存中狀態、未儲存提醒、錯誤、必要確認與無障礙名稱；預覽、取消、儲存及原始歷史唯讀等實際行為不變。
+
+## 2026-10-17：歷史預覽移除常駐頁尾
+
+歷史 Session 完成載入後不顯示「已載入全部 N 個結果」，對話預覽也移除唯讀提醒頁尾與其佔位高度。保留載入中、錯誤、重試與尚有資料時的手動載入操作；清單 aria-busy、總數與位置資訊維持可存取。此調整不變更唯讀預覽與明確接續才啟動 Agent 的行為。
+
+同時移除側欄底部「你的工作，留在本機」、唯讀說明與「資料來源與支援範圍」入口及其容器；頂欄「設定與資料來源」入口仍可使用，不改實際隱私或 Agent 啟動行為。

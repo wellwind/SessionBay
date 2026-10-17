@@ -2,8 +2,9 @@ use crate::{
     broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
-    models::{AgentKind, IndexStatus, Project},
+    models::{AgentKind, IndexStatus, Project, WorkspaceFilePage, WorkspaceFilePreview},
     runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent},
+    workspace_files,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -65,7 +66,10 @@ pub struct Service {
     pub catalog: Catalog,
     pub config: ConfigStore,
     pub runtime: RuntimeManager,
+    pub file_staging: Mutex<Option<crate::file_input::FileStaging>>,
     pub image_staging: Mutex<Option<crate::image_input::ImageStaging>>,
+    fresh_launches: Mutex<crate::fresh_launch::FreshLaunches>,
+    launch_provenance: Mutex<Option<crate::launch_provenance::LaunchProvenance>>,
     broker: Option<BrokerClient>,
     settings: Mutex<Settings>,
     index: Mutex<IndexStatus>,
@@ -99,6 +103,9 @@ impl Service {
             config,
             runtime: RuntimeManager::new(),
             image_staging: Mutex::new(None),
+            file_staging: Mutex::new(None),
+            fresh_launches: Mutex::new(Default::default()),
+            launch_provenance: Mutex::new(None),
             broker,
             settings: Mutex::new(settings),
             index: Mutex::new(empty_index()),
@@ -115,6 +122,24 @@ impl Service {
             .lock()
             .map(|v| v.clone())
             .map_err(|_| "設定鎖定失敗".into())
+    }
+    pub fn list_workspace_files(
+        &self,
+        project_id: &str,
+        path: &str,
+        offset: usize,
+        show_hidden: bool,
+    ) -> Result<WorkspaceFilePage, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::list(&root, path, offset, show_hidden)
+    }
+    pub fn read_workspace_file(
+        &self,
+        project_id: &str,
+        path: &str,
+    ) -> Result<WorkspaceFilePreview, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::read(&root, path)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;
@@ -591,6 +616,85 @@ impl Service {
             .as_ref()
             .ok_or_else(|| "Persistent runtime broker is not connected".into())
     }
+    /// Mint and validate a genuinely fresh identity without disturbing existing broker runtimes.
+    pub fn launch_fresh(&self, request: &LaunchRequest) -> Result<RuntimeInfo, String> {
+        let broker = self.broker()?;
+        self.fresh_launches
+            .lock()
+            .map_err(|_| "Fresh launch lock failed")?
+            .launch(
+                request,
+                broker,
+                |request| self.plan_launch(request),
+                |generation, record| {
+                    let mut provenance = self
+                        .launch_provenance
+                        .lock()
+                        .map_err(|_| "Launch provenance lock failed")?;
+                    if provenance.is_none() {
+                        *provenance = Some(crate::launch_provenance::LaunchProvenance::open(
+                            &self.config.directory,
+                        )?);
+                    }
+                    let records = broker.list()?;
+                    if broker.generation() != generation {
+                        return Err("Broker generation changed while recording launch".into());
+                    }
+                    let provenance = provenance.as_ref().ok_or("Launch provenance unavailable")?;
+                    provenance.prune_current_generation(generation, &records)?;
+                    provenance.record(generation, record).map_err(|error| format!(
+                        "{error}（啟動證明位置：{}；僅能整理確定已結束工作階段的證明，勿刪 lock 或附件）",
+                        self.config.directory.join("launch-provenance-v1").display()
+                    ))
+                },
+            )
+    }
+
+    /// Staging begin and retain check the live broker record. Missing metadata alone never grants access.
+    pub fn check_file_runtime(&self, runtime_id: &str) -> Result<(), String> {
+        let broker = self.broker()?;
+        let generation = broker.generation();
+        let record = broker
+            .list()?
+            .into_iter()
+            .find(|record| record.info.id == runtime_id)
+            .ok_or("檔案目標工作階段不存在。")?;
+        if broker.generation() != generation {
+            return Err("背景程序已變更，請重新確認工作階段。".into());
+        }
+        crate::fresh_launch::check_file_capability(&record, || {
+            let matched = {
+                let mut provenance = self
+                    .launch_provenance
+                    .lock()
+                    .map_err(|_| "Launch provenance lock failed")?;
+                if provenance.is_none() {
+                    *provenance = Some(crate::launch_provenance::LaunchProvenance::open(
+                        &self.config.directory,
+                    )?);
+                }
+                provenance
+                    .as_ref()
+                    .ok_or("Launch provenance unavailable")?
+                    .matches(&generation, &record)?
+            };
+            // Release the store lock before taking the launch registry lock.
+            if !matched {
+                if let Some(error) = self
+                    .fresh_launches
+                    .lock()
+                    .map_err(|_| "Fresh launch lock failed")?
+                    .capability_error(&generation, runtime_id)
+                {
+                    return Err(format!(
+                        "Agent 已啟動，但本機檔案能力證明無法保存：{error}。尚未插入。"
+                    ));
+                }
+            }
+            Ok(matched)
+        })
+    }
+
     pub fn launch_persistent(
         &self,
         request: &LaunchRequest,

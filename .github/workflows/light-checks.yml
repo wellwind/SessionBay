@@ -39,6 +39,10 @@ jobs:
           sudo apt-get install --no-install-recommends -y fonts-noto-cjk fontconfig
       - name: Terminal layout screenshots and bounds
         run: npm run test:layout
+      - name: Caps Lock composition transaction browser regression
+        run: npm run test:ime
+      - name: Workspace file preview screenshots and bounds
+        run: npm run test:files -- --output=test-results/files
       - name: Agent lifecycle overview browser acceptance
         run: npm run test:agent-status
       - name: Workspace tab mouse drag and persistence
@@ -58,6 +62,8 @@ jobs:
         run: node node_modules/@playwright/test/cli.js test --config playwright.project-membership.config.ts
       - name: Confirmation dialog native Enter behavior
         run: node node_modules/@playwright/test/cli.js test --config playwright.confirmation.config.ts
+      - name: Lazy virtual session feed browser acceptance
+        run: node node_modules/@playwright/test/cli.js test --config playwright.session-feed.config.ts
       - name: Upload terminal layout evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24

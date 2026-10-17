@@ -9,7 +9,8 @@ test('project actions follow the left-aligned folder in visual and keyboard orde
     const main = row.locator('.project-main');
     const folder = (await main.locator(':scope > svg').boundingBox())!;
     const handle = row.locator('.project-drag');
-    expect(folder.x - bounds.x).toBeLessThanOrEqual(12);
+    expect(folder.x - bounds.x).toBeGreaterThanOrEqual(12);
+    expect(folder.x - bounds.x).toBeLessThanOrEqual(16);
     expect((await main.boundingBox())!.x).toBeLessThan((await handle.boundingBox())!.x);
     await main.focus();
     await page.keyboard.press('Tab');
@@ -144,4 +145,30 @@ test('expanded project child tab is not a project reorder target', async ({ page
   await expect.poll(() => handles.evaluateAll(elements => elements.map(el => el.getAttribute('aria-label')))).toEqual(before);
   await child.click();
   await expect(page.locator('.workspace-tab.active')).toBeVisible();
+});
+
+for (const theme of ['dark', 'light']) test(`project inset stays stable ${theme}`, async ({ page }, info) => {
+  await page.setViewportSize({ width: 800, height: 700 });
+  await page.goto(`/tests/browser/sidebar.html?theme=${theme}&large-count=1`);
+  const row = page.locator('.project-row').first();
+  const main = row.locator('.project-main');
+  const geometry = () => row.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const icon = element.querySelector('.project-main > svg')!.getBoundingClientRect();
+    return { inset: icon.x - rect.x, y: icon.y - rect.y, width: rect.width };
+  });
+  const normal = await geometry();
+  await main.hover();
+  const hover = await geometry();
+  await main.click();
+  const selected = await geometry();
+  await main.focus();
+  const focused = await geometry();
+  await page.screenshot({ path: info.outputPath('sidebar-inset.png'), fullPage: true });
+  expect(normal.inset).toBeGreaterThanOrEqual(12);
+  expect(normal.inset).toBeLessThanOrEqual(16);
+  expect(hover).toEqual(normal);
+  expect(selected).toEqual(normal);
+  expect(focused).toEqual(normal);
+  expect(await main.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 });

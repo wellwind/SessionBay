@@ -360,7 +360,6 @@ export function HistoryView({
       )}
       <div className="history-caption">
         <span>{loading ? '搜尋中…' : `${page.total} 個 Session`}</span>
-        <span>本機標題與對話 · 中文子字串 / 英文關鍵字</span>
       </div>
       <div className={`history-columns ${previewOpen ? '' : 'preview-hidden'}`}>
         <div className="session-column">
@@ -573,7 +572,6 @@ export function HistoryView({
                     </div>
                   )}
                 </div>
-                <div className="transcript-footer">唯讀預覽 · 不啟動 Agent，也不傳送內容</div>
               </>
             ) : (
               <div className="empty-state">

@@ -109,6 +109,9 @@ describe('HistoryView read-only rendering', () => {
     await tick();
     expect(screen.getAllByText(unsafe)).toHaveLength(3);
     expect(screen.getByText('<b>not markup</b>')).toBeInTheDocument();
+    expect(container.querySelector('.transcript-footer')).toBeNull();
+    expect(container.querySelector('.session-feed-status')).toBeNull();
+    expect(screen.queryByText('唯讀預覽 · 不啟動 Agent，也不傳送內容')).not.toBeInTheDocument();
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('img')).toBeNull();
     expect(
