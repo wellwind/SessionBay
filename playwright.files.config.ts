@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/browser',
-  testMatch: 'workspace-files.spec.ts',
+  testMatch: ['workspace-files.spec.ts', 'explorer.spec.ts'],
   timeout: 30_000,
   workers: 1,
   use: {

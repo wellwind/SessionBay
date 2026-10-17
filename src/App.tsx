@@ -32,6 +32,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
+import { closeFocusedExplorer } from './components/explorer-focus';
 import { SidebarProjectList } from './components/SidebarProjectList';
 import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
 import type { SidebarPreferences } from './sidebar-preferences';
@@ -771,6 +772,7 @@ export default function App() {
   const requestCloseTab = useRef(() => {});
   requestCloseTab.current = () => {
     if (closingApp.current || closeTabPending.current || composing.current || document.querySelector('[role="dialog"]')) return;
+    if (closeFocusedExplorer()) return;
     const current = stateRef.current;
     if (current.view !== 'workspace') return;
     const tab = current.workspace.tabs.find((item) => item.id === activeWorkspaceTabId(current.workspace, current.selectedId));
