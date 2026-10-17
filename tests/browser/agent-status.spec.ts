@@ -36,6 +36,13 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('已結束');
+    const workspaceTab = page.locator('.workspace-tab-select').filter({ has: page.locator('.runtime-activity') });
+    expect(await workspaceTab.first().evaluate(element => {
+      const indicator = element.querySelector('.runtime-activity')!.getBoundingClientRect();
+      const name = element.querySelector('.workspace-tab-name')!.getBoundingClientRect();
+      return indicator.right <= name.left;
+    })).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('known-status-left-no-unknown.png'), fullPage: true });
     const global = page.getByRole('button', { name: /開啟工作區 臨時 Terminal 已保留的 grok/ });
     await global.click();
     await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('程序存活 · 活動未知');
@@ -48,8 +55,8 @@ test('fresh output pulses locally, unread clears on visible foreground work, red
   await page.goto('/tests/browser/agent-status.html');
   const tab = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
   const indicator = tab.locator('.runtime-activity');
-  await expect(indicator).not.toHaveAttribute('title', /有新輸出/);
-  await expect(indicator.locator('.runtime-connecting')).toHaveCount(0);
+  await expect(indicator).toHaveCount(0);
+  await expect(tab.locator('.lucide-circle-help, .runtime-output-dot')).toHaveCount(0);
   const emit = async (sequence: number) => page.evaluate(sequence => {
     (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
       type: 'output', runtimeId: 'runtime-a', sequence, data: [65],
@@ -65,7 +72,7 @@ test('fresh output pulses locally, unread clears on visible foreground work, red
   await expect(indicator).toHaveAttribute('title', /未讀輸出/);
   await page.bringToFront();
   await tab.click();
-  await expect(indicator).not.toHaveAttribute('title', /未讀輸出/);
+  await expect(indicator).toHaveCount(0);
   await emit(3);
   await expect(indicator).toHaveAttribute('title', /有新輸出/);
   await expect(indicator).not.toHaveAttribute('title', /未讀輸出/);

@@ -262,3 +262,15 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [VS Code terminalInstance](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts)：公開 custom keyboard handler 分流，沒有自製 composition finalizer。
 
 - [FitAddon 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/addons/addon-fit/src/FitAddon.ts) 與 [DOM renderer 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/renderer/dom/DomRenderer.ts)：公開 fit/proposeDimensions 與 canvas/cols 取整的相容依據；來源層模型與 Chromium zoom 回歸不等同原生 WebView。
+
+## 2026-10-17 Agent 活動 hooks
+
+| 官方來源 | 此輪使用範圍與限制 |
+| --- | --- |
+| [Codex hooks](https://learn.chatgpt.com/docs/hooks) | hook_event_name/session_id/turn_id、Stop gate、並行 hooks 與 child 事件；文件現況，不承諾舊 CLI 支援 |
+| [Claude Code hooks](https://code.claude.com/docs/en/hooks) | common fields、agent_id/prompt_id、permission 與 Stop/StopFailure；Notification 延遲，不推論目前等人 |
+| [Grok hooks guide](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md)、[固定版本 envelope](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-hooks/src/event.rs) | hookEventName 與 hook_event_name alias 不同大小寫、sessionId/promptId、child markers、passive Stop 觀察限制 |
+| [Antigravity hooks](https://antigravity.google/docs/hooks#input-and-output-contract) | conversationId、registration event name、invocation/tool/Stop；fullyIdle 仍在 gate 之前，不代表最終 idle |
+| [OpenCode plugin events](https://opencode.ai/docs/plugins#events)、[v1.18.18 schema](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/sdk/js/src/v2/gen/types.gen.ts)、[開發版 schema](https://github.com/anomalyco/opencode/blob/8c173a8f3805d8e749d44311054b07e37a1b2ce1/packages/client/src/promise/generated/types.ts) | 此輪僅 v1 properties envelope 的 session.status；v2 data envelope 明確拒絕，不推導所有安裝版本相容 |
+
+所有來源只驗證解析契約，不代表已安裝或執行真實 hooks。保守 TTL、binding 與失效規則是 SessionBay 設計，不是 provider 保證。

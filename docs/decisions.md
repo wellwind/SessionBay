@@ -668,3 +668,9 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 歷史 Session 完成載入後不顯示「已載入全部 N 個結果」，對話預覽也移除唯讀提醒頁尾與其佔位高度。保留載入中、錯誤、重試與尚有資料時的手動載入操作；清單 aria-busy、總數與位置資訊維持可存取。此調整不變更唯讀預覽與明確接續才啟動 Agent 的行為。
 
 同時移除側欄底部「你的工作，留在本機」、唯讀說明與「資料來源與支援範圍」入口及其容器；頂欄「設定與資料來源」入口仍可使用，不改實際隱私或 Agent 啟動行為。
+
+## 2026-10-17：Hook adapter 基礎與活動顯示界線
+
+五工具共用 registry 宣告各自已審閱的 observation adapter，transport 一律為 `notImplemented`。本輪只交付純解析與記憶體 reducer，不安裝 hooks、不建立 listener、不修改使用者 Agent 設定，也不把此基礎描述為 live busy／idle 已完成。`Stop` 可被其他 hook 阻止或繼續，不能等同 idle；prompt、tool、permission hooks 只證明事件發生，不保證目前仍工作中或等待人類。
+
+工作分頁的已知狀態圖示移到名稱左側；未知／不支援不顯示問號，也不保留沒有輸出的點。保留專案分頁、已知退出／錯誤／斷線／連線中狀態、輸出提示與無障礙生命週期說明。後續傳輸、驗證與 opt-in 安裝界線見 [活動 hook 基礎](agent-activity.md)。
