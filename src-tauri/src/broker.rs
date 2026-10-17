@@ -196,6 +196,7 @@ struct Host {
     runtime: Arc<RuntimeManager>,
     entries: Mutex<HashMap<String, Entry>>,
     shutdown: std::sync::atomic::AtomicBool,
+    shutdown_reply_complete: tokio::sync::Notify,
     persisted: Mutex<Vec<u8>>,
 }
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -249,6 +250,7 @@ impl Host {
             runtime: Arc::new(RuntimeManager::new()),
             entries: Mutex::new(entries),
             shutdown: std::sync::atomic::AtomicBool::new(false),
+            shutdown_reply_complete: tokio::sync::Notify::new(),
             persisted: Mutex::new(Vec::new()),
         });
         host.persist()?;
@@ -306,6 +308,9 @@ impl Host {
         Ok(())
     }
     fn handle(self: &Arc<Self>, request: Request) -> Result<Response, String> {
+        if self.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+            return Err("The runtime broker is shutting down".into());
+        }
         if request
             .generation()
             .is_some_and(|generation| generation != self.generation)
@@ -521,7 +526,7 @@ pub fn run(directory: PathBuf) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    runtime.block_on(async move {
+    let result = runtime.block_on(async move {
         let host = Host::open(directory.clone())?;
         let listener = transport::listener(&directory).map_err(|e| e.to_string())?;
         let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CLIENTS));
@@ -553,8 +558,23 @@ pub fn run(directory: PathBuf) -> Result<(), String> {
                 last_persist = Instant::now();
             }
         }
+        drop(listener);
+        // Do not cancel the shutdown response just because its handler stopped
+        // the runtimes. The response task also signals on error or timeout.
+        host.shutdown_reply_complete.notified().await;
         Ok(())
-    })
+    });
+    // Windows pipe flush uses a blocking task. A peer that never reads must not
+    // keep broker process shutdown waiting forever after REQUEST_TIMEOUT.
+    runtime.shutdown_timeout(Duration::from_millis(250));
+    result
+}
+
+struct ShutdownReply<'a>(&'a Host);
+impl Drop for ShutdownReply<'_> {
+    fn drop(&mut self) {
+        self.0.shutdown_reply_complete.notify_one();
+    }
 }
 async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
     transport::authenticate(&stream).map_err(|e| e.to_string())?;
@@ -562,25 +582,41 @@ async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     // Launch/paste limits are stricter than a bounded screen response.
+    let mut shutting_down = false;
     let response = if bytes.len() > 1024 * 1024 {
         Response::Error {
             message: "Runtime request exceeds 1 MiB".into(),
         }
     } else {
         match serde_json::from_slice::<Request>(&bytes) {
-            Ok(request) => match host.handle(request) {
-                Ok(response) => response,
-                Err(message) => Response::Error { message },
-            },
+            Ok(request) => {
+                let shutdown = matches!(request, Request::Shutdown { .. });
+                match host.handle(request) {
+                    Ok(response) => {
+                        shutting_down = shutdown;
+                        response
+                    }
+                    Err(message) => Response::Error { message },
+                }
+            }
             Err(_) => Response::Error {
                 message: "Invalid runtime request".into(),
             },
         }
     };
+    // Keep the completion guard alive across write/flush. Cancellation by the
+    // enclosing request timeout must release the main loop as well.
+    let _completion = shutting_down.then(|| ShutdownReply(&host));
     let bytes = serde_json::to_vec(&response).map_err(|e| e.to_string())?;
     transport::write_frame(&mut stream, &bytes)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if shutting_down {
+        transport::flush_shutdown_reply(&mut stream)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn stop_arguments() -> Option<PathBuf> {

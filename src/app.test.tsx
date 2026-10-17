@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
-import { api, isDesktop } from './api';
+import { api, call, isDesktop } from './api';
 import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, RuntimeRecord, Session, Workspace } from './types';
 import { canPickDirectory, pickDirectory } from './directory-picker';
 vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
@@ -31,6 +31,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 }));
 vi.mock('./api', () => ({
   isDesktop: vi.fn(() => false),
+  call: vi.fn().mockResolvedValue(false),
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   api: {
     bootstrap: vi.fn(),
@@ -317,11 +318,13 @@ describe('App desktop lifecycle', () => {
     render(<App />);
     await tick();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    vi.mocked(call).mockResolvedValue(false);
     const interaction = runSmokeInteraction();
     for (let i = 0; i < 30; i++) await tick(20);
     await interaction;
     expect(screen.getByRole('dialog', { name: '加入或建立專案' })).toBeInTheDocument();
     expect(screen.getByLabelText('上層目錄路徑')).toHaveValue('');
+    expect(call).toHaveBeenCalledWith('frontend_diagnostic', { phase: 'terminal-probe', message: 'enabled' });
     expect(api.addProject).not.toHaveBeenCalled();
     expect(api.createProject).not.toHaveBeenCalled();
     expect(api.saveWorkspace).not.toHaveBeenCalled();

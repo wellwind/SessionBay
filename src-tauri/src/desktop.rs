@@ -57,6 +57,12 @@ fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
     if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
         return Ok(false);
     }
+    if phase == "terminal-probe" {
+        return Ok(
+            std::env::var("SESSIONBAY_SMOKE_TERMINAL").as_deref() == Ok("1")
+                && smoke_data_directory().map_err(|e| e.to_string())?.is_some(),
+        );
+    }
     let line = diagnostic_line(&phase, &message)?;
     if FRONTEND_DIAGNOSTICS.fetch_add(1, Ordering::Relaxed) < 32 {
         eprintln!("{line}");

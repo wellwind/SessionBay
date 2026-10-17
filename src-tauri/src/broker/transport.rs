@@ -8,8 +8,10 @@ use interprocess::local_socket::{
 };
 #[cfg(all(unix, not(target_os = "macos")))]
 use interprocess::os::unix::local_socket::ListenerOptionsExt;
+#[cfg(unix)]
+use std::fs::OpenOptions;
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io,
     path::{Path, PathBuf},
     time::Duration,
@@ -19,8 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub const MAX_FRAME: usize = 16 * 1024 * 1024;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
 #[cfg(windows)]
-#[path = "windows_security.rs"]
-mod windows;
+use crate::windows_security as windows;
 
 pub fn private_directory(parent: &Path) -> io::Result<PathBuf> {
     let directory = parent.join("runtime-broker-v1");
@@ -50,22 +51,20 @@ pub fn private_directory(parent: &Path) -> io::Result<PathBuf> {
 }
 
 pub fn lock(directory: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
-    {
+    let file = {
         use std::os::unix::fs::OpenOptionsExt;
-        options
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
             .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    }
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(directory.join("broker.lock"))?
+    };
     #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let file = options.open(directory.join("broker.lock"))?;
+    let file = windows::open_lock(&directory.join("broker.lock"))?;
     if !file.metadata()?.is_file() {
         return Err(io::Error::other("Runtime lock is not a regular file"));
     }
@@ -85,9 +84,18 @@ pub fn lock(directory: &Path) -> io::Result<File> {
     }
     #[cfg(windows)]
     windows::verify_file(&file)?;
-    file.try_lock()
-        .map_err(|error| io::Error::new(io::ErrorKind::WouldBlock, error.to_string()))?;
+    // Preserve permission/unsupported/I/O errors. Only TryLockError::WouldBlock
+    // proves another handle currently owns the broker lock.
+    file.try_lock().map_err(io::Error::from)?;
     Ok(file)
+}
+
+pub fn ownership_available(directory: &Path) -> io::Result<bool> {
+    match lock(directory) {
+        Ok(_ownership) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
@@ -222,6 +230,143 @@ pub async fn request(directory: &Path, bytes: &[u8]) -> io::Result<Vec<u8>> {
     }).await.map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Runtime broker did not respond; the action may have completed. Reconnect before retrying."))?
 }
 
+/// local_socket's AsyncWrite::flush is a no-op. Windows requires the underlying
+/// pipe flush to confirm delivery before the broker process can safely exit.
+pub async fn flush_shutdown_reply(stream: &mut Stream) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let Stream::NamedPipe(pipe) = stream;
+        pipe.inner().flush().await
+    }
+    #[cfg(unix)]
+    {
+        stream.flush().await
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_shutdown_tests {
+    use super::*;
+    use crate::broker::{Request, Response, PROTOCOL};
+    use std::process::{Child, Command, Stdio};
+    use std::time::Instant;
+
+    struct BrokerProcess(Child);
+    impl Drop for BrokerProcess {
+        fn drop(&mut self) {
+            // Only the synthetic child created by this test is ever terminated.
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[test]
+    #[ignore = "synthetic broker subprocess; invoked explicitly by shutdown tests"]
+    fn broker_subprocess() {
+        crate::broker::run(
+            std::env::var_os("SESSIONBAY_TEST_BROKER_DIRECTORY")
+                .expect("synthetic broker directory")
+                .into(),
+        )
+        .unwrap();
+    }
+
+    fn shutdown_with_delayed_client(read_reply: bool) {
+        let parent = tempfile::tempdir().unwrap();
+        let directory = private_directory(parent.path()).unwrap();
+        let mut child = BrokerProcess(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "broker::transport::windows_shutdown_tests::broker_subprocess",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("SESSIONBAY_TEST_BROKER_DIRECTORY", parent.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let hello = serde_json::to_vec(&Request::Hello { protocol: PROTOCOL }).unwrap();
+            let generation = loop {
+                if let Ok(bytes) = request(&directory, &hello).await {
+                    if let Response::Hello { generation, .. } =
+                        serde_json::from_slice(&bytes).unwrap()
+                    {
+                        break generation;
+                    }
+                }
+                assert!(Instant::now() < deadline, "synthetic broker did not start");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            };
+            let mut stream = Stream::connect(name(&directory).unwrap()).await.unwrap();
+            authenticate(&stream).unwrap();
+            let shutdown = serde_json::to_vec(&Request::Shutdown { generation }).unwrap();
+            write_frame(&mut stream, &shutdown).await.unwrap();
+            // Exceed the broker's 250 ms listener tick. The reply must remain
+            // available even when this client's scheduler delays its next read.
+            tokio::time::sleep(Duration::from_millis(700)).await;
+            assert!(
+                child.0.try_wait().unwrap().is_none(),
+                "broker exited before its shutdown client consumed the reply"
+            );
+            if read_reply {
+                let bytes = read_frame(&mut stream, MAX_FRAME)
+                    .await
+                    .expect("shutdown response must not be lost when the broker exits");
+                assert!(matches!(
+                    serde_json::from_slice::<Response>(&bytes).unwrap(),
+                    Response::Ok
+                ));
+            } else {
+                // Keep the pipe open without consuming the response. Blocking
+                // FlushFileBuffers must not outlive the broker's bounded stop.
+                let deadline = Instant::now() + REQUEST_TIMEOUT + Duration::from_secs(3);
+                loop {
+                    if let Some(status) = child.0.try_wait().unwrap() {
+                        assert!(status.success());
+                        break;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "unread reply blocked broker exit"
+                    );
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            }
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(status) = child.0.try_wait().unwrap() {
+                assert!(status.success(), "broker exited unsuccessfully: {status}");
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "broker did not exit after shutdown"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn shutdown_reply_survives_a_delayed_reader() {
+        shutdown_with_delayed_client(true);
+    }
+
+    #[test]
+    fn shutdown_with_an_unresponsive_reader_is_bounded() {
+        shutdown_with_delayed_client(false);
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -265,5 +410,85 @@ mod tests {
         });
         fs::remove_file(&socket).unwrap();
         fs::remove_dir(socket.parent().unwrap()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+
+    #[test]
+    fn lock_io_errors_keep_their_original_kind() {
+        let error = io::Error::from(std::fs::TryLockError::Error(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "synthetic access denial",
+        )));
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            io::Error::from(std::fs::TryLockError::WouldBlock).kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn concurrent_lock_creation_has_exactly_one_owner_and_releases_on_drop() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_directory(root.path()).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let readers: Vec<_> = (0..2)
+            .map(|_| {
+                let directory = directory.clone();
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    lock(&directory)
+                })
+            })
+            .collect();
+        let results: Vec<_> = readers
+            .into_iter()
+            .map(|reader| reader.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter_map(|result| result.as_ref().err())
+                .next()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(!ownership_available(&directory).unwrap());
+        drop(results);
+        assert!(ownership_available(&directory).unwrap());
+    }
+
+    #[test]
+    fn invalid_lock_is_reported_before_attempting_to_spawn_or_retry() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = private_directory(root.path()).unwrap();
+        std::fs::create_dir(directory.join("broker.lock")).unwrap();
+        assert_ne!(
+            ownership_available(&directory).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        let started = std::time::Instant::now();
+        let error = match crate::broker::BrokerClient::connect(
+            root.path(),
+            &root.path().join("missing-executable"),
+        ) {
+            Ok(_) => panic!("invalid ownership lock accepted"),
+            Err(error) => error,
+        };
+        assert!(
+            error.starts_with("Cannot verify runtime broker ownership lock:"),
+            "{error}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "lock errors must not take the 12-second retry path"
+        );
+        assert!(directory.join("broker.lock").is_dir());
     }
 }

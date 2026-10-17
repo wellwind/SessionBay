@@ -207,7 +207,13 @@ mod tests {
         let link = temp.path().join("link.txt");
         match std::os::windows::fs::symlink_file(&source, &link) {
             Ok(()) => assert!(open_regular_readonly_nofollow(&link).is_err()),
-            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            Err(error)
+                if error.kind() == io::ErrorKind::PermissionDenied
+                    || error.raw_os_error()
+                        == Some(
+                            windows_sys::Win32::Foundation::ERROR_PRIVILEGE_NOT_HELD as i32,
+                        ) =>
+            {
                 eprintln!("SKIPPED symlink fixture: Windows requires Developer Mode or symlink privilege ({error})");
             }
             Err(error) => panic!("Cannot create synthetic symlink: {error}"),

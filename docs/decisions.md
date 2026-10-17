@@ -412,6 +412,10 @@ Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode
 
 命令選色器、快速主題與縮放快捷鍵共用序列化外觀寫入佇列，合併等待中的窄欄位 patch；相同欄位採最後一次要求。每次呼叫取得自己的 Promise<boolean>，只有所要求的欄位確實保存才回傳 true，被後續同欄位要求取代回傳 false，寫入失敗會通知所有受影響呼叫。只有擁有 appZoom 的批次可要求原生縮放，命令主題預覽不擷取字型／縮放快照。設定完整編輯入口在寫入期間保持停用；命令選色器保留自己的取消、重試與世代檢查。
 
+- 2026-10-16 Windows broker 啟動候選修正：新 `broker.lock` 必須以目前 `TokenUser` SID 的明確 owner／protected DACL 原子建立，不能假設預設 `TokenOwner` 等同使用者 SID。既有 owner／ACL 異常仍拒絕，不自動修正。只有實際鎖占用才等待既有 broker；權限／I/O 錯誤直接回報。此來源層級原因仍須 Windows 原生回歸證實，不能以交叉檢查代替。
+- 2026-10-16 Windows 定向驗證沿用完整桌面驗收工作：手動 `platform` 選項限 `all`／`windows`，預設與缺少輸入時維持原四平台。Windows 單列仍執行完整 Rust／前端測試、Clippy、未簽章 NSIS 與原生 GUI smoke，不降為 headless；只代表 Windows 驗證。自動 Linux 工作不變，不由此更動觸發完整矩陣。
+- 2026-10-17 Windows smoke 清理必須等待 GUI-subsystem 執行檔的實際結束碼，不使用 PowerShell 非同步 `&` 呼叫後的 `$LASTEXITCODE`。正常關閉 UI、必要時只終止所持有的 UI handle；broker 仍以隔離 app-data 的已驗證 IPC 明確停止。程序與輸出等待都有期限，所有 broker 停止成功且沒有 UI／清理錯誤後才刪除暫存狀態；失敗保留目錄與合成 smoke 診斷。新增原生 GUI-subsystem fixture 驗證清理順序、失敗與逾時，不視為真實 CLI／完整桌面驗收。
+- 2026-10-17 Windows smoke 的 UI 記錄改用 Start-Process 直接 file-handle redirection；UI 結束不代表所有後代已釋放繼承的 pipe，不能把 ReadToEnd 的 EOF 當作 UI 結束條件。先以持有的 Process 關閉 UI、經已驗證 IPC 明確停止隔離 broker，再讀取每個檔案最多 1 MiB 的完整 UI 記錄並保留原視窗／ready／interaction／error 檢查；執行期間也檢查檔案成長。stop helper 仍使用有期限的 pipe 與真正 ExitCode。GUI fixture 覆蓋 parent 已退出而 child 仍持有檔案、明確清理 child、缺 marker／error／過大檔案，不能藉此宣稱完整原生 smoke 已通過。
 
 ## 2026-10-17 Shift＋Enter：統一 CSI-u，移除模式介面
 
@@ -562,6 +566,14 @@ Session 列新增同層刪除按鈕，hover／focus-within 顯示，無 hover �
 ## 2026-10-17：工具設定改為可搜尋下拉選擇
 
 來源與工具以單一 editable combobox 取代常駐 Agent 按鈕。只顯示所選工具的「啟用與安裝狀態」、「啟動設定」、「歷史資料來源」；歷史區不再重複 CLI 狀態，保持安裝與索引診斷分離。選擇不保存、不偵測、不啟動，跨工具草稿保留至儲存或取消。清單限制高度並支援鍵盤、組字與無結果提示。
+
+## 2026-10-17：Windows ConPTY 關閉競態的原生驗證
+
+在 Windows 11 24H2 ARM64 原生驗證中，修正兩個獨立的生命週期問題：`ClosePseudoConsole` 返回後，writer 等初始 cursor handshake 完成（或 reader 已結束）便釋放輸入 pipe；reader 繼續排空最終輸出，不再讓輸入關閉與輸出 EOF 互相等待。成功送出 `TerminateProcess` 後記錄請求，繼續輪詢原始 process handle，避免在非同步終止期間重送而把 `ERROR_ACCESS_DENIED` 誤判為 Stop 失敗。首次 API 失敗仍正常回報。
+
+ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 TERM；獨立 main 與 libtest 對照確認預設搜尋可在 fixture 入口前停滯，尚未把停滯歸因到特定檔案或系統 API。附屬子程序由自身進入點寫入 ready marker 後，父 fixture 才宣告 ready，確保測的是已附著 console 的 descendant。啟動立即 Stop 仍由獨立測試涵蓋，原 timeout、輸出 ACK、退出碼及無關程序存活 assertions 均保留。
+
+完整 ConPTY suite 連續十次通過；ARM64 完整 Rust suite 與 all-target strict clippy 通過。這些結果不代替 pre-24H2 或實體 x64 Windows 主機驗證。
 
 ## 2026-10-17：專案收藏控制使用標題左側星號
 
