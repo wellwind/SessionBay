@@ -101,9 +101,9 @@ Catalog API (module catalog.rs; adapters.rs private implementation): `Catalog::o
 - 這些命令不啟動程序。Session 恢復及新工作繼續使用既有 cwd 與重新定位規則；直接恢復未加入專案的歷史不自動改變 curated。
 - `pinned` 對應 UI 的「置頂」，只調整自選清單排序；取消置頂不取消 curated。
 
-## Shell 退出事件的前端行為
+## 受管程序退出事件的前端行為
 
-`TerminalEvent.exit` 保留結束碼並將面板更新為 exited／failed；包含正常退出 Shell 的所有面板均保留最後畫面，直到明確關閉。UI 退出僅 detach；明確關閉才 stop／forget 對應 Runtime。移出專案不產生 exit event、不呼叫 `stop_runtime`。
+`TerminalEvent.exit` 保留結束碼並將面板更新為 exited／failed。Shell 與直接啟動的新建／接續 Agent 確認 exited、結束碼 `0` 且沒有錯誤時，只 forget 已完成的 Runtime，核對 Runtime ID／啟動世代後移除該面板，最後面板才關 tab；其他退出保留診斷。Shell 內 Agent 返回不會產生 Shell 的 exit event。UI 退出僅 detach；明確關閉執行中面板才 stop／forget 對應 Runtime。移出專案不產生 exit event、不呼叫 `stop_runtime`。
 
 ## Antigravity CLI 歷史追加
 
