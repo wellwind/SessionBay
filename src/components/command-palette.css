@@ -1,0 +1,6 @@
+.command-palette [role="option"][aria-selected="true"] {
+  background: var(--accent-bg);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.palette-help { color: var(--muted); font-size: 12px; margin: 10px 0 0; }

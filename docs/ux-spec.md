@@ -124,7 +124,7 @@ Session Bay
 
 提供 Command Palette。搜尋 Session 預設使用 `Mod+Shift+F`（macOS 為 Cmd，Linux 為 Ctrl），切至目前所選專案／目錄的歷史並聚焦搜尋框，保留該組範圍；未選組時，明確使用此快捷鍵或跨目錄搜尋按鈕可進入全域搜尋；不因開啟／切換導覽頁面就顯示全域 Session 清單。快捷鍵可在設定調整，需避開 Shell、終端應用與作業系統常用按鍵。
 
-命令至少包含開 Terminal、開始 Agent 工作、搜尋 Session、左右或上下分割、下一面板、暫時最大化與關閉面板。按鈕、選單與快捷鍵共用 command registry。
+命令至少包含開 Terminal、開始 Agent 工作、搜尋 Session、左右或上下分割、下一面板、暫時最大化與關閉面板。按鈕、選單與快捷鍵共用 command registry。命令面板搜尋欄保持焦點；↑／↓ 循環選取可用命令與專案，Enter 執行，Escape 關閉並返回原焦點。搜尋變更重設至第一個可用項目；停用／無結果不執行，組字期間不觸發。選取高亮並自動捲動，滑鼠指向同步選取。
 
 ## 必備畫面狀態
 

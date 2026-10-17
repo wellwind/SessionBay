@@ -267,7 +267,7 @@ describe('App browser preview', () => {
     render(<App />);
     fireEvent.keyDown(window, { key: 'P', code: 'KeyP', ctrlKey: true, shiftKey: true });
     expect(screen.getByRole('dialog', { name: '命令面板' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: '搜尋命令或專案' })).toHaveFocus();
+    expect(screen.getByRole('combobox', { name: '搜尋命令或專案' })).toHaveFocus();
     fireEvent.keyDown(window, { key: 'B', code: 'KeyB', ctrlKey: true, shiftKey: true });
     expect(screen.getByRole('button', { name: '隱藏側欄' })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -278,8 +278,8 @@ describe('App browser preview', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
     const palette = screen.getByRole('dialog', { name: '命令面板' });
-    expect(within(palette).getByRole('button', { name: /開啟 Terminal/ })).toBeDisabled();
-    fireEvent.click(within(palette).getByRole('button', { name: /顯示／隱藏側欄/ }));
+    expect(within(palette).getByRole('option', { name: /開啟 Terminal/ })).toBeDisabled();
+    fireEvent.click(within(palette).getByRole('option', { name: /顯示／隱藏側欄/ }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '顯示側欄' })).toBeInTheDocument();
     expect(api.launch).not.toHaveBeenCalled();
@@ -2246,7 +2246,7 @@ describe('command palette theme transactions', () => {
   }
   function open(target = '切換介面主題') {
     fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
-    const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    const search = screen.getByRole('combobox', { name: '搜尋命令或專案' });
     fireEvent.change(search, { target: { value: target } });
     fireEvent.keyDown(search, { key: 'Enter' });
     return screen.getByRole('combobox', { name: '搜尋主題' });
@@ -2259,9 +2259,9 @@ describe('command palette theme transactions', () => {
       expect(document.documentElement.dataset.themePalette).toBe('graphite');
       expect(api.saveSettings).not.toHaveBeenCalled();
       fireEvent.keyDown(input, { key: 'Escape' });
-      expect(screen.getByRole('textbox', { name: '搜尋命令或專案' })).toHaveFocus();
+      expect(screen.getByRole('combobox', { name: '搜尋命令或專案' })).toHaveFocus();
       expect(document.documentElement.dataset.themePalette).toBe('bay');
-      fireEvent.keyDown(screen.getByRole('textbox', { name: '搜尋命令或專案' }), { key: 'Escape' });
+      fireEvent.keyDown(screen.getByRole('combobox', { name: '搜尋命令或專案' }), { key: 'Escape' });
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     }
   });
@@ -2316,11 +2316,11 @@ describe('command palette theme transactions', () => {
     expect(api.saveSettings).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: '返回命令' }));
     expect(document.documentElement.dataset.theme).toBe('dark');
-    expect(screen.getByRole('button', { name: '切換介面主題' })).toBeDisabled();
+    expect(screen.getByRole('option', { name: '切換介面主題' })).toBeDisabled();
     await act(async () => finish(vi.mocked(api.saveSettings).mock.calls[0][0]));
-    expect(screen.getByRole('textbox', { name: '搜尋命令或專案' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '搜尋命令或專案' })).toBeInTheDocument();
     expect(document.documentElement.dataset.theme).toBe('light');
-    expect(screen.getByRole('button', { name: '切換介面主題' })).not.toBeDisabled();
+    expect(screen.getByRole('option', { name: '切換介面主題' })).not.toBeDisabled();
   });
   it('IME confirmation and Escape do not save or dismiss, empty search has no actionable choice', async () => {
     await start();
@@ -2350,7 +2350,7 @@ describe('command palette theme transactions', () => {
   it('ordinary commands still run from filtered search', async () => {
     await start();
     fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
-    const input = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    const input = screen.getByRole('combobox', { name: '搜尋命令或專案' });
     fireEvent.change(input, { target: { value: '顯示／隱藏側欄' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -2368,7 +2368,7 @@ describe('command themes and whole-workspace zoom integration', () => {
   }
   function picker(target = '切換介面主題') {
     fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
-    const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    const search = screen.getByRole('combobox', { name: '搜尋命令或專案' });
     fireEvent.change(search, { target: { value: target } }); fireEvent.keyDown(search, { key: 'Enter' });
     return screen.getByRole('combobox', { name: '搜尋主題' });
   }
@@ -2401,7 +2401,7 @@ describe('command themes and whole-workspace zoom integration', () => {
     const calls = vi.mocked(api.setWorkspaceZoom).mock.calls.length;
     let input = picker(); fireEvent.change(input, { target: { value: 'Code 2026 · 淺色' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    fireEvent.keyDown(screen.getByRole('textbox', { name: '搜尋命令或專案' }), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('combobox', { name: '搜尋命令或專案' }), { key: 'Escape' });
     expect(status()).toHaveTextContent('工作台 150%'); expect(api.saveSettings).not.toHaveBeenCalled();
     input = picker(); fireEvent.change(input, { target: { value: 'Code Modern · 淺色' } });
     vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error('Theme save failed'));
@@ -2446,7 +2446,7 @@ describe('appearance transactions across delayed native and disk saves', () => {
   }
   function chooseUITheme() {
     fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
-    const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+    const search = screen.getByRole('combobox', { name: '搜尋命令或專案' });
     fireEvent.change(search, { target: { value: '切換介面主題' } });
     fireEvent.keyDown(search, { key: 'Enter' });
     const input = screen.getByRole('combobox', { name: '搜尋主題' });
@@ -2694,4 +2694,79 @@ it.each(['running', 'exited'] as const)('closes only the newly titled resumed ta
   expect(api.close).not.toHaveBeenCalled();
   const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0] as Workspace;
   expect(saved.tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);
+});
+
+describe('command palette keyboard navigation', () => {
+  function open() {
+    const opener = screen.getByRole('button', { name: /搜尋專案或執行命令/ });
+    opener.focus();
+    fireEvent.click(opener);
+    return { opener, input: screen.getByRole('combobox', { name: '搜尋命令或專案' }) };
+  }
+  const selected = () => screen.queryByRole('option', { selected: true });
+  it('skips disabled commands, wraps, executes selected command and restores opener', () => {
+    render(<App />);
+    const { opener, input } = open();
+    expect(selected()).toHaveTextContent('搜尋所有工作階段');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(selected()).toHaveTextContent('顯示／隱藏側欄');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(selected()).toHaveTextContent('搜尋所有工作階段');
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(input).toHaveFocus();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '顯示側欄' })).toBeInTheDocument();
+    expect(opener).toHaveFocus();
+    expect(api.launch).not.toHaveBeenCalled();
+  });
+  it('traps Tab between search and close, excluding active-descendant options', () => {
+    const visible = vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(function (this: HTMLElement) { return this.parentElement; });
+    try {
+      render(<App />);
+      const { input } = open();
+      const close = screen.getByRole('button', { name: '關閉對話框' });
+      fireEvent.keyDown(input, { key: 'Tab' });
+      expect(close).toHaveFocus();
+      fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
+      expect(input).toHaveFocus();
+    } finally { visible.mockRestore(); }
+  });
+  it('search resets selection, handles disabled/empty results and ignores IME confirmation', () => {
+    render(<App />);
+    const { opener, input } = open();
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.change(input, { target: { value: '搜尋' } });
+    expect(selected()).toHaveTextContent('搜尋所有工作階段');
+    fireEvent.change(input, { target: { value: 'Terminal' } });
+    expect(selected()).toBeNull();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: 'not-a-command' } });
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(input).not.toHaveAttribute('aria-activedescendant');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.compositionStart(input);
+    for (const key of ['ArrowDown', 'Enter', 'Escape']) fireEvent.keyDown(input, { key });
+    expect(selected()).toHaveTextContent('搜尋所有工作階段');
+    expect(input).toHaveFocus();
+    fireEvent.compositionEnd(input);
+    for (const event of [{ key: 'Enter', isComposing: true }, { key: 'Enter', keyCode: 229 }, { key: 'ArrowDown', keyCode: 229 }, { key: 'Escape', keyCode: 229 }]) fireEvent.keyDown(input, event);
+    expect(selected()).toHaveTextContent('搜尋所有工作階段');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+  it('selects a project after commands and executes it from input without launching a runtime', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    const { input } = open();
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(selected()).toHaveTextContent('Synthetic project');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    expect(api.launch).not.toHaveBeenCalled();
+  });
 });
