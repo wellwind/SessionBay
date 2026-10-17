@@ -11,7 +11,7 @@ import {
   Command as CommandIcon,
   Folder,
   FolderPlus,
-  FolderMinus,
+  Star,
   Trash2,
   History,
   Layers3,
@@ -1235,6 +1235,12 @@ export default function App() {
                 {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
               </nav>
               <div className="project-title-row">
+                {current && !current.workspaceOnly && <button className="icon-button project-membership" disabled={projectBusy}
+                  aria-label={current.curated ? '移出專案' : '加入專案'} aria-pressed={current.curated}
+                  title={current.curated ? '移出專案清單；不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
+                  onClick={() => void saveMembership(current, !current.curated)}>
+                  <Star size={17} fill={current.curated ? 'currentColor' : 'none'} aria-hidden="true" />
+                </button>}
                 <h1 title={temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}>
                   {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
                 </h1>
@@ -1275,12 +1281,6 @@ export default function App() {
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
                 {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
-              </button>}
-              {current && !current.workspaceOnly && <button className="icon-button" disabled={projectBusy}
-                aria-label={current.curated ? '移出專案' : '加入專案'}
-                title={current.curated ? '移出專案清單；不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
-                onClick={() => void saveMembership(current, !current.curated)}>
-                {current.curated ? <FolderMinus size={17} /> : <FolderPlus size={17} />}
               </button>}
               {temporaryWorkspace ? <button className="primary" onClick={() => openTemporaryTerminal()}>
                 <Plus size={16} />新增臨時 Terminal

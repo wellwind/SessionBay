@@ -22,6 +22,10 @@ const data: Bootstrap = {
   workspace: { version: 1, panes: { pane: { id: 'pane', kind: 'shell', title: 'Shell', projectId: 'p0', cwd: '/synthetic/project-0', state: 'stopped' } },
     tabs: [{ id: 'tab', projectId: 'p0', name: '開發 Terminal', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }], activeTabByProject: { p0: 'tab' } },
 };
+if (new URLSearchParams(location.search).has('large-count')) {
+  data.projects[0].sessionCount = 123456;
+  data.projects[0].exists = false;
+}
 api.bootstrap = async () => data;
 api.projects = async () => data.projects;
 api.scan = api.index = async () => data.index;
