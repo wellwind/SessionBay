@@ -28,9 +28,9 @@ use windows_sys::Win32::{
         TOKEN_QUERY, TOKEN_USER,
     },
     Storage::FileSystem::{
-        CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        OPEN_ALWAYS,
+        CreateDirectoryW, CreateFileW, CREATE_NEW, FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS,
     },
     System::Threading::{GetCurrentProcess, OpenProcessToken},
 };
@@ -114,6 +114,18 @@ pub fn open_lock(path: &Path) -> io::Result<File> {
     open_lock_with_descriptor(path, &security_descriptor()?)
 }
 fn open_lock_with_descriptor(path: &Path, descriptor: &SecurityDescriptor) -> io::Result<File> {
+    open_file_with_descriptor(path, descriptor, OPEN_ALWAYS)
+}
+/// Atomically create a new private file. Never open/truncate an existing path;
+/// tempfile's randomized-path retry relies on AlreadyExists for collisions.
+pub fn create_new_file(path: &Path) -> io::Result<File> {
+    open_file_with_descriptor(path, &security_descriptor()?, CREATE_NEW)
+}
+fn open_file_with_descriptor(
+    path: &Path,
+    descriptor: &SecurityDescriptor,
+    disposition: u32,
+) -> io::Result<File> {
     let attributes = SECURITY_ATTRIBUTES {
         nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
         lpSecurityDescriptor: descriptor.as_sd().cast_mut(),
@@ -129,7 +141,7 @@ fn open_lock_with_descriptor(path: &Path, descriptor: &SecurityDescriptor) -> io
             GENERIC_READ | GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             &attributes,
-            OPEN_ALWAYS,
+            disposition,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
             null_mut(),
         )
@@ -241,6 +253,110 @@ pub fn verify_stream(stream: &Stream) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_staging_creates_explicit_private_lock_and_pending_files() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = crate::image_input::ImageStaging::open(root.path()).unwrap();
+        let directory = root.path().join("image-input-v1");
+        let lock = File::open(directory.join("staging.lock")).unwrap();
+        verify_file(&lock).unwrap();
+        // Inherited DACLs can look private when TokenOwner happens to equal
+        // TokenUser. A protected DACL proves creation supplied the descriptor
+        // that also sets the owner, independently of that machine default.
+        assert!(
+            descriptor_text(&lock).contains("D:P"),
+            "staging lock inherited its security"
+        );
+        for mime in ["image/png", "image/jpeg"] {
+            let id = store.begin("synthetic-runtime", mime, 1).unwrap();
+            let path = std::fs::read_dir(&directory)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .find(|path| path.file_name().unwrap() != "staging.lock")
+                .unwrap();
+            let file = File::open(path).unwrap();
+            verify_file(&file).unwrap();
+            assert!(
+                descriptor_text(&file).contains("D:P"),
+                "pending image inherited its security"
+            );
+            drop(file);
+            store.discard("synthetic-runtime", &id).unwrap();
+        }
+    }
+
+    #[test]
+    fn image_staging_rejects_existing_shared_lock_without_repair() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("image-input-v1");
+        private_directory(&directory).unwrap();
+        let path = directory.join("staging.lock");
+        let user = user_sid().unwrap();
+        let value =
+            widestring::U16CString::from_str(format!("O:{user}D:P(A;;FA;;;{user})(A;;FR;;;WD)"))
+                .unwrap();
+        let descriptor = SecurityDescriptor::deserialize(&value).unwrap();
+        let file = open_lock_with_descriptor(&path, &descriptor).unwrap();
+        use std::io::Write;
+        (&file).write_all(b"synthetic-must-remain").unwrap();
+        let before = descriptor_text(&file);
+        drop(file);
+        assert!(crate::image_input::ImageStaging::open(root.path()).is_err());
+        let file = File::open(&path).unwrap();
+        assert_eq!(descriptor_text(&file), before);
+        assert!(verify_file(&file).is_err());
+        assert_eq!(std::fs::read(path).unwrap(), b"synthetic-must-remain");
+    }
+
+    #[test]
+    fn image_staging_never_repairs_existing_default_owner_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("image-input-v1");
+        private_directory(&directory).unwrap();
+        let path = directory.join("staging.lock");
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let before = descriptor_text(&file);
+        let accepted = verify_file(&file).is_ok();
+        drop(file);
+        // A runner with a group TokenOwner must reject the pre-existing file,
+        // while a user-owned inherited private DACL remains valid as before.
+        assert_eq!(
+            crate::image_input::ImageStaging::open(root.path()).is_ok(),
+            accepted
+        );
+        assert_eq!(descriptor_text(&File::open(path).unwrap()), before);
+    }
+
+    #[test]
+    fn new_private_file_is_noninheritable_and_collision_preserves_existing_file() {
+        use std::io::Write;
+        use windows_sys::Win32::Foundation::{GetHandleInformation, HANDLE_FLAG_INHERIT};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("synthetic-image.png");
+        let file = create_new_file(&path).unwrap();
+        verify_file(&file).unwrap();
+        assert!(descriptor_text(&file).contains("D:P"));
+        let mut flags = 0;
+        assert_ne!(
+            unsafe { GetHandleInformation(file.as_raw_handle(), &mut flags) },
+            0
+        );
+        assert_eq!(flags & HANDLE_FLAG_INHERIT, 0);
+        (&file).write_all(b"must-not-truncate").unwrap();
+        let before = descriptor_text(&file);
+        assert_eq!(
+            create_new_file(&path).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(descriptor_text(&file), before);
+        assert_eq!(std::fs::read(path).unwrap(), b"must-not-truncate");
+    }
 
     #[test]
     fn new_lock_has_explicit_user_owner_and_a_noninheritable_handle() {
