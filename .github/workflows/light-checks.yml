@@ -50,6 +50,8 @@ jobs:
         run: node node_modules/@playwright/test/cli.js test --config playwright.agent-settings.config.ts
       - name: Hover, selection, keyboard and touch interaction screenshots
         run: npm run test:interactions
+      - name: Scoped search shortcut from terminal
+        run: node node_modules/@playwright/test/cli.js test --config playwright.search-shortcut.config.ts
       - name: Upload terminal layout evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
