@@ -72,6 +72,7 @@ import { RenameDialog } from './components/RenameDialog';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
+import { SessionTrash } from './components/SessionTrash';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
@@ -113,6 +114,7 @@ export default function App() {
   const desktop = isDesktop();
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
+  const [trashOpen, setTrashOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
@@ -1206,6 +1208,7 @@ export default function App() {
               </div>
             </div>
             <div className="header-buttons">
+              <button className="secondary" disabled={!boot} onClick={() => setTrashOpen(true)}>資源回收筒</button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
@@ -1338,6 +1341,7 @@ export default function App() {
                     projectId={selectedId ?? undefined}
                     projects={projects}
                     refreshToken={refreshToken}
+                    onHistoryChanged={refresh}
                     onResume={resume}
                     onCurate={curateSession}
                     curating={projectBusy}
@@ -1477,6 +1481,7 @@ export default function App() {
           </div>
         </Dialog>
       )}
+      {trashOpen && <SessionTrash onClose={() => setTrashOpen(false)} onChanged={refresh} refreshToken={refreshToken} />}
       {settingsOpen && settings && boot && (
         <SettingsPanel
           settings={settings}

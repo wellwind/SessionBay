@@ -131,6 +131,9 @@
 
 保留既有十個色系，新增 Code Modern／Code 2026 深／淺色 UI 與 Terminal；命令面板可搜尋、鍵盤預覽、Enter 保存及 Escape 還原。全工作台 page zoom 使用獨立 appZoom，與主題共用序列化保存，不乘改 Terminal 基準字級。修訂後整合樹的自動化與原生待驗項目見[批次整合驗證](batch-integration-validation.md)。
 
+### 2026-10-17：Session 可復原刪除
+
+第一階段：Session Bay metadata tombstone、回收筒與還原；原始 Agent 歷史唯讀。第二階段仍待設計：依 provider 安全刪除原始歷史、共用資料庫與執行中 Agent 的競爭保護、刪除前逐次確認與不可復原影響。不得將第二階段列為已支援。
 ### 臨時 Terminal 混版相容
 
 - [x] 固定舊 protocol 1 schema 的未知欄位重現、雙向 Hello 相容、scope／generation 與 workspace 身分比對回歸。
