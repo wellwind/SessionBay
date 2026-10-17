@@ -14,7 +14,8 @@
     "lint": "eslint src",
     "tauri": "node scripts/tauri.mjs",
     "test:tabs": "playwright test --config playwright.tabs.config.ts",
-    "test:layout": "playwright test --config playwright.layout.config.ts"
+    "test:layout": "playwright test --config playwright.layout.config.ts",
+    "test:sidebar": "playwright test --config playwright.sidebar.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

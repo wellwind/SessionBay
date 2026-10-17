@@ -39,7 +39,7 @@ export const api = {
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
   createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),
-  updateProject: (projectId: string, values: { pinned?: boolean; launchPath?: string; curated?: boolean; name?: string }) =>
+  updateProject: (projectId: string, values: { launchPath?: string; curated?: boolean; name?: string }) =>
     call<Project>('update_project', { projectId, ...values }),
   sessions: (query: SessionQuery) => call<SessionPage>('query_sessions', { query }),
   transcript: (sessionId: string, beforeLine?: number) =>
