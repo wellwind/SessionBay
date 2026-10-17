@@ -9,7 +9,6 @@ export interface AgentCapability {
   executable: string;
   logo: string;
   bypassFlag: string;
-  keyboard: { shiftEnter: { posix: 'native' | 'csi-u'; windows: 'native' | 'csi-u' } };
   history: {
     supported: true;
     parserId: HistoryAgentKind;

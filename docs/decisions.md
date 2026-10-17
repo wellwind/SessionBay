@@ -389,3 +389,13 @@ Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode
 ## 2026-10-16 命令選色器與工作台縮放整合
 
 命令選色器、快速主題與縮放快捷鍵共用序列化外觀寫入佇列，合併等待中的窄欄位 patch；相同欄位採最後一次要求。每次呼叫取得自己的 Promise<boolean>，只有所要求的欄位確實保存才回傳 true，被後續同欄位要求取代回傳 false，寫入失敗會通知所有受影響呼叫。只有擁有 appZoom 的批次可要求原生縮放，命令主題預覽不擷取字型／縮放快照。設定完整編輯入口在寫入期間保持停用；命令選色器保留自己的取消、重試與世代檢查。
+
+
+## 2026-10-17 Shift＋Enter：統一 CSI-u，移除模式介面
+
+使用者明確要求 Shift＋Enter 預設使用 CSI-u（Agent 相容），不再特別顯示。此決策取代前述依 provider／平台選擇原生或 CSI-u，以及面板手動模式的設計。
+
+- 所有 Terminal 面板一律將非組字中的 Shift＋Enter 編碼為 `ESC [ 13 ; 2 u`，包含 Shell、未知工具與 Windows Codex；不依啟動來源、作業系統或前景輸出猜測。
+- 刪除面板的模式選單、按鍵說明、逐 runtime 覆寫狀態，以及只供舊預設使用的 provider keyboard metadata。沒有新增磁碟設定或模式保存，也不更動其他 provider 能力。
+- 保留一般 Enter、其他修飾鍵、IME／CapsLock、keydown 單次傳送、焦點／modal／runtime／snapshot 守衛與既有有界輸入佇列；不追加 CR／LF，不回到 modal。
+- 統一編碼是操作偏好，不是所有程式皆已支援的宣告。未支援的 Shell／CLI 可能忽略或顯示編碼，應用程式模式仍可能將 modified Enter 解讀為送出。Windows Console InputRecord、Grok 多行模式及其他尚未完成的原生驗收限制保留於文件。

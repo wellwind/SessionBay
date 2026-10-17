@@ -897,32 +897,19 @@ describe('inline Shift+Enter routing', () => {
     };
     return { p, view, channel, textarea, press };
   }
-  it.each(['codex', 'claude', 'opencode'] as const)('routes %s directly through xterm onData and the existing queue', async (kind) => {
-    const h = await ready(kind);
+  it.each(['MacIntel', 'Linux x86_64', 'Win32'].flatMap((platform) =>
+    ['codex', 'claude', 'opencode', 'shell', 'grok', 'antigravity', 'custom-tool'].map((kind) => ({ platform, kind })),
+  ))('routes $kind on $platform through xterm and the queue without a mode picker', async ({ platform, kind }) => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+    const h = await ready(kind as Pane['kind']);
+    expect(screen.queryByRole('combobox', { name: 'Shift+Enter 輸入模式' })).not.toBeInTheDocument();
+    expect(screen.queryByText('按鍵說明')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     for (const type of ['keydown', 'keypress', 'keyup']) expect(h.press(type)).toBe(false);
     await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
     expect(mocks.termPaste).not.toHaveBeenCalled();
     expect(mocks.launch).not.toHaveBeenCalled();
     expect(h.textarea).toHaveFocus();
-  });
-  it.each(['shell', 'grok', 'antigravity'] as const)('does not map %s based on guesses about its foreground mode', async (kind) => {
-    const h = await ready(kind);
-    expect(h.press()).toBe(true);
-    expect(mocks.write).not.toHaveBeenCalled();
-    expect(screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' })).toHaveValue('default');
-  });
-  it('lets a shell user opt in and return to native without restarting or writing on selection', async () => {
-    const h = await ready('shell');
-    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
-    fireEvent.change(select, { target: { value: 'csi-u' } });
-    expect(mocks.write).not.toHaveBeenCalled();
-    expect(h.press()).toBe(false);
-    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
-    fireEvent.change(select, { target: { value: 'native' } });
-    expect(h.press()).toBe(true);
-    expect(mocks.write).toHaveBeenCalledTimes(1);
-    expect(mocks.attach).toHaveBeenCalledTimes(1);
   });
   it('keeps ordinary Enter, Ctrl+Enter, paste and bracketed paste bytes unchanged', async () => {
     const h = await ready();
@@ -970,36 +957,49 @@ describe('inline Shift+Enter routing', () => {
     expect(h.press()).toBe(false);
     expect(mocks.write).not.toHaveBeenCalled();
   });
-  it('preserves manual mode for same-runtime reconnect but resets it for a new start token', async () => {
+  it('continues using CSI-u after a same-runtime reconnect without configuration', async () => {
     const h = await ready('shell');
-    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
-    fireEvent.change(select, { target: { value: 'csi-u' } });
     act(() => h.channel({ type: 'disconnected', runtimeId: 'runtime', message: 'offline' }));
     h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, state: 'disconnected' }} />);
+    expect(h.press()).toBe(false);
+    expect(mocks.write).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
     await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
     completeSnapshot(mocks.attach.mock.calls[1][1]);
     h.view.rerender(<TerminalPane {...h.p} />);
-    expect(select).toHaveValue('csi-u');
+    act(() => h.textarea.focus());
     expect(h.press()).toBe(false);
-    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(1));
-    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, startToken: 2 }} />);
-    expect(select).toHaveValue('default');
-    expect(h.press()).toBe(true);
-    expect(mocks.write).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence));
   });
-  it('does not carry a manual mode onto a different runtime ID', async () => {
+  it('does not send a key to the previous runtime while a restart snapshot is pending', async () => {
     const h = await ready('shell');
-    const select = screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' });
-    fireEvent.change(select, { target: { value: 'csi-u' } });
-    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, runtimeId: 'different-runtime' }} />);
-    expect(select).toHaveValue('default');
-    expect(h.press()).toBe(true);
+    mocks.launch.mockResolvedValueOnce({ ...info, id: 'new-runtime' });
+    const restarting = { ...h.p.pane, runtimeId: undefined, startToken: 2, state: 'starting' as const };
+    h.view.rerender(<TerminalPane {...h.p} pane={restarting} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
+    expect(h.press()).toBe(false);
     expect(mocks.write).not.toHaveBeenCalled();
+    completeSnapshot(mocks.launch.mock.calls[0][1], 'new-runtime');
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...restarting, runtimeId: 'new-runtime', state: 'running' }} />);
+    act(() => h.textarea.focus());
+    expect(h.press()).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('new-runtime', shiftEnterSequence));
+  });
+  it('waits for the new attachment instead of sending to a changed runtime ID', async () => {
+    const h = await ready('shell');
+    mocks.attach.mockResolvedValueOnce({ ...info, id: 'different-runtime' });
+    h.view.rerender(<TerminalPane {...h.p} pane={{ ...h.p.pane, runtimeId: 'different-runtime' }} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    expect(h.press()).toBe(false);
+    expect(mocks.write).not.toHaveBeenCalled();
+    completeSnapshot(mocks.attach.mock.calls[1][1], 'different-runtime');
+    act(() => h.textarea.focus());
+    expect(h.press()).toBe(false);
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledExactlyOnceWith('different-runtime', shiftEnterSequence));
   });
   it('never emits from a key callback after DOM focus moves or the pane unmounts', async () => {
     const h = await ready();
-    screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' }).focus();
+    screen.getByRole('button', { name: '搜尋終端文字' }).focus();
     expect(h.press()).toBe(false);
     h.view.unmount();
     expect(h.press()).toBe(false);
@@ -1013,12 +1013,7 @@ describe('inline Shift+Enter routing', () => {
     h.press('keyup');
     expect(mocks.write).toHaveBeenCalledExactlyOnceWith('runtime', shiftEnterSequence);
   });
-  it('displays scope and the Grok mode warning without opening a modal', async () => {
-    await ready();
-    fireEvent.click(screen.getByText('按鍵說明'));
-    expect(screen.getByText(/Grok 多行模式的 Shift\+Enter 是送出/)).toBeInTheDocument();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  });
+
 });
 
 it('keyboard focus into an inactive xterm pane transfers input ownership before Shift+Enter', async () => {
@@ -1045,7 +1040,7 @@ it('non-terminal controls do not claim terminal keyboard focus', async () => {
   render(<TerminalPane {...p} focused={false} />);
   await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
   completeSnapshot(mocks.attach.mock.calls[0][1]);
-  act(() => screen.getByRole('combobox', { name: 'Shift+Enter 輸入模式' }).focus());
+  act(() => screen.getByRole('button', { name: '搜尋終端文字' }).focus());
   expect(p.onFocus).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
   expect(screen.getByRole('textbox', { name: '終端搜尋' })).toHaveFocus();

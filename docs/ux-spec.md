@@ -180,4 +180,4 @@ UI 框架採宣告式狀態。Terminal 高頻輸出由 xterm 實例接收，不�
 
 ### Terminal 原位 Shift＋Enter
 
-面板底部提供 Shift＋Enter 模式；已查核 Agent 的預設直接傳送 modified Enter，輸入留在 Terminal，不開 modal。Shell 內手動啟動 Agent 可選 CSI-u，相容性依目前程式；回到 Shell 可選原生。同 runtime 重新連線保留面板手動選擇，新啟動回到預設。詳細版本、Grok 送出語意及原生驗收限制見 [Terminal 按鍵](terminal-keyboard.md)。
+所有 Terminal（包含 Shell、未知工具與 Windows）一律將 Shift＋Enter 傳送為 CSI-u modified Enter，輸入留在 Terminal，不開 modal，也不顯示模式選單或額外按鍵說明。一般 Enter、組字、貼上及輸入目標守衛不變。編碼一致不等於所有程式都支援換行；詳細版本、Grok 送出語意及原生驗收限制見 [Terminal 按鍵](terminal-keyboard.md)。
