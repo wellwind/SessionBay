@@ -4,6 +4,7 @@ import {
   Anchor,
   ArrowRight,
   ChevronRight,
+  ChevronDown,
   CircleHelp,
   Command as CommandIcon,
   Folder,
@@ -12,7 +13,6 @@ import {
   Layers3,
   LoaderCircle,
   PanelLeftClose,
-  Pin,
   Pencil,
   Plus,
   RefreshCw,
@@ -26,6 +26,9 @@ import {
   Palette,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
+import { SidebarProjectList } from './components/SidebarProjectList';
+import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
+import type { SidebarPreferences } from './sidebar-preferences';
 import { startup } from './startup';
 import { resumedTabName } from './display-name';
 import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
@@ -132,6 +135,27 @@ export default function App() {
   quickThemeOpenRef.current = quickThemeOpen;
   const detectionGeneration = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebar, setSidebar] = useState(readSidebarPreferences);
+  const sidebarRef = useRef(sidebar);
+  sidebarRef.current = sidebar;
+  const updateSidebar = (patch: Partial<SidebarPreferences>) => {
+    const next = { ...sidebarRef.current, ...patch };
+    sidebarRef.current = next;
+    setSidebar(next);
+    try { saveSidebarPreferences(next); }
+    catch { setToast('側欄偏好無法儲存；本次變更仍有效，重新開啟後可能還原。'); }
+  };
+  useEffect(() => {
+    if (!boot) return;
+    const current = sidebarRef.current;
+    const projectOrder = reconcileProjectOrder(current.projectOrder, projects);
+    if (projectOrder === current.projectOrder) return;
+    const next = { ...current, projectOrder };
+    sidebarRef.current = next;
+    setSidebar(next);
+    try { saveSidebarPreferences(next); }
+    catch { setToast('專案順序無法儲存；重新開啟後可能還原。'); }
+  }, [boot, projects]);
   const [projectSearch, setProjectSearch] = useState('');
   const [refreshToken, setRefreshToken] = useState(0);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
@@ -931,31 +955,20 @@ export default function App() {
     } catch (error) { notify(error); }
     finally { projectMutation.current = false; setProjectBusy(false); }
   };
-  const setPinned = async (project: Project) => {
-    if (projectMutation.current) return;
-    projectMutation.current = true;
-    setProjectBusy(true);
-    try {
-      const result = await api.updateProject(project.id, { pinned: !project.pinned });
-      projectReadGeneration.current++;
-      setProjects((previous) => previous.map((p) => p.id === result.id ? result : p));
-    } catch (error) { notify(error); }
-    finally { projectMutation.current = false; setProjectBusy(false); }
-  };
   const curateSession = (session: Session) => {
     const project = projects.find((p) => p.id === session.projectId);
     if (project) void saveMembership(project, true);
     else notify('找不到工作目錄，請先重新整理索引。');
   };
+  const projectOrder = reconcileProjectOrder(sidebar.projectOrder, projects);
+  const orderIndex = new Map(projectOrder.map((id, index) => [id, index]));
   const sortedProjects = [...projects]
     .filter((p) => navigation === 'projects' ? p.curated : p.sessionCount > 0)
     .filter((p) => `${p.name} ${p.path ?? ''}`.toLowerCase().includes(projectSearch.toLowerCase()))
-    .sort(
-      (a, b) =>
-        Number(b.pinned) - Number(a.pinned) ||
-        (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') ||
-        a.name.localeCompare(b.name),
-    );
+    .sort((a, b) => navigation === 'projects'
+      ? (orderIndex.get(a.id) ?? Infinity) - (orderIndex.get(b.id) ?? Infinity) || legacyProjectOrder(a, b)
+      : legacyProjectOrder(a, b));
+  const listCollapsed = navigation === 'projects' ? sidebar.projectsCollapsed : sidebar.directoriesCollapsed;
   const selectNavigation = (page: 'projects' | 'directories') => {
     setNavigation(page);
     setSelectedId(undefined);
@@ -1058,7 +1071,10 @@ export default function App() {
               {navigation === 'projects' ? '專案總覽' : '目錄總覽'}<span>{navigation === 'projects' ? projectCount : directoryCount}</span>
             </button>
             <div className="sidebar-section">
-              <span>{navigationName}</span>
+              <button className="sidebar-section-toggle" aria-expanded={!listCollapsed} aria-controls="sidebar-project-content"
+                onClick={() => updateSidebar(navigation === 'projects' ? { projectsCollapsed: !listCollapsed } : { directoriesCollapsed: !listCollapsed })}>
+                {listCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>{navigationName}</span>
+              </button>
               <button
                 className="icon-button"
                 title="加入專案"
@@ -1069,6 +1085,7 @@ export default function App() {
                 <Plus size={16} />
               </button>
             </div>
+            <div id="sidebar-project-content" className="sidebar-project-content" hidden={listCollapsed}>
             <div className="project-search search-field">
               <Search size={13} />
               <input
@@ -1078,49 +1095,13 @@ export default function App() {
                 onChange={(event) => setProjectSearch(event.target.value)}
               />
             </div>
-            <nav className="project-list" aria-label={navigationName}>
-              {sortedProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className={`project-row ${selectedId === project.id ? 'active' : ''}`}
-                >
-                  <button
-                    className="project-main"
-                    onClick={() => selectProject(project)}
-                    title={project.path ?? '未分類'}
-                  >
-                    <Folder size={17} />
-                    <span>
-                      <strong>{project.name}</strong>
-                      <small>
-                        {project.workspaceOnly
-                          ? `僅工作區 · ${project.path || '目錄待確認'}`
-                          : project.path || '工作目錄未知'}
-                      </small>
-                    </span>
-                    <span className="project-count">{project.sessionCount}</span>
-                    {!project.exists && <AlertTriangle className="warning-icon" size={13} />}
-                  </button>
-                  {project.curated && <button
-                    className={`project-pin ${project.pinned ? 'pinned' : ''}`}
-                    aria-label={
-                      project.pinned ? `取消置頂 ${project.name}` : `置頂 ${project.name}`
-                    }
-                    disabled={projectBusy}
-                    onClick={() => void setPinned(project)}
-                  >
-                    <Pin size={12} />
-                  </button>}
-                </div>
-              ))}
-              {!sortedProjects.length && (
-                <p className="sidebar-empty">
-                  {projectSearch ? `沒有符合的${navigationName}` : navigation === 'projects'
-                    ? '尚未加入專案。可從所有目錄挑選，或加入／建立專案。'
-                    : '尚未找到包含工作階段的目錄。請確認資料來源並更新索引。'}
-                </p>
-              )}
-            </nav>
+            <SidebarProjectList projects={sortedProjects} selectedId={selectedId} label={navigationName}
+              reorderable={navigation === 'projects'} onSelect={selectProject}
+              onReorder={(id, target, after) => updateSidebar({ projectOrder: reorderProject(reconcileProjectOrder(sidebarRef.current.projectOrder, projects), id, target, after) })}
+              empty={projectSearch ? `沒有符合的${navigationName}` : navigation === 'projects'
+                ? '尚未加入專案。可從所有目錄挑選，或加入／建立專案。'
+                : '尚未找到包含工作階段的目錄。請確認資料來源並更新索引。'} />
+            </div>
             <button
               className="add-project"
               disabled={!boot}
@@ -1131,8 +1112,10 @@ export default function App() {
             </button>
             {workspace.tabs.length > 0 && (
               <section className="open-workspaces" aria-label="開啟中的工作區">
-                <div className="sidebar-section"><span>開啟中的工作區</span><span>{workspace.tabs.length}</span></div>
-                <nav>
+                <div className="sidebar-section"><button className="sidebar-section-toggle" aria-expanded={!sidebar.workspacesCollapsed} aria-controls="sidebar-open-workspaces"
+                  onClick={() => updateSidebar({ workspacesCollapsed: !sidebar.workspacesCollapsed })}>
+                  {sidebar.workspacesCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>開啟中的工作區</span></button><span>{workspace.tabs.length}</span></div>
+                <nav id="sidebar-open-workspaces" hidden={sidebar.workspacesCollapsed}>
                   {workspace.tabs.map((tab) => {
                     const project = visibleProjects.find((p) => p.id === tab.projectId);
                     return <button key={tab.id} className={view === 'workspace' && activeTabId === tab.id ? 'active' : ''}
@@ -1178,7 +1161,6 @@ export default function App() {
               </nav>
               <h1>
                 {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
-                {current?.pinned && <Pin size={16} />}
               </h1>
               <div className="project-path">
                 {current ? (

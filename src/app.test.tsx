@@ -217,6 +217,7 @@ beforeEach(() => {
   vi.mocked(pickDirectory).mockReset();
 
   vi.mocked(api.setWorkspaceZoom).mockReset().mockResolvedValue(undefined);
+  localStorage.clear();
   vi.useFakeTimers();
   native.handlers.clear();
   native.patch = undefined;
@@ -2694,4 +2695,48 @@ it.each(['running', 'exited'] as const)('closes only the newly titled resumed ta
   expect(api.close).not.toHaveBeenCalled();
   const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0] as Workspace;
   expect(saved.tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);
+});
+
+
+describe('sidebar organization persistence', () => {
+  it('reports persistence failure while keeping the requested collapse usable', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />); await tick();
+    const save = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '專案' }));
+      expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByText(/側欄偏好無法儲存/)).toBeInTheDocument();
+      expect(api.stop).not.toHaveBeenCalled();
+    } finally { save.mockRestore(); }
+  });
+  it('independently collapses sections and restores them without stopping a workspace', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const first = render(<App />); await tick();
+    fireEvent.click(screen.getByRole('button', { name: '專案' }));
+    expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('textbox', { name: '搜尋專案' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /開啟工作區 Synthetic/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '開啟中的工作區' }));
+    expect(screen.queryByRole('button', { name: /開啟工作區 Synthetic/ })).not.toBeInTheDocument();
+    expect(api.stop).not.toHaveBeenCalled(); expect(api.updateProject).not.toHaveBeenCalled();
+    first.unmount(); render(<App />); await tick();
+    expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: '開啟中的工作區' })).toHaveAttribute('aria-expanded', 'false');
+  });
+  it('restores manual order after reload without changing project records or runtime state', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.projects.push({ ...data.projects[0], id: 'project-b', name: 'Second project', pinned: true });
+    vi.mocked(api.bootstrap).mockResolvedValue(data); vi.mocked(api.projects).mockResolvedValue(data.projects);
+    const first = render(<App />); await tick();
+    const names = () => within(screen.getByRole('navigation', { name: '專案' })).getAllByRole('button', { name: /^排序 / }).map(item => item.getAttribute('aria-label'));
+    expect(names()).toEqual(['排序 Second project', '排序 Synthetic project']);
+    fireEvent.click(screen.getByRole('button', { name: '上移 Synthetic project' }));
+    expect(names()).toEqual(['排序 Synthetic project', '排序 Second project']);
+    expect(screen.queryByLabelText(/置頂/)).not.toBeInTheDocument();
+    expect(api.updateProject).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled();
+    first.unmount(); render(<App />); await tick();
+    expect(names()).toEqual(['排序 Synthetic project', '排序 Second project']);
+  });
 });
