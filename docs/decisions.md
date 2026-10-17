@@ -419,3 +419,13 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 ## 2026-10-17：接續對話的新分頁名稱
 
 從歷史／對話預覽接續工作時，新建分頁預設使用同一筆 Session.title；空白標題沿用原有 Agent 名稱。標題僅為顯示文字，去除首尾空白、將換行／控制字元換成空格，最多保留 200 個 Unicode 字元，與手動重新命名的限制一致。既有分頁接續、重新附接或後端判定同一 Runtime 時保留原名稱（包含手動命名）；分割面板不重新命名整個分頁。標題不參與路徑、命令參數或 Runtime 身分判斷。
+
+## 2026-10-17：臨時 Terminal 與既有背景服務相容
+
+更新 UI 不會替換仍擁有 PTY 的背景 broker。早期 protocol 1 的 Launch schema 會拒絕未知欄位，因此新 UI 傳入 `homeDirectory: true` 時，舊 broker 在解碼階段回覆 `Invalid runtime request`；不能用停止既有 Agent 或清除設定解決。
+
+維持 protocol 1 的基本 Hello request，回覆加入可選 capabilities；只有明確宣告 `homeDirectory` 才傳此欄位。未宣告時僅省略政策欄位，保留 Rust 已解析並驗證的家目錄 cwd、`projectId: null`、Shell profile、其餘參數與 generation。不得失敗後重送 Launch，不建立假專案、不啟動第二個 broker、不終止現有程序。回覆的未知 capabilities 不代表已支援功能。
+
+相容模式由 workspace 保留已知 home 政策，附上僅供比對的 `homePolicyRuntimeId`；只有 broker 回傳同一 runtime／pane、仍為無 session／resume 的全域 Shell 且未提供 home 政策時才沿用。此值不復原 runtimeId、不自動啟動或授予附接權限。現代 broker 明確 true／false 優先；未宣告 capability 的中間版本之 false 視為未知，因為新 client 為相容而省略了欄位。任何正向 true 仍保留。
+
+限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。

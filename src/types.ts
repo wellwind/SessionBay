@@ -183,6 +183,8 @@ export interface Pane {
   projectId: string | null;
   cwd: string;
   homeDirectory?: boolean;
+  /** Comparison token only; never grants runtime attachment authority. */
+  homePolicyRuntimeId?: string;
   sessionId?: string;
   resumeId?: string;
   profileId?: string;

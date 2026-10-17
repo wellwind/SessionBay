@@ -188,7 +188,11 @@ export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]
       title: existing?.title || (record.kind === 'shell' ? '已保留的 Shell' : `已保留的 ${record.kind}`),
       sessionId: record.sessionId ?? undefined, resumeId: record.resumeId ?? undefined,
       profileId: record.profileId ?? undefined,
-      homeDirectory: record.kind === 'shell' && projectId === null && record.homeDirectory === true,
+      homeDirectory: record.kind === 'shell' && projectId === null && !record.sessionId && !record.resumeId &&
+        (record.homeDirectory === true || (record.homeDirectory === undefined &&
+          existing?.kind === 'shell' && existing.projectId === null && existing.homeDirectory === true &&
+          !existing.sessionId && !existing.resumeId &&
+          (existing.runtimeId ?? existing.homePolicyRuntimeId) === record.id)),
       runtimeId: record.id, state, exitCode: record.exitCode,
       ...(state === 'interrupted' ? { error: '背景程序已中斷；請確認後明確重新啟動。' } : {}),
     };
@@ -220,6 +224,7 @@ export function serializeWorkspace(workspace: Workspace): unknown {
           projectId: pane.projectId,
           cwd: pane.cwd,
           homeDirectory: pane.homeDirectory,
+          homePolicyRuntimeId: pane.homeDirectory === true ? pane.runtimeId ?? pane.homePolicyRuntimeId : undefined,
           sessionId: pane.sessionId,
           resumeId: pane.resumeId,
           profileId: pane.profileId,
@@ -264,6 +269,8 @@ export function restoreWorkspace(value: unknown): Workspace {
         projectId: p.projectId,
         cwd: p.cwd,
         homeDirectory: p.kind === 'shell' && p.projectId === null && p.homeDirectory === true,
+        ...(p.kind === 'shell' && p.projectId === null && p.homeDirectory === true && safeString(p.homePolicyRuntimeId, 128)
+          ? { homePolicyRuntimeId: p.homePolicyRuntimeId } : {}),
         ...(safeString(p.sessionId, 1024) ? { sessionId: p.sessionId } : {}),
         ...(safeString(p.resumeId, 1024) ? { resumeId: p.resumeId } : {}),
         ...(safeString(p.profileId, 128) ? { profileId: p.profileId } : {}),
