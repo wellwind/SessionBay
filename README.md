@@ -62,6 +62,7 @@ npm run tauri -- build
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
 | [全域臨時 Terminal](docs/temporary-terminal.md) | 無專案 home Shell、舊 cwd 相容與驗證邊界 |
 | [索引效能量測](docs/index-performance.md) | 1k／10k／長對話的可重複合成 before／after、資料安全與未解瓶頸 |
+| [搜尋效能第二階段](docs/search-performance.md) | 獨立 10k 搜尋 profiling、候選密度策略與完整 raw before／after |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
 
