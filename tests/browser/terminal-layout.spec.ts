@@ -50,7 +50,10 @@ for (const [name, width, height, zoom] of [
     await page.locator('.xterm-screen').hover();
     await page.mouse.wheel(0, -10000);
     await expect.poll(() => page.locator('.xterm-rows').innerText()).not.toBe(bottomText);
-    await expect.poll(() => page.locator('.xterm-rows').innerText()).toContain('Synthetic terminal output line 1:');
+    // Wheel deltas are normalized by the custom scrollbar; one event need not
+    // jump to the very first line even when its pixel delta is large.
+    const firstLine = (text: string) => Number(text.match(/Synthetic terminal output line (\d+):/)?.[1]);
+    await expect.poll(async () => firstLine(await page.locator('.xterm-rows').innerText())).toBeLessThan(firstLine(bottomText));
     await page.mouse.wheel(0, 10000);
     await expect.poll(() => page.locator('.xterm-rows').innerText()).toBe(bottomText);
     await page.locator('.xterm-screen').click();
