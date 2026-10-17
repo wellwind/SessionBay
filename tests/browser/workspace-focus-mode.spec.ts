@@ -30,7 +30,8 @@ async function sameTerminal(page: Page) {
   expect(await lifecycle(page)).toEqual([{ command: 'attach_runtime' }]);
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.title.startsWith('edge-to-edge:')) return;
   await openWorkspace(page);
   await page.evaluate(() => Object.assign(window, {
     originalTerminal: document.querySelector('.xterm'),
@@ -133,4 +134,134 @@ for (const sidebarOpen of [true, false]) {
     await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
     await expect(page.locator('.sidebar')).toHaveCount(sidebarOpen ? 1 : 0);
   });
+}
+
+// CSS zoom exercises renderer geometry only; native Tauri/WebView zoom remains
+// desktop acceptance. Every case respects the existing 700×420 CSS-pixel shell.
+for (const [size, width, height, zoom] of [
+  ['normal', 1200, 850, 1],
+  ['narrow', 800, 650, 1],
+  ['zoom-50', 1000, 650, 0.5],
+  ['zoom-200', 1600, 1300, 2],
+] as const) {
+  for (const focused of [false, true]) {
+    test(`edge-to-edge: ${size}, ${focused ? 'focus' : 'normal'} single → split → one`, async ({ page, browser }, testInfo) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/tests/browser/workspace-focus-mode.html?edge=1');
+      await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+      await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
+      const original = page.locator('[aria-label="Focus shell 終端面板"]');
+      const hidden = page.locator('[aria-label="Hidden shell 終端面板"]');
+      await expect(original.locator('.xterm-screen')).toBeVisible();
+      await expect.poll(() => original.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
+      await expect(hidden).toBeHidden();
+      await page.evaluate(scale => {
+        const app = document.querySelector<HTMLElement>('.app-shell')!;
+        app.style.zoom = String(scale);
+        app.style.width = `${innerWidth / scale}px`;
+        app.style.height = `${innerHeight / scale}px`;
+        Object.assign(window, { edgeOriginal: document.querySelector('[aria-label="Focus shell 終端面板"] .xterm'),
+          edgeHidden: document.querySelector('[aria-label="Hidden shell 終端面板"] .xterm'),
+          edgeCanvas: document.querySelector('.workspace-canvas') });
+      }, zoom);
+      if (focused) await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+      const originalSize = () => page.evaluate(() => (window as unknown as {
+        focusFixture: { calls: (Call & { runtimeId?: string })[] };
+      }).focusFixture.calls.filter(call => call.command === 'resize_runtime' && call.runtimeId === 'runtime-focus').at(-1));
+      const capture = () => page.evaluate(() => {
+        const pane = document.querySelector('[aria-label="Focus shell 終端面板"]')!;
+        const box = (element: Element) => {
+          const rect = element.getBoundingClientRect();
+          return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+        };
+        const body = pane.querySelector('.terminal-body')!;
+        const style = getComputedStyle(pane);
+        return { work: box(document.querySelector('.main-work-area')!),
+          canvas: box(document.querySelector('.workspace-canvas')!), pane: box(pane),
+          body: box(body), screen: box(pane.querySelector('.xterm-screen')!),
+          border: style.borderTopWidth, radius: style.borderTopLeftRadius,
+          padding: getComputedStyle(pane.parentElement!).paddingTop,
+          bodyPadding: [getComputedStyle(body).paddingTop, getComputedStyle(body).paddingLeft] };
+      });
+      const assertPreserved = async () => {
+        expect(await page.evaluate(() => {
+          const saved = window as unknown as { edgeOriginal: Element; edgeHidden: Element; edgeCanvas: Element };
+          return saved.edgeOriginal === document.querySelector('[aria-label="Focus shell 終端面板"] .xterm') &&
+            saved.edgeHidden === document.querySelector('[aria-label="Hidden shell 終端面板"] .xterm') &&
+            saved.edgeCanvas === document.querySelector('.workspace-canvas');
+        })).toBe(true);
+        const calls = await page.evaluate(() => (window as unknown as {
+          focusFixture: { calls: (Call & { runtimeId?: string; paneId?: string })[] };
+        }).focusFixture.calls);
+        for (const id of ['runtime-focus', 'runtime-hidden']) {
+          expect(calls.filter(call => call.runtimeId === id &&
+            ['attach_runtime', 'detach_runtime', 'stop_runtime', 'forget_runtime'].includes(call.command))
+            .map(call => call.command)).toEqual(['attach_runtime']);
+        }
+        expect(calls.filter(call => call.command === 'launch_runtime' &&
+          ['pane-focus', 'pane-hidden'].includes(call.paneId ?? ''))).toEqual([]);
+        await expect(hidden).toBeHidden();
+      };
+      const assertSingle = async () => {
+        await expect(page.locator('.workspace-canvas')).toHaveClass(/single-pane/);
+        await expect.poll(async () => {
+          const g = await capture();
+          return ['left', 'top', 'right', 'bottom'].every(key =>
+            Math.abs(g.work[key as keyof typeof g.work] - g.pane[key as keyof typeof g.pane]) < 0.6);
+        }).toBe(true);
+        const g = await capture();
+        expect(g.canvas).toEqual(g.work);
+        expect([g.border, g.radius, g.padding]).toEqual(['0px', '0px', '0px']);
+        expect(g.bodyPadding).toEqual(['9px', '7px']);
+        await expect.poll(async () => {
+          const current = await capture();
+          return current.screen.left >= current.body.left && current.screen.right <= current.body.right + 0.6 &&
+            current.screen.top >= current.body.top && current.screen.bottom <= current.body.bottom + 0.6 &&
+            current.body.right - current.screen.right < 30 * zoom;
+        }).toBe(true);
+        await assertPreserved();
+        return capture();
+      };
+      const before = await assertSingle();
+      await expect.poll(async () => (await originalSize())?.cols ?? 0).toBeGreaterThan(1);
+      const initialSize = await originalSize();
+      await page.screenshot({ path: testInfo.outputPath('single-before.png'), fullPage: true });
+      await original.getByRole('button', { name: '左右分割', exact: true }).click();
+      await page.getByRole('button', { name: '開始工作', exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('.terminal-pane:visible')).toHaveCount(2);
+      await expect(page.locator('.workspace-canvas')).not.toHaveClass(/single-pane/);
+      const second = page.locator('.terminal-pane:visible').last();
+      await expect(page.getByRole('separator', { name: '左右面板比例' })).toBeVisible();
+      await expect.poll(async () => (await originalSize())?.cols ?? 0).toBeLessThan(initialSize!.cols!);
+      const splitSize = await originalSize();
+      const split = await capture();
+      expect(split.canvas.left - split.work.left).toBeCloseTo(6 * zoom, 1);
+      expect([split.border, split.radius, split.padding]).toEqual(['1px', '7px', '3px']);
+      expect(split.pane.width).toBeLessThan(before.pane.width);
+      await assertPreserved();
+      await page.screenshot({ path: testInfo.outputPath('split.png'), fullPage: true });
+      // Maximizing a split is presentation only and must not become single-pane.
+      await original.getByRole('button', { name: '最大化面板', exact: true }).click();
+      await expect(page.locator('.workspace-canvas')).not.toHaveClass(/single-pane/);
+      await original.getByRole('button', { name: '還原面板', exact: true }).click();
+      await second.getByRole('button', { name: '關閉面板', exact: true }).click();
+      await page.getByRole('button', { name: '結束並關閉', exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.locator('.terminal-pane:visible')).toHaveCount(1);
+      await expect(page.getByRole('separator')).toHaveCount(0);
+      const after = await assertSingle();
+      await expect.poll(async () => {
+        const current = await originalSize();
+        return { cols: current?.cols, rows: current?.rows };
+      }).toEqual({ cols: initialSize!.cols, rows: initialSize!.rows });
+      expect(after.pane).toEqual(before.pane);
+      await original.locator('.xterm-screen').click();
+      await expect(original.locator('.xterm-helper-textarea')).toBeFocused();
+      await page.screenshot({ path: testInfo.outputPath('single-restored.png'), fullPage: true });
+      const evidence = testInfo.outputPath('edge-geometry.json');
+      await writeFile(evidence, JSON.stringify({ browser: browser.version(), width, height, cssZoom: zoom, focused, before, split, after, initialSize, splitSize, restoredSize: await originalSize() }, null, 2));
+      await testInfo.attach('edge-geometry', { path: evidence, contentType: 'application/json' });
+    });
+  }
 }
