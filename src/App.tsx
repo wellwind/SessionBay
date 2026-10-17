@@ -10,6 +10,8 @@ import {
   Command as CommandIcon,
   Folder,
   FolderPlus,
+  FolderMinus,
+  Trash2,
   History,
   Layers3,
   LoaderCircle,
@@ -882,7 +884,7 @@ export default function App() {
     },
     ...(['ui', 'terminal'] as const).map(target => ({
       id: `theme-${target}`,
-      label: target === 'ui' ? '切換介面主題' : '切換 Terminal 主題',
+      label: target === 'ui' ? '切換介面主題' : '切換 Terminal theme',
       disabled: !settings || settingsOpen || quickThemeOpen || themeSaving,
       run: () => { if (!palette) paletteOpener.current = document.activeElement as HTMLElement | null; paletteGeneration.current++; setThemeSaveError(''); setPalette(true); setPaletteTheme(target); },
     })),
@@ -1212,7 +1214,7 @@ export default function App() {
         )}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
-            <div>
+            <div className="project-heading">
               <nav className="breadcrumb" aria-label="目前位置">
                 {!sidebarOpen && !revealSidebar && (
                   <button
@@ -1230,9 +1232,16 @@ export default function App() {
                 {current && <><ChevronRight size={12} /><span aria-current="page">{current.name}</span></>}
                 {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
               </nav>
-              <h1>
-                {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
-              </h1>
+              <div className="project-title-row">
+                <h1>
+                  {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
+                </h1>
+                {current && !current.workspaceOnly && <button className="icon-button project-rename" disabled={projectBusy}
+                  title="重新命名專案" aria-label="重新命名專案"
+                  onClick={event => { event.currentTarget.focus(); setRenameTarget({ kind: 'project', id: current.id, name: current.name }); }}>
+                  <Pencil size={16} />
+                </button>}
+              </div>
               <div className="project-path">
                 {current ? (
                   <>
@@ -1259,20 +1268,17 @@ export default function App() {
               </div>
             </div>
             <div className="header-buttons">
-              <button className="secondary" disabled={!boot} onClick={() => setTrashOpen(true)}>資源回收筒</button>
+              <button className="icon-button" title="資源回收筒" aria-label="資源回收筒" disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
                 {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
               </button>}
-              {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}
-                onClick={(event) => { event.currentTarget.focus(); setRenameTarget({ kind: 'project', id: current.id, name: current.name }); }}>
-                <Pencil size={14} />重新命名專案
-              </button>}
-              {current && !current.workspaceOnly && <button className="secondary" disabled={projectBusy}
-                title={current.curated ? '只移出專案清單，不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
+              {current && !current.workspaceOnly && <button className="icon-button" disabled={projectBusy}
+                aria-label={current.curated ? '移出專案' : '加入專案'}
+                title={current.curated ? '移出專案清單；不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
                 onClick={() => void saveMembership(current, !current.curated)}>
-                {current.curated ? '移出專案' : '加入專案'}
+                {current.curated ? <FolderMinus size={17} /> : <FolderPlus size={17} />}
               </button>}
               {temporaryWorkspace ? <button className="primary" onClick={() => openTemporaryTerminal()}>
                 <Plus size={16} />新增臨時 Terminal

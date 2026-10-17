@@ -19,6 +19,7 @@
     "test:tabs": "playwright test --config playwright.tabs.config.ts",
     "test:layout": "playwright test --config playwright.layout.config.ts",
     "test:flicker": "playwright test --config playwright.flicker.config.ts",
+    "test:interactions": "playwright test --config playwright.interactions.config.ts",
     "test:sidebar": "playwright test --config playwright.sidebar.config.ts",
     "test:focus-mode": "playwright test --config playwright.focus-mode.config.ts"
   },

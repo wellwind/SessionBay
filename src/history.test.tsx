@@ -158,7 +158,7 @@ describe('HistoryView read-only rendering', () => {
     setup();
     await tick();
     expect(screen.getByRole('alert')).toHaveTextContent('索引尚未建立');
-    expect(screen.queryByRole('button', { name: /Session alpha/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(?!刪除).*Session alpha/ })).not.toBeInTheDocument();
     expect(api.transcript).not.toHaveBeenCalled();
   });
   it('shows unsupported/nontext content as an explicit empty preview', async () => {
@@ -229,7 +229,7 @@ describe('HistoryView asynchronous race protection', () => {
     );
     setup();
     await tick();
-    fireEvent.click(screen.getByRole('button', { name: /Session beta/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^(?!刪除).*Session beta/ }));
     await tick();
     expect(screen.getByText('Latest beta transcript')).toBeInTheDocument();
     await act(async () => {
@@ -249,14 +249,14 @@ describe('HistoryView asynchronous race protection', () => {
       target: { value: 'new search' },
     });
     await tick(220);
-    expect(screen.getByRole('button', { name: /Session new-result/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^(?!刪除).*Session new-result/ })).toBeInTheDocument();
     await act(async () => {
       old.resolve({ items: [session('obsolete-result')], total: 1 });
     });
     expect(
-      screen.queryByRole('button', { name: /Session obsolete-result/ }),
+      screen.queryByRole('button', { name: /^(?!刪除).*Session obsolete-result/ }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Session new-result/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^(?!刪除).*Session new-result/ })).toBeInTheDocument();
   });
   it('ignores late load-earlier results after switching sessions', async () => {
     const oldEarlier = deferred<TranscriptPage>();
@@ -276,7 +276,7 @@ describe('HistoryView asynchronous race protection', () => {
     setup();
     await tick();
     fireEvent.click(screen.getByRole('button', { name: '載入更早的對話' }));
-    fireEvent.click(screen.getByRole('button', { name: /Session beta/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^(?!刪除).*Session beta/ }));
     await tick();
     await act(async () => {
       oldEarlier.resolve(transcript('Earlier alpha'));
@@ -299,7 +299,7 @@ describe('HistoryView asynchronous race protection', () => {
       old.reject(new Error('Old query failed'));
     });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Session latest/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^(?!刪除).*Session latest/ })).toBeInTheDocument();
   });
 });
 
@@ -714,7 +714,7 @@ it('cannot resume or curate stale project results while the next directory is lo
   rerender(<HistoryView {...props} projectId="project-b" />);
   expect(screen.queryByRole('button', { name: '接續工作' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '將此目錄加入專案' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /Session project-a-session/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^(?!刪除).*Session project-a-session/ })).not.toBeInTheDocument();
   await tick();
   await act(async () => next.resolve({ items: [session('project-b-session', { projectId: 'project-b', cwd: '/synthetic/b' })], total: 1 }));
   fireEvent.click(screen.getByRole('button', { name: '接續工作' }));

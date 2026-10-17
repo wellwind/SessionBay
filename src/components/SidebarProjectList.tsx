@@ -46,7 +46,7 @@ export function SidebarProjectList({ projects, selectedId, label, reorderable, o
           const after = event.key === 'ArrowDown'; const target = projects[index + (after ? 1 : -1)];
           if (target) move(project.id, target.id, after);
         }}><GripVertical size={14} /></button>}
-      <button className="project-main" onClick={() => onSelect(project)} title={project.path ?? '未分類'}>
+      <button className="project-main" aria-current={selectedId === project.id ? 'true' : undefined} onClick={() => onSelect(project)} title={project.path ?? '未分類'}>
         <Folder size={17} /><span><strong>{project.name}</strong><small>{project.workspaceOnly ? `僅工作區 · ${project.path || '目錄待確認'}` : project.path || '工作目錄未知'}</small></span>
         <span className="project-count">{project.sessionCount}</span>{!project.exists && <AlertTriangle className="warning-icon" size={13} />}
       </button>

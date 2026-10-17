@@ -1,0 +1,67 @@
+/* One surface per action; selection persists. State changes never change geometry. */
+:root {
+  --interaction-radius: 7px;
+  --interaction-focus-offset: -3px;
+  --interaction-selected-hover: color-mix(in srgb, var(--accent-bg) 65%, var(--surface-hover));
+}
+.sidebar-global.active,
+.open-workspaces nav button.active,
+.navigation-tabs > button[aria-selected='true'],
+.settings-nav > button.is-active,
+.workspace-tabs > .history-tab.active {
+  --interaction-hover: var(--interaction-selected-hover);
+}
+.settings-nav > button.is-active:not(:disabled):hover { background: var(--interaction-selected-hover); }
+
+/* Composite rows: main actions light the row; secondary actions light only
+   themselves. No competing parent and child hover backgrounds. */
+.project-row:has(> .project-main:hover) { background: var(--surface-hover); }
+.project-row.active { box-shadow: inset 3px 0 0 var(--accent); }
+.project-row.active:has(> .project-main:hover) { background: var(--interaction-selected-hover); }
+.project-row > .project-main { --interaction-hover: transparent; border-radius: var(--interaction-radius); }
+.project-row > .project-drag { border-radius: var(--interaction-radius); }
+.project-row > .project-main,
+.workspace-tab > .workspace-tab-select { align-self: stretch; }
+
+.workspace-tab { border-radius: var(--interaction-radius) var(--interaction-radius) 0 0; }
+.workspace-tab:has(> .workspace-tab-select:hover) { background: var(--surface-hover); }
+.workspace-tab.active { background: var(--accent-bg); }
+.workspace-tab.active:has(> .workspace-tab-select:hover) { background: var(--interaction-selected-hover); }
+.workspace-tab > .workspace-tab-select { --interaction-hover: transparent; border-radius: var(--interaction-radius); }
+.workspace-tab > button + button { min-height: 28px; height: 28px; border-radius: var(--interaction-radius); }
+
+/* Separate sibling buttons, with a reserved action rail: labels never jump. */
+.session-list > .session-card { display: flex; align-items: center; gap: 4px; padding: 0 8px 0 0; overflow: hidden; }
+.session-card > .session-card-select {
+  display: block; flex: 1; min-width: 0; align-self: stretch;
+  padding: 16px; text-align: left; border-radius: inherit;
+  --interaction-hover: transparent;
+}
+.session-list > .session-card:has(> .session-card-select:hover) { background: var(--surface-hover); }
+.session-list > .session-card.active:has(> .session-card-select:hover) { background: var(--interaction-selected-hover); }
+.session-card > .session-card-delete { flex-shrink: 0; color: var(--muted); }
+.session-card > .session-card-delete:not(:disabled):hover { color: var(--danger); background: var(--danger-bg); }
+@media (hover: hover) and (pointer: fine) {
+  .session-card > .session-card-delete { opacity: 0; }
+  .session-card:hover > .session-card-delete:not(:disabled),
+  .session-card:focus-within > .session-card-delete:not(:disabled) { opacity: 1; }
+  .session-card:hover > .session-card-delete:disabled,
+  .session-card:focus-within > .session-card-delete:disabled { opacity: .4; }
+}
+/* Inset rings survive clipped scroll containers. Reduced-motion is inherited
+   from workbench.css; visibility never depends on an animation completing. */
+.project-row > button:focus-visible,
+.workspace-tabs button:focus-visible,
+.session-card > button:focus-visible,
+.settings-nav > button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: var(--interaction-focus-offset);
+}
+
+/* Rename stays next to the title, with a fixed hit target even for long names. */
+.project-header > .project-heading { min-width: 0; flex: 1; }
+.project-title-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; min-width: 0; }
+.project-header .project-title-row > h1 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.project-title-row > .project-rename { flex-shrink: 0; }
+.project-heading .breadcrumb { height: auto; min-height: 17px; flex-wrap: wrap; overflow-wrap: anywhere; }
+.project-heading .breadcrumb > span { min-width: 0; }
+.project-header > .header-buttons { align-items: center; }
