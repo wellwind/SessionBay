@@ -61,7 +61,7 @@ const shortcutNames: Record<string, string> = {
   'close-pane': '關閉面板',
   'command-palette': '命令面板',
   'toggle-sidebar': '顯示／隱藏側邊欄',
-  'toggle-focus-mode': '進入／退出專注模式',
+  'toggle-focus-mode': '進入／退出專注模式（Zen Mode）',
 };
 const sections = [
   { id: 'sources' as const, label: '來源與工具', icon: Folder },

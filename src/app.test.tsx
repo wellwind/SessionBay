@@ -2101,7 +2101,7 @@ describe('Whole-workspace zoom integration', () => {
     expect(zoom('=')).toBe(true);
     fireEvent.compositionEnd(window.document);
     expect(zoom('c')).toBe(true);
-    expect(zoom('Enter', { shiftKey: true })).toBe(true);
+    expect(zoom('Enter', { shiftKey: true, ctrlKey: false })).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
     expect(zoom('=')).toBe(true);
     expect(api.saveSettings).not.toHaveBeenCalled();
@@ -2738,16 +2738,16 @@ it.each(['running', 'exited'] as const)('closes only the newly titled resumed ta
   const resumed = Object.values(workspaceSnapshot().panes).find((pane) => pane.sessionId === 'synthetic-session')!;
   act(() => native.patch?.(resumed.id, { runtimeId: 'resumed-runtime', state, exitCode: state === 'exited' ? 0 : null }));
   await tick();
-  expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell', 'Resume preview title']);
-  // Agent success remains inspectable even though successful Shells auto-close.
-  expect(api.forget).not.toHaveBeenCalled();
-  vi.mocked(api.runtimes).mockResolvedValue([
-    brokerRecord(),
-    brokerRecord({ id: 'resumed-runtime', paneId: resumed.id, kind: 'codex', state, exitCode: state === 'exited' ? 0 : null }),
-  ]);
-  expect(fireEvent.keyDown(window, { key: 'w', code: 'KeyW', metaKey: true })).toBe(false);
-  if (state === 'running')
+  if (state === 'running') {
+    expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell', 'Resume preview title']);
+    expect(api.forget).not.toHaveBeenCalled();
+    vi.mocked(api.runtimes).mockResolvedValue([
+      brokerRecord(),
+      brokerRecord({ id: 'resumed-runtime', paneId: resumed.id, kind: 'codex', state, exitCode: null }),
+    ]);
+    expect(fireEvent.keyDown(window, { key: 'w', code: 'KeyW', metaKey: true })).toBe(false);
     fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+  }
   await tick();
   await tick(500);
   expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);

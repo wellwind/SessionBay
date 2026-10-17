@@ -222,6 +222,21 @@ export interface Workspace {
   activeTemporaryTabId?: string;
 }
 
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  kind: 'directory' | 'file' | 'blocked';
+}
+export interface WorkspaceFilePage {
+  entries: WorkspaceFileEntry[];
+  nextOffset: number | null;
+}
+export interface WorkspaceFilePreview {
+  path: string;
+  text: string;
+  sizeBytes: number;
+}
+
 export interface TrashedSession {
   id: string;
   session: Session;

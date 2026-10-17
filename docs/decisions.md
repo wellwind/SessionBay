@@ -2,6 +2,13 @@
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
 
+## 2026-10-17 Agent 正常退出（含新建分割面板）
+
+- Session Bay 直接啟動的 Agent（新建、歷史接續、手動 resume）正常退出（結束碼 0）後，關閉該面板；tab 尚有其他面板時保留 tab。右側新增的 Agent 分割面板亦適用。
+- 普通 Terminal 內自行啟動的 Agent 退出後，回到原本 Shell；Shell 仍執行時不關閉，不另開、不重啟 Shell，也不重新 resume。
+- 清理依受管程序的確認退出狀態判斷，不再區分新建／接續或依後續關聯的 Session 推測；不新增 Broker 協定或持久化欄位，舊 Runtime 亦適用。
+- 非零／未知結束碼、失敗及中斷保留供檢查。非同步清理必須核對 runtime 與啟動世代，不能關掉後來重啟的工作。
+
 ## 2026-10-17 Terminal 內容重繪與有界輸出批次
 
 - 問題範圍為 Agent 執行時 Terminal 內容閃爍；既有 xterm 實例生命週期、React UI 與主題切換不因此重寫。
@@ -469,6 +476,13 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
 
+## 2026-10-17：工作區唯讀檔案預覽
+
+依使用者要求以獨立 PR 實作，不混入側欄排序、Agent 設定或垃圾桶。工作分頁可開啟檔案側面板，Terminal 維持掛載與 Runtime；目錄及選檔狀態只保留於該分頁的記憶體，關頁／重開不保存內容。
+
+IPC 僅接受 catalog Project ID 與相對路徑；根目錄採原始 project.path，不採可能指向其他位置的 launchPath，也不從臨時 Terminal 推導 HOME。只讀單層目錄及 256 KiB 以下 UTF-8 一般文字檔；每頁 200 項，明確載入更多，不遞迴掃描 node_modules。隱藏檔案預設隱藏，可明確開啟顯示。
+
+Linux／macOS 以開啟的目錄 descriptor 逐段 O_NOFOLLOW 解析，不依賴先 canonicalize 再 open 的競態檢查。根及祖先路徑含符號連結亦拒絕，檔案以開啟後 metadata 驗證；一般檔案 nlink > 1 一律拒絕，避免預覽與根目錄外共用 inode 的硬連結。目錄不套用連結數限制。Windows 使用 NtCreateFile 相對於已持有的目錄 handle 逐段開啟，拒絕所有 reparse points 與多重硬連結；從已開啟 handle 驗證磁碟根為 volume root，拒絕 UNC、網路磁碟與映射到子目錄的磁碟別名。目錄列舉也使用同一 handle；開啟的項目不共享寫入／刪除，忙碌檔案可能明確失敗。Windows native GUI 尚未驗收。內容以 React 純文字呈現，不執行 HTML／Markdown、不啟動外部應用、不編輯／刪除檔案。詳見[檔案預覽](workspace-file-preview.md)。
 ## 2026-10-17：Agent 生命週期總覽
 
 Agent 狀態以共享 provider registry 辨識，不把 Shell 或歷史 Session 數當成 Agent 數。側欄按專案彙總已開啟、存活、已結束、中斷等數量；全域工作階段獨立一組。同一 runtime ID 只計一次，尚無 runtime 的面板按 pane ID 計數。已開啟包含尚未啟動及保留的結束面板，關閉後不再計數；存活只包含已有 runtime 的 starting／running，不代表忙碌或等待輸入。停用 provider 不排除既有程序。
@@ -505,7 +519,7 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 - 專注模式為獨立、可逆的 UI 狀態，不切換作業系統全螢幕，不修改分割比例、面板最大化、側欄偏好或持久化 workspace。
 - 專案／臨時 Terminal 可從分頁列進入；保留歷史、工作分頁、新增、面板工具列與明確退出入口。專案名稱按鈕暫時展開原有完整控制列與側欄，提供所有原有操作；總覽自動顯示完整導覽。
-- 命令面板可進入／退出；快捷鍵預設空白，可於設定自行配置並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
+- 命令面板可進入／退出；快捷鍵預設 Mod+Shift+Enter，可於設定自行配置或留空停用並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
 - 相同 WorkspaceCanvas 與 TerminalPane 持續掛載，依 ResizeObserver 更新終端尺寸。索引進行／失敗、縮放失敗、目錄警告與面板錯誤保留可見。原生桌面驗收仍待完成。
 
 ## 2026-10-17 單面板滿版布局
@@ -587,6 +601,14 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 
 父列左側直接顯示資料夾與名稱；展開箭頭及拖曳把手依序放在右側，沒有分頁時仍在右側保留箭頭槽位。DOM 與鍵盤順序同為專案、展開箭頭、排序把手，資料夾前不保留操作空槽。資料夾對齊名稱第一行，活動摘要放在名稱與路徑之下並保留行高，避免活動文字或收合狀態讓名稱與圖示跳動。拖曳仍只以父列作為落點，不改排序或展開功能語意。
 
+
 ## 2026-10-17 控制項留白與焦點一致性
 
 Agent 搜尋欄與下拉選單共用 surface／control-border／radius／spacing tokens，輸入本身透明且不另畫 focus ring，由外層保留單一清楚外框；維持 combobox／listbox 與鍵盤操作語意。專案列資料夾前固定保留 space-3（12px）內距，一般、hover、selected、focus 不改幾何位置。工作分頁列容器左右 padding 歸零，保留歷史與專注按鈕內距、44px 專注操作高度及內縮焦點框。
+
+## 2026-10-17 專注模式英文搜尋名稱
+
+命令面板的進入／退出專注模式名稱加入「（Zen Mode）」，設定快捷鍵名稱同步，讓英文 Zen Mode 可找到對應命令。維持 toggle-focus-mode ID 及使用者綁定；分頁工具列不改名。新增預設 Mod+Shift+Enter（macOS Cmd+Shift+Enter，Windows／Linux Ctrl+Shift+Enter），只填補缺少的設定鍵；明確空字串仍停用，既有自訂值不覆蓋，同組合衝突沿用停用與提示。避免 Ctrl+K chord 吞掉 shell 輸入，不加入前綴緩衝或補送；重複 keydown 不反覆切換，對話框、一般輸入欄與 IME 不搶鍵。此組合未與目前 app 預設／保留鍵衝突，不保證所有外部終端程式都沒有自訂用途。
+## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
+
+正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。

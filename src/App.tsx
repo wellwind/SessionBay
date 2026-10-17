@@ -32,6 +32,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
+import { closeFocusedExplorer } from './components/explorer-focus';
 import { SidebarProjectList } from './components/SidebarProjectList';
 import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
 import type { SidebarPreferences } from './sidebar-preferences';
@@ -57,9 +58,9 @@ import {
   activeWorkspaceTabId,
   selectWorkspaceTab,
   closePane,
-  closeSuccessfulShell,
+  closeSuccessfulExit,
   closeConfirmedPane,
-  isSuccessfulShellExit,
+  isSuccessfulAutoCloseExit,
   emptyWorkspace,
   mergeWorkspaceProjects,
   paneIds,
@@ -126,6 +127,7 @@ export default function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
   const [trashOpen, setTrashOpen] = useState(false);
+  const [fileToolbarHost, setFileToolbarHost] = useState<HTMLDivElement | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
@@ -359,8 +361,8 @@ export default function App() {
   const saveQueue = useRef(Promise.resolve());
   const closingApp = useRef(false);
   const nativeCloseSealed = useRef(false);
-  const shellCleanupPending = useRef(new Map<string, Promise<void>>());
-  const cleanedShells = useRef(new Map<string, Pane>());
+  const exitCleanupPending = useRef(new Map<string, Promise<void>>());
+  const cleanedExits = useRef(new Map<string, Pane>());
   const pendingPaneClosures = useRef(new Set<Promise<void>>());
   const closedPaneSnapshots = useRef(new Map<string, Pane>());
   const observedWorkspace = useRef<string | null>(null);
@@ -462,18 +464,18 @@ export default function App() {
           await saveQueue.current;
           // Forget and layout persistence form one close operation. Project
           // successful cleanups into the snapshot even before React commits.
-          const snapshotNow = () => serializeWorkspace([...cleanedShells.current.values()]
-            .reduce(closeSuccessfulShell, [...closedPaneSnapshots.current.values()]
+          const snapshotNow = () => serializeWorkspace([...cleanedExits.current.values()]
+            .reduce(closeSuccessfulExit, [...closedPaneSnapshots.current.values()]
               .reduce(closeConfirmedPane, stateRef.current.workspace)));
           for (;;) {
-            await Promise.all([...shellCleanupPending.current.values(), ...pendingPaneClosures.current].map((task) => task.catch(() => undefined)));
+            await Promise.all([...exitCleanupPending.current.values(), ...pendingPaneClosures.current].map((task) => task.catch(() => undefined)));
             const snapshot = snapshotNow();
             const signature = JSON.stringify(snapshot);
             if (signature !== persistedWorkspace.current) {
               await api.saveWorkspace(snapshot);
               persistedWorkspace.current = signature;
             }
-            if (!shellCleanupPending.current.size && !pendingPaneClosures.current.size && JSON.stringify(snapshotNow()) === signature) break;
+            if (!exitCleanupPending.current.size && !pendingPaneClosures.current.size && JSON.stringify(snapshotNow()) === signature) break;
           }
         }
         nativeCloseSealed.current = true;
@@ -511,7 +513,7 @@ export default function App() {
       setWorkspace((w) => patchWorkspacePane(w, id, patch)),
     [],
   );
-  const forgettingShells = useRef(new Set<string>());
+  const forgettingExits = useRef(new Set<string>());
   useEffect(() => {
     // After the final snapshot, retain newly exited broker records for startup
     // reconciliation; forgetting them now would resurrect saved placeholders.
@@ -522,22 +524,22 @@ export default function App() {
         (target.runtimeId && current.runtimeId !== target.runtimeId)) closedPaneSnapshots.current.delete(key);
     }
     const referenced = new Set(Object.values(workspace.panes).map((pane) => pane.runtimeId));
-    for (const id of forgettingShells.current) {
-      if (!referenced.has(id) && !shellCleanupPending.current.has(id)) {
-        forgettingShells.current.delete(id);
-        cleanedShells.current.delete(id);
+    for (const id of forgettingExits.current) {
+      if (!referenced.has(id) && !exitCleanupPending.current.has(id)) {
+        forgettingExits.current.delete(id);
+        cleanedExits.current.delete(id);
       }
     }
     for (const pane of Object.values(workspace.panes)) {
-      if (!isSuccessfulShellExit(pane) || forgettingShells.current.has(pane.runtimeId!)) continue;
-      forgettingShells.current.add(pane.runtimeId!);
+      if (!isSuccessfulAutoCloseExit(pane) || forgettingExits.current.has(pane.runtimeId!)) continue;
+      forgettingExits.current.add(pane.runtimeId!);
       // Forget only this completed runtime. Never use the manual close path,
       // which settles launches and stops processes by pane ID.
       const cleanup = api.forget(pane.runtimeId!).then(() => {
-        cleanedShells.current.set(pane.runtimeId!, pane);
-        setWorkspace((current) => closeSuccessfulShell(current, pane));
-      }).catch(notify).finally(() => { shellCleanupPending.current.delete(pane.runtimeId!); });
-      shellCleanupPending.current.set(pane.runtimeId!, cleanup);
+        cleanedExits.current.set(pane.runtimeId!, pane);
+        setWorkspace((current) => closeSuccessfulExit(current, pane));
+      }).catch(notify).finally(() => { exitCleanupPending.current.delete(pane.runtimeId!); });
+      exitCleanupPending.current.set(pane.runtimeId!, cleanup);
     }
   }, [workspace, notify]);
   const focus = useCallback((id: string) => {
@@ -770,6 +772,7 @@ export default function App() {
   const requestCloseTab = useRef(() => {});
   requestCloseTab.current = () => {
     if (closingApp.current || closeTabPending.current || composing.current || document.querySelector('[role="dialog"]')) return;
+    if (closeFocusedExplorer()) return;
     const current = stateRef.current;
     if (current.view !== 'workspace') return;
     const tab = current.workspace.tabs.find((item) => item.id === activeWorkspaceTabId(current.workspace, current.selectedId));
@@ -890,7 +893,7 @@ export default function App() {
       disabled: !settings || settingsOpen || quickThemeOpen || themeSaving,
       run: () => { if (!palette) paletteOpener.current = document.activeElement as HTMLElement | null; paletteGeneration.current++; setThemeSaveError(''); setPalette(true); setPaletteTheme(target); },
     })),
-    { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式' : '進入專注模式',
+    { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式（Zen Mode）' : '進入專注模式（Zen Mode）',
       disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
       if (focusMode) setFocusControlsOpen((value) => !value);
@@ -908,8 +911,11 @@ export default function App() {
           c.shortcut && !c.disabled && !conflicts.has(c.id) && matchesShortcut(event, c.shortcut),
       );
       if (command) {
+        if (command.id === 'toggle-focus-mode' && event.target instanceof Element &&
+          event.target.closest('input, textarea, select, [contenteditable="true"]') &&
+          !event.target.matches('.xterm-helper-textarea')) return;
         event.preventDefault();
-        command.run();
+        if (command.id !== 'toggle-focus-mode' || !event.repeat) command.run();
       }
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
@@ -1390,6 +1396,7 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
+                <div className="workspace-files-toolbar-host" ref={setFileToolbarHost} />
                 {focusAvailable && <button ref={focusToggle} className="focus-mode-toggle" aria-pressed={focusMode}
                   aria-label={focusMode ? '退出專注模式' : '進入專注模式'}
                   title={focusMode ? '退出專注模式' : '進入專注模式（保留分頁與面板）'} onClick={toggleFocusMode}>
@@ -1422,6 +1429,7 @@ export default function App() {
                 </div>
                 {settings && (
                   <WorkspaceCanvas
+                    fileToolbarHost={fileToolbarHost}
                     workspace={workspace}
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
