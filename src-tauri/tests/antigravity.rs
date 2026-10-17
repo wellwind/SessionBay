@@ -441,6 +441,17 @@ fn antigravity_metadata_only_session_lists_and_later_transcript_keeps_identity()
     assert!(page.messages.is_empty());
     assert!(page.warning.is_some());
     assert!(h.catalog.resume_source(&session.id).is_err());
+    let trash_id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    assert_eq!(h.total(""), 0);
+    assert!(h.catalog.trashed_sessions(0, 40).unwrap().items[0]
+        .unavailable_reason
+        .is_none());
+    h.catalog.restore_session(&trash_id).unwrap();
+    assert_eq!(h.session().id, session.id);
+    assert!(h.catalog.resume_source(&session.id).is_err());
     h.write(&[user(1, "Transcript now available")]);
     h.sync();
     assert_eq!(h.session().id, session.id);

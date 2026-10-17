@@ -1,0 +1,742 @@
+{
+  "allFourRunResultHashesEqual": true,
+  "sourceIntegrityAfterAllQueries": {
+    "sha256": "2b04e03f76005caa9016b33697d6b025704f9aa796339c3430bdbe6c5d2ccd09",
+    "bytes": 2108968980
+  },
+  "cases": [
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "session_bay_identifier"
+      },
+      "matches": 10000,
+      "resultSha256": "d93c731515a36ec0812a674f21c6c561a5da124f0bede0ba409f6149e15da107",
+      "runs": {
+        "before": {
+          "p50Ms": 2856.466919,
+          "p95Ms": 4271.359447,
+          "firstQueryMs": 2839.203071,
+          "phaseMediansMs": {
+            "connect": 0.349559,
+            "count": 1422.4213570000002,
+            "page": 1395.347069,
+            "plan": 0.0117525,
+            "snippets": 2.1514949999999997
+          }
+        },
+        "after": {
+          "p50Ms": 651.74537,
+          "p95Ms": 701.622173,
+          "firstQueryMs": 1722.8818800000001,
+          "phaseMediansMs": {
+            "connect": 0.290366,
+            "count": 349.494551,
+            "page": 298.4026345,
+            "plan": 1.2115230000000001,
+            "snippets": 1.5030200000000002
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 2408.715073,
+          "p95Ms": 2563.4428209999996,
+          "firstQueryMs": 2805.626618,
+          "phaseMediansMs": {
+            "connect": 0.2862235,
+            "count": 1199.326086,
+            "page": 1208.9499595000002,
+            "plan": 0.010942,
+            "snippets": 1.5661125
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 677.705103,
+          "p95Ms": 733.6793419999999,
+          "firstQueryMs": 594.579555,
+          "phaseMediansMs": {
+            "connect": 0.29635199999999995,
+            "count": 357.790441,
+            "page": 317.4354725,
+            "plan": 1.2692835,
+            "snippets": 1.5783930000000002
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "SESSION_BAY_IDENTIFIER"
+      },
+      "matches": 10000,
+      "resultSha256": "d93c731515a36ec0812a674f21c6c561a5da124f0bede0ba409f6149e15da107",
+      "runs": {
+        "before": {
+          "p50Ms": 2606.57273,
+          "p95Ms": 3096.979861,
+          "firstQueryMs": 3279.897563,
+          "phaseMediansMs": {
+            "connect": 0.2957035,
+            "count": 1296.2680415,
+            "page": 1311.6880929999998,
+            "plan": 0.010841,
+            "snippets": 2.0809645000000003
+          }
+        },
+        "after": {
+          "p50Ms": 659.832585,
+          "p95Ms": 697.683943,
+          "firstQueryMs": 674.322773,
+          "phaseMediansMs": {
+            "connect": 0.295473,
+            "count": 351.726547,
+            "page": 308.4738045,
+            "plan": 1.2151825,
+            "snippets": 1.8852224999999998
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 2484.181281,
+          "p95Ms": 2635.6929259999997,
+          "firstQueryMs": 2551.627216,
+          "phaseMediansMs": {
+            "connect": 0.295042,
+            "count": 1244.176109,
+            "page": 1226.7753965000002,
+            "plan": 0.011136,
+            "snippets": 1.864957
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 651.5242959999999,
+          "p95Ms": 668.276196,
+          "firstQueryMs": 654.3688060000001,
+          "phaseMediansMs": {
+            "connect": 0.28438399999999997,
+            "count": 350.8733045,
+            "page": 301.747354,
+            "plan": 1.2472045,
+            "snippets": 1.7469009999999998
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "\u4e2d\u6587"
+      },
+      "matches": 10000,
+      "resultSha256": "b94afcd054cd9b155104a3edbedd9aefe8f00dee37a3b53586026c531c628238",
+      "runs": {
+        "before": {
+          "p50Ms": 48.058614,
+          "p95Ms": 56.372888,
+          "firstQueryMs": 54.672983,
+          "phaseMediansMs": {
+            "connect": 0.27944,
+            "count": 46.293108000000004,
+            "page": 0.8046435,
+            "plan": 0.00327,
+            "snippets": 0.8832875
+          }
+        },
+        "after": {
+          "p50Ms": 46.921691,
+          "p95Ms": 50.238383999999996,
+          "firstQueryMs": 47.267148,
+          "phaseMediansMs": {
+            "connect": 0.28316949999999996,
+            "count": 44.6573695,
+            "page": 0.7790325,
+            "plan": 0.0029295,
+            "snippets": 0.8663345
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 45.9013,
+          "p95Ms": 47.314097,
+          "firstQueryMs": 46.943942,
+          "phaseMediansMs": {
+            "connect": 0.2803445,
+            "count": 43.846102,
+            "page": 0.7687015,
+            "plan": 0.00321,
+            "snippets": 0.855035
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 48.152901,
+          "p95Ms": 53.878951,
+          "firstQueryMs": 46.241547000000004,
+          "phaseMediansMs": {
+            "connect": 0.302606,
+            "count": 45.83252,
+            "page": 0.7951349999999999,
+            "plan": 0.0029195000000000002,
+            "snippets": 0.9150255
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "\u4e2d\u6587\u6e2c\u8a66"
+      },
+      "matches": 10000,
+      "resultSha256": "b94afcd054cd9b155104a3edbedd9aefe8f00dee37a3b53586026c531c628238",
+      "runs": {
+        "before": {
+          "p50Ms": 1801.74561,
+          "p95Ms": 2273.479116,
+          "firstQueryMs": 1721.711167,
+          "phaseMediansMs": {
+            "connect": 0.309318,
+            "count": 924.3588884999999,
+            "page": 915.0610360000001,
+            "plan": 0.006034,
+            "snippets": 1.288818
+          }
+        },
+        "after": {
+          "p50Ms": 174.28091700000002,
+          "p95Ms": 190.75744799999998,
+          "firstQueryMs": 174.01824299999998,
+          "phaseMediansMs": {
+            "connect": 0.28124150000000003,
+            "count": 111.6339475,
+            "page": 60.4262065,
+            "plan": 0.2032945,
+            "snippets": 1.0936985
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 1659.688828,
+          "p95Ms": 2069.185949,
+          "firstQueryMs": 2607.551623,
+          "phaseMediansMs": {
+            "connect": 0.3173765,
+            "count": 837.9418599999999,
+            "page": 820.857898,
+            "plan": 0.006124,
+            "snippets": 1.260539
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 178.320036,
+          "p95Ms": 188.493891,
+          "firstQueryMs": 179.112617,
+          "phaseMediansMs": {
+            "connect": 0.279617,
+            "count": 115.01860299999998,
+            "page": 62.0185505,
+            "plan": 0.20064300000000002,
+            "snippets": 1.146149
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "unique_needle_0."
+      },
+      "matches": 1,
+      "resultSha256": "1b277c1469485d2fd2cee4c976099deedf9ddf8e3c744d03f00e55a9554be942",
+      "runs": {
+        "before": {
+          "p50Ms": 17.750286,
+          "p95Ms": 20.998423,
+          "firstQueryMs": 28.906270000000003,
+          "phaseMediansMs": {
+            "connect": 0.37256100000000003,
+            "count": 4.8939135,
+            "page": 13.333645999999998,
+            "plan": 0.011257,
+            "snippets": 0.20481850000000001
+          }
+        },
+        "after": {
+          "p50Ms": 11.697268000000001,
+          "p95Ms": 13.269484,
+          "firstQueryMs": 31.445321,
+          "phaseMediansMs": {
+            "connect": 0.252594,
+            "count": 2.7045225000000004,
+            "page": 7.9876345,
+            "plan": 0.3979965,
+            "snippets": 0.0953075
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 10.922166,
+          "p95Ms": 11.695861,
+          "firstQueryMs": 13.003076,
+          "phaseMediansMs": {
+            "connect": 0.2236545,
+            "count": 2.7356645,
+            "page": 7.841227999999999,
+            "plan": 0.0076419999999999995,
+            "snippets": 0.08892
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 10.91372,
+          "p95Ms": 13.344992999999999,
+          "firstQueryMs": 13.474017,
+          "phaseMediansMs": {
+            "connect": 0.25391699999999995,
+            "count": 2.513992,
+            "page": 7.587189,
+            "plan": 0.387043,
+            "snippets": 0.0930005
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "no_match_exists"
+      },
+      "matches": 0,
+      "resultSha256": "4bf7c8639bc34bbbae5aef4aba3c724f9a425cbdc0416ab6384f7745ae1acb96",
+      "runs": {
+        "before": {
+          "p50Ms": 11.603317,
+          "p95Ms": 17.230543,
+          "firstQueryMs": 11.923199,
+          "phaseMediansMs": {
+            "connect": 0.3255145,
+            "count": 2.593001,
+            "page": 8.2977745,
+            "plan": 0.0111465,
+            "snippets": 0.00015099999999999998
+          }
+        },
+        "after": {
+          "p50Ms": 10.246414,
+          "p95Ms": 11.058681,
+          "firstQueryMs": 11.104099,
+          "phaseMediansMs": {
+            "connect": 0.2450425,
+            "count": 2.2308125,
+            "page": 7.211977,
+            "plan": 0.3025185,
+            "snippets": 4.9999999999999996e-05
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 10.200941,
+          "p95Ms": 11.096541,
+          "firstQueryMs": 10.300992,
+          "phaseMediansMs": {
+            "connect": 0.232829,
+            "count": 2.3744455,
+            "page": 7.448005,
+            "plan": 0.008212,
+            "snippets": 4e-05
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 10.008747,
+          "p95Ms": 10.612656999999999,
+          "firstQueryMs": 9.785611,
+          "phaseMediansMs": {
+            "connect": 0.238269,
+            "count": 2.2172105,
+            "page": 7.0927895,
+            "plan": 0.30746850000000003,
+            "snippets": 4e-05
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "100%_literal\\"
+      },
+      "matches": 0,
+      "resultSha256": "4bf7c8639bc34bbbae5aef4aba3c724f9a425cbdc0416ab6384f7745ae1acb96",
+      "runs": {
+        "before": {
+          "p50Ms": 16.461797,
+          "p95Ms": 17.674381,
+          "firstQueryMs": 16.812765,
+          "phaseMediansMs": {
+            "connect": 0.447804,
+            "count": 3.920173,
+            "page": 11.732336499999999,
+            "plan": 0.015313,
+            "snippets": 0.000171
+          }
+        },
+        "after": {
+          "p50Ms": 9.657171000000002,
+          "p95Ms": 11.179212,
+          "firstQueryMs": 11.894805,
+          "phaseMediansMs": {
+            "connect": 0.23631449999999998,
+            "count": 2.051329,
+            "page": 6.969419,
+            "plan": 0.26481699999999997,
+            "snippets": 4.5499999999999995e-05
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 10.244216,
+          "p95Ms": 11.842393,
+          "firstQueryMs": 10.243726,
+          "phaseMediansMs": {
+            "connect": 0.2531595,
+            "count": 2.2580389999999997,
+            "page": 7.617017,
+            "plan": 0.008753,
+            "snippets": 4.9999999999999996e-05
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 9.636637,
+          "p95Ms": 10.021296000000001,
+          "firstQueryMs": 9.670145999999999,
+          "phaseMediansMs": {
+            "connect": 0.25179399999999996,
+            "count": 2.048826,
+            "page": 6.9010560000000005,
+            "plan": 0.268224,
+            "snippets": 4e-05
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 9950,
+        "projectId": null,
+        "query": "session_bay_identifier"
+      },
+      "matches": 10000,
+      "resultSha256": "3a00814c5c4a3b5d8d02259f679d66faf85d27c29df14c9ee7ad4c41bb80e476",
+      "runs": {
+        "before": {
+          "p50Ms": 2542.504262,
+          "p95Ms": 2977.242259,
+          "firstQueryMs": 2791.896071,
+          "phaseMediansMs": {
+            "connect": 0.28516050000000004,
+            "count": 1279.292036,
+            "page": 1289.2239685,
+            "plan": 0.0111815,
+            "snippets": 1.6443975
+          }
+        },
+        "after": {
+          "p50Ms": 743.7295419999999,
+          "p95Ms": 787.816612,
+          "firstQueryMs": 744.780119,
+          "phaseMediansMs": {
+            "connect": 0.2963985,
+            "count": 349.751329,
+            "page": 393.33169050000004,
+            "plan": 1.227192,
+            "snippets": 1.3053165
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 2429.7863570000004,
+          "p95Ms": 2580.175538,
+          "firstQueryMs": 2376.628968,
+          "phaseMediansMs": {
+            "connect": 0.2872555,
+            "count": 1216.546383,
+            "page": 1215.6628745,
+            "plan": 0.0116125,
+            "snippets": 1.6659755
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 774.0929709999999,
+          "p95Ms": 915.963222,
+          "firstQueryMs": 750.62452,
+          "phaseMediansMs": {
+            "connect": 0.299056,
+            "count": 369.51180050000005,
+            "page": 398.92652449999997,
+            "plan": 1.21752,
+            "snippets": 1.3902465
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": "codex",
+        "limit": 200,
+        "offset": 0,
+        "projectId": null,
+        "query": "session_bay_identifier"
+      },
+      "matches": 10000,
+      "resultSha256": "dc16909efb8478cc26803fe3a63cec52058beaa8ac542d2bd51bee6f62a89644",
+      "runs": {
+        "before": {
+          "p50Ms": 3245.8225020000004,
+          "p95Ms": 4118.484202000001,
+          "firstQueryMs": 2672.4350449999997,
+          "phaseMediansMs": {
+            "connect": 0.404366,
+            "count": 1628.3413005000002,
+            "page": 1639.83349,
+            "plan": 0.016369500000000002,
+            "snippets": 8.8379195
+          }
+        },
+        "after": {
+          "p50Ms": 721.467718,
+          "p95Ms": 768.972769,
+          "firstQueryMs": 775.185278,
+          "phaseMediansMs": {
+            "connect": 0.2936495,
+            "count": 352.36604450000004,
+            "page": 360.58210800000006,
+            "plan": 1.219017,
+            "snippets": 5.699913
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 2488.926188,
+          "p95Ms": 3028.8604179999998,
+          "firstQueryMs": 2452.067816,
+          "phaseMediansMs": {
+            "connect": 0.299917,
+            "count": 1239.5717945000001,
+            "page": 1241.2727615,
+            "plan": 0.011933000000000001,
+            "snippets": 6.311888
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 739.353775,
+          "p95Ms": 836.462566,
+          "firstQueryMs": 738.221719,
+          "phaseMediansMs": {
+            "connect": 0.2972625,
+            "count": 358.900785,
+            "page": 371.412106,
+            "plan": 1.2789285000000001,
+            "snippets": 5.730269
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": "claude",
+        "limit": 50,
+        "offset": 0,
+        "projectId": null,
+        "query": "session_bay_identifier"
+      },
+      "matches": 0,
+      "resultSha256": "4bf7c8639bc34bbbae5aef4aba3c724f9a425cbdc0416ab6384f7745ae1acb96",
+      "runs": {
+        "before": {
+          "p50Ms": 0.711144,
+          "p95Ms": 0.7958620000000001,
+          "firstQueryMs": 1.064528,
+          "phaseMediansMs": {
+            "connect": 0.2964375,
+            "count": 0.1032005,
+            "page": 0.2000225,
+            "plan": 0.011617,
+            "snippets": 4.9999999999999996e-05
+          }
+        },
+        "after": {
+          "p50Ms": 1.5760100000000001,
+          "p95Ms": 1.882689,
+          "firstQueryMs": 1.813335,
+          "phaseMediansMs": {
+            "connect": 0.199328,
+            "count": 0.0635505,
+            "page": 0.12162799999999999,
+            "plan": 1.0767215,
+            "snippets": 4e-05
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 0.44377099999999997,
+          "p95Ms": 0.4967,
+          "firstQueryMs": 0.590032,
+          "phaseMediansMs": {
+            "connect": 0.181759,
+            "count": 0.06543850000000001,
+            "page": 0.112344,
+            "plan": 0.0075915,
+            "snippets": 2.9999999999999997e-05
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 1.6598,
+          "p95Ms": 1.9696330000000002,
+          "firstQueryMs": 1.766018,
+          "phaseMediansMs": {
+            "connect": 0.215332,
+            "count": 0.06556300000000001,
+            "page": 0.124416,
+            "plan": 1.1282904999999999,
+            "snippets": 4e-05
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "after": null,
+        "archived": null,
+        "before": null,
+        "includeChildren": null,
+        "kind": null,
+        "limit": 50,
+        "offset": 0,
+        "projectId": "missing-project",
+        "query": "session_bay_identifier"
+      },
+      "matches": 0,
+      "resultSha256": "4bf7c8639bc34bbbae5aef4aba3c724f9a425cbdc0416ab6384f7745ae1acb96",
+      "runs": {
+        "before": {
+          "p50Ms": 0.6579039999999999,
+          "p95Ms": 0.717144,
+          "firstQueryMs": 1.176608,
+          "phaseMediansMs": {
+            "connect": 0.26941200000000004,
+            "count": 0.097252,
+            "page": 0.1781395,
+            "plan": 0.011057,
+            "snippets": 4.9999999999999996e-05
+          }
+        },
+        "after": {
+          "p50Ms": 1.560376,
+          "p95Ms": 1.8613760000000001,
+          "firstQueryMs": 1.532835,
+          "phaseMediansMs": {
+            "connect": 0.19872250000000002,
+            "count": 0.064767,
+            "page": 0.114421,
+            "plan": 1.0384295,
+            "snippets": 4e-05
+          }
+        },
+        "before-repeat": {
+          "p50Ms": 0.413254,
+          "p95Ms": 0.49584900000000004,
+          "firstQueryMs": 0.425973,
+          "phaseMediansMs": {
+            "connect": 0.1776835,
+            "count": 0.06431699999999999,
+            "page": 0.1038165,
+            "plan": 0.007556,
+            "snippets": 2.9999999999999997e-05
+          }
+        },
+        "after-repeat": {
+          "p50Ms": 1.676996,
+          "p95Ms": 1.9912850000000002,
+          "firstQueryMs": 1.834611,
+          "phaseMediansMs": {
+            "connect": 0.25374949999999996,
+            "count": 0.0654325,
+            "page": 0.118207,
+            "plan": 1.110364,
+            "snippets": 4.9999999999999996e-05
+          }
+        }
+      }
+    }
+  ],
+  "memory": {
+    "before": {
+      "processPeakResidentKiB": 8896,
+      "residentKiB": 8492
+    },
+    "after": {
+      "processPeakResidentKiB": 12340,
+      "residentKiB": 10520
+    },
+    "before-repeat": {
+      "processPeakResidentKiB": 9600,
+      "residentKiB": 8540
+    },
+    "after-repeat": {
+      "processPeakResidentKiB": 12544,
+      "residentKiB": 9912
+    }
+  }
+}
