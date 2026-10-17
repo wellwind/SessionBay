@@ -2,6 +2,15 @@
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
 
+## 2026-10-17 Terminal 內容重繪與有界輸出批次
+
+- 問題範圍為 Agent 執行時 Terminal 內容閃爍；既有 xterm 實例生命週期、React UI 與主題切換不因此重寫。
+- Broker client 僅合併同一 Poll 回應內、同 runtime 且 sequence 連續的 Output。保留所有位元組及順序，使用末端 sequence；Snapshot／Exit／Error／Disconnected 及 sequence 缺口均為批次邊界。每批維持 64 KiB 上限，不增加 Poll、等待計時器、重放保留量或 ANSI 緩衝。
+- 原本逐事件的 lease／取消／30 秒 ACK 等待不變；前端必須等整批 xterm.write callback 完成才 ACK。1 MiB／128 frame 的 replay 上限、過期後 snapshot 重建、OSC 52 與查詢過濾均維持。
+- 合成延遲模型每個 write／ACK 往返期間產生四個小 chunk，30 次 Poll：原逐 chunk 模型為 513 次 write 與 9 次 snapshot；批次模型為 30 次 write、0 次 snapshot。這是固定條件的單元模型，不是實際使用者效能或 macOS 視覺驗收。
+- 真實 TerminalPane／xterm 的 Chrome fixture 分開觀察跨 write 的同步清除／重繪與同一批次 write；只記錄 reset、write、ACK、resize、render 與空白 render 計數，不擷取使用者輸入。CI 證據與原生桌面驗收需分別確認。
+- xterm 5.5 尚未支援 DEC 2026；跨 Poll 的同步 repaint 仍可能閃爍。6.0 升級需獨立審查 Fit／Search addon、鍵盤與 IME 相容性，本次不升級、不加入私有 renderer hook。
+
 ## 2026-10-17 啟動時最大化
 
 - 主視窗建立時預設最大化（`maximized: true`），不是全螢幕；保留一般視窗的還原／調整大小操作。原有 1440×940 還原尺寸與最小尺寸不變。

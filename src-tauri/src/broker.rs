@@ -1,6 +1,7 @@
 //! Detached runtime host. The desktop is a disposable client; only this process
 //! owns PTYs. Restoring metadata never grants authority over an old process ID.
 mod client;
+mod output_batch;
 mod screen;
 mod transport;
 use crate::runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent};

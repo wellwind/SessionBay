@@ -16,6 +16,7 @@
     "test:agent-status": "playwright test --config playwright.agent-status.config.ts",
     "test:tabs": "playwright test --config playwright.tabs.config.ts",
     "test:layout": "playwright test --config playwright.layout.config.ts",
+    "test:flicker": "playwright test --config playwright.flicker.config.ts",
     "test:sidebar": "playwright test --config playwright.sidebar.config.ts"
   },
   "dependencies": {

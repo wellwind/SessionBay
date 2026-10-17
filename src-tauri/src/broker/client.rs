@@ -292,7 +292,9 @@ impl BrokerClient {
                             thread::sleep(Duration::from_millis(40));
                             continue;
                         }
-                        for event in events {
+                        // One acknowledged write for adjacent output already in this response.
+                        // Keep the existing per-event lease/cancellation and ACK wait below.
+                        for event in super::output_batch::batch_output(events) {
                             if subscription.cancelled.load(Ordering::Acquire) { return Ok(()); }
                             if let Some(sequence) = event.sequence() {
                                 lock(&subscription.flow).0 = Some(sequence);
