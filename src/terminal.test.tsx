@@ -1,3 +1,4 @@
+import { AgentStatusOverview } from './components/AgentStatusOverview';
 import { useState } from 'react';
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
 
@@ -1090,4 +1091,51 @@ it('refits after native page zoom without changing terminal font or runtime, and
   await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'still alive'));
   expect(mocks.launch).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
   expect(mocks.reset).toHaveBeenCalledTimes(resets);
+});
+
+// The status overview observes the same guarded lifecycle patches as every hidden pane.
+describe('Agent overview lifecycle signal integration', () => {
+  function AgentHarness({ initial, visible = false }: { initial: Pane; visible?: boolean }) {
+    const [pane, setPane] = useState(initial);
+    return <>
+      <TerminalPane {...props(pane)} visible={visible} settings={{ ...settings, sources: [] }}
+        onPatch={(_id, patch) => setPane((current) => ({ ...current, ...patch }))} />
+      <AgentStatusOverview workspace={{ ...emptyWorkspace(), panes: { [pane.id]: pane } }} projects={[]} onFocus={() => undefined} />
+    </>;
+  }
+  it('updates inactive Agent counts from duplicate exit events and ignores a late running launch response', async () => {
+    let resolve!: (info: RuntimeInfo) => void;
+    mocks.launch.mockReturnValue(new Promise<RuntimeInfo>((done) => { resolve = done; }));
+    render(<AgentHarness initial={makePane({ kind: 'codex', title: 'Agent', startToken: 1 })} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => {
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+    });
+    await act(async () => resolve(info));
+    expect(screen.getByText('0 存活 / 1 已開啟')).toBeInTheDocument();
+    expect(screen.getByText('已開啟 1 · 存活 0 · 已結束 1 · 中斷 0')).toBeInTheDocument();
+    expect(screen.queryByText('程序存活 · 活動未知')).not.toBeInTheDocument();
+    expect(mocks.launch).toHaveBeenCalledTimes(1);
+  });
+  it('distinguishes disconnect from exit, restores live counts after explicit reconnect, and ignores old stream events', async () => {
+    render(<AgentHarness visible initial={makePane({ kind: 'codex', title: 'Agent', runtimeId: 'runtime', state: 'running' })} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(1));
+    const old = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(old);
+    expect(screen.getByText('1 存活 / 1 已開啟')).toBeInTheDocument();
+    act(() => old({ type: 'disconnected', runtimeId: 'runtime', message: 'Offline' }));
+    expect(screen.getByText('已開啟 1 · 存活 0 · 已結束 0 · 中斷 0 · 斷線 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    completeSnapshot(mocks.attach.mock.calls[1][1]);
+    act(() => {
+      old({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      old({ type: 'disconnected', runtimeId: 'runtime', message: 'Stale' });
+    });
+    expect(screen.getByText('1 存活 / 1 已開啟')).toBeInTheDocument();
+    expect(screen.getByText('已開啟 1 · 存活 1 · 已結束 0 · 中斷 0')).toBeInTheDocument();
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
 });

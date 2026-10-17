@@ -1,3 +1,4 @@
+import { AgentStatusOverview } from './components/AgentStatusOverview';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -1129,6 +1130,7 @@ export default function App() {
                 </nav>
               </section>
             )}
+            {boot && <AgentStatusOverview workspace={workspace} projects={visibleProjects} onFocus={focus} />}
             <div className="sidebar-bottom">
               <span className="eyebrow">你的工作，留在本機</span>
               <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
