@@ -20,6 +20,9 @@ function Assert-SessionBayInstallerRunner {
 
 function Assert-SessionBayChildPath {
     param([string]$Root, [string]$Path)
+    if (![IO.Path]::IsPathFullyQualified($Root) -or ![IO.Path]::IsPathFullyQualified($Path)) {
+        throw 'Containment checks require absolute root and child paths.'
+    }
     $prefix = [IO.Path]::GetFullPath($Root).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     $full = [IO.Path]::GetFullPath($Path)
     if (!$full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
@@ -28,8 +31,29 @@ function Assert-SessionBayChildPath {
     return $full
 }
 
+function Resolve-SessionBayContainedFile {
+    param([string]$Root, [string]$Path)
+    if (![IO.Path]::IsPathFullyQualified($Root)) { throw 'File root must be absolute.' }
+    # .NET relative paths use Environment.CurrentDirectory, not Push-Location.
+    # Resolve explicitly against the caller's source/install root before any I/O.
+    $rootPath = [IO.Path]::GetFullPath($Root).TrimEnd('\', '/')
+    $full = Assert-SessionBayChildPath $rootPath ([IO.Path]::GetFullPath($Path, $rootPath))
+    $item = Get-Item -LiteralPath $full -Force -ErrorAction Stop
+    if ($item.PSIsContainer) { throw "Expected a file: $full" }
+    # A lexically contained junction/symlink must not redirect outside the root.
+    $ancestor = $item
+    while ($true) {
+        if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Reparse point is not allowed: $($ancestor.FullName)" }
+        if ($ancestor.FullName.TrimEnd('\', '/') -eq $rootPath) { break }
+        $parent = if ($ancestor.PSIsContainer) { $ancestor.Parent.FullName } else { $ancestor.DirectoryName }
+        $ancestor = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+    }
+    return $full
+}
+
 function Get-SessionBayPeMachine {
     param([string]$Path)
+    if (![IO.Path]::IsPathFullyQualified($Path)) { throw 'PE inspection requires an explicitly resolved absolute path.' }
     $stream = [IO.File]::OpenRead($Path)
     $reader = [IO.BinaryReader]::new($stream)
     try {
