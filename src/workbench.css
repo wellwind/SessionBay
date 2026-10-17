@@ -61,7 +61,6 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .project-count { font-size: 12px; }
 .project-row { margin-bottom: 4px; }
 .project-row.active { border-color: var(--border); background: var(--surface); }
-.project-pin { opacity: 1; min-width: 24px; min-height: 32px; }
 .sidebar-empty { font-size: 12px; line-height: 1.7; padding: 14px 10px; }
 .add-project { font-size: 12px; min-height: 38px; border-color: var(--control-border); margin: 16px 4px; }
 .open-workspaces { padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--border); }
@@ -277,3 +276,15 @@ input.checkbox::before { border-color: var(--on-accent); }
   .settings-confirm-backdrop { position: fixed; overflow: auto; padding: 12px; }
   .settings-confirm { max-height: calc(100dvh - 24px); overflow: auto; }
 }
+
+.sidebar-section-toggle { display: flex; align-items: center; gap: 6px; min-height: 32px; color: inherit; text-align: left; }
+.sidebar-project-content { display: flex; flex-direction: column; min-height: 0; flex: 0 1 auto; }
+.sidebar-project-content[hidden], .open-workspaces nav[hidden] { display: none; }
+.project-drag { flex-shrink: 0; width: 24px; cursor: grab; color: var(--muted); }
+.project-drag:active { cursor: grabbing; }
+.project-row .project-main { min-width: 0; padding-left: 5px; }
+.project-move-buttons { display: flex; flex-direction: column; justify-content: center; flex-shrink: 0; }
+.project-move-buttons button { width: 24px; min-height: 24px; color: var(--muted); }
+.project-move-buttons button[aria-disabled="true"] { opacity: .4; cursor: default; }
+.project-row.drop-before { box-shadow: 0 -2px 0 var(--accent); }
+.project-row.drop-after { box-shadow: 0 2px 0 var(--accent); }

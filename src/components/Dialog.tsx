@@ -38,7 +38,7 @@ export function Dialog({
           root?.querySelectorAll<HTMLElement>(
             'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]',
           ) ?? [],
-        ).filter((el) => el.offsetParent !== null);
+        ).filter((el) => el.tabIndex >= 0 && el.offsetParent !== null);
         if (!focusable.length) return;
         if (event.shiftKey && document.activeElement === focusable[0]) {
           event.preventDefault();

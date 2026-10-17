@@ -49,4 +49,4 @@ Broker 使用 vt100 重建 normal／alternate screen、游標、SGR 顏色、常
 
 Hello request 維持舊格式，Hello response 以可選 capabilities 宣告延伸功能。目前 `homeDirectory` 表示支援全域臨時 Shell 的家目錄政策 metadata。沒有此能力的既有 broker 可使用已由 Rust 解析好的明確家目錄 cwd 啟動；只省略未知政策欄位，保留 null project 與原 profile，不重送 Launch 或重啟任何既有程序。
 
-相容模式的 home 政策由已儲存 workspace 的 `homePolicyRuntimeId` 與 broker 回傳 runtime ID 比對；該 token 不可用來附接或自動啟動。舊 broker 沒有政策資料、workspace 也遺失時，恢復的 Terminal 使用明確 cwd，UI 顯示相容模式限制。現代 broker 回傳的政策優先。詳細相容邊界見 2026-10-17 決策。
+相容模式的 home 政策由已儲存 workspace 的 `homePolicyRuntimeId` 與 broker 回傳 runtime ID 比對；該 token 不可用來附接或自動啟動。舊 broker 沒有政策資料、workspace 也遺失時，恢復的 Terminal 使用明確 cwd。協商與相容處理在背景進行，不因缺少 capability 顯示例行版本提示；真正的連線、啟動與資料讀取錯誤仍保留。現代 broker 回傳的政策優先。詳細相容邊界見 2026-10-17 決策。
