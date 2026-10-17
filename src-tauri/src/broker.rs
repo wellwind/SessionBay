@@ -18,6 +18,7 @@ use std::{
 use uuid::Uuid;
 
 pub const PROTOCOL: u32 = 1;
+const HOME_DIRECTORY_CAPABILITY: &str = "homeDirectory";
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -34,8 +35,8 @@ pub struct RuntimeRecord {
     pub project_id: Option<String>,
     pub profile_id: Option<String>,
     pub resume_id: Option<String>,
-    #[serde(default)]
-    pub home_directory: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_directory: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -162,12 +163,25 @@ impl Request {
     rename_all_fields = "camelCase"
 )]
 enum Response {
-    Hello { protocol: u32, generation: String },
-    Records { records: Vec<RuntimeRecord> },
-    Runtime { info: Option<RuntimeInfo> },
-    Events { events: Vec<UiEvent> },
+    Hello {
+        protocol: u32,
+        generation: String,
+        #[serde(default)]
+        capabilities: Vec<String>,
+    },
+    Records {
+        records: Vec<RuntimeRecord>,
+    },
+    Runtime {
+        info: Option<RuntimeInfo>,
+    },
+    Events {
+        events: Vec<UiEvent>,
+    },
     Ok,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 struct Entry {
     record: RuntimeRecord,
@@ -208,6 +222,8 @@ impl Host {
                 return Err("Too many saved runtime records".into());
             }
             for mut record in records {
+                // A modern host treats historical manifests as explicit-cwd policy.
+                record.home_directory.get_or_insert(false);
                 if !matches!(
                     record.info.state.as_str(),
                     "exited" | "failed" | "interrupted"
@@ -301,6 +317,7 @@ impl Host {
                 Ok(Response::Hello {
                     protocol: PROTOCOL,
                     generation: self.generation.clone(),
+                    capabilities: vec![HOME_DIRECTORY_CAPABILITY.into()],
                 })
             }
             Request::List { .. } => Ok(Response::Records {
@@ -324,7 +341,8 @@ impl Host {
                     && (kind != "shell"
                         || project_id.is_some()
                         || resume_id.is_some()
-                        || spec.session_id.is_some())
+                        || spec.session_id.is_some()
+                        || spec.resume_key.is_some())
                 {
                     return Err("Home directory policy requires an unscoped shell".into());
                 }
@@ -402,7 +420,7 @@ impl Host {
                             project_id,
                             profile_id,
                             resume_id,
-                            home_directory,
+                            home_directory: Some(home_directory),
                         },
                         screen: Some(screen),
                     },
@@ -668,15 +686,15 @@ mod tests {
             "state":"interrupted", "cwd":"/synthetic/explicit", "exitCode":null,
             "kind":"shell", "projectId":null, "profileId":null, "resumeId":null});
         let old: RuntimeRecord = serde_json::from_value(base.clone()).unwrap();
-        assert!(!old.home_directory);
+        assert_eq!(old.home_directory, None);
         assert_eq!(old.info.cwd, "/synthetic/explicit");
         let mut home = base;
         home["homeDirectory"] = true.into();
         let record: RuntimeRecord = serde_json::from_value(home).unwrap();
-        assert!(record.home_directory);
+        assert_eq!(record.home_directory, Some(true));
         let restored: RuntimeRecord =
             serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
-        assert!(restored.home_directory);
+        assert_eq!(restored.home_directory, Some(true));
         assert!(restored.project_id.is_none());
     }
     #[test]
@@ -695,7 +713,7 @@ mod tests {
             project_id: None,
             profile_id: None,
             resume_id: None,
-            home_directory: false,
+            home_directory: Some(false),
         };
         fs::write(
             temp.path().join("sessions.json"),
@@ -709,7 +727,7 @@ mod tests {
         records[0].as_object_mut().unwrap().remove("homeDirectory");
         fs::write(&path, serde_json::to_vec(&records).unwrap()).unwrap();
         let host = Host::open(temp.path().into()).unwrap();
-        assert!(!host.records()[0].home_directory);
+        assert_eq!(host.records()[0].home_directory, Some(false));
         assert_eq!(host.records()[0].info.cwd, "/synthetic");
         assert_eq!(host.records()[0].info.state, "interrupted");
         assert!(host.runtime.list().is_empty());

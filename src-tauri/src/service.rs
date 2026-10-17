@@ -123,6 +123,13 @@ impl Service {
         if let Some(w) = warning {
             warnings.push(w);
         }
+        if let Some(warning) = self
+            .broker
+            .as_ref()
+            .and_then(BrokerClient::compatibility_warning)
+        {
+            warnings.push(warning.into());
+        }
         Ok(Bootstrap {
             projects: self.catalog.projects()?,
             installations: config::detect_paths(&settings),
