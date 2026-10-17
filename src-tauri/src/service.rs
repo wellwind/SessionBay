@@ -12,7 +12,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -74,7 +74,6 @@ pub struct Service {
     settings: Mutex<Settings>,
     index: Mutex<IndexStatus>,
     scan_guard: Mutex<()>,
-    revision: AtomicU64,
     cancel: AtomicBool,
     paused: AtomicBool,
     closed: AtomicBool,
@@ -111,7 +110,6 @@ impl Service {
             settings: Mutex::new(settings),
             index: Mutex::new(empty_index()),
             scan_guard: Mutex::new(()),
-            revision: AtomicU64::new(0),
             cancel: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             closed: AtomicBool::new(false),
@@ -199,10 +197,10 @@ impl Service {
         Ok(settings)
     }
     pub fn index_status(&self) -> Result<IndexStatus, String> {
-        self.index
-            .lock()
-            .map(|v| v.clone())
-            .map_err(|_| "索引狀態鎖定失敗".into())
+        let mut status = self.index.lock().map_err(|_| "索引狀態鎖定失敗")?.clone();
+        // Also report committed changes while a scan is still running.
+        status.revision = self.catalog.revision()?;
+        Ok(status)
     }
     pub fn start_index(self: &Arc<Self>, rebuild: bool) -> Result<IndexStatus, String> {
         {
@@ -210,9 +208,10 @@ impl Service {
             if status.running {
                 return Ok(status.clone());
             }
+            let revision = self.catalog.revision()?;
             *status = empty_index();
             status.running = true;
-            status.revision = self.revision.load(Ordering::Acquire);
+            status.revision = revision;
         }
         self.cancel.store(false, Ordering::Release);
         self.paused.store(false, Ordering::Release);
@@ -234,7 +233,7 @@ impl Service {
                     &service.cancel,
                     |mut progress| {
                         if let Ok(mut status) = service.index.lock() {
-                            progress.revision = service.revision.load(Ordering::Acquire);
+                            progress.revision = status.revision;
                             *status = progress;
                         }
                     },
@@ -244,7 +243,7 @@ impl Service {
                 match result {
                     Ok(mut final_status) => {
                         final_status.running = false;
-                        final_status.revision = service.revision.fetch_add(1, Ordering::AcqRel) + 1;
+                        final_status.revision = status.revision;
                         *status = final_status;
                     }
                     Err(e) => {
@@ -271,7 +270,7 @@ impl Service {
             .map_err(|_| "索引正在停止，請稍後再清除")?;
         self.catalog.clear()?;
         let mut empty = empty_index();
-        empty.revision = self.revision.fetch_add(1, Ordering::AcqRel) + 1;
+        empty.revision = self.catalog.revision()?;
         *self.index.lock().map_err(|_| "索引狀態鎖定失敗")? = empty;
         Ok(())
     }
@@ -835,6 +834,16 @@ fn empty_index() -> IndexStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn failed_revision_read_does_not_mark_an_unstarted_scan_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = super::Service::open(dir.path().to_path_buf()).unwrap();
+        let conn = rusqlite::Connection::open(dir.path().join("catalog.sqlite")).unwrap();
+        conn.execute_batch("DROP TABLE catalog_revision").unwrap();
+        assert!(service.start_index(false).is_err());
+        assert!(!service.index.lock().unwrap().running);
+    }
+
     #[cfg(unix)]
     #[test]
     fn disabled_provider_keeps_persistent_focus_and_attachment_without_new_processes() {

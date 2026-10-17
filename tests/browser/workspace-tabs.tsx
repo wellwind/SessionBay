@@ -33,5 +33,5 @@ api.scan = api.index = async () => data.index;
 api.runtimes = async () => [];
 api.saveWorkspace = async workspace => { localStorage.setItem('workspace-test', JSON.stringify(workspace)); };
 api.setWorkspaceZoom = async () => {};
-api.sessions = async () => ({ items: [], total: 0 });
+api.sessions = async () => ({ catalogRevision: 'fixture', items: [], total: 0 });
 createRoot(document.getElementById('root')!).render(<App />);

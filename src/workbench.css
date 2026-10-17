@@ -69,8 +69,6 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .open-workspaces nav button { min-height: 54px; padding: 9px 10px; }
 .open-workspaces strong { font-size: 12px; }
 .open-workspaces small { font-size: 11px; }
-.sidebar-bottom { padding: 18px 8px; }
-.sidebar-bottom .eyebrow, .sidebar-bottom p, .sidebar-bottom button { font-size: 11px; line-height: 1.65; }
 .main-content:focus { outline: none; }
 .project-header { padding: 24px 28px 22px; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg); gap: 20px; }
 .project-header h1 { font-size: 26px; line-height: 1.4; letter-spacing: -.4px; margin-top: 8px; overflow-wrap: anywhere; }

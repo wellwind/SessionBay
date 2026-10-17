@@ -1,3 +1,6 @@
+#[path = "support/revision_schema.rs"]
+mod revision_schema;
+use revision_schema::remove_revision_schema;
 use serde_json::json;
 use sessionbay_lib::catalog::Catalog;
 use sessionbay_lib::models::{AgentKind, HistorySource, SessionQuery};
@@ -73,6 +76,49 @@ fn codex(id: &str, text: &str) -> String {
         json!({"type":"session_meta","payload":{"id":id,"cwd":SHARED_CWD}}),
         json!({"timestamp":"2026-01-01T00:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}})
     )
+}
+
+#[test]
+fn session_batches_preserve_ties_and_support_both_time_orders() {
+    let h = Harness::new();
+    let source = h.source("lazy-synthetic", AgentKind::Codex);
+    for i in 0..85 {
+        let body = codex(&format!("batch-{i:03}"), "Synthetic bounded list");
+        let body = if i >= 40 {
+            body.replace("2026-01-01", "2026-02-01")
+        } else {
+            body
+        };
+        h.write(&source, &format!("sessions/row-{i}.jsonl"), &body);
+    }
+    h.sync(&[source]);
+    for oldest_first in [false, true] {
+        let mut items = Vec::new();
+        for offset in [0, 40, 80] {
+            let page = h
+                .catalog
+                .query(&SessionQuery {
+                    oldest_first: Some(oldest_first),
+                    offset: Some(offset),
+                    limit: Some(40),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(page.total, 85);
+            assert!(page.items.len() <= 40);
+            items.extend(page.items);
+        }
+        assert_eq!(items.len(), 85);
+        for pair in items.windows(2) {
+            if pair[0].updated_at == pair[1].updated_at {
+                assert!(pair[0].id < pair[1].id);
+            } else if oldest_first {
+                assert!(pair[0].updated_at < pair[1].updated_at);
+            } else {
+                assert!(pair[0].updated_at > pair[1].updated_at);
+            }
+        }
+    }
 }
 fn append(path: &Path, text: &str) {
     OpenOptions::new()
@@ -1055,6 +1101,7 @@ fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
         .unwrap();
     let path = h.root.join("app/index.sqlite");
     let conn = rusqlite::Connection::open(&path).unwrap();
+    remove_revision_schema(&conn);
     conn.execute_batch("UPDATE sessions SET title='Neutral title'; DROP TRIGGER messages_fts_insert; DROP TRIGGER messages_fts_delete; DROP TRIGGER messages_fts_update; DROP TABLE messages_fts; DROP TABLE project_directories; DROP TABLE session_trash; ALTER TABLE sources DROP COLUMN storage_root; PRAGMA user_version=1;").unwrap();
     drop(conn);
     let migrated = Catalog::open(&path).unwrap();
@@ -1073,7 +1120,7 @@ fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
     drop(conn);
     fts_integrity(&path);
 }
@@ -1738,6 +1785,7 @@ fn version_three_migration_keeps_sessions_and_adds_empty_recycle_bin() {
     h.sync(std::slice::from_ref(&source));
     let path = h.root.join("app/index.sqlite");
     let conn = rusqlite::Connection::open(&path).unwrap();
+    remove_revision_schema(&conn);
     conn.execute_batch("DROP TABLE session_trash; ALTER TABLE sources DROP COLUMN storage_root; PRAGMA user_version=3;").unwrap();
     drop(conn);
     let migrated = Catalog::open(&path).unwrap();
@@ -2257,9 +2305,65 @@ fn dense_search_probe_boundary_keeps_identical_results() {
     let expected_source = fs::read(&path).unwrap();
     h.sync(&[source]);
     let after = h.catalog.query(&request).unwrap();
+    assert_ne!(before.catalog_revision, after.catalog_revision);
+    assert_eq!(before.total, after.total);
     assert_eq!(
-        serde_json::to_value(before).unwrap(),
-        serde_json::to_value(after).unwrap()
+        serde_json::to_value(before.items).unwrap(),
+        serde_json::to_value(after.items).unwrap()
     );
     assert_eq!(fs::read(path).unwrap(), expected_source);
+}
+
+#[test]
+fn scan_commits_change_the_revision_while_progress_is_still_running() {
+    let h = Harness::new();
+    let source = h.source("revision-scan", AgentKind::Codex);
+    for i in 0..4 {
+        h.write(
+            &source,
+            &format!("sessions/{i}.jsonl"),
+            &codex(&format!("revision-{i}"), "Synthetic revision scan"),
+        );
+    }
+    let revisions = std::sync::Mutex::new(std::collections::HashSet::new());
+    h.catalog
+        .sync(&[source], &AtomicBool::new(false), |progress| {
+            if progress.running {
+                revisions.lock().unwrap().insert(
+                    h.catalog
+                        .query(&SessionQuery::default())
+                        .unwrap()
+                        .catalog_revision,
+                );
+            }
+        })
+        .unwrap();
+    assert!(
+        revisions.lock().unwrap().len() > 1,
+        "committed versions must change before scan completion"
+    );
+}
+
+#[test]
+fn version_four_migration_preserves_rows_and_versions_subsequent_writes() {
+    let h = Harness::new();
+    let source = h.source("revision-migration", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("s", "Synthetic migration"),
+    );
+    h.sync(&[source]);
+    let path = h.root.join("app/index.sqlite");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    remove_revision_schema(&conn);
+    conn.pragma_update(None, "user_version", 4).unwrap();
+    let migrated = Catalog::open(&path).unwrap();
+    let before = migrated.query(&SessionQuery::default()).unwrap();
+    assert_eq!(before.total, 1);
+    conn.execute("UPDATE sessions SET title='changed'", [])
+        .unwrap();
+    let after = migrated.query(&SessionQuery::default()).unwrap();
+    assert_ne!(after.catalog_revision, before.catalog_revision);
+    assert_eq!(after.items[0].title, "changed");
 }

@@ -14,7 +14,7 @@ const session: Session = {
   cwd: '/synthetic/preview', updatedAt: '2026-10-17T00:00:00Z', timeSource: 'event',
   archived: false, parentId: null, partial: false, snippet: 'Synthetic transcript',
 };
-api.sessions = async () => ({ items: [session], total: 1 });
+api.sessions = async () => ({ catalogRevision: 'fixture', items: [session], total: 1 });
 api.transcript = async () => ({ messages: Array.from({ length: 40 }, (_, line) => ({
   role: 'assistant', text: `Synthetic message ${line + 1}`, timestamp: null, line,
 })), hasMore: false, beforeLine: null, stale: false, warning: null });

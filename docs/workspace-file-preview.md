@@ -40,4 +40,4 @@ Windows 使用 `NtCreateFile(RootDirectory)` 單元件相對開啟及 `FILE_OPEN
 
 Files 與 history、workspace 是並列顯示狀態。App 擁有各專案 Files 的存續與共用 hosts；WorkspaceCanvas 僅保有 Terminal surface，檔案元件用 portal 放入同列 tabs、左側樹與主文件區，不以 portal 重新掛載 Terminal。分割拖曳仍以 Terminal surface 實際大小計算。
 
-本次未改 Rust、IPC、權限、檔案根或 Runtime schema。2026-10-17 雲端 Chromium 因執行環境 socket 權限及提權環境建立失敗，尚未跑完新 UI 瀏覽器截圖；上述 Windows 舊版通過紀錄不代表此重整版已完成原生或視覺驗收。
+Files 重整未改 Rust、IPC、權限、檔案根或 Runtime schema。2026-10-17 GitHub Actions 已通過新版 Files 8 項及專注模式 16 項瀏覽器回歸，並實際檢視正常／專注模式、深淺主題、窄寬視窗與零 Runtime 截圖；本機雲端 Chromium 啟動限制未繞過。上述瀏覽器及 Windows 舊版通過紀錄不代表重整版已完成原生驗收。整合 Session 清單漸進載入後仍須重新通過完整 CI。

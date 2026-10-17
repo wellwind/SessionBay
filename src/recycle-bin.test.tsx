@@ -15,11 +15,11 @@ const session: Session = { id: 'real-catalog-id', trashIdentity: 'displayed-sour
 const entry = { id: 'provenance-trash-id', session, deletedAt: session.updatedAt, sourceRoot: '/synthetic/source', unavailableReason: null };
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(api.sessions).mockResolvedValue({ items: [session], total: 1 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [session], total: 1 });
   vi.mocked(api.transcript).mockResolvedValue({ messages: [], hasMore: false, beforeLine: null, stale: false, warning: null });
   vi.mocked(api.trashSession).mockResolvedValue(entry.id);
   vi.mocked(api.restoreSession).mockResolvedValue();
-  vi.mocked(api.trash).mockResolvedValue({ items: [entry], total: 1 });
+  vi.mocked(api.trash).mockResolvedValue({ catalogRevision: 'fixture', items: [entry], total: 1 });
 });
 it('defaults recoverable delete to confirm, preserves Escape and prevents pending duplicate Enter', async () => {
   const user = userEvent.setup();
@@ -37,7 +37,7 @@ it('defaults recoverable delete to confirm, preserves Escape and prevents pendin
   await user.keyboard('{Enter}{Enter}');
   expect(api.trashSession).toHaveBeenCalledOnce();
   expect(screen.getByRole('button', { name: '確認移入資源回收筒' })).toBeDisabled();
-  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [], total: 0 });
   await act(async () => resolve(entry.id));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
@@ -49,7 +49,7 @@ it('confirms recoverable deletion, supports undo and never stops or launches run
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(api.trashSession).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
-  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [], total: 0 });
   fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
   const undo = await screen.findByRole('button', { name: '復原刪除' });
   const dismiss = screen.getByRole('button', { name: '關閉復原提示' });
@@ -79,7 +79,7 @@ it('keeps failed moves reviewable and prevents repeated mutation while pending',
 });
 it('shows missing-source tombstones and restores only an available provenance ID', async () => {
   const missing = { ...entry, id: 'missing', session: { ...session, title: 'Missing work' }, unavailableReason: 'Reconnect original source' };
-  vi.mocked(api.trash).mockResolvedValue({ items: [entry, missing], total: 2 });
+  vi.mocked(api.trash).mockResolvedValue({ catalogRevision: 'fixture', items: [entry, missing], total: 2 });
   const changed = vi.fn();
   render(<SessionTrash onClose={vi.fn()} onChanged={changed} refreshToken={0} />);
   expect(await screen.findByRole('button', { name: '還原 Missing work' })).toBeDisabled();
@@ -89,24 +89,25 @@ it('shows missing-source tombstones and restores only an available provenance ID
   expect(api.restoreSession).toHaveBeenCalledWith(entry.id);
   expect(screen.queryByRole('button', { name: /永久|清空/ })).not.toBeInTheDocument();
 });
-it('ignores stale trash loads after page navigation and corrects an emptied last page', async () => {
-  vi.mocked(api.trash).mockImplementation(async (offset) => offset === 40 ? { items: [{ ...entry, id: 'last' }], total: 41 } : { items: [entry], total: 41 });
+it('loads trash in bounded batches and resets after restore', async () => {
+  vi.mocked(api.trash).mockResolvedValue({ catalogRevision: 'fixture', items: Array.from({ length: 40 }, (_, i) => ({ ...entry, id: 'trash-' + i,
+    session: { ...session, title: 'Work ' + i } })), total: 100 });
   render(<SessionTrash onClose={vi.fn()} onChanged={vi.fn()} refreshToken={0} />);
-  await screen.findByRole('button', { name: '還原 Synthetic work' });
-  fireEvent.click(screen.getByRole('button', { name: '下一頁' }));
-  await waitFor(() => expect(api.trash).toHaveBeenCalledWith(40, 40));
-  await waitFor(() => expect(within(screen.getByLabelText('資源回收筒清單')).getByRole('button')).toBeEnabled());
-  vi.mocked(api.trash).mockResolvedValue({ items: [entry], total: 40 });
-  fireEvent.click(screen.getByRole('button', { name: '還原 Synthetic work' }));
-  await waitFor(() => expect(screen.getByRole('button', { name: '上一頁' })).toBeDisabled());
-  expect(api.restoreSession).toHaveBeenCalledWith('last');
+  await screen.findByRole('button', { name: '還原 Work 0' });
+  expect(api.trash).toHaveBeenCalledExactlyOnceWith(0, 40);
+  expect(screen.queryByRole('button', { name: '下一頁' })).not.toBeInTheDocument();
+  vi.mocked(api.trash).mockResolvedValue({ catalogRevision: 'fixture', items: [], total: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '還原 Work 0' }));
+  await waitFor(() => expect(api.trash).toHaveBeenCalledTimes(2));
+  expect(api.trash).toHaveBeenLastCalledWith(0, 40);
+  expect(api.restoreSession).toHaveBeenCalledWith('trash-0');
 });
 
 it('keeps the displayed provenance through background refresh and rejects stale confirmation safely', async () => {
   const props = { projects: [], refreshToken: 0, onResume: vi.fn(), onNew: vi.fn() };
   const view = render(<HistoryView {...props} />);
   fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
-  vi.mocked(api.sessions).mockResolvedValue({ items: [{ ...session, trashIdentity: 'replacement-source-token', title: 'Replacement session' }], total: 1 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [{ ...session, trashIdentity: 'replacement-source-token', title: 'Replacement session' }], total: 1 });
   view.rerender(<HistoryView {...props} refreshToken={1} />);
   await screen.findAllByRole('heading', { name: 'Replacement session', level: 3 });
   vi.mocked(api.trashSession).mockRejectedValue(new Error('來源已變更'));
@@ -120,11 +121,11 @@ it('keeps the displayed provenance through background refresh and rejects stale 
 });
 it('deletes directly from a sibling row action without selecting or resuming it', async () => {
   const second = { ...session, id: 'second', title: 'Other work', trashIdentity: 'second-token' };
-  vi.mocked(api.sessions).mockResolvedValue({ items: [session, second], total: 2 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [session, second], total: 2 });
   const resume = vi.fn();
   render(<HistoryView projects={[]} refreshToken={0} onResume={resume} onNew={vi.fn()} />);
   const remove = await screen.findByRole('button', { name: '刪除 Session Other work' });
-  expect(remove.parentElement).toHaveAttribute('role', 'listitem');
+  expect(remove.closest('[role="listitem"]')).toHaveAttribute('role', 'listitem');
   expect(remove.closest('button')?.parentElement?.closest('button')).toBeNull();
   remove.focus();
   fireEvent.click(remove);
@@ -134,7 +135,7 @@ it('deletes directly from a sibling row action without selecting or resuming it'
   expect(remove).toHaveFocus();
   expect(api.trashSession).not.toHaveBeenCalled();
   fireEvent.click(remove);
-  vi.mocked(api.sessions).mockResolvedValue({ items: [session], total: 1 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [session], total: 1 });
   fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
   await waitFor(() => expect(screen.getByRole('button', { name: '復原刪除' })).toHaveFocus());
   expect(api.trashSession).toHaveBeenCalledWith('second', 'second-token');
@@ -142,7 +143,7 @@ it('deletes directly from a sibling row action without selecting or resuming it'
   expect(api.stop).not.toHaveBeenCalled();
 });
 it('disables list deletion without a source identity', async () => {
-  vi.mocked(api.sessions).mockResolvedValue({ items: [{ ...session, trashIdentity: undefined }], total: 1 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [{ ...session, trashIdentity: undefined }], total: 1 });
   render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} />);
   expect(await screen.findByRole('button', { name: '刪除 Session Synthetic work' })).toBeDisabled();
 });
@@ -151,7 +152,7 @@ it('does not reclaim focus after delayed history refresh when the user moved els
   const changed = vi.fn(() => new Promise<void>(resolve => { finishRefresh = resolve; }));
   render(<><input aria-label="Another control" /><HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} onHistoryChanged={changed} /></>);
   fireEvent.click(await screen.findByRole('button', { name: '刪除 Session Synthetic work' }));
-  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [], total: 0 });
   fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   const control = screen.getByRole('textbox', { name: 'Another control' });
@@ -165,7 +166,7 @@ it('offers Undo focus after delayed refresh if no newer interaction owns focus',
   render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()}
     onHistoryChanged={() => new Promise<void>(resolve => { finishRefresh = resolve; })} />);
   fireEvent.click(await screen.findByRole('button', { name: '刪除 Session Synthetic work' }));
-  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [], total: 0 });
   fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   await act(async () => finishRefresh());
@@ -181,7 +182,7 @@ it.each(['blur', 'pointer', 'dialog'] as const)('relinquishes pending Undo focus
   </>;
   const view = render(frame());
   fireEvent.click(await screen.findByRole('button', { name: '刪除 Session Synthetic work' }));
-  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [], total: 0 });
   fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   if (intent === 'blur') {

@@ -70,6 +70,7 @@ export interface Session {
   snippet: string | null;
 }
 export interface SessionQuery {
+  oldestFirst?: boolean;
   projectId?: string;
   kind?: AgentKind;
   query?: string;
@@ -81,6 +82,7 @@ export interface SessionQuery {
   limit?: number;
 }
 export interface SessionPage {
+  catalogRevision: string;
   items: Session[];
   total: number;
 }
@@ -245,6 +247,7 @@ export interface TrashedSession {
   unavailableReason: string | null;
 }
 export interface TrashPage {
+  catalogRevision: string;
   items: TrashedSession[];
   total: number;
 }

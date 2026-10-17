@@ -35,7 +35,7 @@ let sessions = ['介面互動整理', '修正鍵盤焦點', '檢查深淺色對�
   updatedAt: '2026-10-17T01:00:00Z', timeSource: 'event' as const, archived: false,
   parentId: null, partial: false, snippet: '合成測試資料，用來檢查 hover 與鍵盤操作。',
 }));
-api.sessions = async () => ({ items: sessions, total: sessions.length });
+api.sessions = async () => ({ catalogRevision: 'fixture', items: sessions, total: sessions.length });
 api.transcript = async () => ({ messages: [], hasMore: false, beforeLine: null, stale: false, warning: null });
 api.trashSession = async id => { sessions = sessions.filter(s => s.id !== id); return id; };
 api.saveSettings = async settings => settings;

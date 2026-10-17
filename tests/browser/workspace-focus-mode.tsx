@@ -84,7 +84,7 @@ mockIPC((command, payload = {}) => {
       return project;
     }
     case 'list_runtimes': return runtimes;
-    case 'query_sessions': return { items: [], total: 0 };
+    case 'query_sessions': return { catalogRevision: 'fixture', items: [], total: 0 };
     case 'detect_installations': case 'detect_shells': return [];
     case 'save_settings': bootstrap.settings = args.settings as Bootstrap['settings']; return bootstrap.settings;
     case 'preview_launch': {

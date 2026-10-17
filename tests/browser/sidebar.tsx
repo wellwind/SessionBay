@@ -33,5 +33,5 @@ api.projects = async () => data.projects;
 api.scan = api.index = async () => data.index;
 api.runtimes = async () => [];
 api.saveWorkspace = api.setWorkspaceZoom = async () => {};
-api.sessions = async () => ({ items: [], total: 0 });
+api.sessions = async () => ({ catalogRevision: 'fixture', items: [], total: 0 });
 createRoot(document.getElementById('root')!).render(<App />);
