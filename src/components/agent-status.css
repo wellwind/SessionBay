@@ -1,4 +1,6 @@
 .sidebar:has(> .agent-status-overview) { overflow-y: auto; }
+/* Keep project drag targets usable when the additional status panel consumes height. */
+.sidebar:has(> .agent-status-overview) .sidebar-project-content { flex-shrink: 0; max-height: min(320px, 40vh); }
 .agent-status-overview { flex: 0 0 auto; min-height: 32px; margin: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; overflow: hidden; }
 .agent-status-overview > summary { padding: 8px; cursor: pointer; font-weight: 600; }
 .agent-status-overview > summary > span { font-weight: 400; color: var(--muted); margin-left: 6px; }
