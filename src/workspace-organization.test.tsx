@@ -164,7 +164,7 @@ describe('tab reordering controls', () => {
     expect(changed).not.toHaveBeenCalled();
     pointer(source, 'pointerdown', 0);
     pointer(source, 'pointermove');
-    expect(target).toHaveClass('drop-after');
+    expect(source.parentElement).toHaveClass('reorder-dragging');
     pointer(source, 'pointerup');
     expect(changed).toHaveBeenCalledExactlyOnceWith('a', 'c', true);
     expect(screen.getByRole('status')).toHaveTextContent('第 3 個');

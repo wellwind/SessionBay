@@ -24,7 +24,16 @@ test(`sidebar drag, collapse, navigation and reload at ${viewport.width}x${viewp
     }, atTop);
     expect(receivesPointer).toBe(true);
   }
-  await page.getByRole('button', { name: '排序 API 開發', exact: true }).dragTo(page.getByRole('button', { name: '排序 文件與設計', exact: true }), { targetPosition: { x: 10, y: 1 } });
+  await expect(page.getByRole('button', { name: /上移|下移/ })).toHaveCount(0);
+  const from = (await page.getByRole('button', { name: '排序 API 開發', exact: true }).boundingBox())!;
+  const to = (await handles.first().boundingBox())!;
+  await page.mouse.move(from.x + 10, from.y + 10); await page.mouse.down();
+  await page.mouse.move(to.x + 10, to.y + 1, { steps: 12 });
+  await expect(page.locator('.project-row.reorder-dragging')).toHaveCount(1);
+  await expect.poll(async () => (await handles.first().boundingBox())!.y).toBeGreaterThan(to.y + 10);
+  await expect(handles.first()).toHaveAttribute('aria-label', '排序 文件與設計');
+  await page.screenshot({ path: info.outputPath('sidebar-during-drag.png') });
+  await page.mouse.up();
   await expect(handles.first()).toHaveAttribute('aria-label', '排序 API 開發');
   await page.screenshot({ path: info.outputPath('sidebar-expanded.png') });
   await page.getByRole('button', { name: '專案', exact: true }).click();
