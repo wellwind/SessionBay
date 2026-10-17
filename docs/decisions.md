@@ -593,3 +593,7 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 ## 2026-10-17：專案父列固定對齊槽位
 
 父列左側直接顯示資料夾與名稱；展開箭頭及拖曳把手依序放在右側，沒有分頁時仍在右側保留箭頭槽位。DOM 與鍵盤順序同為專案、展開箭頭、排序把手，資料夾前不保留操作空槽。資料夾對齊名稱第一行，活動摘要放在名稱與路徑之下並保留行高，避免活動文字或收合狀態讓名稱與圖示跳動。拖曳仍只以父列作為落點，不改排序或展開功能語意。
+
+## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
+
+正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。

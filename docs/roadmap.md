@@ -180,3 +180,9 @@
 ### 工具設定下拉選擇
 
 已實作可搜尋工具下拉與三區設定；單元回歸與瀏覽器合成腳本隨程式更新。原生 WebView、真實數十個 provider 與螢幕閱讀器實測仍待驗收。
+
+### Windows installer 隔離驗收
+
+- [x] 建立 [固定 SHA 的獨立手動 installer workflow](windows-installer-smoke.md) 與本機拒絕執行防呆。
+- [ ] 在核准的 GitHub hosted x64 runner dispatch 並檢視 installed binary／uninstall evidence。
+- [ ] ARM64 正式安裝包與一般使用者 UAC／SmartScreen 體驗另行驗收。
