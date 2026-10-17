@@ -520,6 +520,17 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。
 
+## 2026-10-17：Agent 入口擴充為一般檔案參照（候選實作，待驗收）
+
+- 取代僅接受 PNG／JPEG 的 UI 入口：使用者拖放或貼上實際 File 時接受所有類型，包括空檔、文字、PDF、SVG、壓縮檔與二進位。內容只按 bytes 保存，不執行、渲染或套用影像解碼；Agent 能否讀取／理解另外取決於該 CLI 與模型。
+- 一次最多 4 個、單檔 10 MiB、合計 20 MiB；一般檔案持久暫存另有 512 MiB／2048 個上傳目錄上限。每個檔案在獨立私有唯一目錄保留可用 basename 與副檔名，同批同名不覆蓋。跨平台不安全字元、控制與方向控制字元、Windows 保留名、尾點／空白及過長檔名需要安全清理，介面顯示原名與存入名稱。
+- 保留直接本機 Codex／Claude／Grok／OpenCode 路由守衛、create_new、owner-only 權限、跨程序 quota lock、retain-before-paste、lease／generation／輸入目標檢查及手動 Enter 取消；不自動送出，不自動停止 Agent。資料夾整批明確拒絕，不遞迴讀取。
+- 新 broker record 用有值的布林 capability 區分不支援路由與缺少能力資訊。PR27 broker 已記錄的本機路由可繼續提供一般路徑參照；更舊 broker 缺資訊時操作失敗並提示保留工作，不能靠可變設定／檔名繞過。錯誤只有已嘗試終端插入時才提示檢查重複。
+- 詳見[一般檔案輸入](file-input.md)。舊圖片 staging 與已保留路徑維持有效；本次不刪除歷史保留檔。
+
+## 2026-10-17：檔案附帶文字與拖放焦點
+
+實際 File 拖放／系統貼上以檔案為準，忽略 Finder／檔案管理員附帶的名稱或 URL 文字，不雙重插入、不自動 Enter。工具列剪貼簿有二進位檔案表示時採相同規則；純文字仍走原有路徑。拖放是明確選擇該面板的操作，先同步完成焦點更新，再重新擷取目標並核對 pane、runtime、kind、terminal、attachment lease 與 launch/start token；不移除原 generation 或輸入守衛。目標不可接受時游標顯示拒絕，聚焦未成立時明確拒絕，不把檔案偷偷送到其他面板。
 ## 2026-10-17：拖曳排序以實際項目讓位預覽
 
 專案垂直排序與工作區分頁水平排序共用 Pointer Events 預覽。超過 5px 門檻後，來源項目沿排序軸跟隨指標，其餘項目以 transform 平滑讓位，取代插入 border 線；拖曳中不改 DOM 順序、不保存後端，放開才交回原有一次排序／持久化管線。Escape、失焦、capture 遺失、pointercancel、外部或遮擋區域放開均取消。量測使用未變形的位置，避免動畫中的項目反覆改變落點；捲動座標與裁切區域另外檢查。
@@ -543,3 +554,8 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 Session 列新增同層刪除按鈕，hover／focus-within 顯示，無 hover 裝置常駐並預留寬度。動作沿用確認與可復原的資源回收筒，不刪來源、不終止執行；取消回原按鈕，完成後聚焦復原。Terminal 主題切換命令文案改為「切換 Terminal theme」。
 
 專案頁標題旁以小鉛筆開啟重新命名；資源回收筒與移出／加入專案改圖示按鈕。保留 Terminal／新增工作文字按鈕及既有確認流程；移出採資料夾減號，並明示不刪對話、檔案或關閉程序。長名稱可換行，圖示固定尺寸不被壓縮。
+
+
+## 2026-10-17：新 Agent 的可信啟動證明與背景程序共存
+
+真正新開、無 session/resume 身分的 Agent 由 backend 產生 pane UUID、凍結 LaunchSpec，再透過既有 broker Launch/List 驗證 generation 與 runtime 身分。已確認的 runtime 即使快速退出仍顯示診斷；只有仍存活且通過既有直接路由檢查者，可用私有最小證明補上舊 broker 缺少的能力資訊。明確拒絕不覆蓋，舊 runtime 不從可變設定推導權限；不重啟 broker 或停止既有 Agent。這補充上面的缺能力失敗規則，詳細 idempotency、quota、retention 與 native 驗收限制見[一般檔案輸入](file-input.md)。

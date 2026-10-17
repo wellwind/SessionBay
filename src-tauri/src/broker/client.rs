@@ -170,7 +170,7 @@ impl BrokerClient {
         let directory = transport::private_directory(parent).map_err(|error| error.to_string())?;
         Self::existing(&directory)
     }
-    fn generation(&self) -> String {
+    pub(crate) fn generation(&self) -> String {
         self.inner.generation.clone()
     }
     fn request(&self, request: Request) -> Result<Response, String> {
@@ -202,6 +202,17 @@ impl BrokerClient {
         })? {
             Response::Runtime { info } => Ok(info),
             _ => Err("Invalid runtime identity response".into()),
+        }
+    }
+    /// Launch without a UI subscription; a fresh pane attaches after adopting its broker identity.
+    pub(crate) fn launch_unattached(
+        &self,
+        spec: LaunchSpec,
+        request: &LaunchRequest,
+    ) -> Result<RuntimeInfo, String> {
+        match self.request(self.launch_request(spec, request))? {
+            Response::Runtime { info: Some(info) } => Ok(info),
+            _ => Err("Invalid runtime launch response".into()),
         }
     }
     pub fn launch(

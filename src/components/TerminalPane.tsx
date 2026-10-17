@@ -1,6 +1,7 @@
 import { agentLifecycleText, isAgentPane } from '../agent-status';
 import './agent-status.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -23,7 +24,7 @@ import { api, errorMessage } from '../api';
 import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { workspaceZoomEvent } from '../workspace-zoom';
-import { imageInputChangesPrompt, imageLimits, imageProvider, imageUnsupportedReason, insertImageFiles } from '../image-input';
+import { fileInputChangesPrompt, fileLimits, fileProvider, fileUnsupportedReason, insertFiles, hasDirectory, FileInputError, clipboardFileName, displayFileName } from '../file-input';
 import { handleTerminalKey } from '../terminal-keyboard';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
@@ -94,9 +95,11 @@ export function TerminalPane({
   const [needle, setNeedle] = useState('');
   const [notice, setNotice] = useState('');
   const actionPending = useRef(false);
-  const imageStaging = useRef(false);
-  const imagePasting = useRef(false);
-  const imageInput = useRef<(files: File[], mixedText?: string) => void>(() => {});
+  const fileStaging = useRef(false);
+  const filePasting = useRef(false);
+  const fileInput = useRef<(files: File[]) => void>(() => {});
+  const fileDrop = useRef<(files: File[]) => void>(() => {});
+  const canDropFiles = useRef<() => boolean>(() => false);
   const [confirming, setConfirming] = useState(false);
   const actionGeneration = useRef(0);
   useEffect(() => {
@@ -163,29 +166,33 @@ export function TerminalPane({
     const compositionEnd = () => { composing = false; };
     element.addEventListener('compositionstart', compositionStart, true);
     element.addEventListener('compositionend', compositionEnd, true);
-    const pasteImages = (event: ClipboardEvent) => {
+    const pasteFiles = (event: ClipboardEvent) => {
       if (event.target !== terminal.textarea || !event.clipboardData) return;
+      if (hasDirectory(event.clipboardData.items)) {
+        event.preventDefault(); event.stopImmediatePropagation(); setNotice('不支援資料夾，尚未插入；請選擇個別檔案。'); return;
+      }
       const files = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file').map((item) => item.getAsFile()).filter((file): file is File => !!file);
       if (!files.length) return; // Leave ordinary text and native CLI shortcuts unchanged.
       event.preventDefault();
       event.stopImmediatePropagation(); // xterm must not also insert the text representation.
-      imageInput.current(files, event.clipboardData.getData('text/plain'));
+      fileInput.current(files); // File metadata text is incidental; never also paste it.
     };
-    const dragImages = (event: DragEvent) => {
+    const dragFiles = (event: DragEvent) => {
       if (!event.dataTransfer?.types.includes('Files')) return;
       event.preventDefault();
       event.stopPropagation();
-      event.dataTransfer.dropEffect = 'copy';
+      event.dataTransfer.dropEffect = canDropFiles.current() ? 'copy' : 'none';
     };
-    const dropImages = (event: DragEvent) => {
+    const dropFiles = (event: DragEvent) => {
       if (!event.dataTransfer?.types.includes('Files')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      imageInput.current(Array.from(event.dataTransfer.files));
+      if (event.dataTransfer.items && hasDirectory(event.dataTransfer.items)) { setNotice('不支援資料夾，尚未插入；請選擇個別檔案。'); return; }
+      fileDrop.current(Array.from(event.dataTransfer.files));
     };
-    element.addEventListener('paste', pasteImages, true);
-    element.addEventListener('dragover', dragImages, true);
-    element.addEventListener('drop', dropImages, true);
+    element.addEventListener('paste', pasteFiles, true);
+    element.addEventListener('dragover', dragFiles, true);
+    element.addEventListener('drop', dropFiles, true);
     terminal.attachCustomKeyEventHandler((event) => {
       const current = latest.current;
       const active = attachment.current;
@@ -211,9 +218,9 @@ export function TerminalPane({
       // Input/Enter remains live while staging. Cancel its old prompt target first.
       // Standard Enter, unframed multiline input, Ctrl+C/D/Z/\ interrupt the prompt.
       // Printable typing remains in the same prompt; do not buffer or replay input.
-      if (actionPending.current && !imagePasting.current && imageInputChangesPrompt(data)) {
+      if (actionPending.current && !filePasting.current && fileInputChangesPrompt(data)) {
         actionGeneration.current += 1;
-        if (imageStaging.current) setNotice('圖片準備已取消：已送出或中斷目前輸入，尚未插入的圖片不會加入下一則訊息。');
+        if (fileStaging.current) setNotice('檔案準備已取消：已送出或中斷目前輸入，尚未插入的檔案不會加入下一則訊息。');
       }
       if (runtime.current) inputQueue.current?.enqueue(runtime.current, data);
     });
@@ -242,9 +249,9 @@ export function TerminalPane({
       input.dispose();
       element.removeEventListener('compositionstart', compositionStart, true);
       element.removeEventListener('compositionend', compositionEnd, true);
-      element.removeEventListener('paste', pasteImages, true);
-      element.removeEventListener('dragover', dragImages, true);
-      element.removeEventListener('drop', dropImages, true);
+      element.removeEventListener('paste', pasteFiles, true);
+      element.removeEventListener('dragover', dragFiles, true);
+      element.removeEventListener('drop', dropFiles, true);
       clipboardBlock.dispose();
       terminal.dispose();
       term.current = null;
@@ -457,10 +464,10 @@ export function TerminalPane({
       setNotice('無法存取剪貼簿，請使用系統複製快捷鍵。');
     }
   };
-  const captureActionTarget = () => {
+  const captureActionTarget = (requireFocus = true) => {
     const current = latest.current;
     const active = attachment.current;
-    if (hasBlockingDialog() || !active?.ready || active.ended || active.disconnected || !mounted.current || !current.visible || !current.focused || current.pane.state !== 'running' ||
+    if (hasBlockingDialog() || !active?.ready || active.ended || active.disconnected || !mounted.current || !current.visible || (requireFocus && !current.focused) || current.pane.state !== 'running' ||
       !runtime.current || !term.current || current.pane.runtimeId !== runtime.current) return null;
     return { attachment: active, lease: active.lease, terminal: term.current, runtimeId: runtime.current, paneId: current.pane.id, kind: current.pane.kind,
       startToken: current.pane.startToken, launchToken: launched.current, generation: actionGeneration.current };
@@ -476,36 +483,56 @@ export function TerminalPane({
     actionPending.current = false;
     if (mounted.current) setConfirming(false);
   };
-  const insertImages = async (files: File[], target: NonNullable<ReturnType<typeof captureActionTarget>>) => {
-    if (!target.terminal.modes.bracketedPasteMode) throw new Error('Agent 尚未啟用安全貼上模式，未插入圖片。');
-    imageStaging.current = true;
-    setNotice('正在準備圖片，尚未送出；可繼續輸入文字，按 Enter 或中斷輸入會取消尚未插入的圖片。');
+  const insertLocalFiles = async (files: File[], target: NonNullable<ReturnType<typeof captureActionTarget>>) => {
+    if (!target.terminal.modes.bracketedPasteMode) throw new Error('Agent 尚未啟用安全貼上模式，未插入檔案。');
+    fileStaging.current = true;
+    setNotice('正在準備檔案，尚未送出；可繼續輸入文字，按 Enter 或中斷輸入會取消尚未插入的檔案。');
     try {
-      const count = await insertImageFiles({ files, kind: target.kind, runtimeId: target.runtimeId, api,
-        isCurrent: () => targetIsCurrent(target) && target.terminal.modes.bracketedPasteMode, paste: (text) => {
-          if (!targetIsCurrent(target) || !target.terminal.modes.bracketedPasteMode) throw new Error('圖片輸入目標或安全貼上模式已變更。');
+      const renamed: string[] = [];
+      const count = await insertFiles({ files, kind: target.kind, runtimeId: target.runtimeId, api,
+        isCurrent: () => targetIsCurrent(target) && target.terminal.modes.bracketedPasteMode, onRenamed: (originalName, name) => { renamed.push(`${displayFileName(originalName)} → ${displayFileName(name)}`); }, paste: (text, markAttempted) => {
+          if (!targetIsCurrent(target) || !target.terminal.modes.bracketedPasteMode) throw new Error('檔案輸入目標或安全貼上模式已變更。');
           const queue = inputQueue.current;
-          if (!queue || queue.pending + new TextEncoder().encode(text).length + 12 > queue.limit) throw new Error('終端輸入佇列已滿，圖片路徑尚未全部插入。');
-          imagePasting.current = true;
-          try { target.terminal.paste(text); } finally { imagePasting.current = false; }
+          if (!queue || queue.pending + new TextEncoder().encode(text).length + 12 > queue.limit) throw new Error('終端輸入佇列已滿，檔案路徑尚未全部插入。');
+          filePasting.current = true;
+          try { markAttempted(); target.terminal.paste(text); } finally { filePasting.current = false; }
         } });
       if (targetIsCurrent(target)) {
-        setNotice(`已插入 ${count} 張圖片的本機路徑，未送出。${latest.current.pane.kind === 'claude' ? 'Claude 會在送出後依路徑讀圖。' : '請確認 Agent 輸入區已辨識圖片。'}圖片會保留供接續對話使用。`);
+        setNotice(`已插入 ${count} 個檔案的本機路徑參照，未送出。請確認 Agent 能讀取此類檔案；檔案會保留供接續對話使用。${renamed.length ? `檔名已清理（原名 → 存入名；長名稱會縮短顯示）：${renamed.join('；')}。` : ''}`);
         target.terminal.focus();
       }
-    } finally { imageStaging.current = false; }
+    } finally { fileStaging.current = false; }
   };
-  imageInput.current = (files, mixedText) => {
-    if (mixedText?.trim()) { setNotice('這次包含圖片與文字，尚未插入；請分別貼上，避免遺漏內容。'); return; }
-    if (!imageProvider(latest.current.pane.kind)) { setNotice(imageUnsupportedReason(latest.current.pane.kind)); return; }
+  fileInput.current = (files) => {
+    if (!fileProvider(latest.current.pane.kind)) { setNotice(fileUnsupportedReason(latest.current.pane.kind)); return; }
     const target = captureActionTarget();
-    if (!target) { setNotice('請先聚焦已連線的 Agent 面板，再拖入或貼上圖片。'); return; }
-    if (actionPending.current) { setNotice('圖片或貼上操作仍在處理中，請稍候。'); return; }
+    if (!target) { setNotice('請先聚焦已連線的 Agent 面板，再拖入或貼上檔案。'); return; }
+    if (actionPending.current) { setNotice('檔案或貼上操作仍在處理中，請稍候。'); return; }
     actionPending.current = true;
     setConfirming(true);
-    void insertImages(files, target).catch((error) => {
-      if (mounted.current) setNotice(`${errorMessage(error)} 請檢查原 Agent 輸入區，避免重複加入。`);
+    void insertLocalFiles(files, target).catch((error) => {
+      if (mounted.current) setNotice(`${errorMessage(error)}${error instanceof FileInputError && error.mayHaveInserted ? ' 請檢查原 Agent 輸入區，避免重複加入。' : ''}`);
     }).finally(finishAction);
+  };
+  canDropFiles.current = () => !!fileProvider(latest.current.pane.kind) && !!captureActionTarget(false) &&
+    !!term.current?.modes.bracketedPasteMode && !actionPending.current;
+  fileDrop.current = (files) => {
+    if (!canDropFiles.current()) { fileInput.current(files); return; }
+    const dropped = captureActionTarget(false);
+    if (!dropped) return;
+    // A drop explicitly selects this pane. Finish the React focus update before
+    // capturing a new generation, without staging against an unfocused lease.
+    if (!latest.current.focused) flushSync(() => onFocus());
+    const selected = captureActionTarget();
+    if (!selected || selected.paneId !== dropped.paneId || selected.runtimeId !== dropped.runtimeId ||
+      selected.kind !== dropped.kind || selected.terminal !== dropped.terminal ||
+      selected.attachment !== dropped.attachment || selected.lease !== dropped.lease ||
+      selected.startToken !== dropped.startToken || selected.launchToken !== dropped.launchToken) {
+      setNotice('拖放目標尚未聚焦或連線已變更，未插入檔案；請聚焦此面板後重試。');
+      return;
+    }
+    selected.terminal.focus();
+    fileInput.current(files);
   };
   const paste = async () => {
     const target = captureActionTarget();
@@ -519,20 +546,20 @@ export function TerminalPane({
         if (!targetIsCurrent(target)) return;
         const files: File[] = [];
         const textParts: string[] = [];
-        let imageBytes = 0;
+        let fileBytes = 0;
+        const clipboardHasFiles = items.some((item) => item.types.some((type) => !type.startsWith('text/')));
         for (const item of items) {
-          const mime = item.types.find((type) => type.startsWith('image/'));
+          const mime = item.types.find((type) => !type.startsWith('text/'));
           if (mime) {
-            if (!imageProvider(target.kind)) throw new Error(imageUnsupportedReason(target.kind));
-            if (!['image/png', 'image/jpeg'].includes(mime)) throw new Error('僅接受 PNG、JPEG 圖片。');
-            if (files.length >= imageLimits.count) throw new Error('一次最多加入 4 張圖片。');
+            if (!fileProvider(target.kind)) throw new Error(fileUnsupportedReason(target.kind));
+            if (files.length >= fileLimits.count) throw new Error('一次最多加入 4 個檔案。');
             const blob = await item.getType(mime);
             if (!targetIsCurrent(target)) return;
-            imageBytes += blob.size;
-            if (!blob.size || blob.size > imageLimits.perFile || imageBytes > imageLimits.total) throw new Error('每張圖片最多 10 MiB，合計最多 20 MiB。');
-            files.push(new File([blob], `clipboard.${mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'unsupported'}`, { type: mime }));
+            fileBytes += blob.size;
+            if (blob.size > fileLimits.perFile || fileBytes > fileLimits.total) throw new Error('每個檔案最多 10 MiB，合計最多 20 MiB。');
+            files.push(new File([blob], clipboardFileName(mime), { type: mime }));
           }
-          if (item.types.includes('text/plain')) {
+          if (!clipboardHasFiles && item.types.includes('text/plain')) {
             const blob = await item.getType('text/plain');
             if (!targetIsCurrent(target)) return;
             textParts.push(await blob.text());
@@ -540,8 +567,7 @@ export function TerminalPane({
           }
         }
         if (files.length) {
-          if (textParts.some((part) => part.trim())) throw new Error('這次包含圖片與文字，尚未插入；請分別貼上。');
-          await insertImages(files, target);
+          await insertLocalFiles(files, target);
           return;
         }
         text = textParts.join('');
@@ -554,7 +580,7 @@ export function TerminalPane({
       target.terminal.paste(text);
       target.terminal.focus();
     } catch (error) {
-      if (targetIsCurrent(target)) setNotice(`${errorMessage(error)} 請檢查輸入區，或使用系統貼上快捷鍵。`);
+      if (mounted.current) setNotice(`${errorMessage(error)}${error instanceof FileInputError && error.mayHaveInserted ? ' 請檢查原 Agent 輸入區，避免重複加入。' : ''}`);
     } finally {
       finishAction();
     }

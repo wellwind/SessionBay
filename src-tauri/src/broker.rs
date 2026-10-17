@@ -40,6 +40,8 @@ pub struct RuntimeRecord {
     pub home_directory: Option<bool>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub image_input: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_input: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -426,6 +428,7 @@ impl Host {
                             resume_id,
                             home_directory: Some(home_directory),
                             image_input,
+                            file_input: Some(image_input),
                         },
                         screen: Some(screen),
                     },
@@ -622,6 +625,35 @@ mod tests {
             serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
         assert!(restored.image_input);
     }
+    #[test]
+    fn file_capability_distinguishes_missing_denied_and_legacy_evidence() {
+        let value = serde_json::json!({"id":"runtime", "paneId":"pane", "sessionId":null,
+            "state":"running", "cwd":"/synthetic", "exitCode":null, "kind":"codex",
+            "projectId":null, "profileId":null, "resumeId":null});
+        let mut record: RuntimeRecord = serde_json::from_value(value).unwrap();
+        assert_eq!(record.file_input, None);
+        assert!(crate::file_input::check_runtime(&record)
+            .unwrap_err()
+            .contains("缺少可核對"));
+        record.image_input = true;
+        assert!(crate::file_input::check_runtime(&record).is_ok());
+        record.file_input = Some(false);
+        let restored: RuntimeRecord =
+            serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+        assert_eq!(restored.file_input, Some(false));
+        assert!(crate::file_input::check_runtime(&record)
+            .unwrap_err()
+            .contains("啟動路由"));
+        record.file_input = Some(true);
+        assert!(crate::file_input::check_runtime(&record).is_ok());
+        record.info.state = "stopped".into();
+        assert!(crate::file_input::check_runtime(&record)
+            .unwrap_err()
+            .contains("已停止"));
+        record.info.state = "running".into();
+        record.kind = "shell".into();
+        assert!(crate::file_input::check_runtime(&record).is_err());
+    }
     #[cfg(unix)]
     #[test]
     fn host_consumes_output_without_any_ui_and_replay_survives_new_readers() {
@@ -736,6 +768,7 @@ mod tests {
             resume_id: None,
             home_directory: Some(false),
             image_input: false,
+            file_input: Some(false),
         };
         fs::write(
             temp.path().join("sessions.json"),

@@ -178,6 +178,13 @@ export default function App() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
   const [launcher, setLauncher] = useState<Launcher | null>(null);
+  const [freshLaunchPending, setFreshLaunchPending] = useState(false);
+  const freshLaunchInFlight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   const [launchPreview, setLaunchPreview] = useState<LaunchPreview | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [previewPending, setPreviewPending] = useState(false);
@@ -319,8 +326,16 @@ export default function App() {
     if (view === 'workspace' && !activeTab && !temporaryWorkspace) setView('history');
     if (maximizedId && !workspace.panes[maximizedId]) setMaximizedId(null);
   }, [view, activeTab, workspace.panes, maximizedId, temporaryWorkspace]);
-  const stateRef = useRef({ workspace, selectedId, boot, view, navigation, projects: visibleProjects });
-  stateRef.current = { workspace, selectedId, boot, view, navigation, projects: visibleProjects };
+  const stateRef = useRef({ workspace, selectedId, boot, view, navigation, launcher, projects: visibleProjects });
+  stateRef.current = { workspace, selectedId, boot, view, navigation, launcher, projects: visibleProjects };
+  const launchContextKey = JSON.stringify([selectedId, navigation, view, allSessionsSearch, activeTabId,
+    activeTab?.focusedPaneId, settingsOpen, palette, quickThemeOpen, !!pathDialog, !!projectDialog, !!confirmation, !!renameTarget]);
+  const launchContext = useRef({ key: launchContextKey, launcher, generation: 0 });
+  // Closing the submitted launcher is expected. Opening or editing another
+  // launcher invalidates its ownership even if that newer dialog closes too.
+  if (launchContext.current.key !== launchContextKey || (launcher && launchContext.current.launcher !== launcher))
+    launchContext.current = { key: launchContextKey, launcher, generation: launchContext.current.generation + 1 };
+  else launchContext.current.launcher = launcher;
   const composing = useRef(false);
   useEffect(() => {
     const start = () => { composing.current = true; };
@@ -575,9 +590,9 @@ export default function App() {
     split?: Launcher['split'],
     resumeId?: string,
   ) => {
-    if (Object.keys(workspace.panes).length >= 128) {
+    if (Object.keys(stateRef.current.workspace.panes).length >= 128) {
       notify('已達 128 個面板上限。請先關閉不需要的面板。');
-      return;
+      return false;
     }
     const id = uid();
     const projectId = project?.id ?? null;
@@ -598,37 +613,97 @@ export default function App() {
       state: 'placeholder',
       startToken: 1,
     };
-    setWorkspace((w) => {
-      const tab = split ? w.tabs.find((t) => paneIds(t.layout).includes(split.paneId)) : undefined;
-      if (tab && split && tab.projectId === projectId)
-        return {
-          ...selectWorkspaceTab(w, tab),
-          panes: { ...w.panes, [id]: pane },
-          tabs: w.tabs.map((t) =>
-            t.id === tab.id
-              ? {
-                  ...t,
-                  focusedPaneId: id,
-                  layout: splitNode(t.layout, split.paneId, id, split.axis),
-                }
-              : t,
-          ),
-        };
-      const tabId = uid();
-      let name = resumedTabName(session?.title) ?? (kind === 'shell' ? 'Terminal' : agentName(kind));
-      if (projectId === null) {
-        let number = 1;
-        while (w.tabs.some((tab) => tab.projectId === null && tab.name === `Terminal ${number}`)) number++;
-        name = `Terminal ${number}`;
-      }
-      const newTab = { id: tabId, projectId, name, focusedPaneId: id,
-        layout: { kind: 'pane' as const, paneId: id } };
-      return selectWorkspaceTab({ ...w, panes: { ...w.panes, [id]: pane }, tabs: [...w.tabs, newTab] }, newTab);
-    });
-    setSelectedId(projectId);
-    setAllSessionsSearch(false);
-    setView('workspace');
-    setMaximizedId(null);
+    const insert = (pane: Pane) => {
+      const id = pane.id;
+      setWorkspace((w) => {
+        const tab = split ? w.tabs.find((t) => paneIds(t.layout).includes(split.paneId)) : undefined;
+        if (tab && split && tab.projectId === projectId)
+          return {
+            ...selectWorkspaceTab(w, tab),
+            panes: { ...w.panes, [id]: pane },
+            tabs: w.tabs.map((t) =>
+              t.id === tab.id
+                ? {
+                    ...t,
+                    focusedPaneId: id,
+                    layout: splitNode(t.layout, split.paneId, id, split.axis),
+                  }
+                : t,
+            ),
+          };
+        const tabId = uid();
+        let name = resumedTabName(session?.title) ?? (kind === 'shell' ? 'Terminal' : agentName(kind));
+        if (projectId === null) {
+          let number = 1;
+          while (w.tabs.some((tab) => tab.projectId === null && tab.name === `Terminal ${number}`)) number++;
+          name = `Terminal ${number}`;
+        }
+        const newTab = { id: tabId, projectId, name, focusedPaneId: id,
+          layout: { kind: 'pane' as const, paneId: id } };
+        return selectWorkspaceTab({ ...w, panes: { ...w.panes, [id]: pane }, tabs: [...w.tabs, newTab] }, newTab);
+      });
+      setSelectedId(projectId);
+      setAllSessionsSearch(false);
+      setView('workspace');
+      setMaximizedId(null);
+    };
+    if (kind !== 'shell' && !session && !resumeId) {
+      // Lock before awaiting IPC or rendering; repeated submit events cannot
+      // create another intent while the detached launch outcome is unknown.
+      if (freshLaunchInFlight.current) return false;
+      freshLaunchInFlight.current = true;
+      setFreshLaunchPending(true);
+      const generation = launchContext.current.generation;
+      const before = stateRef.current.workspace;
+      const targetPane = split ? before.panes[split.paneId] : undefined;
+      const targetTab = split ? before.tabs.find((tab) => paneIds(tab.layout).includes(split.paneId)) : undefined;
+      void (async () => {
+        let confirmedLaunch = false;
+        try {
+          const info = await api.launchFresh({ paneId: `${Date.now()}:${crypto.randomUUID()}`, kind,
+            projectId: project && !project.workspaceOnly ? project.id : undefined,
+            cwd, profileId, cols: 80, rows: 24 });
+          confirmedLaunch = true;
+          if (!mounted.current || closingApp.current) return;
+          const latest = stateRef.current;
+          const latestProject = latest.projects.find((entry) => entry.id === projectId);
+          const latestTarget = split ? latest.workspace.panes[split.paneId] : undefined;
+          const latestTab = split ? latest.workspace.tabs.find((tab) => tab.id === targetTab?.id) : undefined;
+          const targetChanged = split && (!targetPane || !latestTarget || !latestTab ||
+            latestTarget.runtimeId !== targetPane.runtimeId || latestTarget.startToken !== targetPane.startToken ||
+            latestTarget.kind !== targetPane.kind || latestTarget.cwd !== targetPane.cwd ||
+            latestTarget.projectId !== projectId || latestTab.layout !== targetTab?.layout);
+          const contextChanged = generation !== launchContext.current.generation || latest.launcher !== null ||
+            !latestProject || latestProject.path !== project?.path || latestProject.launchPath !== project?.launchPath ||
+            latestProject.workspaceOnly !== project?.workspaceOnly || latestProject.exists !== project?.exists ||
+            targetChanged || Object.keys(latest.workspace.panes).length >= 128;
+          if (contextChanged) {
+            // A newer navigation or edited/closed split target owns the UI.
+            // Recover only this confirmed runtime without resurrecting its old
+            // target, stealing focus, or stopping a successfully started Agent.
+            const records = (await api.runtimes()).filter((record) => record.id === info.id && record.paneId === info.paneId);
+            if (!mounted.current || closingApp.current) return;
+            if (!records.length) throw new Error('背景程序清單尚未包含剛啟動的 Agent');
+            setWorkspace((w) => reconcileRuntimes(w, records));
+            notify('Agent 已在背景啟動並保留於原專案，可從工作分頁開啟。');
+            return;
+          }
+          insert({ ...pane, startToken: undefined, id: info.paneId, runtimeId: info.id, cwd: info.cwd,
+            state: ['starting', 'running', 'exited', 'failed', 'interrupted'].includes(info.state)
+              ? info.state as Pane['state'] : 'disconnected',
+            exitCode: info.exitCode });
+        } catch (error) {
+          if (mounted.current && !closingApp.current)
+            notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${errorMessage(error)}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
+        } finally {
+          freshLaunchInFlight.current = false;
+          if (mounted.current) setFreshLaunchPending(false);
+        }
+      })();
+      return true;
+    }
+    insert(pane);
+    return true;
   };
   const resume = (session: Session, override?: Project) => {
     if (session.resumeDisabledReason) {
@@ -1648,7 +1723,7 @@ export default function App() {
             onSubmit={(event) => {
               event.preventDefault();
               if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || (isAgentEnabled(settings, launcher.kind) && boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false))) {
-                addPane(
+                const accepted = addPane(
                   current,
                   launcher.kind,
                   launcher.cwd.trim(),
@@ -1657,7 +1732,7 @@ export default function App() {
                   launcher.split,
                   launcher.resumeId?.trim() || undefined,
                 );
-                setLauncher(null);
+                if (accepted) setLauncher(null);
               }
             }}
           >
@@ -1719,11 +1794,12 @@ export default function App() {
             {launcher.kind !== 'shell' && settings.agentOptions?.[launcher.kind]?.bypassPermissions &&
               <p className="inline-warning">已啟用高風險權限模式。預設 {bypassFlags[launcher.kind]}；實際參數以上方預覽為準。Agent 可能不詢問就讀寫或刪除檔案。</p>}
             <p className="small-muted">外部程序狀態未知。Session Bay 只管理自己啟動的程序。</p>
+            {freshLaunchPending && <p className="small-muted" role="status">上一個 Agent 仍在啟動，請稍候再建立新的 Agent 工作。</p>}
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
                 取消
               </button>
-              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && (!isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
+              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && ((!launcher.resumeId?.trim() && freshLaunchPending) || !isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
                 開始工作
                 <ArrowRight size={14} />
               </button>

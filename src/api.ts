@@ -28,6 +28,11 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
 // UI/window detach deliberately never waits for or cancels these launches.
 const pendingLaunches = new Map<string, Set<Promise<RuntimeInfo>>>();
 export const api = {
+  beginFile: (runtimeId: string, name: string, size: number) => call<string>('begin_file_input', { runtimeId, name, size }),
+  appendFile: (runtimeId: string, id: string, offset: number, bytes: number[]) => call<void>('append_file_input', { runtimeId, id, offset, bytes }),
+  finishFile: (runtimeId: string, id: string) => call<{ id: string; path: string; originalName: string; name: string }>('finish_file_input', { runtimeId, id }),
+  retainFile: (runtimeId: string, id: string) => call<void>('retain_file_input', { runtimeId, id }),
+  discardFile: (runtimeId: string, id: string) => call<void>('discard_file_input', { runtimeId, id }),
   beginImage: (runtimeId: string, mime: string, size: number) => call<string>('begin_image_input', { runtimeId, mime, size }),
   appendImage: (runtimeId: string, id: string, offset: number, bytes: number[]) => call<void>('append_image_input', { runtimeId, id, offset, bytes }),
   finishImage: (runtimeId: string, id: string) => call<{ id: string; path: string }>('finish_image_input', { runtimeId, id }),
@@ -59,6 +64,9 @@ export const api = {
   clearIndex: () => call<void>('clear_index'),
   saveWorkspace: (workspace: unknown) => call<void>('save_workspace', { workspace }),
   preview: (request: LaunchRequest) => call<LaunchPreview>('preview_launch', { request }),
+  // The request pane ID is an idempotency intent key. Only the returned pane ID
+  // identifies the detached, backend-owned runtime to attach in the workspace.
+  launchFresh: (request: LaunchRequest): Promise<RuntimeInfo> => call<RuntimeInfo>('launch_fresh_runtime', { request }),
   launch: (request: LaunchRequest, onMessage: (event: TerminalEvent) => void, attachmentId: string) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;
