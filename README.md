@@ -99,3 +99,5 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 - [持續執行與重新附接](docs/persistent-runtime.md)：獨立 broker、關閉介面保留程序、狀態恢復與原生待驗項目。
 
 - [Terminal Shift＋Enter](docs/terminal-keyboard.md)：統一 CSI-u 原位輸入、查核版本與平台限制。
+
+- [Agent 圖片拖放與貼上：範圍、限制及驗證狀態](docs/image-input.md)

@@ -205,3 +205,7 @@ Agent、provider、模型與帳號分開保存。事件以可靠來源 ID、requ
 
 先驗證 PTY → Channel → xterm 的往返路徑，再加入兩個可見面板與背景索引。效能量測應涵蓋 WebView 子程序，並將 Agent 子程序另外列出；完整計畫見[開發路線圖](roadmap.md)。
 
+
+## 圖片輸入增量
+
+ImageStaging 以分塊 IPC、持久私有檔案與跨程序獨占鎖管理圖片；broker launch record 提供 additive capability，UI 以 lease／generation 與 bracketed paste guard 避免誤送目標。設計及限制見 [圖片輸入](image-input.md)。

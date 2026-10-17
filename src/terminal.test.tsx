@@ -10,6 +10,8 @@ import { TerminalPane } from './components/TerminalPane';
 import { installNativeConfirmation } from './test/dialog-init';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from './types';
 const mocks = vi.hoisted(() => ({
+  beginImage: vi.fn(), appendImage: vi.fn(), finishImage: vi.fn(), retainImage: vi.fn(), discardImage: vi.fn(),
+  bracketedPaste: true,
   launch: vi.fn(),
   attach: vi.fn(),
   detach: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock('@xterm/xterm', () => ({
     rows = mocks.initialRows;
     options: Record<string, unknown> = {};
     constructor() { mocks.options.push(this.options); }
+    modes = { get bracketedPasteMode() { return mocks.bracketedPaste; } };
     parser = { registerOscHandler: () => ({ dispose() {} }) };
     loadAddon() {}
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { mocks.keyHandler(handler); }
@@ -132,6 +135,12 @@ function completeSnapshot(channel: (event: TerminalEvent) => void, runtimeId = '
   act(() => mocks.termWrite.mock.calls.at(-1)![1]());
 }
 beforeEach(() => {
+  mocks.bracketedPaste = true;
+  mocks.beginImage.mockResolvedValue('image-id');
+  mocks.appendImage.mockResolvedValue(undefined);
+  mocks.finishImage.mockResolvedValue({ id: 'image-id', path: '/private/image-a.png' });
+  mocks.retainImage.mockResolvedValue(undefined);
+  mocks.discardImage.mockResolvedValue(undefined);
   mocks.initialCols = 80;
   mocks.initialRows = 24;
 
@@ -1081,4 +1090,90 @@ it('refits after native page zoom without changing terminal font or runtime, and
   await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'still alive'));
   expect(mocks.launch).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
   expect(mocks.reset).toHaveBeenCalledTimes(resets);
+});
+
+describe('image drop and paste events', () => {
+  const synthetic = () => ({ name: 'synthetic.png', type: 'image/png', size: 3,
+    slice: () => ({ arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }) }) as File;
+  async function ready(kind: Pane['kind'] = 'codex') {
+    const p = props(makePane({ kind, startToken: 1, state: 'running', runtimeId: 'runtime' }));
+    const view = render(<TerminalPane {...p} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+    completeSnapshot(mocks.attach.mock.calls[0][1]);
+    return { view, p, input: screen.getByLabelText('Mock xterm input'), host: view.container.querySelector('.xterm-host')! };
+  }
+  function pasteEvent(input: HTMLElement, text = '', files = [synthetic()]) {
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { items: files.map(file => ({ kind: 'file', getAsFile: () => file })), getData: () => text } });
+    fireEvent(input, event);
+    return event;
+  }
+  it('captures image paste before xterm and sends one path without Enter', async () => {
+    const { input } = await ready();
+    expect(pasteEvent(input).defaultPrevented).toBe(true);
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('file:///private/image-a.png'));
+    expect(mocks.retainImage).toHaveBeenCalledExactlyOnceWith('runtime', 'image-id');
+    expect(mocks.write).not.toHaveBeenCalled(); // Mock paste records only; bytes are never sent directly to PTY.
+  });
+  it('captures drop, ignores sidebar drags, and preserves ordinary text paste', async () => {
+    const { host, input } = await ready();
+    const plain = pasteEvent(input, 'ordinary text', []);
+    expect(plain.defaultPrevented).toBe(false);
+    const internal = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(internal, 'dataTransfer', { value: { types: ['application/x-sessionbay'], files: [] } });
+    fireEvent(host, internal);
+    expect(internal.defaultPrevented).toBe(false);
+    fireEvent.drop(host, { dataTransfer: { types: ['Files'], files: [synthetic()] } });
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledTimes(1));
+  });
+  it('refuses mixed content and unsupported agent without reading files', async () => {
+    const { input } = await ready('antigravity');
+    pasteEvent(input);
+    expect(screen.getByRole('alert')).toHaveTextContent('尚未驗證');
+    expect(mocks.beginImage).not.toHaveBeenCalled();
+    pasteEvent(input, 'caption');
+    expect(screen.getByRole('alert')).toHaveTextContent('分別貼上');
+  });
+  it('refuses when safe paste mode is absent or changes while staging', async () => {
+    const { input } = await ready();
+    mocks.bracketedPaste = false;
+    pasteEvent(input);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('尚未啟用'));
+    expect(mocks.beginImage).not.toHaveBeenCalled();
+    mocks.bracketedPaste = true;
+    mocks.finishImage.mockImplementation(async () => { mocks.bracketedPaste = false; return { id: 'image-id', path: '/private/image-a.png' }; });
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.discardImage).toHaveBeenCalledWith('runtime', 'image-id'));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+  });
+  it('changing focused pane cancels in-flight staging and does not write after a reconnect', async () => {
+    const { input, view, p } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    view.rerender(<TerminalPane {...p} focused={false} />);
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.discardImage).toHaveBeenCalledWith('runtime', 'image-id');
+  });
+  it('opening terminal search cancels an in-flight image without stealing focus back', async () => {
+    const { input } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: '終端搜尋' })).toHaveFocus();
+  });
+  it('toolbar reads explicit image clipboard data and refuses same-item mixed text', async () => {
+    await ready();
+    const read = vi.fn().mockResolvedValue([{ types: ['image/png', 'text/plain'], getType: async (type: string) => type === 'text/plain' ? { text: async () => 'caption' } : new Blob([new Uint8Array([1, 2, 3])], { type }) }]);
+    Object.defineProperty(navigator, 'clipboard', { value: { read }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: '貼上' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('分別貼上'));
+    expect(mocks.beginImage).not.toHaveBeenCalled();
+  });
 });

@@ -208,3 +208,7 @@ P1 除 F15、F16 用量功能，另包含手動工作狀態、Session 別名、�
 ## 2026-10-16 持續 Runtime 變更
 
 關閉 UI 不停止已開 Shell／Agent；重開須列出每個已開分頁／面板／專案狀態，附接相同受管程序並還原有界畫面。明確 Stop／關閉面板才結束程序。Broker／電腦重啟後以 interrupted 呈現，不得採用舊 PID 或自動執行指令。此規則取代本文件先前的 close-to-stop MVP 限制；驗收與已知終端限制見[持續執行](persistent-runtime.md)。
+
+## Agent 圖片輸入增量
+
+驗收要求：聚焦本機已知 Agent 支援 PNG／JPEG drop 與 paste，不自動送出，文字不重複貼上，目標切換取消，保留路徑可供恢復工作階段使用。不支援的 provider／格式須明確回饋；平台驗收不得以 mock 測試替代。詳細邊界與待驗收項目見 [圖片輸入](image-input.md)。

@@ -137,3 +137,8 @@
 - [ ] macOS 真實舊 broker 持續執行時更新 UI，驗證新臨時 Terminal、既有 Agent 重附接與重開工作區；不得停止原有程序。
 
 命令面板主清單新增 ↑／↓ 循環選取、搜尋重設、停用跳過與 Enter 執行；沿用主題子清單預覽／取消。前端回歸涵蓋 IME、焦點、空結果與專案選取；原生 macOS 輸入法實機驗收仍待執行。
+
+## 圖片輸入增量
+
+- 本機 PNG／JPEG 拖放、系統／工具列貼上與安全 staging：實作待 CI 及獨立審查。
+- 三平台原生 webview／CLI 驗收、Antigravity adapter 與保留圖片容量管理 UI：尚未完成。詳見 [圖片輸入](image-input.md)。

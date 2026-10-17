@@ -41,6 +41,8 @@ jobs:
         run: npm run test:layout
       - name: Workspace tab mouse drag and persistence
         run: npm run test:tabs
+      - name: Agent image drop and paste
+        run: npm run test:images
       - name: Upload terminal layout evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
