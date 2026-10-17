@@ -25,12 +25,15 @@ import {
   Square,
   Compass,
   Palette,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { SidebarProjectList } from './components/SidebarProjectList';
 import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
 import type { SidebarPreferences } from './sidebar-preferences';
 import { startup } from './startup';
+import './workspace-focus.css';
 import { resumedTabName } from './display-name';
 import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
 import { agentCapabilities, agentKinds, bypassFlags, installationState, isAgentEnabled, preferredEnabledAgent } from './agents';
@@ -139,6 +142,15 @@ export default function App() {
   quickThemeOpenRef.current = quickThemeOpen;
   const detectionGeneration = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Presentation only: never replace the canvas or change serialized workspace state.
+  const [focusMode, setFocusMode] = useState(false);
+  const [focusControlsOpen, setFocusControlsOpen] = useState(false);
+  const focusToggle = useRef<HTMLButtonElement>(null);
+  const focusRestore = useRef({ generation: 0, frame: 0 });
+  useEffect(() => () => {
+    focusRestore.current.generation++;
+    cancelAnimationFrame(focusRestore.current.frame);
+  }, []);
   const [sidebar, setSidebar] = useState(readSidebarPreferences);
   const sidebarRef = useRef(sidebar);
   sidebarRef.current = sidebar;
@@ -261,6 +273,40 @@ export default function App() {
   const activeTabId = activeWorkspaceTabId(workspace, selectedId);
   const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   const focusPane = activeTab ? workspace.panes[activeTab.focusedPaneId] : undefined;
+  const focusAvailable = !!current || temporaryWorkspace;
+  const compactWorkspace = focusMode && focusAvailable && !focusControlsOpen;
+  const revealSidebar = focusMode && focusControlsOpen;
+  const restoreWorkspaceFocus = () => {
+    const owner = document.activeElement;
+    const paletteOwner = !!owner?.closest('.palette-input, .palette-results');
+    const chromeOwner = !!owner?.closest('.app-topbar, .sidebar, .project-header, .statusbar');
+    const paletteReturnTarget = paletteOwner ? paletteOpener.current : null;
+    const generation = ++focusRestore.current.generation;
+    cancelAnimationFrame(focusRestore.current.frame);
+    focusRestore.current.frame = requestAnimationFrame(() => {
+      const latest = stateRef.current;
+      const latestTab = latest.workspace.tabs.find((tab) => tab.id === activeWorkspaceTabId(latest.workspace, latest.selectedId));
+      // Known chrome may be removed or CSS-hidden; only neutral focus can transfer from it.
+      // A closed palette may also restore its own opener before this frame runs.
+      const active = document.activeElement;
+      const neutralOwnerTransfer = owner && (paletteOwner || chromeOwner) &&
+        (!owner.isConnected || (chromeOwner && owner.getClientRects().length === 0)) &&
+        (active === document.body || (paletteOwner && !owner.isConnected && active === paletteReturnTarget));
+      // A newer input, navigation, modal or toggle owns focus; never redirect its typing to PTY.
+      if (generation !== focusRestore.current.generation || (active !== owner && !neutralOwnerTransfer) ||
+        latest.selectedId !== selectedId || latest.view !== view || latestTab?.id !== activeTabId ||
+        latestTab?.focusedPaneId !== activeTab?.focusedPaneId || document.querySelector('[role="dialog"]')) return;
+      const terminal = [...document.querySelectorAll<HTMLTextAreaElement>('.terminal-pane.focused .xterm-helper-textarea')]
+        .find((element) => element.getClientRects().length > 0);
+      if (view === 'workspace' && terminal) terminal.focus({ preventScroll: true });
+      else focusToggle.current?.focus({ preventScroll: true });
+    });
+  };
+  const toggleFocusMode = () => {
+    setFocusMode((value) => !value);
+    setFocusControlsOpen(false);
+    restoreWorkspaceFocus();
+  };
   useEffect(() => {
     if (selectedId && !visibleProjects.some((project) => project.id === selectedId)) {
       setSelectedId(undefined);
@@ -840,7 +886,12 @@ export default function App() {
       disabled: !settings || settingsOpen || quickThemeOpen || themeSaving,
       run: () => { if (!palette) paletteOpener.current = document.activeElement as HTMLElement | null; paletteGeneration.current++; setThemeSaveError(''); setPalette(true); setPaletteTheme(target); },
     })),
-    { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => setSidebarOpen((value) => !value) },
+    { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式' : '進入專注模式',
+      disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
+    { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
+      if (focusMode) setFocusControlsOpen((value) => !value);
+      else setSidebarOpen((value) => !value);
+    } },
   ].map((command) => ({ ...command, shortcut: effectiveShortcuts[command.id] ?? '' }));
   const commandRef = useRef(commands);
   commandRef.current = commands;
@@ -857,8 +908,17 @@ export default function App() {
         command.run();
       }
     };
+    // A configured focus binding must be consumed before xterm can forward it to PTY.
+    const focusKey = (event: KeyboardEvent) => {
+      const command = commandRef.current.find((item) => item.id === 'toggle-focus-mode');
+      if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
+        key(event);
+        if (event.defaultPrevented) event.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', focusKey, true);
     window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
+    return () => { window.removeEventListener('keydown', focusKey, true); window.removeEventListener('keydown', key); };
   }, [conflicts]);
   const runCommand = (id: string) => commands.find((c) => c.id === id && !c.disabled)?.run();
   const detectAgents = async () => {
@@ -999,7 +1059,7 @@ export default function App() {
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
   return (
-    <div className="app-shell" data-app-shell data-backend-ready={ready && desktop}>
+    <div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
       <header className="app-topbar">
         <div className="brand">
@@ -1034,6 +1094,7 @@ export default function App() {
           <kbd>⌘ / Ctrl ⇧ P</kbd>
         </button>
         <div className="topbar-actions">
+          {focusMode && !focusAvailable && <button onClick={toggleFocusMode} aria-label="退出專注模式"><Minimize2 size={16} />退出專注</button>}
           <button className="secondary temporary-terminal-button" disabled={!boot || !desktop}
             title="在家目錄開啟臨時 Terminal，不建立專案" aria-label="開啟臨時 Terminal"
             onClick={() => openTemporaryTerminal()}>
@@ -1060,14 +1121,14 @@ export default function App() {
         </div>
       </header>
       <div className="app-body">
-        {sidebarOpen && (
+        {(sidebarOpen || revealSidebar) && (
           <aside className="sidebar">
             <div className="sidebar-heading">
               <span>工作總覽</span>
               <button
                 className="icon-button"
                 aria-label="隱藏側欄"
-                onClick={() => setSidebarOpen(false)}
+                onClick={() => { if (revealSidebar) { setFocusControlsOpen(false); restoreWorkspaceFocus(); } else setSidebarOpen(false); }}
               >
                 <PanelLeftClose size={16} />
               </button>
@@ -1153,7 +1214,7 @@ export default function App() {
           <div className="project-header">
             <div>
               <nav className="breadcrumb" aria-label="目前位置">
-                {!sidebarOpen && (
+                {!sidebarOpen && !revealSidebar && (
                   <button
                     className="icon-button"
                     aria-label="顯示側欄"
@@ -1290,6 +1351,11 @@ export default function App() {
                 </div>
               )}
               {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs" title={workspaceTabShortcutHelp}>
+                {focusMode && focusAvailable && <button className="focus-project-control" aria-label={focusControlsOpen ? '收起完整控制列' : '展開完整控制列'}
+                  aria-expanded={focusControlsOpen} title="顯示專案、設定與完整操作"
+                  onClick={() => { setFocusControlsOpen((value) => !value); if (focusControlsOpen) restoreWorkspaceFocus(); }}>
+                  <Layers3 size={16} aria-hidden="true" /><span>{current?.name ?? '臨時 Terminal'}</span>
+                </button>}
                 {!temporaryWorkspace && <button
                   className={view === 'history' ? 'active history-tab' : 'history-tab'}
                   onClick={() => setView('history')}
@@ -1316,6 +1382,12 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
+                {focusAvailable && <button ref={focusToggle} className="focus-mode-toggle" aria-pressed={focusMode}
+                  aria-label={focusMode ? '退出專注模式' : '進入專注模式'}
+                  title={focusMode ? '退出專注模式' : '進入專注模式（保留分頁與面板）'} onClick={toggleFocusMode}>
+                  {focusMode ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
+                  <span>{focusMode ? '退出專注' : '專注'}</span>
+                </button>}
               </div>}
               <div className="main-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
                 {temporaryWorkspace && !activeTab && <div className="empty-state">
@@ -1398,7 +1470,7 @@ export default function App() {
           )}
         </main>
       </div>
-      <footer className="statusbar">
+      <footer className={`statusbar${index.running || index.errors.length || index.cancelled || zoomError || themeSaving ? ' statusbar-important' : ''}`}>
         <div>
           {index.running ? (
             <>

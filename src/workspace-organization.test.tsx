@@ -210,3 +210,27 @@ it('regression: rejects offscreen tab geometry outside the visible scrolled stri
     expect(changed).not.toHaveBeenCalled();
   }
 });
+
+it.each(['overlay', 'outside', 'null'])('rejects %s hit targets rather than reordering an obscured tab', kind => {
+  const changed = vi.fn(); render(<TabsHarness changed={changed} />);
+  const strip = screen.getByTestId('tabs'); strip.classList.add('workspace-tabs');
+  vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 300, top: 0, bottom: 44, width: 300 } as DOMRect);
+  const source = tabButton('a'); source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+  vi.spyOn(source.parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 100, top: 0, bottom: 44, width: 100 } as DOMRect);
+  vi.spyOn(tabButton('c').parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 200, right: 330, top: 0, bottom: 44, width: 130 } as DOMRect);
+  const exit = document.createElement('button'); exit.className = 'focus-mode-toggle'; exit.textContent = '退出專注'; strip.append(exit);
+  vi.spyOn(exit, 'getBoundingClientRect').mockReturnValue({ left: 230, right: 300, top: 0, bottom: 44, width: 70 } as DOMRect);
+  const previous = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+  Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => kind === 'null' ? null : kind === 'outside' ? document.body : exit });
+  try {
+    pointer(source, 'pointerdown', 50); pointer(source, 'pointermove', 280); pointer(source, 'pointerup', 280);
+    expect(changed).not.toHaveBeenCalled();
+    // A real visible tab remains reorderable with hit testing enabled.
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => tabButton('c') });
+    pointer(source, 'pointerdown', 50); pointer(source, 'pointermove', 280); pointer(source, 'pointerup', 280);
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    if (previous) Object.defineProperty(document, 'elementFromPoint', previous);
+    else Reflect.deleteProperty(document, 'elementFromPoint');
+  }
+});
