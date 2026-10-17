@@ -183,3 +183,7 @@ UI 框架採宣告式狀態。Terminal 高頻輸出由 xterm 實例接收，不�
 所有 Terminal（包含 Shell、未知工具與 Windows）一律將 Shift＋Enter 傳送為 CSI-u modified Enter，輸入留在 Terminal，不開 modal，也不顯示模式選單或額外按鍵說明。一般 Enter、組字、貼上及輸入目標守衛不變。編碼一致不等於所有程式都支援換行；詳細版本、Grok 送出語意及原生驗收限制見 [Terminal 按鍵](terminal-keyboard.md)。
 
 macOS Cmd+W／File → Close Tab 關閉目前工作區分頁（包含分割面板）；有執行中工作先確認。最後一個分頁關閉仍保留視窗。對話框與 IME 組字期間不觸發；Cmd+Shift+W 仍為關閉焦點面板，Cmd+Q 與紅色關閉鈕仍為離開應用程式。
+
+### 分頁順序操作
+
+按住分頁名稱並移動至少 5px 可調整同一專案（或全域工作區）內的順序；邊緣指示線顯示插入位置，放開才套用並保存。Escape 或移到分頁區域外放開會取消。一般點擊仍切換分頁，重新命名與關閉按鈕不啟動排序；Alt 加左右方向鍵可用鍵盤調整順序。排序不改變目前作用中的分頁與 Terminal 身分。
