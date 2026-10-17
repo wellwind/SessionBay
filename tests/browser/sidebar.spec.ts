@@ -1,4 +1,31 @@
 import { expect, test } from '@playwright/test';
+test('project actions follow the left-aligned folder in visual and keyboard order', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 850 });
+  await page.goto('/tests/browser/sidebar.html');
+  const rows = page.locator('.project-row');
+  await expect(rows).toHaveCount(3);
+  for (const row of await rows.all()) {
+    const bounds = (await row.boundingBox())!;
+    const main = row.locator('.project-main');
+    const folder = (await main.locator(':scope > svg').boundingBox())!;
+    const handle = row.locator('.project-drag');
+    expect(folder.x - bounds.x).toBeLessThanOrEqual(12);
+    expect((await main.boundingBox())!.x).toBeLessThan((await handle.boundingBox())!.x);
+    await main.focus();
+    await page.keyboard.press('Tab');
+    const toggle = row.locator('.project-runtime-toggle');
+    if (await toggle.count()) {
+      await expect(toggle).toBeFocused();
+      expect((await toggle.boundingBox())!.x).toBeGreaterThan(folder.x);
+      await page.keyboard.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await page.keyboard.press('Space');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await page.keyboard.press('Tab');
+    }
+    await expect(handle).toBeFocused();
+  }
+});
 test('large counts and missing-directory warnings do not overlap', async ({ page }, info) => {
   await page.setViewportSize({ width: 800, height: 850 });
   await page.goto('/tests/browser/sidebar.html?large-count=1');

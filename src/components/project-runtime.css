@@ -11,14 +11,14 @@
 .project-runtime-toggle { flex-shrink: 0; padding: 3px; background: transparent; border: 0; color: var(--muted); }
 .project-runtime-summary { display: block; font-size: 10px; color: var(--muted); }
 
-/* Reserve disclosure and status slots even when the project has no open tabs.
+/* Keep the folder at the left edge and reserve right-side action slots.
    The drag hit target remains the parent row, never the expanded child list. */
-.project-list .project-row { display: grid; grid-template-columns: 24px 20px minmax(0, 1fr); align-items: start; }
-.project-list .project-drag { grid-column: 1; }
+.project-list .project-row { display: grid; grid-template-columns: minmax(0, 1fr) 20px 24px; align-items: start; }
+.project-list .project-drag { grid-column: 3; }
 .project-list .project-runtime-toggle { grid-column: 2; }
 .project-list :is(.project-drag, .project-runtime-toggle) { grid-row: 1; height: 38px; min-height: 0; padding: 0; }
 .project-list .project-main {
-  grid-column: 3; grid-row: 1; display: grid; align-items: start;
+  grid-column: 1; grid-row: 1; display: grid; align-items: start;
   grid-template-columns: 17px minmax(0, 1fr) minmax(20px, max-content) 13px; column-gap: 6px;
 }
 .project-list .project-main > svg { margin-top: 1px; }
