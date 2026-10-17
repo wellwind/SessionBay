@@ -35,6 +35,7 @@ vi.mock('./api', () => ({
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   api: {
     bootstrap: vi.fn(),
+    listWorkspaceFiles: vi.fn(),
     scan: vi.fn(),
     index: vi.fn(),
     projects: vi.fn(),
@@ -218,6 +219,7 @@ async function nativeClose() {
 }
 
 beforeEach(() => {
+  vi.mocked(api.listWorkspaceFiles).mockResolvedValue({ entries: [], nextOffset: null });
   vi.mocked(canPickDirectory).mockReturnValue(false);
   vi.mocked(pickDirectory).mockReset();
 
@@ -666,7 +668,7 @@ describe('App curated project navigation', () => {
     render(<App />);
     await tick();
     changePage('所有目錄');
-    fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: '加入／建立專案' }));
+    fireEvent.click(within(screen.getByRole('complementary', { name: '' })).getByRole('button', { name: '加入／建立專案' }));
     if (mode === 'create') fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
     fireEvent.change(screen.getByLabelText(mode === 'create' ? '上層目錄路徑' : '目錄路徑'), { target: { value: mode === 'create' ? '/synthetic' : '/synthetic/chosen' } });
     fireEvent.change(screen.getByLabelText(mode === 'create' ? '專案名稱（新資料夾名稱）' : '專案名稱（選填）'), { target: { value: 'Chosen folder' } });
@@ -688,7 +690,7 @@ describe('App curated project navigation', () => {
     vi.mocked(api.projects).mockRejectedValueOnce(new Error('Index refresh failed')).mockResolvedValue([...bootstrap().projects, added]);
     render(<App />);
     await tick();
-    fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: '加入／建立專案' }));
+    fireEvent.click(within(screen.getByRole('complementary', { name: '' })).getByRole('button', { name: '加入／建立專案' }));
     fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
     fireEvent.change(screen.getByLabelText('上層目錄路徑'), { target: { value: '/synthetic' } });
     fireEvent.change(screen.getByLabelText('專案名稱（新資料夾名稱）'), { target: { value: 'new' } });
@@ -708,7 +710,7 @@ describe('App curated project navigation', () => {
     await tick();
     fireEvent.click(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Synthetic project/ }));
     for (const dismissal of ['cancel', 'escape']) {
-      fireEvent.click(within(screen.getByRole('complementary')).getByRole('button', { name: '加入／建立專案' }));
+      fireEvent.click(within(screen.getByRole('complementary', { name: '' })).getByRole('button', { name: '加入／建立專案' }));
       expect(screen.getByLabelText('目錄路徑')).toHaveValue('');
       fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
       fireEvent.change(screen.getByLabelText('上層目錄路徑'), { target: { value: '/synthetic' } });

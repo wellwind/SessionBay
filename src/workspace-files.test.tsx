@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { WorkspaceFiles } from './components/WorkspaceFiles';
+import { FilesTestHost as WorkspaceFiles } from './test/FilesTestHost';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 import { api } from './api';
 import type { Settings, Workspace } from './types';
@@ -29,11 +29,11 @@ describe('workspace file browser', () => {
     expect(screen.getByRole('button', { name: /outside/ })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: '載入更多檔案' }));
     await screen.findByText('last.txt');
-    expect(api.listWorkspaceFiles).toHaveBeenCalledWith('p', '', 200, false);
+    expect(api.listWorkspaceFiles).toHaveBeenCalledWith('p', '', 200, true);
     fireEvent.click(screen.getByText('node_modules'));
     await screen.findByText('nested.txt');
-    expect(api.listWorkspaceFiles).toHaveBeenCalledWith('p', 'node_modules', 0, false);
-    fireEvent.click(screen.getByLabelText('顯示隱藏檔案'));
+    expect(api.listWorkspaceFiles).toHaveBeenCalledWith('p', 'node_modules', 0, true);
+    expect(screen.queryByLabelText('顯示隱藏檔案')).not.toBeInTheDocument();
     await waitFor(() => expect(api.listWorkspaceFiles).toHaveBeenCalledWith('p', '', 0, true));
   });
   it('renders source as text and ignores stale responses', async () => {
@@ -65,46 +65,20 @@ const workspace: Workspace = { version: 1, tabs: ['a', 'b'].map((id) => ({ id, n
   panes: Object.fromEntries(['a', 'b'].map((id) => [id, { id, title: id, kind: 'shell', projectId: 'p', cwd: '/synthetic', state: 'running' }])), activeTabByProject: { p: 'a' } };
 const props = { workspace, knownProjectIds: ['p'], settings: {} as Settings, visible: true, maximizedId: null,
   onPatch: vi.fn(), onFocus: vi.fn(), onStart: vi.fn(), onClose: vi.fn(), onMaximize: vi.fn(), onSplit: vi.fn(), onRatio: vi.fn(), onAlreadyOpen: vi.fn() };
-it('preserves live mounts, per-tab selections and focus while toggling or switching', async () => {
+it('keeps live terminals mounted while the project shows a file or history', () => {
   const view = render(<WorkspaceCanvas {...props} activeTabId="a" />);
   const terminal = screen.getByLabelText('terminal a');
-  terminal.focus();
-  expect(api.listWorkspaceFiles).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: '檔案預覽' }));
-  fireEvent.click(await screen.findByText('a.txt'));
-  await screen.findByText('content a.txt');
+  view.rerender(<WorkspaceCanvas {...props} activeTabId="a" visible={false} />);
+  expect(screen.getByLabelText('terminal a')).toBe(terminal);
+  expect(terminal).not.toBeVisible();
   view.rerender(<WorkspaceCanvas {...props} activeTabId="b" />);
-  fireEvent.click(screen.getByRole('button', { name: '檔案預覽' }));
-  await waitFor(() => expect(screen.getAllByRole('button', { name: 'b.txt', hidden: true })).toHaveLength(2));
-  fireEvent.click(screen.getByRole('button', { name: 'b.txt' }));
-  await screen.findByText('content b.txt');
-  view.rerender(<WorkspaceCanvas {...props} activeTabId="a" />);
-  expect(screen.getByLabelText('唯讀內容：a.txt')).toBeVisible();
-  fireEvent.keyDown(screen.getByLabelText('唯讀內容：a.txt'), { key: 'Escape' });
-  expect(screen.getByRole('button', { name: '檔案預覽' })).toHaveFocus();
   expect(screen.getByLabelText('terminal a')).toBe(terminal);
   expect(mounts.mount).toHaveBeenCalledTimes(2);
   expect(mounts.unmount).not.toHaveBeenCalled();
+  expect(api.listWorkspaceFiles).not.toHaveBeenCalled();
 });
-it('offers no implicit HOME browser for temporary or unavailable projects', () => {
+it('does not attach a browser to runtime tabs or temporary HOME terminals', () => {
   render(<WorkspaceCanvas {...props} workspace={{ ...workspace, tabs: workspace.tabs.map((tab) => ({ ...tab, projectId: null })) }} activeTabId="a" />);
   expect(screen.queryByRole('button', { name: '檔案預覽' })).not.toBeInTheDocument();
   expect(api.listWorkspaceFiles).not.toHaveBeenCalled();
-});
-
-it('places the toggle outside the canvas, hides it off-workspace and returns Escape focus', async () => {
-  const host = document.createElement('div');
-  document.body.append(host);
-  const view = render(<WorkspaceCanvas {...props} fileToolbarHost={host} activeTabId="a" />);
-  expect(host.querySelector('button')).toBe(screen.getByRole('button', { name: '檔案預覽' }));
-  expect(view.container.querySelector('.workspace-files-toolbar')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '檔案預覽' }));
-  fireEvent.click(await screen.findByText('a.txt'));
-  fireEvent.keyDown(await screen.findByLabelText('唯讀內容：a.txt'), { key: 'Escape' });
-  expect(screen.getByRole('button', { name: '檔案預覽' })).toHaveFocus();
-  view.rerender(<WorkspaceCanvas {...props} fileToolbarHost={host} activeTabId="a" visible={false} />);
-  expect(host.querySelector('button')).toBeNull();
-  expect(mounts.unmount).not.toHaveBeenCalled();
-  view.unmount();
-  host.remove();
 });
