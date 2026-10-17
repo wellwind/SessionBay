@@ -4,6 +4,8 @@ import {
   selectWorkspaceTab,
   mergeWorkspaceProjects,
   closePane,
+  closeSuccessfulShell,
+  isSuccessfulShellExit,
   emptyWorkspace,
   layoutRects,
   localDayBound,
@@ -454,4 +456,31 @@ it('takes home launch policy only from the broker when restoring a live global r
     state: 'running', exitCode: null, homeDirectory: true }]);
   expect(next.panes['home-pane'].homeDirectory).toBe(true);
   expect(restoreWorkspace(serializeWorkspace(next)).panes['home-pane'].homeDirectory).toBe(true);
+});
+
+describe('completed Shell cleanup identity', () => {
+  const exited = (): Pane => ({ ...pane('a'), runtimeId: 'old', state: 'exited', exitCode: 0 });
+  it('closes the split pane and transfers focus after broker cleanup', () => {
+    const value = workspace();
+    value.panes.a = exited();
+    const next = closeSuccessfulShell(value, value.panes.a);
+    expect(paneIds(next.tabs[0].layout)).toEqual(['b']);
+    expect(next.tabs[0].focusedPaneId).toBe('b');
+    expect(next.panes.b).toEqual(value.panes.b);
+    expect(next.tabs[1]).toEqual(value.tabs[1]);
+  });
+  it.each([
+    { runtimeId: 'replacement' }, { startToken: 2 }, { state: 'running' },
+    { state: 'disconnected' }, { state: 'failed' }, { error: 'PTY error' },
+    { exitCode: null }, { kind: 'codex' },
+  ] satisfies Partial<Pane>[])('ignores stale cleanup after $state $runtimeId $startToken', patch => {
+    const value = workspace();
+    value.panes.a = { ...exited(), ...patch };
+    expect(closeSuccessfulShell(value, exited())).toBe(value);
+  });
+  it('ignores missing runtime IDs and saved placeholders', () => {
+    expect(isSuccessfulShellExit({ ...exited(), runtimeId: undefined })).toBe(false);
+    expect(isSuccessfulShellExit({ ...exited(), state: 'placeholder' })).toBe(false);
+    expect(closeSuccessfulShell(closePane(workspace(), 'a'), exited()).panes.a).toBeUndefined();
+  });
 });

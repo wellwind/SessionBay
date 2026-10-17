@@ -205,7 +205,7 @@ describe('terminal lifetime and flow control', () => {
     const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
     act(() => channel({ type: 'exit', runtimeId: 'runtime', exitCode: 7 }));
     await act(async () => resolve(info));
-    expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'exited', exitCode: 7 });
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { runtimeId: 'runtime', state: 'exited', exitCode: 7 });
     expect(p.onPatch.mock.calls.some(([, patch]) => patch.state === 'running')).toBe(false);
   });
   it('preserves a successful exit before launch response and ignores repeated runtime metadata', async () => {
@@ -219,7 +219,7 @@ describe('terminal lifetime and flow control', () => {
       channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
     });
     await act(async () => resolve(info));
-    expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'exited', exitCode: 0 });
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { runtimeId: 'runtime', state: 'exited', exitCode: 0 });
     expect(p.onPatch.mock.calls.some(([, patch]) => patch.state === 'running')).toBe(false);
     await act(async () => { mocks.input?.('do not write after exit'); });
     expect(mocks.write).not.toHaveBeenCalled();
@@ -237,7 +237,7 @@ describe('terminal lifetime and flow control', () => {
     });
     await act(async () => resolve(info));
     expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'failed', error: 'PTY reader failed' });
-    expect(p.onPatch).toHaveBeenCalledWith('pane', { state: 'failed', exitCode: 0 });
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { runtimeId: 'runtime', state: 'failed', exitCode: 0 });
     expect(p.onPatch.mock.calls.some(([, patch]) => ['running', 'exited'].includes(patch.state))).toBe(false);
   });
   it('ignores stale launch token events and ACKs stale output without writing it', async () => {
@@ -259,7 +259,7 @@ describe('terminal lifetime and flow control', () => {
     expect(mocks.termWrite).not.toHaveBeenCalled();
     expect(mocks.ack).toHaveBeenCalledWith('runtime', 92, mocks.launch.mock.calls[0][2]);
     act(() => currentChannel({ type: 'exit', runtimeId: 'new-runtime', exitCode: 3 }));
-    expect(p.onPatch).toHaveBeenCalledExactlyOnceWith('pane', { state: 'exited', exitCode: 3 });
+    expect(p.onPatch).toHaveBeenCalledExactlyOnceWith('pane', { runtimeId: 'new-runtime', state: 'exited', exitCode: 3 });
   });
   it('detaches an obsolete launch response without changing the latest runtime', async () => {
     let resolveOld!: (value: RuntimeInfo) => void;

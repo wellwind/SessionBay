@@ -399,3 +399,23 @@ Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode
 - 刪除面板的模式選單、按鍵說明、逐 runtime 覆寫狀態，以及只供舊預設使用的 provider keyboard metadata。沒有新增磁碟設定或模式保存，也不更動其他 provider 能力。
 - 保留一般 Enter、其他修飾鍵、IME／CapsLock、keydown 單次傳送、焦點／modal／runtime／snapshot 守衛與既有有界輸入佇列；不追加 CR／LF，不回到 modal。
 - 統一編碼是操作偏好，不是所有程式皆已支援的宣告。未支援的 Shell／CLI 可能忽略或顯示編碼，應用程式模式仍可能將 modified Enter 解讀為送出。Windows Console InputRecord、Grok 多行模式及其他尚未完成的原生驗收限制保留於文件。
+
+## 2026-10-17：恢復普通 Shell 正常退出自動關閉
+
+覆蓋持續 Runtime 決策中「所有已退出程序保留面板」的部分：只有 broker 已確認普通 Shell 以結束碼 0 退出，才忘記該 runtime 並移除面板；最後一個面板移除時關閉分頁。專案與全域臨時 Terminal 一致，背景分頁也適用。重新附接時已正常退出的 Shell 同樣清理；只有已儲存布局、沒有有效 runtime 的 placeholder 不清理。
+
+Agent、非零／未知結束碼、失敗、斷線與 interrupted 保留。自動清理不發送 stop、不以 pane ID 批次處理其他 runtime；延遲清理回覆不能移除已重啟或替換的面板。Broker 清理失敗時保留面板並顯示錯誤，可由使用者明確關閉。
+
+## 2026-10-17：macOS Cmd+W 只關閉目前工作分頁
+
+Cmd+W 及 File → Close Tab 只處理目前顯示的工作區分頁，包含分割面板；執行中、啟動中或斷線的程序沿用一次關閉確認。其他專案／臨時分頁不受影響，最後一頁關閉仍保留視窗。歷史頁、無分頁、對話框及 IME 組字不觸發關閉；DOM keydown 自動重複忽略，原生與 DOM 重複請求在關閉處理中共用鎖。
+
+macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Close Tab 取代原生 CloseWindow 的 Cmd+W accelerator；Cmd+Q 與視窗紅色關閉鈕仍走既有離開流程。UI capture-phase 攔截同一組合鍵，避免傳入 PTY；原生選單事件共用相同防護。延遲查詢／停止完成後，以 runtime ID 與 startToken 檢查原目標，不能停止或移除替換後的工作。
+
+驗證分開記錄：前端合成橋接測試及 Rust 格式檢查可在 Linux 執行；macOS 原生選單、Cmd+W、Cmd+Q、紅色關閉鈕與原生 IME 尚需 macOS CI／實機驗證。
+
+確認關閉與應用程式最後一次布局儲存共用待完成清理邊界；分割面板部分忘記成功、部分失敗時，只從布局移除已完成清理的面板，失敗者保留。最終快照封存後不再開始新的關閉面板清理，避免重開後復活已刪除 runtime 的 placeholder。
+
+## 2026-10-17：接續對話的新分頁名稱
+
+從歷史／對話預覽接續工作時，新建分頁預設使用同一筆 Session.title；空白標題沿用原有 Agent 名稱。標題僅為顯示文字，去除首尾空白、將換行／控制字元換成空格，最多保留 200 個 Unicode 字元，與手動重新命名的限制一致。既有分頁接續、重新附接或後端判定同一 Runtime 時保留原名稱（包含手動命名）；分割面板不重新命名整個分頁。標題不參與路徑、命令參數或 Runtime 身分判斷。
