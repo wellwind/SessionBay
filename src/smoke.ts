@@ -257,6 +257,14 @@ export async function runSmokeInteraction(): Promise<void> {
     const { runTerminalSmoke } = await import('./terminal-smoke');
     await runTerminalSmoke();
   }
+  if (await call<boolean>('frontend_diagnostic', { phase: 'files-probe', message: 'enabled' })) {
+    if (projectDialog()) {
+      click(projectButton('取消'));
+      await waitFor(() => !projectDialog(), 'project dialog did not dismiss before files smoke');
+    }
+    const { runFilesSmoke } = await import('./files-smoke');
+    await runFilesSmoke();
+  }
   // Allow the final committed layout to reach the compositor before capture.
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   window.SessionBayStartup?.interaction();

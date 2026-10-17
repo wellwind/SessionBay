@@ -32,6 +32,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
+import { closeFocusedExplorer } from './components/explorer-focus';
 import { SidebarProjectList } from './components/SidebarProjectList';
 import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
 import type { SidebarPreferences } from './sidebar-preferences';
@@ -126,6 +127,7 @@ export default function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
   const [trashOpen, setTrashOpen] = useState(false);
+  const [fileToolbarHost, setFileToolbarHost] = useState<HTMLDivElement | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
@@ -770,6 +772,7 @@ export default function App() {
   const requestCloseTab = useRef(() => {});
   requestCloseTab.current = () => {
     if (closingApp.current || closeTabPending.current || composing.current || document.querySelector('[role="dialog"]')) return;
+    if (closeFocusedExplorer()) return;
     const current = stateRef.current;
     if (current.view !== 'workspace') return;
     const tab = current.workspace.tabs.find((item) => item.id === activeWorkspaceTabId(current.workspace, current.selectedId));
@@ -1393,6 +1396,7 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
+                <div className="workspace-files-toolbar-host" ref={setFileToolbarHost} />
                 {focusAvailable && <button ref={focusToggle} className="focus-mode-toggle" aria-pressed={focusMode}
                   aria-label={focusMode ? '退出專注模式' : '進入專注模式'}
                   title={focusMode ? '退出專注模式' : '進入專注模式（保留分頁與面板）'} onClick={toggleFocusMode}>
@@ -1425,6 +1429,7 @@ export default function App() {
                 </div>
                 {settings && (
                   <WorkspaceCanvas
+                    fileToolbarHost={fileToolbarHost}
                     workspace={workspace}
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}

@@ -13,6 +13,7 @@ pub mod providers;
 pub mod runtime;
 pub mod service;
 pub mod shells;
+mod workspace_files;
 
 #[cfg(feature = "desktop")]
 mod desktop;

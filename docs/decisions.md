@@ -469,6 +469,13 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
 
+## 2026-10-17：工作區唯讀檔案預覽
+
+依使用者要求以獨立 PR 實作，不混入側欄排序、Agent 設定或垃圾桶。工作分頁可開啟檔案側面板，Terminal 維持掛載與 Runtime；目錄及選檔狀態只保留於該分頁的記憶體，關頁／重開不保存內容。
+
+IPC 僅接受 catalog Project ID 與相對路徑；根目錄採原始 project.path，不採可能指向其他位置的 launchPath，也不從臨時 Terminal 推導 HOME。只讀單層目錄及 256 KiB 以下 UTF-8 一般文字檔；每頁 200 項，明確載入更多，不遞迴掃描 node_modules。隱藏檔案預設隱藏，可明確開啟顯示。
+
+Linux／macOS 以開啟的目錄 descriptor 逐段 O_NOFOLLOW 解析，不依賴先 canonicalize 再 open 的競態檢查。根及祖先路徑含符號連結亦拒絕，檔案以開啟後 metadata 驗證；一般檔案 nlink > 1 一律拒絕，避免預覽與根目錄外共用 inode 的硬連結。目錄不套用連結數限制。Windows 使用 NtCreateFile 相對於已持有的目錄 handle 逐段開啟，拒絕所有 reparse points 與多重硬連結；從已開啟 handle 驗證磁碟根為 volume root，拒絕 UNC、網路磁碟與映射到子目錄的磁碟別名。目錄列舉也使用同一 handle；開啟的項目不共享寫入／刪除，忙碌檔案可能明確失敗。Windows native GUI 尚未驗收。內容以 React 純文字呈現，不執行 HTML／Markdown、不啟動外部應用、不編輯／刪除檔案。詳見[檔案預覽](workspace-file-preview.md)。
 ## 2026-10-17：Agent 生命週期總覽
 
 Agent 狀態以共享 provider registry 辨識，不把 Shell 或歷史 Session 數當成 Agent 數。側欄按專案彙總已開啟、存活、已結束、中斷等數量；全域工作階段獨立一組。同一 runtime ID 只計一次，尚無 runtime 的面板按 pane ID 計數。已開啟包含尚未啟動及保留的結束面板，關閉後不再計數；存活只包含已有 runtime 的 starting／running，不代表忙碌或等待輸入。停用 provider 不排除既有程序。
@@ -590,3 +597,6 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 ## 2026-10-17 專注模式英文搜尋名稱
 
 命令面板的進入／退出專注模式名稱加入「（Zen Mode）」，設定快捷鍵名稱同步，讓英文 Zen Mode 可找到對應命令。維持 toggle-focus-mode ID 及使用者綁定；分頁工具列不改名。新增預設 Mod+Shift+Enter（macOS Cmd+Shift+Enter，Windows／Linux Ctrl+Shift+Enter），只填補缺少的設定鍵；明確空字串仍停用，既有自訂值不覆蓋，同組合衝突沿用停用與提示。避免 Ctrl+K chord 吞掉 shell 輸入，不加入前綴緩衝或補送；重複 keydown 不反覆切換，對話框、一般輸入欄與 IME 不搶鍵。此組合未與目前 app 預設／保留鍵衝突，不保證所有外部終端程式都沒有自訂用途。
+## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
+
+正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。

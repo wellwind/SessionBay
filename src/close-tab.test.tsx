@@ -9,6 +9,7 @@ const bridge = vi.hoisted(() => ({
   launch: vi.fn(), attach: vi.fn(), detach: vi.fn(), write: vi.fn(), resize: vi.fn(), ack: vi.fn(),
   stop: vi.fn(), forget: vi.fn(), settleLaunches: vi.fn(), close: vi.fn(), detect: vi.fn(),
   saveSettings: vi.fn(), setWorkspaceZoom: vi.fn(), reset: vi.fn(), dispose: vi.fn(),
+  listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(),
 }));
 vi.mock('./api', () => ({ api: bridge, isDesktop: () => true,
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error) }));
@@ -121,6 +122,27 @@ async function nativeCloseTab() {
 }
 beforeEach(() => vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel'));
 describe('Cmd+W closes only the current workspace tab', () => {
+  it('routes captured Cmd+W and native close from file controls without touching runtimes', async () => {
+    setup([shell()]);
+    bridge.listWorkspaceFiles.mockResolvedValue({ entries: [{ name: 'safe.ts', path: 'safe.ts', kind: 'file' }], nextOffset: null });
+    bridge.readWorkspaceFile.mockResolvedValue({ path: 'safe.ts', text: 'const safe = true;', sizeBytes: 18 });
+    await openWorkspace();
+    const terminal = screen.getByRole('textbox', { name: 'Integration terminal input' });
+    fireEvent.click(screen.getByRole('button', { name: '檔案預覽' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'safe.ts' }));
+    const editor = await screen.findByLabelText('唯讀內容：safe.ts'); editor.focus();
+    fireEvent.keyDown(editor, { key: 'w', code: 'KeyW', metaKey: true });
+    expect(screen.queryByRole('tab', { name: /safe.ts/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'safe.ts' }));
+    await screen.findByLabelText('唯讀內容：safe.ts');
+    screen.getByRole('button', { name: '關閉檔案預覽' }).focus();
+    await nativeCloseTab();
+    expect(screen.queryByRole('tab', { name: /safe.ts/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(bridge.stop).not.toHaveBeenCalled(); expect(bridge.forget).not.toHaveBeenCalled();
+    expect(bridge.write).not.toHaveBeenCalled(); expect(bridge.close).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'Integration terminal input' })).toBe(terminal);
+  });
   it('captures before xterm, confirms all split panes once, and preserves the app and other tabs', async () => {
     const records = [shell(), shell({ id: 'runtime-b', paneId: 'pane-b', kind: 'codex' })];
     const data = setup(records, true);
