@@ -1,4 +1,5 @@
 @import url('./code-themes.css');
+@import url('./interaction-states.css');
 /* Session Bay workbench design system. See docs/ui-design-system.md. */
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'Noto Sans CJK TC', sans-serif;
@@ -21,7 +22,7 @@
   --shadow: 0 20px 70px #142c3626;
 }
 button, input, textarea, .select-trigger { transition: background var(--motion), color var(--motion), border-color var(--motion), box-shadow var(--motion); }
-button:active:not(:disabled) { background: var(--surface-hover); }
+button:active:not(:disabled):not([aria-disabled="true"]) { background: var(--interaction-hover, var(--surface-hover)); }
 button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 a { color: var(--accent); }
 input, textarea, .select-trigger, .date-field, .search-field, .secondary { border-color: var(--control-border); border-radius: var(--radius); }

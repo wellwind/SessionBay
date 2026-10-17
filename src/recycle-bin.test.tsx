@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { HistoryView } from './components/History';
+import { Dialog } from './components/Dialog';
 import { SessionTrash } from './components/SessionTrash';
 import type { Session } from './types';
 
@@ -90,4 +91,80 @@ it('keeps the displayed provenance through background refresh and rejects stale 
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
   expect(within(screen.getByRole('dialog')).getByText(/Replacement session/)).toBeInTheDocument();
+});
+it('deletes directly from a sibling row action without selecting or resuming it', async () => {
+  const second = { ...session, id: 'second', title: 'Other work', trashIdentity: 'second-token' };
+  vi.mocked(api.sessions).mockResolvedValue({ items: [session, second], total: 2 });
+  const resume = vi.fn();
+  render(<HistoryView projects={[]} refreshToken={0} onResume={resume} onNew={vi.fn()} />);
+  const remove = await screen.findByRole('button', { name: '刪除 Session Other work' });
+  expect(remove.parentElement).toHaveAttribute('role', 'listitem');
+  expect(remove.closest('button')?.parentElement?.closest('button')).toBeNull();
+  remove.focus();
+  fireEvent.click(remove);
+  expect(screen.getByRole('dialog')).toHaveTextContent('Other work');
+  expect(api.transcript).not.toHaveBeenCalledWith('second');
+  fireEvent.click(screen.getByRole('button', { name: '取消' }));
+  expect(remove).toHaveFocus();
+  expect(api.trashSession).not.toHaveBeenCalled();
+  fireEvent.click(remove);
+  vi.mocked(api.sessions).mockResolvedValue({ items: [session], total: 1 });
+  fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: '復原刪除' })).toHaveFocus());
+  expect(api.trashSession).toHaveBeenCalledWith('second', 'second-token');
+  expect(resume).not.toHaveBeenCalled();
+  expect(api.stop).not.toHaveBeenCalled();
+});
+it('disables list deletion without a source identity', async () => {
+  vi.mocked(api.sessions).mockResolvedValue({ items: [{ ...session, trashIdentity: undefined }], total: 1 });
+  render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} />);
+  expect(await screen.findByRole('button', { name: '刪除 Session Synthetic work' })).toBeDisabled();
+});
+it('does not reclaim focus after delayed history refresh when the user moved elsewhere', async () => {
+  let finishRefresh!: () => void;
+  const changed = vi.fn(() => new Promise<void>(resolve => { finishRefresh = resolve; }));
+  render(<><input aria-label="Another control" /><HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} onHistoryChanged={changed} /></>);
+  fireEvent.click(await screen.findByRole('button', { name: '刪除 Session Synthetic work' }));
+  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  const control = screen.getByRole('textbox', { name: 'Another control' });
+  control.focus();
+  await act(async () => finishRefresh());
+  expect(control).toHaveFocus();
+  expect(screen.getByRole('button', { name: '復原刪除' })).toBeEnabled();
+});
+it('offers Undo focus after delayed refresh if no newer interaction owns focus', async () => {
+  let finishRefresh!: () => void;
+  render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()}
+    onHistoryChanged={() => new Promise<void>(resolve => { finishRefresh = resolve; })} />);
+  fireEvent.click(await screen.findByRole('button', { name: '刪除 Session Synthetic work' }));
+  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await act(async () => finishRefresh());
+  expect(screen.getByRole('button', { name: '復原刪除' })).toHaveFocus();
+});
+
+it.each(['blur', 'pointer', 'dialog'] as const)('relinquishes pending Undo focus after newer %s intent', async intent => {
+  let finishRefresh!: () => void;
+  const changed = () => new Promise<void>(resolve => { finishRefresh = resolve; });
+  const frame = (showDialog = false) => <><input aria-label="Another control" />
+    <HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} onHistoryChanged={changed} />
+    {showDialog && <Dialog title="New dialog" onClose={() => {}}><button>New dialog action</button></Dialog>}
+  </>;
+  const view = render(frame());
+  fireEvent.click(await screen.findByRole('button', { name: '刪除 Session Synthetic work' }));
+  vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  if (intent === 'blur') {
+    const control = screen.getByRole('textbox', { name: 'Another control' });
+    control.focus(); control.blur();
+  } else if (intent === 'pointer') fireEvent.pointerDown(document.body);
+  else view.rerender(frame(true));
+  const owner = document.activeElement;
+  await act(async () => finishRefresh());
+  expect(document.activeElement).toBe(owner);
+  expect(screen.getByRole('button', { name: '復原刪除' })).not.toHaveFocus();
 });

@@ -67,7 +67,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
     {tabs.map((tab, index) => <div key={tab.id}
       className={`workspace-tab ${tab.id === activeId ? 'active' : ''} ${drop?.id === tab.id ? (drop.after ? 'drop-after' : 'drop-before') : ''}`}
       ref={element => { if (element) tabElements.current.set(tab.id, element); else tabElements.current.delete(tab.id); }}>
-      <button className="workspace-tab-select" aria-describedby={helpId}
+      <button className="workspace-tab-select" aria-current={tab.id === activeId ? 'true' : undefined} aria-describedby={helpId}
         aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
         title={`${tab.name} · 第 ${index + 1} 個分頁；拖曳或 Alt+←／→ 排序`}
         onPointerDown={event => {
