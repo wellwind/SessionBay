@@ -392,3 +392,4 @@ Escape 在 IME 組字期間（包含 composition event、isComposing 與 keyCode
 
 - 2026-10-16 Windows broker 啟動候選修正：新 `broker.lock` 必須以目前 `TokenUser` SID 的明確 owner／protected DACL 原子建立，不能假設預設 `TokenOwner` 等同使用者 SID。既有 owner／ACL 異常仍拒絕，不自動修正。只有實際鎖占用才等待既有 broker；權限／I/O 錯誤直接回報。此來源層級原因仍須 Windows 原生回歸證實，不能以交叉檢查代替。
 - 2026-10-16 Windows 定向驗證沿用完整桌面驗收工作：手動 `platform` 選項限 `all`／`windows`，預設與缺少輸入時維持原四平台。Windows 單列仍執行完整 Rust／前端測試、Clippy、未簽章 NSIS 與原生 GUI smoke，不降為 headless；只代表 Windows 驗證。自動 Linux 工作不變，不由此更動觸發完整矩陣。
+- 2026-10-17 Windows smoke 清理必須等待 GUI-subsystem 執行檔的實際結束碼，不使用 PowerShell 非同步 `&` 呼叫後的 `$LASTEXITCODE`。正常關閉 UI、必要時只終止所持有的 UI handle；broker 仍以隔離 app-data 的已驗證 IPC 明確停止。程序與輸出等待都有期限，所有 broker 停止成功且沒有 UI／清理錯誤後才刪除暫存狀態；失敗保留目錄與合成 smoke 診斷。新增原生 GUI-subsystem fixture 驗證清理順序、失敗與逾時，不視為真實 CLI／完整桌面驗收。

@@ -51,6 +51,10 @@ jobs:
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Native Windows cleanup regression
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-smoke-cleanup.ps1
       - name: Build unsigned local bundle
         run: npm run tauri -- build --bundles ${{ matrix.bundle }}
       - name: Preserve macOS application permissions

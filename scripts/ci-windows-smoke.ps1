@@ -2,16 +2,20 @@
 # Requires a built Windows executable and the logged-in CI desktop session.
 param([string]$Binary = "$PSScriptRoot/../src-tauri/target/release/sessionbay.exe")
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/windows-smoke-cleanup.ps1"
 $Binary = (Resolve-Path $Binary).Path
 $output = Join-Path $PSScriptRoot '../artifacts/windows-smoke'
 New-Item -ItemType Directory -Force $output | Out-Null
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ("sessionbay-smoke-" + [guid]::NewGuid())
 New-Item -ItemType Directory $temporary | Out-Null
 $process = $null
+$states = [Collections.Generic.List[string]]::new()
+$primaryError = ''
 try {
     foreach ($theme in @('dark', 'light')) {
         $state = Join-Path $temporary $theme
         New-Item -ItemType Directory $state | Out-Null
+        $states.Add($state)
         $shell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
         $settings = @{
             version = 1; theme = $theme; terminalTheme = 'bay'
@@ -45,9 +49,8 @@ try {
             Start-Sleep -Milliseconds 200
         }
         $exitedEarly = $process.HasExited
-        if (!$process.HasExited) { $process.Kill($true) }
-        $process.WaitForExit()
-        $log = $stderr.GetAwaiter().GetResult() + $stdout.GetAwaiter().GetResult()
+        Stop-SessionBaySmokeWindow -Process $process
+        $log = Read-SessionBaySmokeOutput -Stdout $stdout -Stderr $stderr
         $log | Set-Content -Encoding utf8 (Join-Path $output "$theme-app.log")
         if ($exitedEarly -or !$windowSeen) { throw 'Native Windows window did not remain alive.' }
         if ($log -match 'SESSIONBAY_FRONTEND .*"phase":"error"') { throw 'Native frontend reported an error.' }
@@ -60,20 +63,24 @@ try {
         if (@($saved.sources).Count -ne 0) { throw 'Smoke unexpectedly added a history source.' }
         $process.Dispose()
         $process = $null
-        & $Binary --sessionbay-runtime-broker-stop $state
-        if ($LASTEXITCODE -ne 0) { throw "Cannot stop isolated smoke runtime broker." }
+        Stop-SessionBaySmokeBroker -Binary $Binary -State $state -LogPath (Join-Path $output "$theme-broker-stop.log")
     }
-    'Native Windows dark/light startup, visible window, DOM interaction, and backend IPC passed with isolated empty sources. Terminal/IME, real CLI resume, and installer execution require separate acceptance.' |
-        Set-Content -Encoding utf8 (Join-Path $output 'result.txt')
+} catch {
+    $primaryError = $_.Exception.Message
+    throw
 } finally {
+    $closeError = ''
     if ($null -ne $process) {
-        if (!$process.HasExited) { $process.Kill($true); $process.WaitForExit() }
-        $process.Dispose()
-    }
-    foreach ($state in Get-ChildItem -Directory $temporary) {
-        if (Test-Path (Join-Path $state.FullName "runtime-broker-v1")) {
-            & $Binary --sessionbay-runtime-broker-stop $state.FullName
+        try {
+            Stop-SessionBaySmokeWindow -Process $process
+        } catch {
+            $closeError = $_.Exception.Message
+        } finally {
+            $process.Dispose()
         }
     }
-    Remove-Item -Recurse -Force $temporary
+    Clear-SessionBaySmokeState -Binary $Binary -States $states.ToArray() `
+        -TemporaryDirectory $temporary -OutputDirectory $output -PriorError (($primaryError, $closeError | Where-Object { $_ }) -join "`n")
 }
+'Native Windows dark/light startup, visible window, DOM interaction, backend IPC, and awaited broker cleanup passed with isolated empty sources. Terminal/IME, real CLI resume, and installer execution require separate acceptance.' |
+    Set-Content -Encoding utf8 (Join-Path $output 'result.txt')
