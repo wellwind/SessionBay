@@ -207,6 +207,12 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - Tauri 2.12.4 Menu 預設原始碼與 PredefinedMenuItem（查閱 2026-10-17）：https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/menu.rs 、https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/predefined.rs 。macOS 預設 File／Window 含 CloseWindow，單靠 WebView keydown 不能取代原生 accelerator；本次使用自訂 Close Tab 選單事件。文件／原始碼查核不代表原生 macOS 驗收。
 
+## Windows 工作區安全檔案預覽（2026-10-17）
+
+- [NtCreateFile / ZwCreateFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-zwcreatefile)：RootDirectory 相對名稱、FILE_OPEN 與 FILE_OPEN_REPARSE_POINT；使用者模式透過 ntdll NtCreateFile。
+- [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)：共享模式與開啟 reparse object；只共享讀取可能因現有寫入 handle 失敗。
+- [GetFinalPathNameByHandleW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew)：以已開啟 handle 的 GUID volume path 拒絕子目錄磁碟別名，查詢失敗則拒絕。
+- [GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandleex)：handle 上的目錄列舉及 FILE_STANDARD_INFO 硬連結數；不依賴檢查後重開完整路徑。
 ## 圖片輸入來源（2026-10-17）
 
 固定官方來源 commit、版本與適用限制集中於 [圖片輸入來源](image-input.md#固定來源2026-10-17-查閱)。

@@ -2,8 +2,9 @@ use crate::{
     broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
-    models::{AgentKind, IndexStatus, Project},
+    models::{AgentKind, IndexStatus, Project, WorkspaceFilePage, WorkspaceFilePreview},
     runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent},
+    workspace_files,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -117,6 +118,24 @@ impl Service {
             .lock()
             .map(|v| v.clone())
             .map_err(|_| "設定鎖定失敗".into())
+    }
+    pub fn list_workspace_files(
+        &self,
+        project_id: &str,
+        path: &str,
+        offset: usize,
+        show_hidden: bool,
+    ) -> Result<WorkspaceFilePage, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::list(&root, path, offset, show_hidden)
+    }
+    pub fn read_workspace_file(
+        &self,
+        project_id: &str,
+        path: &str,
+    ) -> Result<WorkspaceFilePreview, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::read(&root, path)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;

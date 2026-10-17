@@ -1,8 +1,11 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CSSProperties, PointerEvent } from 'react';
 import type { Pane, RuntimeInfo, Settings, Workspace } from '../types';
 import { layoutRects } from '../workspace';
 import type { Divider } from '../workspace';
+import { Folder, X } from 'lucide-react';
+import { WorkspaceFiles } from './WorkspaceFiles';
 import { TerminalPane } from './TerminalPane';
 export function WorkspaceCanvas({
   workspace,
@@ -19,6 +22,7 @@ export function WorkspaceCanvas({
   onSplit,
   onRatio,
   onAlreadyOpen,
+  fileToolbarHost,
 }: {
   workspace: Workspace;
   knownProjectIds: string[];
@@ -34,9 +38,15 @@ export function WorkspaceCanvas({
   onSplit: (id: string, axis: 'horizontal' | 'vertical') => void;
   onRatio: (id: string, ratio: number) => void;
   onAlreadyOpen: (paneId: string, info: RuntimeInfo) => void;
+  fileToolbarHost?: HTMLElement | null;
 }) {
+  const [fileTabs, setFileTabs] = useState<Record<string, boolean>>({});
+  const [openedTabs, setOpenedTabs] = useState<Record<string, boolean>>({});
+  const fileToggle = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const tab = workspace.tabs.find((t) => t.id === activeTabId);
+  const canBrowse = !!tab?.projectId && knownProjectIds.includes(tab.projectId);
+  const filesVisible = canBrowse && !!fileTabs[tab!.id];
   const geometry = tab ? layoutRects(tab.layout) : { panes: {}, dividers: [] };
   const drag = (event: PointerEvent<HTMLDivElement>, divider: Divider) => {
     if (!root.current) return;
@@ -62,13 +72,20 @@ export function WorkspaceCanvas({
     element.addEventListener('pointerup', up);
     element.addEventListener('pointercancel', up);
   };
+  const fileToolbar = visible && canBrowse && <div className="workspace-files-toolbar"><button ref={fileToggle}
+    aria-expanded={filesVisible} onClick={() => {
+      setFileTabs((old) => ({ ...old, [tab!.id]: !old[tab!.id] }));
+      setOpenedTabs((old) => ({ ...old, [tab!.id]: true }));
+    }}><Folder size={14} />{filesVisible ? '隱藏檔案預覽' : '檔案預覽'}</button></div>;
   return (
     <div
       className={`workspace-canvas${tab?.layout.kind === 'pane' ? ' single-pane' : ''}`}
-      ref={root}
       style={{ display: visible ? undefined : 'none' }}
       aria-label="開發工作區"
     >
+      {fileToolbarHost ? createPortal(fileToolbar, fileToolbarHost) : fileToolbar}
+      <div className="workspace-canvas-body">
+      <div className="workspace-terminal-surface" ref={root}>
       {Object.values(workspace.panes).map((pane) => {
         const rect = geometry.panes[pane.id];
         const show = visible && !!rect && (!maximizedId || maximizedId === pane.id);
@@ -131,6 +148,24 @@ export function WorkspaceCanvas({
             }}
           />
         ))}
+      </div>
+      {workspace.tabs.filter((item) => openedTabs[item.id] && item.projectId !== null && knownProjectIds.includes(item.projectId)).map((item) =>
+        <aside className="workspace-files-pane" key={`${item.id}:${item.projectId}`}
+          style={{ display: filesVisible && item.id === tab?.id ? undefined : 'none' }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation();
+              setFileTabs((old) => ({ ...old, [item.id]: false }));
+              fileToggle.current?.focus();
+            }
+          }}>
+          <div className="workspace-files-heading"><strong>檔案預覽</strong><button aria-label="關閉檔案預覽" onClick={() => {
+            setFileTabs((old) => ({ ...old, [item.id]: false }));
+            fileToggle.current?.focus();
+          }}><X size={14} /></button></div>
+          <WorkspaceFiles projectId={item.projectId!} />
+        </aside>)}
+      </div>
     </div>
   );
 }
