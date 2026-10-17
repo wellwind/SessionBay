@@ -2101,7 +2101,7 @@ describe('Whole-workspace zoom integration', () => {
     expect(zoom('=')).toBe(true);
     fireEvent.compositionEnd(window.document);
     expect(zoom('c')).toBe(true);
-    expect(zoom('Enter', { shiftKey: true })).toBe(true);
+    expect(zoom('Enter', { shiftKey: true, ctrlKey: false })).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
     expect(zoom('=')).toBe(true);
     expect(api.saveSettings).not.toHaveBeenCalled();

@@ -519,7 +519,7 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 - 專注模式為獨立、可逆的 UI 狀態，不切換作業系統全螢幕，不修改分割比例、面板最大化、側欄偏好或持久化 workspace。
 - 專案／臨時 Terminal 可從分頁列進入；保留歷史、工作分頁、新增、面板工具列與明確退出入口。專案名稱按鈕暫時展開原有完整控制列與側欄，提供所有原有操作；總覽自動顯示完整導覽。
-- 命令面板可進入／退出；快捷鍵預設空白，可於設定自行配置並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
+- 命令面板可進入／退出；快捷鍵預設 Mod+Shift+Enter，可於設定自行配置或留空停用並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
 - 相同 WorkspaceCanvas 與 TerminalPane 持續掛載，依 ResizeObserver 更新終端尺寸。索引進行／失敗、縮放失敗、目錄警告與面板錯誤保留可見。原生桌面驗收仍待完成。
 
 ## 2026-10-17 單面板滿版布局
@@ -601,6 +601,9 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 
 父列左側直接顯示資料夾與名稱；展開箭頭及拖曳把手依序放在右側，沒有分頁時仍在右側保留箭頭槽位。DOM 與鍵盤順序同為專案、展開箭頭、排序把手，資料夾前不保留操作空槽。資料夾對齊名稱第一行，活動摘要放在名稱與路徑之下並保留行高，避免活動文字或收合狀態讓名稱與圖示跳動。拖曳仍只以父列作為落點，不改排序或展開功能語意。
 
+## 2026-10-17 專注模式英文搜尋名稱
+
+命令面板的進入／退出專注模式名稱加入「（Zen Mode）」，設定快捷鍵名稱同步，讓英文 Zen Mode 可找到對應命令。維持 toggle-focus-mode ID 及使用者綁定；分頁工具列不改名。新增預設 Mod+Shift+Enter（macOS Cmd+Shift+Enter，Windows／Linux Ctrl+Shift+Enter），只填補缺少的設定鍵；明確空字串仍停用，既有自訂值不覆蓋，同組合衝突沿用停用與提示。避免 Ctrl+K chord 吞掉 shell 輸入，不加入前綴緩衝或補送；重複 keydown 不反覆切換，對話框、一般輸入欄與 IME 不搶鍵。此組合未與目前 app 預設／保留鍵衝突，不保證所有外部終端程式都沒有自訂用途。
 ## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
 
 正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。

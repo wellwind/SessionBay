@@ -209,7 +209,17 @@ it(' closing temporarily revealed sidebar returns keyboard focus to the terminal
   expect(input).toHaveFocus();
 });
 
-it(' command-palette focus entry returns keyboard focus to the terminal', async () => {
+it.each([undefined, '', 'Mod+Shift+Z'])('shows the Zen Mode settings label without changing binding %s', async binding => {
+  const data = fixture();
+  if (binding !== undefined) data.settings.shortcuts = { 'toggle-focus-mode': binding };
+  bridge.bootstrap.mockResolvedValue(data);
+  await ready();
+  fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+  fireEvent.click(screen.getByRole('button', { name: '鍵盤快捷鍵' }));
+  expect(screen.getByRole('textbox', { name: /進入／退出專注模式（Zen Mode） toggle-focus-mode/ })).toHaveValue(binding ?? 'Mod+Shift+Enter');
+});
+
+it('finds Zen Mode entry and exit in the command palette and restores terminal focus', async () => {
   const input = await ready();
   vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
   const frames: FrameRequestCallback[] = [];
@@ -217,9 +227,19 @@ it(' command-palette focus entry returns keyboard focus to the terminal', async 
   const trigger = screen.getByRole('button', { name: /搜尋專案或執行命令/ });
   act(() => trigger.focus()); fireEvent.click(trigger);
   const search = screen.getByRole('combobox', { name: '搜尋命令或專案' });
-  fireEvent.change(search, { target: { value: '進入專注模式' } });
+  fireEvent.change(search, { target: { value: 'Zen Mode' } });
+  expect(screen.getByRole('option', { name: /進入專注模式（Zen Mode）/ })).toHaveTextContent(/Enter|↵/);
   fireEvent.keyDown(search, { key: 'Enter' });
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(input).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+  fireEvent.click(trigger);
+  const exitSearch = screen.getByRole('combobox', { name: '搜尋命令或專案' });
+  fireEvent.change(exitSearch, { target: { value: 'zen mode' } });
+  expect(screen.getByRole('option', { name: /退出專注模式（Zen Mode）/ })).toHaveTextContent(/Enter|↵/);
+  fireEvent.keyDown(exitSearch, { key: 'Enter' });
+  expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
   act(() => frames.splice(0).forEach(callback => callback(0)));
   expect(input).toHaveFocus();
 });
@@ -282,4 +302,57 @@ it('restores an opt-in shortcut from chrome that becomes hidden', async () => {
   act(() => frames.splice(0).forEach(callback => callback(0)));
   expect(input).toHaveFocus();
   expect(bridge.write).not.toHaveBeenCalled();
+});
+
+it.each(['Win32', 'Linux', 'MacIntel'])('toggles Zen with the default before terminal input on %s', async platform => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue(platform);
+  const input = await ready();
+  const forwarded = vi.fn();
+  input.addEventListener('keydown', forwarded);
+  const binding = { key: 'Enter', shiftKey: true, ctrlKey: platform !== 'MacIntel', metaKey: platform === 'MacIntel' };
+  expect(fireEvent.keyDown(input, binding)).toBe(false);
+  expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
+  expect(fireEvent.keyDown(input, { ...binding, repeat: true })).toBe(false);
+  expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
+  fireEvent.keyUp(input, binding);
+  expect(fireEvent.keyDown(input, binding)).toBe(false);
+  expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
+  expect(input).toHaveFocus();
+  expect(forwarded).not.toHaveBeenCalled();
+  expect(bridge.write).not.toHaveBeenCalled();
+  // No chord prefix is captured or buffered; xterm sees these immediately.
+  fireEvent.keyDown(input, { key: 'k', ctrlKey: true });
+  fireEvent.keyDown(input, { key: 'z' });
+  expect(forwarded.mock.calls.map(([event]) => event.key)).toEqual(['k', 'z']);
+});
+
+it.each(['', 'Mod+Shift+Z', 'conflict'])('does not replace explicit Zen binding %s', async binding => {
+  const data = fixture();
+  data.settings.shortcuts = binding === 'conflict' ? { 'new-terminal': 'Mod+Shift+Enter' } : { 'toggle-focus-mode': binding };
+  bridge.bootstrap.mockResolvedValue(data);
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32');
+  const input = await ready();
+  expect(fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true, shiftKey: true })).toBe(true);
+  expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
+});
+
+it('leaves editable inputs, IME and dialogs alone with the Zen default', async () => {
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Win32');
+  const input = await ready();
+  const binding = { key: 'Enter', ctrlKey: true, shiftKey: true };
+  for (const extra of [{ isComposing: true }, { keyCode: 229 }]) {
+    expect(fireEvent.keyDown(input, { ...binding, ...extra })).toBe(true);
+  }
+  fireEvent.compositionStart(input);
+  expect(fireEvent.keyDown(input, binding)).toBe(true);
+  fireEvent.compositionEnd(input);
+  const prevented = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...binding });
+  prevented.preventDefault();
+  fireEvent(input, prevented);
+  const search = screen.getByRole('textbox', { name: '搜尋專案' });
+  fireEvent.keyDown(search, binding);
+  expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
+  fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+  expect(fireEvent.keyDown(input, binding)).toBe(true);
+  expect(document.querySelector('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
 });

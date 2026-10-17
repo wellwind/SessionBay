@@ -52,12 +52,12 @@ if (edgeFixture) {
   workspace.panes[hidden.paneId] = { ...workspace.panes['pane-focus'], id: hidden.paneId,
     title: 'Hidden shell', runtimeId: hidden.id };
 }
-const calls: { command: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number }[] = [];
+const calls: { command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number }[] = [];
 Object.assign(window, { isTauri: true, focusFixture: { calls } });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
-  calls.push({ command, ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
+  calls.push({ command, ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
   switch (command) {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
