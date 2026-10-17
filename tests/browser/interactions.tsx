@@ -23,6 +23,8 @@ const data: Bootstrap = {
     tabs: [{ id: 'tab', projectId: 'p0', name: '開發 Terminal', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }], activeTabByProject: { p0: 'tab' } },
 };
 api.bootstrap = async () => data;
+api.listWorkspaceFiles = async () => ({ entries: [], nextOffset: null });
+api.readWorkspaceFile = async () => { throw new Error('No file fixture is configured for this scenario'); };
 api.projects = async () => data.projects;
 api.scan = api.index = async () => data.index;
 api.runtimes = async () => [];
