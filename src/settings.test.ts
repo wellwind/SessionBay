@@ -280,6 +280,28 @@ describe('SettingsPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: '確定清除索引' }));
     await waitFor(() => expect(config.onClearIndex).toHaveBeenCalledTimes(1));
   });
+  it('defaults clear confirmation to native Enter while preserving IME and explicit return', async () => {
+    const config = props();
+    render(createElement(SettingsPanel, config));
+    const opener = screen.getByRole('button', { name: '清除索引' });
+    opener.focus();
+    await userEvent.keyboard('{Enter}');
+    const confirm = screen.getByRole('button', { name: '確定清除索引' });
+    expect(confirm).toHaveFocus();
+    expect(config.onClearIndex).not.toHaveBeenCalled();
+    for (const guard of [{ isComposing: true }, { keyCode: 229 }, { repeat: true }])
+      expect(fireEvent.keyDown(confirm, { key: 'Enter', ...guard })).toBe(false);
+    fireEvent.compositionStart(confirm);
+    expect(fireEvent.keyDown(confirm, { key: 'Enter' })).toBe(false);
+    fireEvent.compositionEnd(confirm);
+    expect(config.onClearIndex).not.toHaveBeenCalled();
+    await userEvent.tab({ shift: true });
+    await userEvent.keyboard('{Enter}');
+    expect(config.onClearIndex).not.toHaveBeenCalled();
+    expect(opener).toHaveFocus();
+    await userEvent.keyboard('{Enter}{Enter}');
+    await waitFor(() => expect(config.onClearIndex).toHaveBeenCalledOnce());
+  });
   it('requires discard confirmation and restores focus when cancellation is dismissed', async () => {
     const config = props();
     render(createElement(SettingsPanel, config));
@@ -289,8 +311,7 @@ describe('SettingsPanel', () => {
     const cancel = screen.getByRole('button', { name: '取消' });
     await userEvent.click(cancel);
     expect(config.onClose).not.toHaveBeenCalled();
-    const back = screen.getByRole('button', { name: '返回' });
-    expect(back).toHaveFocus();
+    expect(screen.getByRole('button', { name: '捨棄變更' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(cancel).toHaveFocus();
@@ -303,6 +324,9 @@ describe('SettingsPanel', () => {
     await userEvent.click(screen.getByRole('button', { name: '清除索引' }));
     const back = screen.getByRole('button', { name: '返回' });
     const confirm = screen.getByRole('button', { name: '確定清除索引' });
+    expect(confirm).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(back).toHaveFocus();
     await userEvent.tab({ shift: true });
     expect(confirm).toHaveFocus();
     await userEvent.tab();
