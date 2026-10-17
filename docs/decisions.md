@@ -590,3 +590,7 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 ## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
 
 正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。
+
+## 2026-10-17：Caps Lock 候選使用可取消的 composition 交易
+
+拒絕只關閉 xterm 共用 pending 布林的舊候選：下一次組字會讓舊 callback 復活而重送，或取消上一筆尚未送出的內容。固定 xterm 5.5.0，相容層以交易 identity 與真正可取消的 0ms callback 管理全部 composition finalizer；只在 CapsLock pending 交易與 insertText 範圍吻合時攔截雙路輸入。沒有任意延遲或 PTY 字串去重。普通組字也受 finalizer 替換影響，必須覆蓋 rollover、下一鍵與 dispose。詳見 [候選範圍、反例及原生驗收限制](capslock-ime.md)；尚未通過 macOS 中文 IME，禁止標記完成或自動合併。

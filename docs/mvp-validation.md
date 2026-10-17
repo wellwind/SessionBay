@@ -289,3 +289,7 @@ Service 整合測試涵蓋：同專案 Codex＋Claude 合成歷史 → 中文搜
 ## 交付與邊界
 
 包含可建置原始碼、lockfiles、合成 fixtures、自動測試、開發指南及 private-repo CI 設定。沒有發布、簽章／公證、開啟自動更新或加入用量 P1 功能。使用者已接受本 PR 並授權合併；合併本身不等於正式發布或完整 P0 驗收。macOS／Linux 的原生驗證與實際 CLI 相容矩陣仍是正式宣稱完整 P0 的必要條件。
+
+### Caps Lock 交易隔離候選
+
+目前仍未通過 macOS 原生中文 preedit 驗收。新候選及合成回歸見 [Caps Lock IME 說明](capslock-ime.md)。舊 shared-boolean ownership 候選已被重送與漏字反例否決；實際發布 bundle 的 Chromium 合成測試與 source-handler 測試只能證明相同事件序列的程式路由，不能替代輸入法與 OS 切換實測。
