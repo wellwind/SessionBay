@@ -192,6 +192,28 @@ describe('terminal lifetime and flow control', () => {
     act(() => mocks.termWrite.mock.calls[0][1]());
     expect(mocks.ack).toHaveBeenCalledWith('runtime', 41, mocks.launch.mock.calls[0][2]);
   });
+  it('ACKs a coalesced response at its final sequence only after the complete write', async () => {
+    render(<TerminalPane {...props(makePane({ startToken: 1 }))} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalled());
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(channel);
+    mocks.termWrite.mockClear(); mocks.ack.mockClear(); mocks.termReset.mockClear();
+    const data = Array.from(new TextEncoder().encode('\x1b[?2026h\x1b[2J\x1b[H合成 frame\x1b[?2026l'));
+    act(() => channel({ type: 'output', runtimeId: 'runtime', sequence: 64, data }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(1);
+    expect(mocks.termWrite.mock.calls[0][0]).toEqual(new Uint8Array(data));
+    expect(mocks.ack).not.toHaveBeenCalled();
+    expect(mocks.termReset).not.toHaveBeenCalled();
+    act(() => mocks.termWrite.mock.calls[0][1]());
+    expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('runtime', 64, mocks.launch.mock.calls[0][2]);
+    act(() => channel({ type: 'output', runtimeId: 'runtime', sequence: 65, data: [65] }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(2);
+    expect(mocks.ack).toHaveBeenCalledTimes(1);
+    act(() => mocks.termWrite.mock.calls[1][1]());
+    expect(mocks.ack).toHaveBeenLastCalledWith('runtime', 65, mocks.launch.mock.calls[0][2]);
+    expect(mocks.launch).toHaveBeenCalledTimes(1);
+    expect(mocks.attach).not.toHaveBeenCalled();
+  });
   it('preserves a quick exit that arrives before launch response', async () => {
     let resolve!: (value: RuntimeInfo) => void;
     mocks.launch.mockImplementation(
