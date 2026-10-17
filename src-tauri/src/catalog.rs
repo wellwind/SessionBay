@@ -712,6 +712,142 @@ impl Catalog {
         })
     }
 
+    /// Inspect only a catalog-owned tombstone ID. Caller-supplied paths are never accepted.
+    /// This is not a complete deletion plan or a proof of idle provider state.
+    pub fn inspect_removal(&self, trash_id: &str) -> Result<RemovalInspection, String> {
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction().map_err(error)?;
+        let (snapshot, root): (String, String) = tx
+            .query_row(
+                "SELECT snapshot,source_root FROM session_trash WHERE id=?1",
+                [trash_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(error)?
+            .ok_or("回收筒項目已變更，請重新整理。")?;
+        let session: Session = serde_json::from_str(&snapshot).map_err(error)?;
+        let source: Option<(String, bool)> = tx
+            .query_row(
+                "SELECT root,enabled FROM sources WHERE id=?1 AND kind=?2 AND storage_root=?3",
+                params![session.source_id, session.kind.as_str(), root],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(error)?;
+        let Some((configured_root, true)) = source else {
+            return Err("原始來源已移除、停用或變更，請重新連接並更新索引。".into());
+        };
+        let root_path = Path::new(&root);
+        if fs::canonicalize(&configured_root).ok().as_deref() != Some(root_path)
+            || !inspection_path_is_plain(root_path)
+            || !inspection_path_is_plain(Path::new(&configured_root))
+        {
+            return Err("來源路徑已變更或包含連結，無法可靠檢查。".into());
+        }
+        let current = tx
+            .query_row(
+                &format!("SELECT {SESSION_COLUMNS} FROM sessions s WHERE s.id=?1"),
+                [&session.id],
+                session_row,
+            )
+            .optional()
+            .map_err(error)?;
+        if !current.is_some_and(|current| {
+            current.source_id == session.source_id
+                && current.kind == session.kind
+                && current.external_id == session.external_id
+                && session.trash_identity.is_some()
+                && current.trash_identity == session.trash_identity
+        }) {
+            return Err("索引中的 Session 來源已變更，請重新整理。".into());
+        }
+        let mut statement = tx.prepare(
+            "SELECT path,identity,size,modified FROM files WHERE session_id=?1 AND source_id=?2 ORDER BY path LIMIT 201"
+        ).map_err(error)?;
+        let files = statement
+            .query_map(params![session.id, session.source_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, u64>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        if files.len() > 200 {
+            return Err("來源項目過多，無法提供完整的索引檢查。".into());
+        }
+        let mut artifacts = Vec::new();
+        // Shared stores use virtual file keys, not deletable transcript paths.
+        if session.kind == AgentKind::OpenCode {
+            artifacts.push(RemovalArtifact {
+                relative_path: "opencode.db（含 WAL／journal 等共享狀態）".into(),
+                status: "sharedStore".into(),
+                indexed_bytes: None,
+            });
+        } else {
+            for (path, identity, size, modified) in files {
+                if identity == "antigravity-metadata-only" {
+                    continue;
+                }
+                let path = Path::new(&path);
+                let relative = path
+                    .strip_prefix(root_path)
+                    .ok()
+                    .filter(|p| {
+                        !p.as_os_str().is_empty()
+                            && p.components().all(|c| matches!(c, Component::Normal(_)))
+                    })
+                    .ok_or("索引包含來源範圍外的路徑，已停止檢查。")?;
+                let matches = inspection_path_is_plain(path)
+                    && fs::symlink_metadata(path).is_ok_and(|metadata| {
+                        metadata.is_file()
+                            && metadata.len() == size
+                            && modification(&metadata) == modified
+                            && path_identity(path, &metadata).is_ok_and(|value| value == identity)
+                            && inspection_single_link(&metadata)
+                    });
+                artifacts.push(RemovalArtifact {
+                    relative_path: relative.to_string_lossy().into_owned(),
+                    status: if matches {
+                        "metadataMatchesIndex"
+                    } else {
+                        "changedOrUnavailable"
+                    }
+                    .into(),
+                    indexed_bytes: Some(size),
+                });
+            }
+        }
+        if session.kind == AgentKind::Antigravity {
+            artifacts.push(RemovalArtifact {
+                relative_path: "conversation_summaries.db（共享 metadata）".into(),
+                status: "sharedStore".into(),
+                indexed_bytes: None,
+            });
+        }
+        let mut blockers = crate::removal::blockers(session.kind);
+        if artifacts.is_empty() {
+            blockers.push("目前沒有可確認的索引來源檔案。".into());
+        }
+        if artifacts.iter().any(|a| a.status == "changedOrUnavailable") {
+            blockers.push("有檔案已變更、遺失或包含連結；請重新掃描後再次檢查。".into());
+        }
+        Ok(RemovalInspection {
+            trash_id: trash_id.into(),
+            session_id: session.id,
+            external_id: session.external_id,
+            kind: session.kind,
+            source_root: root,
+            catalog_revision: read_revision(&tx)?.to_string(),
+            indexed_artifacts: artifacts,
+            blockers,
+        })
+    }
+
     pub fn restore_session(&self, id: &str) -> Result<(), String> {
         let mut conn = self.connect()?;
         // Serialize with scanners/source edits so the checked provenance cannot
@@ -3377,4 +3513,22 @@ mod revision_snapshot_tests {
         assert_eq!(next.total, 1);
         assert_eq!(next.items.len(), 1);
     }
+}
+
+// Metadata inspection only; no source file is mutated by these helpers.
+fn inspection_path_is_plain(path: &Path) -> bool {
+    path.ancestors()
+        .all(|part| fs::symlink_metadata(part).is_ok_and(|m| !m.file_type().is_symlink()))
+}
+fn inspection_single_link(metadata: &Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        metadata.nlink() == 1
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        false
+    } // No portable hardlink proof: remain conservative.
 }
