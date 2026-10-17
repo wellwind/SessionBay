@@ -16,7 +16,7 @@
 - 原本逐事件的 lease／取消／30 秒 ACK 等待不變；前端必須等整批 xterm.write callback 完成才 ACK。1 MiB／128 frame 的 replay 上限、過期後 snapshot 重建、OSC 52 與查詢過濾均維持。
 - 合成延遲模型每個 write／ACK 往返期間產生四個小 chunk，30 次 Poll：原逐 chunk 模型為 513 次 write 與 9 次 snapshot；批次模型為 30 次 write、0 次 snapshot。這是固定條件的單元模型，不是實際使用者效能或 macOS 視覺驗收。
 - 真實 TerminalPane／xterm 的 Chrome fixture 分開觀察跨 write 的同步清除／重繪與同一批次 write；只記錄 reset、write、ACK、resize、render 與空白 render 計數，不擷取使用者輸入。CI 證據與原生桌面驗收需分別確認。
-- xterm 5.5 尚未支援 DEC 2026；跨 Poll 的同步 repaint 仍可能閃爍。6.0 升級需獨立審查 Fit／Search addon、鍵盤與 IME 相容性，本次不升級、不加入私有 renderer hook。
+- 此節為 xterm 5.5 時期紀錄：當時未支援 DEC 2026，跨 Poll 同步 repaint 仍可能閃爍。後續 CapsLock 候選升級 6.0 與相容 Fit／Search addons，已取得同步分幀 blank=0 的 Chromium 合成證據；原生顯示與 IME 驗收另列，未加入私有 renderer hook。
 
 ## 2026-10-17 啟動時最大化
 
@@ -640,3 +640,11 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 ## 2026-10-17：使用者豁免 PR31 Mac 驗收等待
 
 使用者明確允許 #31 不再等 Mac 驗收並進入合併流程（#46 仍排除）。保留既有 PNG「no image received」失敗與缺少 composer／PTY 實測證據；不把豁免寫成通過。隔離 parser／xterm queue 檢查未重現 URI 尾空白或 percent-decode 問題，圖片 transport 不盲改。詳細限制見[檔案輸入驗收](file-input-validation.md)。
+
+## 2026-10-17：Caps Lock 改採上游穩定版與公開 hook
+
+可取消 private finalizer 候選 e750ad1 原生驗收失敗：真實事件沒有 insertText，不能延續該假設。依使用者要求參照 VS Code／xterm，升級精確 6.0.0 與相容 addons，移除 private helper 改寫。既有公開 custom handler 依尚未合併的上游 #6191 原則保留 browser-marked composing key；原生 input/composition 決定提交。不做時間窗或文字去重。原生 trace 缺少 legacy keyCode，因此 0／229 分支皆測，不能推定實機數值。詳見 [證據、差異與驗收限制](capslock-ime.md)。新版原生驗收為 NOTRUN；使用者後續明確要求 #49 不用 Mac 驗證直接合併，已豁免該門檻。仍須通過最新 exact-commit CI，不能把豁免記為原生 PASS。
+
+## 2026-10-17：移除重複的介面輔助文案
+
+專案／目錄總覽、設定、快速主題及歷史搜尋移除重複 subtitle、操作說明和本機儲存成功文案，連同不再需要的容器一起移除，不保留空白列。保留欄位標籤、載入／儲存中狀態、未儲存提醒、錯誤、必要確認與無障礙名稱；預覽、取消、儲存及原始歷史唯讀等實際行為不變。

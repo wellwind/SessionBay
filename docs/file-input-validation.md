@@ -2,7 +2,7 @@
 
 ## 目前結論
 
-PR31 仍未通過真 Agent 接收。使用者於 2026-10-17 明確豁免 #31 的 Mac 驗收等待並允許合併；這是交付條件變更，不是圖片接收成功證據。Mac 既有測試只證實 Finder PNG 的 staging hash 與 PTY 路徑；Agent 回覆「no image received」。後續核對原 PNG 為 96×64、180 bytes、RGB8，三個 chunk CRC 正確，staging hash 相同；composer 當時只記錄文字，未留下獨立圖片標記／完整 PTY frame 證據。不能把 URI 格式直接定為根因。Clipboard、Claude、TXT、PDF 未通過。
+PR31 仍未通過真 Agent 接收。使用者於 2026-10-17 明確豁免 #31 的 Mac 驗收等待並允許合併；這是交付條件變更，不是圖片接收成功證據。Mac 既有測試證實 Finder PNG 的 staging hash，並記錄路徑已加入；實際 PTY bytes 未保留。Agent 回覆「no image received」。後續核對原 PNG 為 96×64、180 bytes、RGB8，三個 chunk CRC 正確，staging hash 相同；composer 當時只記錄文字，未留下獨立圖片標記／完整 PTY frame 證據。不能把 URI 格式直接定為根因。Clipboard、Claude、TXT、PDF 未通過。
 
 ## 不需帳號的合成資料
 
@@ -36,7 +36,9 @@ PR31 仍未通過真 Agent 接收。使用者於 2026-10-17 明確豁免 #31 的
 
 ## 此增量雲端檢查
 
-2026-10-17：合入 main `5964c44` 後，47 suites／1109 tests、typecheck、lint、production build 通過。共享 node_modules 的兩個 xterm raw-source suite 使用臨時限定來源 allow-list，產品 Vite 設定未變。對齊 main 新增 fresh-Agent exit 測試的 `launchFresh → attach` mock 契約；未改產品退出流程。PNG 經 Pillow verify 與像素讀取、PDF 經 pdftotext 確認，產生器重跑拒絕覆寫既有檔案。這些都不是 native CLI／模型接收證據，root 已複核增量傳輸安全，並依使用者偏好縮短常駐提示；未發現新增傳輸安全阻擋。此增量未修改 Rust 邏輯；合入 main 的 Rust 變更未在本輪重跑。
+2026-10-17：候選 `28c80ed` 的 [Linux CI](https://github.com/wellwind/SessionBay/actions/runs/39047781317) 全部通過，包含 browser 檔案拖放／貼上、visual、Rust core 與 Clippy；這些使用合成 fixture，不是 native CLI／模型接收證據。後續合入 #51、#49 的 main `ce08360` 後，xterm 6 上 49 suites／1150 tests、typecheck、lint、production build 通過。共享 node_modules 的 xterm raw-source suites 使用臨時限定來源 allow-list，產品 Vite 設定未變。
+
+對齊 main 新增 fresh-Agent exit 測試的 `launchFresh → attach` mock 契約，未改產品退出流程。PNG 經 Pillow verify 與像素讀取、PDF 經 pdftotext 確認，產生器重跑拒絕覆寫既有檔案。增量傳輸安全複核未發現新增阻擋，並依使用者偏好縮短常駐提示。
 
 ## 隔離 parser 與 framing 調查（2026-10-17）
 

@@ -1,3 +1,4 @@
+import { fitTerminal } from '../terminal-fit';
 import { useRuntimeActivity } from './RuntimeActivity';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
 import './agent-status.css';
@@ -120,7 +121,7 @@ export function TerminalPane({
       return;
     if (attachment.current && !attachment.current.ready) return;
     try {
-      fit.current?.fit();
+      if (fit.current) fitTerminal(term.current, fit.current);
       const t = term.current;
       // Keep renderer geometry within the broker's bounded screen allocation.
       if (t.cols > 320 || t.rows > 120) t.resize(Math.min(320, t.cols), Math.min(120, t.rows));
@@ -159,7 +160,7 @@ export function TerminalPane({
       cursorBlink: true,
       allowProposedApi: false,
       convertEol: false,
-      overviewRulerWidth: 0,
+      overviewRuler: { width: 0 },
     });
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();

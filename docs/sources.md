@@ -253,3 +253,12 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 ### 檔案輸入真實接收核對（2026-10-17）
 
 [檔案輸入驗收](file-input-validation.md)列出固定 Codex 0.163、OpenCode 1.19.3 與 Grok source、Claude 官方路徑工作流程及適用限制。staging 與 PTY bytes 不能替代 CLI composer 辨識與模型接收證據；尚未宣稱 Mac 驗收通過。
+
+## Caps Lock 上游對齊（2026-10-17）
+
+前述 xterm 5.5 為歷史調查，本候選已鎖定 6.0.0。
+- [xterm #5282](https://github.com/xtermjs/xterm.js/pull/5282)：已納入 6.0 的 CapsLock 修正。
+- [xterm #6191](https://github.com/xtermjs/xterm.js/pull/6191)：尚未合併；isComposing keydown 不應以 legacy code 提前 finalize 的原則。
+- [VS Code terminalInstance](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts)：公開 custom keyboard handler 分流，沒有自製 composition finalizer。
+
+- [FitAddon 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/addons/addon-fit/src/FitAddon.ts) 與 [DOM renderer 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/renderer/dom/DomRenderer.ts)：公開 fit/proposeDimensions 與 canvas/cols 取整的相容依據；來源層模型與 Chromium zoom 回歸不等同原生 WebView。

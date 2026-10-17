@@ -13,7 +13,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  ShieldCheck,
   Terminal,
   Trash2,
   X,
@@ -554,7 +553,7 @@ export function SettingsPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
-        aria-describedby="settings-description"
+        aria-describedby={onboarding ? "settings-description" : undefined}
         tabIndex={-1}
         ref={panelRef}
         onCompositionStartCapture={() => { composing.current = true; }}
@@ -577,11 +576,7 @@ export function SettingsPanel({
               {onboarding ? 'WELCOME TO SESSION BAY' : 'MAKE IT YOURS'}
             </span>
             <h2 id="settings-title">{onboarding ? '讓工作，回到同一個地方。' : '工作台設定'}</h2>
-            <p id="settings-description">
-              {onboarding
-                ? '連接本機 Agent 歷史，設定你習慣的工作環境。'
-                : '你的資料來源、終端機，以及順手的工作方式。'}
-            </p>
+            {onboarding && <p id="settings-description">連接本機 Agent 歷史，設定你習慣的工作環境。</p>}
           </div>
           <button
             type="button"
@@ -612,14 +607,6 @@ export function SettingsPanel({
                   {section === id && <ChevronRight size={14} aria-hidden="true" />}
                 </button>
               ))}
-              <div className="settings-privacy">
-                <ShieldCheck size={18} aria-hidden="true" />
-                <span>
-                  原始歷史保持唯讀。
-                  <br />
-                  資料留在這台電腦。
-                </span>
-              </div>
             </nav>
             <div className="settings-content">
               <fieldset className="settings-fieldset" disabled={locked}>
@@ -940,7 +927,6 @@ export function SettingsPanel({
                     <div className="settings-section-heading">
                       <div>
                         <h3>你的 Shell Profiles</h3>
-                        <p>執行檔與參數分開傳入，不會拼接成 Shell 指令。</p>
                       </div>
                       <button
                         type="button"
@@ -1120,9 +1106,6 @@ export function SettingsPanel({
                               id={`profile-${i}-env-error`}
                               message={errors[`profiles.${i}.env`]}
                             />
-                            <span className="settings-help">
-                              設定會以明文保存在本機；登入與憑證請交由原本的 CLI 管理。
-                            </span>
                           </label>
                         </div>
                       ))}
@@ -1135,10 +1118,8 @@ export function SettingsPanel({
                     <div className="settings-section-heading">
                       <div>
                         <h3>外觀</h3>
-                        <p>選一個適合專注工作的環境。</p>
                       </div>
                     </div>
-                    <p className="settings-help theme-quick-help">立即預覽整個工作台與所有終端；儲存後保留，取消並捨棄則還原。</p>
                     <div className="settings-field settings-section-space">
                       <label id="app-zoom-label" htmlFor="app-zoom">工作台縮放 <small>%</small></label>
                       <input id="app-zoom" type="number" min={50} max={200} step={10} aria-labelledby="app-zoom-label"
@@ -1174,7 +1155,6 @@ export function SettingsPanel({
                           aria-describedby="font-size-error"
                         />
                         <FieldError id="font-size-error" message={errors.fontSize} />
-                        <p className="settings-help">終端的基準字級；全工作台縮放另外作用於介面與終端，不會改寫此數值。此欄位立即預覽，儲存保留、取消捨棄還原。</p>
                       </label>
                     </div>
                     <label className="settings-field">
@@ -1196,7 +1176,6 @@ export function SettingsPanel({
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
                         <h3>開始新工作時</h3>
-                        <p>既有面板不會因變更預設值而重新啟動。</p>
                       </div>
                     </div>
                     <div className="settings-two-columns">
@@ -1276,7 +1255,7 @@ export function SettingsPanel({
             </div>
           </div>
           <footer className="settings-footer">
-            <div className="settings-footer-status" role={operationError ? 'alert' : 'status'}>
+            {(operationError || (showErrors && Object.keys(prepared.errors).length > 0) || onboarding || dirty) && <div className="settings-footer-status" role={operationError ? 'alert' : 'status'}>
               {operationError ? (
                 <span className="settings-field-error">
                   <CircleAlert size={15} />
@@ -1291,12 +1270,10 @@ export function SettingsPanel({
                 <span>
                   {onboarding
                     ? '之後隨時可以回到設定調整。'
-                    : dirty
-                      ? '有尚未儲存的變更'
-                      : '所有設定儲存在本機'}
+                    : '有尚未儲存的變更'}
                 </span>
               )}
-            </div>
+            </div>}
             <button
               type="button"
               className="settings-button secondary"

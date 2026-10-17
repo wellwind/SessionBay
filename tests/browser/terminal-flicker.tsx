@@ -11,7 +11,9 @@ import '../../src/workbench.css';
 // Synthetic output only. Counters contain no terminal contents or input bytes.
 const counts = { resets: 0, resizes: 0, writes: 0, acks: 0, renders: 0, blankRenders: 0, frames: 0, done: false };
 Object.assign(window, { flickerCounts: counts });
-const batched = new URLSearchParams(location.search).get('batched') === '1';
+const params = new URLSearchParams(location.search);
+const batched = params.get('batched') === '1';
+const synchronized = params.get('unsynchronized') !== '1';
 let measuring = false;
 const originalOpen = Terminal.prototype.open;
 Terminal.prototype.open = function (host: HTMLElement) {
@@ -57,8 +59,8 @@ api.attach = async (id, callback) => {
     measuring = true;
     for (let i = 0; i < 30; i++) {
       // Split a synchronized frame over real asynchronous writes, like IPC/PTY.
-      const clear = '\x1b[?2026h\x1b[2J\x1b[H';
-      const paint = `Synthetic complete frame ${i}\x1b[?2026l`;
+      const clear = `${synchronized ? '\x1b[?2026h' : ''}\x1b[2J\x1b[H`;
+      const paint = `Synthetic complete frame ${i}${synchronized ? '\x1b[?2026l' : ''}`;
       if (batched) await send(clear + paint);
       else {
         await send(clear);

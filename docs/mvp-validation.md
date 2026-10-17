@@ -289,3 +289,7 @@ Service 整合測試涵蓋：同專案 Codex＋Claude 合成歷史 → 中文搜
 ## 交付與邊界
 
 包含可建置原始碼、lockfiles、合成 fixtures、自動測試、開發指南及 private-repo CI 設定。沒有發布、簽章／公證、開啟自動更新或加入用量 P1 功能。使用者已接受本 PR 並授權合併；合併本身不等於正式發布或完整 P0 驗收。macOS／Linux 的原生驗證與實際 CLI 相容矩陣仍是正式宣稱完整 P0 的必要條件。
+
+### Caps Lock 上游對齊候選
+
+舊候選 e750ad1／d116ae3 已在 macOS 真注音與真 PTY 驗收失敗。新候選升級 xterm 6.0 與相容 addons，移除私有 finalizer，採公開 composing-key hook；詳見 [Caps Lock IME 說明](capslock-ime.md)。合成來源與 bundle 回歸不代表原生通過。使用者後續明確要求 #49 不用 Mac 驗證直接合併，因此新版原生狀態保留 NOTRUN／使用者豁免；最新 exact-commit CI 仍須通過，不可沿用舊 PASS。

@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import ts from 'typescript';
 import vector from '../fixtures/keyboard/shift-enter.json';
-import terminalSource from '../node_modules/@xterm/xterm/src/browser/Terminal.ts?raw';
+import terminalSource from '../node_modules/@xterm/xterm/src/browser/CoreBrowserTerminal.ts?raw';
 import keyboardSource from '../node_modules/@xterm/xterm/src/common/input/Keyboard.ts?raw';
 import { handleTerminalKey, shiftEnterSequence } from './terminal-keyboard';
 import { reservedWorkspaceShortcut, shortcutConflicts } from './commands';
@@ -85,7 +85,7 @@ it('installed xterm maps both Enter and Shift+Enter to CR before the compatibili
 // Run the installed xterm phase methods with the real hook. Any fall-through
 // would need missing terminal services and fail rather than silently passing.
 const source = ts.createSourceFile('Terminal.ts', terminalSource, ts.ScriptTarget.Latest, true);
-const declaration = source.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === 'Terminal')!;
+const declaration = source.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === 'CoreBrowserTerminal')!;
 const methods = declaration.members.filter((node) => ts.isMethodDeclaration(node) && ['_keyDown', '_keyPress', '_keyUp'].includes(node.name.getText(source)));
 const phaseCode = ts.transpileModule(`exports.Phases = class { ${methods.map((node) => node.getText(source)).join('\n')} }`, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
