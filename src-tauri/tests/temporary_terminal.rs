@@ -6,6 +6,68 @@ use sessionbay_lib::{
 };
 use std::{collections::HashMap, path::PathBuf};
 
+fn reported_child_cwd(output: &str) -> std::io::Result<PathBuf> {
+    let (_, value) = output.split_once("actual-cwd:").ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "missing child cwd marker")
+    })?;
+    let value = value.lines().next().unwrap_or_default();
+    // Windows PowerShell can qualify a verbatim path with its FileSystem provider.
+    // Remove only that exact provider name; filesystem canonicalization must still
+    // resolve the entire reported path, so a different cwd cannot pass by substring.
+    let value = value
+        .strip_prefix(r"Microsoft.PowerShell.Core\FileSystem::")
+        .unwrap_or(value);
+    let path = PathBuf::from(value);
+    if !path.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "child cwd is not an absolute filesystem path",
+        ));
+    }
+    path.canonicalize()
+}
+
+#[test]
+fn child_cwd_report_resolves_native_and_exact_powershell_filesystem_paths() {
+    let temp = tempfile::tempdir().unwrap();
+    let expected = temp.path().canonicalize().unwrap();
+    for path in [temp.path(), expected.as_path()] {
+        for provider in ["", r"Microsoft.PowerShell.Core\FileSystem::"] {
+            let output = format!(
+                "\u{1b}[mactual-cwd:{provider}{}\r\nprofile-home:untrusted\r\n",
+                path.display()
+            );
+            assert_eq!(reported_child_cwd(&output).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn child_cwd_report_does_not_accept_a_different_or_malformed_directory() {
+    let temp = tempfile::tempdir().unwrap();
+    let trusted = temp.path().join("home");
+    let other = temp.path().join("home-profile-override");
+    std::fs::create_dir(&trusted).unwrap();
+    std::fs::create_dir(&other).unwrap();
+    // The old contains assertion could accept a different directory sharing the prefix.
+    let output = format!("actual-cwd:{}\r\n", other.display());
+    assert_ne!(
+        reported_child_cwd(&output).unwrap(),
+        trusted.canonicalize().unwrap()
+    );
+    for output in [
+        "profile-home:untrusted".into(),
+        "actual-cwd:relative".into(),
+        format!(
+            "actual-cwd:Microsoft.PowerShell.Core\\Registry::{}",
+            trusted.display()
+        ),
+        format!("actual-cwd:{}-missing", trusted.display()),
+    ] {
+        assert!(reported_child_cwd(&output).is_err(), "{output:?}");
+    }
+}
+
 fn request(pane: &str) -> LaunchRequest {
     LaunchRequest {
         pane_id: pane.into(),
@@ -248,7 +310,7 @@ fn temporary_child_starts_in_trusted_home_despite_profile_home_overrides() {
     let override_home = settings.profiles[0].env["HOME"].clone();
     service.save_settings(settings).unwrap();
     let spec = service.plan_launch(&request("actual-home")).unwrap();
-    let home = spec.cwd.to_string_lossy().into_owned();
+    let home = spec.cwd.canonicalize().unwrap();
     let manager = RuntimeManager::new();
     let (tx, rx) = mpsc::channel();
     manager
@@ -282,7 +344,7 @@ fn temporary_child_starts_in_trusted_home_despite_profile_home_overrides() {
         }
     }
     let output = String::from_utf8(output).unwrap();
-    assert!(output.contains(&format!("actual-cwd:{home}")), "{output:?}");
+    assert_eq!(reported_child_cwd(&output).unwrap(), home, "{output:?}");
     assert!(
         output.contains(&format!("profile-home:{override_home}")),
         "{output:?}"
