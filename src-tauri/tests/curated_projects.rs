@@ -220,7 +220,7 @@ fn version_two_migration_preserves_only_manual_or_pinned_membership() {
     let before = catalog.query(&SessionQuery::default()).unwrap();
     let conn = Connection::open(&db).unwrap();
     conn.execute("UPDATE projects SET manual=(name='manual'),pinned=(name='pinned'),launch_path=CASE WHEN name='relocated' THEN ?1 ELSE NULL END", [root.to_str().unwrap()]).unwrap();
-    conn.execute_batch("DROP TABLE project_directories; PRAGMA user_version=2;")
+    conn.execute_batch("DROP TABLE project_directories; DROP TABLE session_trash; ALTER TABLE sources DROP COLUMN storage_root; PRAGMA user_version=2;")
         .unwrap();
     drop(conn);
     let migrated = Catalog::open(&db).unwrap();
@@ -254,7 +254,7 @@ fn version_two_migration_preserves_only_manual_or_pinned_membership() {
     assert_eq!(
         conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
             .unwrap(),
-        3
+        4
     );
 }
 

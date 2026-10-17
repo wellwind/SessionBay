@@ -1,3 +1,5 @@
+import { RuntimeActivityIndicator, RuntimeActivityProvider } from './components/RuntimeActivity';
+import { AgentStatusOverview } from './components/AgentStatusOverview';
 import { useState } from 'react';
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
 
@@ -10,6 +12,8 @@ import { TerminalPane } from './components/TerminalPane';
 import { installNativeConfirmation } from './test/dialog-init';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from './types';
 const mocks = vi.hoisted(() => ({
+  beginImage: vi.fn(), appendImage: vi.fn(), finishImage: vi.fn(), retainImage: vi.fn(), discardImage: vi.fn(),
+  bracketedPaste: true,
   launch: vi.fn(),
   attach: vi.fn(),
   detach: vi.fn(),
@@ -39,6 +43,7 @@ vi.mock('@xterm/xterm', () => ({
     rows = mocks.initialRows;
     options: Record<string, unknown> = {};
     constructor() { mocks.options.push(this.options); }
+    modes = { get bracketedPasteMode() { return mocks.bracketedPaste; } };
     parser = { registerOscHandler: () => ({ dispose() {} }) };
     loadAddon() {}
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { mocks.keyHandler(handler); }
@@ -132,6 +137,12 @@ function completeSnapshot(channel: (event: TerminalEvent) => void, runtimeId = '
   act(() => mocks.termWrite.mock.calls.at(-1)![1]());
 }
 beforeEach(() => {
+  mocks.bracketedPaste = true;
+  mocks.beginImage.mockResolvedValue('image-id');
+  mocks.appendImage.mockResolvedValue(undefined);
+  mocks.finishImage.mockResolvedValue({ id: 'image-id', path: '/private/image-a.png' });
+  mocks.retainImage.mockResolvedValue(undefined);
+  mocks.discardImage.mockResolvedValue(undefined);
   mocks.initialCols = 80;
   mocks.initialRows = 24;
 
@@ -191,6 +202,28 @@ describe('terminal lifetime and flow control', () => {
     expect(mocks.ack).not.toHaveBeenCalled();
     act(() => mocks.termWrite.mock.calls[0][1]());
     expect(mocks.ack).toHaveBeenCalledWith('runtime', 41, mocks.launch.mock.calls[0][2]);
+  });
+  it('ACKs a coalesced response at its final sequence only after the complete write', async () => {
+    render(<TerminalPane {...props(makePane({ startToken: 1 }))} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalled());
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(channel);
+    mocks.termWrite.mockClear(); mocks.ack.mockClear(); mocks.termReset.mockClear();
+    const data = Array.from(new TextEncoder().encode('\x1b[?2026h\x1b[2J\x1b[H合成 frame\x1b[?2026l'));
+    act(() => channel({ type: 'output', runtimeId: 'runtime', sequence: 64, data }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(1);
+    expect(mocks.termWrite.mock.calls[0][0]).toEqual(new Uint8Array(data));
+    expect(mocks.ack).not.toHaveBeenCalled();
+    expect(mocks.termReset).not.toHaveBeenCalled();
+    act(() => mocks.termWrite.mock.calls[0][1]());
+    expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('runtime', 64, mocks.launch.mock.calls[0][2]);
+    act(() => channel({ type: 'output', runtimeId: 'runtime', sequence: 65, data: [65] }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(2);
+    expect(mocks.ack).toHaveBeenCalledTimes(1);
+    act(() => mocks.termWrite.mock.calls[1][1]());
+    expect(mocks.ack).toHaveBeenLastCalledWith('runtime', 65, mocks.launch.mock.calls[0][2]);
+    expect(mocks.launch).toHaveBeenCalledTimes(1);
+    expect(mocks.attach).not.toHaveBeenCalled();
   });
   it('preserves a quick exit that arrives before launch response', async () => {
     let resolve!: (value: RuntimeInfo) => void;
@@ -595,8 +628,8 @@ it('restarts a recovered legacy projectless shell in its broker-confirmed direct
 
 describe('live terminal palette updates', () => {
   it('updates every open pane, including hidden panes, without resetting, fitting, focusing or restarting', async () => {
-    const first = props(makePane({ startToken: 1 }));
-    const second = props(makePane({ id: 'second', startToken: 1 }));
+    const first = props(makePane({ state: 'running', startToken: 1 }));
+    const second = props(makePane({ id: 'second', state: 'running', startToken: 1 }));
     mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
     const panes = (terminalTheme: string) => <>
       <TerminalPane {...first} settings={{ ...settings, terminalTheme }} />
@@ -606,10 +639,19 @@ describe('live terminal palette updates', () => {
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
     const snapshots = { reset: mocks.reset.mock.calls.length, fit: mocks.fit.mock.calls.length, focus: mocks.focus.mock.calls.length };
-    for (const id of ['rose-light', 'ocean-dark', 'classic']) {
+    for (const id of ['rose-light', 'ocean-dark', 'unknown-future-theme', 'classic']) {
       view.rerender(panes(id));
-      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : '#0d1929';
+      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : id === 'ocean-dark' ? '#0d1929' : '#11151a';
       for (const options of mocks.options) expect(options.theme).toMatchObject({ background: expected });
+      expect(view.container.querySelectorAll('.terminal-body')).toHaveLength(2);
+      for (const body of view.container.querySelectorAll('.terminal-body')) {
+        expect(body).toHaveStyle({ backgroundColor: expected });
+      }
+      expect(view.container.querySelectorAll('.pane-toolbar')).toHaveLength(2);
+      expect(view.container.querySelectorAll('.pane-footer')).toHaveLength(2);
+      for (const chrome of view.container.querySelectorAll('.pane-toolbar, .pane-footer')) {
+        expect((chrome as HTMLElement).style.backgroundColor).toBe('');
+      }
     }
     expect(mocks.options).toHaveLength(2);
     expect(mocks.launch).toHaveBeenCalledTimes(2);
@@ -1081,4 +1123,241 @@ it('refits after native page zoom without changing terminal font or runtime, and
   await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', 'still alive'));
   expect(mocks.launch).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
   expect(mocks.reset).toHaveBeenCalledTimes(resets);
+});
+
+describe('image drop and paste events', () => {
+  const synthetic = () => ({ name: 'synthetic.png', type: 'image/png', size: 3,
+    slice: () => ({ arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }) }) as File;
+  async function ready(kind: Pane['kind'] = 'codex') {
+    const p = props(makePane({ kind, startToken: 1, state: 'running', runtimeId: 'runtime' }));
+    const view = render(<TerminalPane {...p} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+    completeSnapshot(mocks.attach.mock.calls[0][1]);
+    return { view, p, input: screen.getByLabelText('Mock xterm input'), host: view.container.querySelector('.xterm-host')! };
+  }
+  function pasteEvent(input: HTMLElement, text = '', files = [synthetic()]) {
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', { value: { items: files.map(file => ({ kind: 'file', getAsFile: () => file })), getData: () => text } });
+    fireEvent(input, event);
+    return event;
+  }
+  it('captures image paste before xterm and sends one path without Enter', async () => {
+    const { input } = await ready();
+    expect(pasteEvent(input).defaultPrevented).toBe(true);
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('file:///private/image-a.png'));
+    expect(mocks.retainImage).toHaveBeenCalledExactlyOnceWith('runtime', 'image-id');
+    expect(mocks.write).not.toHaveBeenCalled(); // Mock paste records only; bytes are never sent directly to PTY.
+  });
+  it('captures drop, ignores sidebar drags, and preserves ordinary text paste', async () => {
+    const { host, input } = await ready();
+    const plain = pasteEvent(input, 'ordinary text', []);
+    expect(plain.defaultPrevented).toBe(false);
+    const internal = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(internal, 'dataTransfer', { value: { types: ['application/x-sessionbay'], files: [] } });
+    fireEvent(host, internal);
+    expect(internal.defaultPrevented).toBe(false);
+    fireEvent.drop(host, { dataTransfer: { types: ['Files'], files: [synthetic()] } });
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledTimes(1));
+  });
+  it('refuses mixed content and unsupported agent without reading files', async () => {
+    const { input } = await ready('antigravity');
+    pasteEvent(input);
+    expect(screen.getByRole('alert')).toHaveTextContent('尚未驗證');
+    expect(mocks.beginImage).not.toHaveBeenCalled();
+    pasteEvent(input, 'caption');
+    expect(screen.getByRole('alert')).toHaveTextContent('分別貼上');
+  });
+  it('refuses when safe paste mode is absent or changes while staging', async () => {
+    const { input } = await ready();
+    mocks.bracketedPaste = false;
+    pasteEvent(input);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('尚未啟用'));
+    expect(mocks.beginImage).not.toHaveBeenCalled();
+    mocks.bracketedPaste = true;
+    mocks.finishImage.mockImplementation(async () => { mocks.bracketedPaste = false; return { id: 'image-id', path: '/private/image-a.png' }; });
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.discardImage).toHaveBeenCalledWith('runtime', 'image-id'));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+  });
+  it('changing focused pane cancels in-flight staging and does not write after a reconnect', async () => {
+    const { input, view, p } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    view.rerender(<TerminalPane {...p} focused={false} />);
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.discardImage).toHaveBeenCalledWith('runtime', 'image-id');
+  });
+  it('opening terminal search cancels an in-flight image without stealing focus back', async () => {
+    const { input } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: '終端搜尋' })).toHaveFocus();
+  });
+  it.each(['\r', '\x03'])('keeps user input %j working and cancels pending images before a later prompt', async (data) => {
+    const { input } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    expect(screen.getByRole('alert')).toHaveTextContent('正在準備圖片');
+    act(() => mocks.input?.(data));
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', data));
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.discardImage).toHaveBeenCalledWith('runtime', 'image-id');
+    expect(mocks.retainImage).not.toHaveBeenCalled();
+  });
+  it.each(['describe this image', '\x1b[200~line one\rline two\x1b[201~'])('ordinary typing or intact multiline paste %j stays in the same prompt', async (data) => {
+    const { input } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    act(() => mocks.input?.(data));
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('file:///private/image-a.png');
+    expect(mocks.discardImage).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', data));
+  });
+  it('Enter during second retain keeps earlier image and never inserts the late one', async () => {
+    const { input } = await ready();
+    let retain!: () => void;
+    mocks.retainImage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => new Promise<void>(resolve => { retain = resolve; }));
+    pasteEvent(input, '', [synthetic(), synthetic()]);
+    await waitFor(() => expect(mocks.retainImage).toHaveBeenCalledTimes(2));
+    expect(mocks.termPaste).toHaveBeenCalledTimes(1);
+    act(() => mocks.input?.('\r'));
+    await act(async () => retain());
+    expect(mocks.termPaste).toHaveBeenCalledTimes(1);
+    expect(mocks.discardImage).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', '\r'));
+    expect(screen.getByRole('alert')).toHaveTextContent('已取消');
+  });
+  it('own image paste frames do not cancel the remaining batch', async () => {
+    const { input } = await ready();
+    mocks.termPaste.mockImplementation((text: string) => mocks.input?.(`\x1b[200~${text}\x1b[201~`));
+    pasteEvent(input, '', [synthetic(), synthetic()]);
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledTimes(2));
+    expect(mocks.retainImage).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('alert')).toHaveTextContent('已插入 2 張');
+  });
+  it('toolbar reads explicit image clipboard data and refuses same-item mixed text', async () => {
+    await ready();
+    const read = vi.fn().mockResolvedValue([{ types: ['image/png', 'text/plain'], getType: async (type: string) => type === 'text/plain' ? { text: async () => 'caption' } : new Blob([new Uint8Array([1, 2, 3])], { type }) }]);
+    Object.defineProperty(navigator, 'clipboard', { value: { read }, configurable: true });
+    fireEvent.click(screen.getByRole('button', { name: '貼上' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('分別貼上'));
+    expect(mocks.beginImage).not.toHaveBeenCalled();
+  });
+});
+
+it('reserves the focus badge slot without exposing an inactive focus label', () => {
+  const p = props();
+  const view = render(<TerminalPane {...p} focused={false} />);
+  const badge = view.container.querySelector('.focus-label')!;
+  const close = screen.getByRole('button', { name: '關閉面板' });
+  expect(badge).toHaveStyle({ visibility: 'hidden' });
+  expect(badge).toHaveAttribute('aria-hidden', 'true');
+  view.rerender(<TerminalPane {...p} focused />);
+  expect(view.container.querySelector('.focus-label')).toBe(badge);
+  expect(badge).not.toHaveStyle({ visibility: 'hidden' });
+  expect(badge).toHaveAttribute('aria-hidden', 'false');
+  expect(screen.getByRole('button', { name: '關閉面板' })).toBe(close);
+});
+
+// The status overview observes the same guarded lifecycle patches as every hidden pane.
+describe('Agent overview lifecycle signal integration', () => {
+  function AgentHarness({ initial, visible = false }: { initial: Pane; visible?: boolean }) {
+    const [pane, setPane] = useState(initial);
+    return <>
+      <TerminalPane {...props(pane)} visible={visible} settings={{ ...settings, sources: [] }}
+        onPatch={(_id, patch) => setPane((current) => ({ ...current, ...patch }))} />
+      <AgentStatusOverview workspace={{ ...emptyWorkspace(), panes: { [pane.id]: pane } }} projects={[]} onFocus={() => undefined} />
+    </>;
+  }
+  it('updates inactive Agent counts from duplicate exit events and ignores a late running launch response', async () => {
+    let resolve!: (info: RuntimeInfo) => void;
+    mocks.launch.mockReturnValue(new Promise<RuntimeInfo>((done) => { resolve = done; }));
+    render(<AgentHarness initial={makePane({ kind: 'codex', title: 'Agent', startToken: 1 })} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => {
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+    });
+    await act(async () => resolve(info));
+    expect(screen.getByText('0 存活 / 1 已開啟')).toBeInTheDocument();
+    expect(screen.getByText('已開啟 1 · 存活 0 · 已結束 1 · 中斷 0')).toBeInTheDocument();
+    expect(screen.queryByText('程序存活 · 活動未知')).not.toBeInTheDocument();
+    expect(mocks.launch).toHaveBeenCalledTimes(1);
+  });
+  it('distinguishes disconnect from exit, restores live counts after explicit reconnect, and ignores old stream events', async () => {
+    render(<AgentHarness visible initial={makePane({ kind: 'codex', title: 'Agent', runtimeId: 'runtime', state: 'running' })} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(1));
+    const old = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(old);
+    expect(screen.getByText('1 存活 / 1 已開啟')).toBeInTheDocument();
+    act(() => old({ type: 'disconnected', runtimeId: 'runtime', message: 'Offline' }));
+    expect(screen.getByText('已開啟 1 · 存活 0 · 已結束 0 · 中斷 0 · 斷線 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    completeSnapshot(mocks.attach.mock.calls[1][1]);
+    act(() => {
+      old({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      old({ type: 'disconnected', runtimeId: 'runtime', message: 'Stale' });
+    });
+    expect(screen.getByText('1 存活 / 1 已開啟')).toBeInTheDocument();
+    expect(screen.getByText('已開啟 1 · 存活 1 · 已結束 0 · 中斷 0')).toBeInTheDocument();
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('guarded terminal output activity', () => {
+  function ActivityHarness({ visible = false }: { visible?: boolean }) {
+    const [pane, setPane] = useState(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));
+    return <RuntimeActivityProvider>
+      <TerminalPane {...props(pane)} visible={visible} onPatch={(_id, patch) => setPane(current => ({ ...current, ...patch }))} />
+      <RuntimeActivityIndicator tab={{ id: 'tab', name: 'Work', projectId: 'project', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }} panes={{ pane }} />
+    </RuntimeActivityProvider>;
+  }
+  it('marks only accepted new rendered output, excludes replay and stale attachment callbacks', async () => {
+    const view = render(<ActivityHarness />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    const old = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(old);
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    act(() => old({ type: 'output', runtimeId: 'runtime', sequence: 1, data: [65] }));
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    act(() => mocks.termWrite.mock.calls.at(-1)![1]());
+    await waitFor(() => expect(screen.getByRole('img', { name: /有新輸出.*未讀輸出/ })).toBeInTheDocument());
+    act(() => old({ type: 'disconnected', runtimeId: 'runtime', message: 'Offline' }));
+    await waitFor(() => expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument());
+    view.rerender(<ActivityHarness visible />);
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    completeSnapshot(mocks.attach.mock.calls[1][1]);
+    act(() => old({ type: 'output', runtimeId: 'runtime', sequence: 80, data: [66] }));
+    await act(async () => { await new Promise(done => setTimeout(done, 150)); });
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    const current = mocks.attach.mock.calls[1][1] as (event: TerminalEvent) => void;
+    act(() => current({ type: 'output', runtimeId: 'runtime', sequence: 1, data: [67] }));
+    const completion = mocks.termWrite.mock.calls.at(-1)![1];
+    act(() => current({ type: 'exit', runtimeId: 'runtime', exitCode: 0 }));
+    act(() => completion());
+    await act(async () => { await new Promise(done => setTimeout(done, 150)); });
+    expect(screen.getByRole('img', { name: /已結束/ })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /有新輸出/ })).not.toBeInTheDocument();
+    expect(mocks.disposed).not.toHaveBeenCalled();
+    view.unmount();
+    act(() => current({ type: 'output', runtimeId: 'runtime', sequence: 2, data: [68] }));
+  });
 });

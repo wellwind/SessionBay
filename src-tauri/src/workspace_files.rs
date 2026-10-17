@@ -4,15 +4,15 @@
 use crate::models::{WorkspaceFilePage, WorkspaceFilePreview};
 use std::path::Path;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 const PAGE_SIZE: usize = 200;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 const MAX_FILE_BYTES: usize = 256 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 // Pagination is sorted within a single directory, never a recursive tree scan.
 // Bound its snapshot independently of the response and caller-controlled offset.
 const MAX_DIRECTORY_ENTRIES: usize = 100_000;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 const MAX_DIRECTORY_NAME_BYTES: usize = 16 * 1024 * 1024;
 
 fn valid_name(name: &str) -> bool {
@@ -401,7 +401,11 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+#[path = "workspace_files_windows.rs"]
+mod platform;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod platform {
     use super::*;
 

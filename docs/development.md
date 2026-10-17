@@ -181,7 +181,9 @@ cargo run --release --locked --manifest-path src-tauri/Cargo.toml \
 
 自動 push 的 `paths-ignore` 僅包含 `README.md` 和 `docs/*.md`。一般僅修改這些文件時，在配置 runner 前略過；`docs/` 內其他格式／更深路徑、scripts、fixtures、skills、設定、workflow 都不忽略。GitHub 對大量 commits、diff 逾時或檔案列表上限有特殊規則，不能保證每種大型變更都零 run。純文件被略過不會產生新的通過證據；若把這個檢查設成 required，缺少 check 可能讓合併保持 pending。此 PR 不改 branch protection 或 required checks。
 
-完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；手動觸發會使用四個 runner（Linux、macOS ARM64／Intel、Windows x64），請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
+完整驗收保留在原 `.github/workflows/ci.yml`，名稱為 **Desktop acceptance (manual)**，只接受 `workflow_dispatch`，不由 push／PR 自動執行。它沒有會被日常檢查或另一個 pending run 取代的 concurrency group；`platform` 預設 `all`，使用四個 runner（Linux、macOS ARM64／Intel、Windows x64）。選 `windows` 可只跑 Windows x64 的完整測試、Clippy、未簽章 NSIS 與原生 GUI smoke；缺少輸入仍使用完整矩陣。請只在需要桌面交付／驗收時由有權限的人明確操作，不要連續重複派送。
+
+定向執行必須選擇含此修正的 branch/ref，再選 `platform=windows`；例如 `gh workflow run ci.yml --ref <branch> -f platform=windows`。尚未在 GitHub UI／派送回應確認可選輸入前，不宣稱已可一鍵單跑；舊 default branch 的表單若尚無此選項，需核對該 ref 的 workflow 定義或明確選擇完整驗收。派送後核對實際 head SHA 與 job 清單。Windows 單列成功不代表同一提交已通過四個 jobs 的三 OS 驗收。
 
 GitHub 的 **Run workflow** UI 要求工作流程檔已在 default branch。2026-10-15 本次合併授權前的唯讀檢查確認 main 尚無 `.github/workflows`，當時不能保證未合併 PR 已有手動按鈕或 API／CLI 可派送。流程檔正常納入 default branch 後，仍須帳務可用並明確選擇目標 branch/ref，才執行完整驗收。使用者後續已接受 PR 並授權合併；不會因此代為觸發完整流程、調整帳務或提高額度。
 

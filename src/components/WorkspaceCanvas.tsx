@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CSSProperties, PointerEvent } from 'react';
 import type { Pane, RuntimeInfo, Settings, Workspace } from '../types';
 import { layoutRects } from '../workspace';
@@ -21,6 +22,7 @@ export function WorkspaceCanvas({
   onSplit,
   onRatio,
   onAlreadyOpen,
+  fileToolbarHost,
 }: {
   workspace: Workspace;
   knownProjectIds: string[];
@@ -36,6 +38,7 @@ export function WorkspaceCanvas({
   onSplit: (id: string, axis: 'horizontal' | 'vertical') => void;
   onRatio: (id: string, ratio: number) => void;
   onAlreadyOpen: (paneId: string, info: RuntimeInfo) => void;
+  fileToolbarHost?: HTMLElement | null;
 }) {
   const [fileTabs, setFileTabs] = useState<Record<string, boolean>>({});
   const [openedTabs, setOpenedTabs] = useState<Record<string, boolean>>({});
@@ -69,17 +72,18 @@ export function WorkspaceCanvas({
     element.addEventListener('pointerup', up);
     element.addEventListener('pointercancel', up);
   };
+  const fileToolbar = visible && canBrowse && <div className="workspace-files-toolbar"><button ref={fileToggle}
+    aria-expanded={filesVisible} onClick={() => {
+      setFileTabs((old) => ({ ...old, [tab!.id]: !old[tab!.id] }));
+      setOpenedTabs((old) => ({ ...old, [tab!.id]: true }));
+    }}><Folder size={14} />{filesVisible ? '隱藏檔案預覽' : '檔案預覽'}</button></div>;
   return (
     <div
-      className="workspace-canvas"
+      className={`workspace-canvas${tab?.layout.kind === 'pane' ? ' single-pane' : ''}`}
       style={{ display: visible ? undefined : 'none' }}
       aria-label="開發工作區"
     >
-      {canBrowse && <div className="workspace-files-toolbar"><button ref={fileToggle}
-        aria-expanded={filesVisible} onClick={() => {
-          setFileTabs((old) => ({ ...old, [tab!.id]: !old[tab!.id] }));
-          setOpenedTabs((old) => ({ ...old, [tab!.id]: true }));
-        }}><Folder size={14} />{filesVisible ? '隱藏檔案預覽' : '檔案預覽'}</button></div>}
+      {fileToolbarHost ? createPortal(fileToolbar, fileToolbarHost) : fileToolbar}
       <div className="workspace-canvas-body">
       <div className="workspace-terminal-surface" ref={root}>
       {Object.values(workspace.panes).map((pane) => {
@@ -100,6 +104,7 @@ export function WorkspaceCanvas({
               projectAvailable={pane.projectId !== null && knownProjectIds.includes(pane.projectId)}
               settings={settings}
               visible={show}
+              activityVisible={visible && !!rect}
               focused={tab?.focusedPaneId === pane.id}
               maximized={maximizedId === pane.id}
               onPatch={onPatch}

@@ -91,3 +91,20 @@ it('offers no implicit HOME browser for temporary or unavailable projects', () =
   expect(screen.queryByRole('button', { name: '檔案預覽' })).not.toBeInTheDocument();
   expect(api.listWorkspaceFiles).not.toHaveBeenCalled();
 });
+
+it('places the toggle outside the canvas, hides it off-workspace and returns Escape focus', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const view = render(<WorkspaceCanvas {...props} fileToolbarHost={host} activeTabId="a" />);
+  expect(host.querySelector('button')).toBe(screen.getByRole('button', { name: '檔案預覽' }));
+  expect(view.container.querySelector('.workspace-files-toolbar')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '檔案預覽' }));
+  fireEvent.click(await screen.findByText('a.txt'));
+  fireEvent.keyDown(await screen.findByLabelText('唯讀內容：a.txt'), { key: 'Escape' });
+  expect(screen.getByRole('button', { name: '檔案預覽' })).toHaveFocus();
+  view.rerender(<WorkspaceCanvas {...props} fileToolbarHost={host} activeTabId="a" visible={false} />);
+  expect(host.querySelector('button')).toBeNull();
+  expect(mounts.unmount).not.toHaveBeenCalled();
+  view.unmount();
+  host.remove();
+});

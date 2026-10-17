@@ -1,4 +1,4 @@
-import { ArrowRight, Folder, AlertTriangle, Pin, Check } from 'lucide-react';
+import { ArrowRight, Folder, AlertTriangle, Check } from 'lucide-react';
 import type { Project } from '../types';
 import { agentName, dateLabel } from './History';
 import { AgentIcon } from './AgentIcon';
@@ -28,7 +28,7 @@ export function DirectoryOverview({ page, projects, searching, busy, onSelect, o
       <button className="directory-card-main" onClick={() => onSelect(project)}
         aria-label={`瀏覽${curated ? '專案' : '目錄'} ${project.name}`}>
         <div className="directory-card-title"><span className="directory-folder-mark"><Folder size={21} aria-hidden="true" /></span><h3>{project.name}</h3>
-          {project.pinned && <Pin size={14} aria-label="已置頂" />}</div>
+          </div>
         <p className="directory-card-path" title={project.path || '未記錄工作目錄'}>{project.path || '未分類 · 未記錄工作目錄'}</p>
         {project.launchPath && <p className="directory-card-relocation">啟動位置：{project.launchPath}</p>}
         <div className="directory-card-details"><span>{project.sessionCount} 個工作階段</span>

@@ -23,9 +23,19 @@ export function Dialog({
     const start = (event: CompositionEvent) => { if (event.target instanceof Node && root?.contains(event.target)) composing = true; };
     const end = () => { composing = false; };
     (
-      root?.querySelector<HTMLElement>('input, select, textarea') ??
-      root?.querySelector<HTMLElement>('button')
+      root?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') ??
+      root?.querySelector<HTMLElement>('[data-dialog-confirm]:not(:disabled)') ??
+      root?.querySelector<HTMLElement>('button:not(:disabled)')
     )?.focus();
+    const guardConfirmationEnter = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || !(event.target instanceof Node) || !root?.contains(event.target) ||
+          !root.querySelector('[data-dialog-confirm]')) return;
+      // Keep native focused-control activation; only suppress IME and held opener keys.
+      if (event.isComposing || composing || event.keyCode === 229 || event.repeat) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || composing || event.keyCode === 229) return;
       if (event.key === 'Escape') {
@@ -38,7 +48,7 @@ export function Dialog({
           root?.querySelectorAll<HTMLElement>(
             'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]',
           ) ?? [],
-        ).filter((el) => el.offsetParent !== null);
+        ).filter((el) => el.tabIndex >= 0 && el.offsetParent !== null);
         if (!focusable.length) return;
         if (event.shiftKey && document.activeElement === focusable[0]) {
           event.preventDefault();
@@ -51,11 +61,13 @@ export function Dialog({
       }
     };
     document.addEventListener('keydown', key);
+    document.addEventListener('keydown', guardConfirmationEnter, true);
     document.addEventListener('compositionstart', start, true);
     document.addEventListener('compositionend', end, true);
     window.addEventListener('blur', end);
     return () => {
       document.removeEventListener('keydown', key);
+      document.removeEventListener('keydown', guardConfirmationEnter, true);
       document.removeEventListener('compositionstart', start, true);
       document.removeEventListener('compositionend', end, true);
       window.removeEventListener('blur', end);

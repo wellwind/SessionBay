@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { defaultAgentOptions } from './agents';
@@ -89,7 +89,7 @@ async function ready() {
 }
 function openThemePicker() {
   fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
-  const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+  const search = screen.getByRole('combobox', { name: '搜尋命令或專案' });
   fireEvent.change(search, { target: { value: '切換介面主題' } });
   fireEvent.keyDown(search, { key: 'Enter' });
   return screen.getByRole('combobox', { name: '搜尋主題' });
@@ -121,11 +121,165 @@ describe('real workspace input with theme and whole-page zoom', () => {
     fireEvent.compositionEnd(picker); fireEvent.keyDown(picker, { key: 'Escape' });
     expect(document.documentElement.dataset.themePalette).toBe('bay');
     expect(bridge.saveSettings).toHaveBeenCalledTimes(saved);
-    fireEvent.keyDown(screen.getByRole('textbox', { name: '搜尋命令或專案' }), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('combobox', { name: '搜尋命令或專案' }), { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(bridge.setWorkspaceZoom).toHaveBeenLastCalledWith(110);
     expect(bridge.write).toHaveBeenCalledTimes(2);
     expect(bridge.attach).toHaveBeenCalledOnce(); expect(bridge.launch).not.toHaveBeenCalled(); expect(bridge.stop).not.toHaveBeenCalled();
     expect(bridge.reset).toHaveBeenCalledTimes(resets); expect(bridge.dispose).not.toHaveBeenCalled();
   });
+});
+
+it('a deferred focus-mode restoration must not steal a newer terminal search focus', async () => {
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+  fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
+  const search = screen.getByRole('textbox', { name: '終端搜尋' });
+  expect(search).toHaveFocus();
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(search).toHaveFocus();
+});
+
+
+it('restores ordinary focus-mode toggles, but rejects stale generations and navigation', async () => {
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  const focus = vi.spyOn(input, 'focus');
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const cancel = vi.spyOn(window, 'cancelAnimationFrame');
+  const enter = screen.getByRole('button', { name: '進入專注模式' });
+  act(() => enter.focus());
+  fireEvent.click(enter);
+  const first = frames.shift()!;
+  act(() => first(0));
+  expect(input).toHaveFocus();
+  expect(focus).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+  const stale = frames.shift()!;
+  fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+  const current = frames.shift()!;
+  act(() => stale(0));
+  expect(focus).toHaveBeenCalledOnce();
+  act(() => current(0));
+  expect(focus).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+  const beforeNavigation = frames.shift()!;
+  fireEvent.click(screen.getByRole('button', { name: '歷史 Session' }));
+  act(() => beforeNavigation(0));
+  expect(focus).toHaveBeenCalledTimes(2);
+  expect(cancel).toHaveBeenCalled();
+  expect(bridge.write).not.toHaveBeenCalled();
+  expect(bridge.attach).toHaveBeenCalledOnce();
+});
+
+it('invalidates deferred focus restoration after unmount', async () => {
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  const focus = vi.spyOn(input, 'focus');
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const cancel = vi.spyOn(window, 'cancelAnimationFrame');
+  fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+  const pending = frames.shift()!;
+  cleanup();
+  act(() => pending(0));
+  expect(focus).not.toHaveBeenCalled();
+  expect(cancel).toHaveBeenCalled();
+});
+
+it(' closing temporarily revealed sidebar returns keyboard focus to the terminal', async () => {
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  fireEvent.click(screen.getByRole('button', { name: '隱藏側欄' }));
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const enter = screen.getByRole('button', { name: '進入專注模式' });
+  act(() => enter.focus()); fireEvent.click(enter);
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(input).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+  const hide = screen.getByRole('button', { name: '隱藏側欄' });
+  act(() => hide.focus()); fireEvent.click(hide);
+  expect(hide.isConnected).toBe(false);
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(input).toHaveFocus();
+});
+
+it(' command-palette focus entry returns keyboard focus to the terminal', async () => {
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const trigger = screen.getByRole('button', { name: /搜尋專案或執行命令/ });
+  act(() => trigger.focus()); fireEvent.click(trigger);
+  const search = screen.getByRole('combobox', { name: '搜尋命令或專案' });
+  fireEvent.change(search, { target: { value: '進入專注模式' } });
+  fireEvent.keyDown(search, { key: 'Enter' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(input).toHaveFocus();
+});
+
+
+it.each([true, false])('does not restore a hidden/removed sidebar owner over newer search (initial sidebar %s)', async sidebarOpen => {
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  if (!sidebarOpen) fireEvent.click(screen.getByRole('button', { name: '隱藏側欄' }));
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+  const hide = screen.getByRole('button', { name: '隱藏側欄' });
+  act(() => hide.focus()); fireEvent.click(hide);
+  fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
+  const search = screen.getByRole('textbox', { name: '終端搜尋' });
+  expect(search).toHaveFocus();
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(search).toHaveFocus();
+  expect(bridge.write).not.toHaveBeenCalled();
+});
+
+it('CSS-hidden connected sidebar owner restores neutral focus', async () => {
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const enter = screen.getByRole('button', { name: '進入專注模式' });
+  act(() => enter.focus()); fireEvent.click(enter);
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+  const hide = screen.getByRole('button', { name: '隱藏側欄' });
+  act(() => hide.focus()); fireEvent.click(hide);
+  expect(hide.isConnected).toBe(true);
+  expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
+  // jsdom does not implement focus loss after ancestor display:none; model the browser's CSS blur.
+  act(() => hide.blur());
+  expect(document.body).toHaveFocus();
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(input).toHaveFocus();
+});
+
+
+it('restores an opt-in shortcut from chrome that becomes hidden', async () => {
+  const data = fixture();
+  data.settings.shortcuts = { 'toggle-focus-mode': 'Mod+Shift+Z' };
+  bridge.bootstrap.mockResolvedValue(data);
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
+  const input = await ready();
+  vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const trigger = screen.getByRole('button', { name: /搜尋專案或執行命令/ });
+  act(() => trigger.focus());
+  fireEvent.keyDown(trigger, { key: 'z', ctrlKey: true, shiftKey: true });
+  expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
+  act(() => trigger.blur());
+  act(() => frames.splice(0).forEach(callback => callback(0)));
+  expect(input).toHaveFocus();
+  expect(bridge.write).not.toHaveBeenCalled();
 });

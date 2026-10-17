@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { displayNameError } from './display-name';
 import { RenameDialog } from './components/RenameDialog';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
+import { ProjectRuntimeTabs } from './components/ProjectRuntimeTabs';
 import { patchWorkspacePane, renameWorkspaceTab, reorderWorkspaceTab, restoreWorkspace, serializeWorkspace } from './workspace';
 import { workspaceTabIndex } from './commands';
 import type { Workspace } from './types';
@@ -103,9 +104,30 @@ function TabsHarness({ changed = vi.fn() }: { changed?: (id: string, targetId: s
     onSelect={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} onReorder={(id, target, after) => { changed(id, target, after); setWorkspace((w) => reorderWorkspaceTab(w, id, target, after)); }} /></div>;
 }
 const tabButton = (name: string) => screen.getByRole('button', { name: `${name} 1` });
-const transfer = () => ({ effectAllowed: '', dropEffect: '', setData: vi.fn() });
+function pointer(target: HTMLElement, type: string, x = 180, y = 10) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, { clientX: { value: x }, clientY: { value: y }, button: { value: 0 }, pointerId: { value: 1 }, isPrimary: { value: true } });
+  fireEvent(target, event);
+}
 
 describe('tab reordering controls', () => {
+  it.each(['工作分頁', '很長的合成分頁名稱'.repeat(20)])('shows only the complete tab name in native tooltips: %s', name => {
+    const ws = fixture();
+    const tab = { ...ws.tabs[0], name };
+    render(<><WorkspaceTabs tabs={[tab]} panes={ws.panes}
+      onSelect={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} onReorder={vi.fn()} />
+      <ProjectRuntimeTabs tabs={[tab]} panes={ws.panes} projectName="Project" onFocus={vi.fn()} /></>);
+    const workspaceButton = screen.getByRole('button', { name: `${name} 1` });
+    const sidebarButton = screen.getByRole('button', { name: `開啟工作區 Project ${name}` });
+    for (const button of [workspaceButton, sidebarButton]) {
+      expect(button).toHaveAttribute('title', name);
+      expect(button.title).not.toMatch(/第 \d+ 個分頁|拖曳|排序/);
+      expect(button).toHaveTextContent(name);
+    }
+    expect(workspaceButton).toHaveAccessibleDescription(/可拖曳分頁排序/);
+    expect(workspaceButton).toHaveAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+    expect(sidebarButton).toHaveAccessibleDescription('已開啟');
+  });
   it('supports keyboard moves, keeps focus and announces position without moving across a boundary', () => {
     const changed = vi.fn(); render(<TabsHarness changed={changed} />);
     const button = tabButton('b'); button.focus();
@@ -115,29 +137,53 @@ describe('tab reordering controls', () => {
     fireEvent.keyDown(button, { key: 'ArrowLeft', altKey: true });
     fireEvent.keyDown(button, { key: 'ArrowRight', altKey: true, isComposing: true });
     expect(changed).toHaveBeenCalledOnce();
-    expect(within(screen.getByTestId('tabs')).getAllByRole('button').filter((el) => el.draggable).map((el) => el.textContent)).toEqual(['b1', 'a1', 'c1']);
+    expect(within(screen.getByTestId('tabs')).getAllByRole('button').filter((el) => el.classList.contains('workspace-tab-select')).map((el) => el.textContent)).toEqual(['b1', 'a1', 'c1']);
   });
-  it('commits drag only on drop, ignores outside payloads, and cancels on Escape or dragend', () => {
+  it('does not select after dragging, but preserves the next click and action buttons', () => {
+    const selected = vi.fn(); const renamed = vi.fn(); const closed = vi.fn(); const reordered = vi.fn();
+    render(<WorkspaceTabs tabs={fixture().tabs.filter(tab => tab.projectId === 'project')} activeId="b"
+      onSelect={selected} onRename={renamed} onClose={closed} onReorder={reordered} />);
+    const source = tabButton('a');
+    source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+    vi.spyOn(tabButton('c').parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 200, top: 0, bottom: 30, width: 100 } as DOMRect);
+    pointer(source, 'pointerdown', 0); pointer(source, 'pointermove'); pointer(source, 'pointerup');
+    fireEvent.click(source, { detail: 1 });
+    expect(selected).not.toHaveBeenCalled(); expect(closed).not.toHaveBeenCalled(); expect(renamed).not.toHaveBeenCalled();
+    expect(reordered).toHaveBeenCalledExactlyOnceWith('a', 'c', true);
+    pointer(source, 'pointerdown', 0); pointer(source, 'pointerup', 0); fireEvent.click(source, { detail: 1 });
+    expect(selected).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'a' }));
+    fireEvent.click(screen.getByRole('button', { name: '重新命名分頁 c' }));
+    expect(renamed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'c' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉分頁 c' }));
+    expect(closed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'c' }));
+    expect(reordered).toHaveBeenCalledOnce();
+  });
+  it('commits pointer drag only on release and cancels Escape, lost capture, or outside drops', () => {
     const changed = vi.fn(); render(<TabsHarness changed={changed} />);
-    const dataTransfer = transfer();
+    const source = tabButton('a');
+    source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
     const target = tabButton('c').parentElement!;
-    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ left: 100, width: 100 } as DOMRect);
-    fireEvent.drop(target, { dataTransfer, clientX: 180 });
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 200, top: 0, bottom: 30, width: 100 } as DOMRect);
+    pointer(source, 'pointerup');
     expect(changed).not.toHaveBeenCalled();
-    fireEvent.dragStart(tabButton('a'), { dataTransfer });
-    fireEvent.dragOver(target, { dataTransfer, clientX: 180 });
+    for (const interrupt of ['escape', 'pointercancel', 'lostpointercapture', 'blur', 'outside']) {
+      pointer(source, 'pointerdown', 0);
+      pointer(source, 'pointermove');
+      expect(changed).not.toHaveBeenCalled();
+      if (interrupt === 'escape') fireEvent.keyDown(window, { key: 'Escape' });
+      else if (interrupt === 'blur') fireEvent.blur(window);
+      else if (interrupt !== 'outside') pointer(source, interrupt);
+      pointer(source, 'pointerup', interrupt === 'outside' ? 900 : 180);
+      expect(changed).not.toHaveBeenCalled();
+    }
+    pointer(source, 'pointerdown', 0);
+    pointer(source, 'pointermove', 3);
+    pointer(source, 'pointerup', 3);
     expect(changed).not.toHaveBeenCalled();
-    fireEvent.keyDown(window, { key: 'Escape' });
-    fireEvent.drop(target, { dataTransfer, clientX: 180 });
-    expect(changed).not.toHaveBeenCalled();
-    fireEvent.dragStart(tabButton('a'), { dataTransfer });
-    fireEvent.dragEnd(tabButton('a'), { dataTransfer });
-    fireEvent.drop(target, { dataTransfer, clientX: 180 });
-    expect(changed).not.toHaveBeenCalled();
-    fireEvent.dragStart(tabButton('a'), { dataTransfer });
-    const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
-    Object.defineProperties(dropEvent, { clientX: { value: 180 }, dataTransfer: { value: dataTransfer } });
-    fireEvent(target, dropEvent);
+    pointer(source, 'pointerdown', 0);
+    pointer(source, 'pointermove');
+    expect(source.parentElement).toHaveClass('reorder-dragging');
+    pointer(source, 'pointerup');
     expect(changed).toHaveBeenCalledExactlyOnceWith('a', 'c', true);
     expect(screen.getByRole('status')).toHaveTextContent('第 3 個');
   });
@@ -165,4 +211,44 @@ it('regression: Escape while composing a display name should not close rename', 
   fireEvent.compositionStart(input);
   fireEvent.keyDown(input, { key: 'Escape', isComposing: true, keyCode: 229 });
   expect(close).not.toHaveBeenCalled();
+});
+
+it('regression: rejects offscreen tab geometry outside the visible scrolled strip', () => {
+  const changed = vi.fn(); render(<TabsHarness changed={changed} />);
+  const strip = screen.getByTestId('tabs');
+  strip.classList.add('workspace-tabs');
+  vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 300, top: 0, bottom: 30, width: 200 } as DOMRect);
+  const source = tabButton('a');
+  source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+  vi.spyOn(source.parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 150, right: 250, top: 0, bottom: 30, width: 100 } as DOMRect);
+  // A scrolled-off tab still has layout geometry extending into the sidebar.
+  vi.spyOn(tabButton('c').parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 100, top: 0, bottom: 30, width: 100 } as DOMRect);
+  for (const [x, y] of [[50, 10], [180, -10], [180, 40]]) {
+    pointer(source, 'pointerdown', 180); pointer(source, 'pointermove', x, y); pointer(source, 'pointerup', x, y);
+    expect(changed).not.toHaveBeenCalled();
+  }
+});
+
+it.each(['overlay', 'outside', 'null'])('rejects %s hit targets rather than reordering an obscured tab', kind => {
+  const changed = vi.fn(); render(<TabsHarness changed={changed} />);
+  const strip = screen.getByTestId('tabs'); strip.classList.add('workspace-tabs');
+  vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 300, top: 0, bottom: 44, width: 300 } as DOMRect);
+  const source = tabButton('a'); source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+  vi.spyOn(source.parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 100, top: 0, bottom: 44, width: 100 } as DOMRect);
+  vi.spyOn(tabButton('c').parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 200, right: 330, top: 0, bottom: 44, width: 130 } as DOMRect);
+  const exit = document.createElement('button'); exit.className = 'focus-mode-toggle'; exit.textContent = '退出專注'; strip.append(exit);
+  vi.spyOn(exit, 'getBoundingClientRect').mockReturnValue({ left: 230, right: 300, top: 0, bottom: 44, width: 70 } as DOMRect);
+  const previous = Object.getOwnPropertyDescriptor(document, 'elementFromPoint');
+  Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => kind === 'null' ? null : kind === 'outside' ? document.body : exit });
+  try {
+    pointer(source, 'pointerdown', 50); pointer(source, 'pointermove', 280); pointer(source, 'pointerup', 280);
+    expect(changed).not.toHaveBeenCalled();
+    // A real visible tab remains reorderable with hit testing enabled.
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => tabButton('c') });
+    pointer(source, 'pointerdown', 50); pointer(source, 'pointermove', 280); pointer(source, 'pointerup', 280);
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    if (previous) Object.defineProperty(document, 'elementFromPoint', previous);
+    else Reflect.deleteProperty(document, 'elementFromPoint');
+  }
 });

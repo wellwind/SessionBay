@@ -131,7 +131,52 @@
 
 保留既有十個色系，新增 Code Modern／Code 2026 深／淺色 UI 與 Terminal；命令面板可搜尋、鍵盤預覽、Enter 保存及 Escape 還原。全工作台 page zoom 使用獨立 appZoom，與主題共用序列化保存，不乘改 Terminal 基準字級。修訂後整合樹的自動化與原生待驗項目見[批次整合驗證](batch-integration-validation.md)。
 
+- Agent 個別設定：可搜尋選擇器與啟用偏好、保留停用 provider 快取與現有 Runtime；前端 835 項自動化回歸通過，三平台原生操作及瀏覽器截圖驗收尚未完成。
+
+### 2026-10-17：Session 可復原刪除
+
+第一階段：Session Bay metadata tombstone、回收筒與還原；原始 Agent 歷史唯讀。第二階段仍待設計：依 provider 安全刪除原始歷史、共用資料庫與執行中 Agent 的競爭保護、刪除前逐次確認與不可復原影響。不得將第二階段列為已支援。
+
+- [ ] 原始對話永久刪除：功能未完成。已整理[契約與架構缺口](permanent-deletion-investigation.md)及[合成負面探針](permanent-deletion-probes.md)，不代表功能驗收。既有 SQLite path 來源不人工配對 API 後執行刪除；下一步評估新 API 型來源或受管 provider transport，仍須解決 atomic idle／children／cleanup／remote routing。
 ### 臨時 Terminal 混版相容
 
 - [x] 固定舊 protocol 1 schema 的未知欄位重現、雙向 Hello 相容、scope／generation 與 workspace 身分比對回歸。
 - [ ] macOS 真實舊 broker 持續執行時更新 UI，驗證新臨時 Terminal、既有 Agent 重附接與重開工作區；不得停止原有程序。
+
+### Agent 生命週期總覽
+
+- [x] 共用 registry 辨識、Runtime 去重、專案／全域分組、停用不漏計及背景面板事件更新的實作與合成回歸。
+- [ ] 原生三平台狀態顯示與重連實機驗收。
+- [ ] 忙碌／等待輸入：等待可靠結構化 Agent 活動訊號；目前明確顯示活動未知。
+- [x] 此候選的 826 項前端測試、typecheck、lint、production build；另含 actual-App Chrome 接受測試與截圖輸出，接入 CI。
+- [ ] Chrome 接受測試實際執行與截圖檢視：雲端未安裝 Google Chrome；系統 Chromium 在 sandbox 因 socket 權限中止。未繞過 sandbox，需在 CI 完成。
+
+命令面板主清單新增 ↑／↓ 循環選取、搜尋重設、停用跳過與 Enter 執行；沿用主題子清單預覽／取消。前端回歸涵蓋 IME、焦點、空結果與專案選取；原生 macOS 輸入法實機驗收仍待執行。
+
+## 圖片輸入增量
+
+- 本機 PNG／JPEG 拖放、系統／工具列貼上與安全 staging：實作待 CI 及獨立審查。
+- 三平台原生 webview／CLI 驗收、Antigravity adapter 與保留圖片容量管理 UI：尚未完成。詳見 [圖片輸入](image-input.md)。
+
+## 2026-10-17 側欄整理
+
+
+### 專案目錄整合工作區（2026-10-17）
+
+已實作專案父列展開 tabs、保留歷史 badge、生命週期摘要與切回既有 runtime；獨立 Agent 狀態大區移除。busy／idle 與代表工作中的 spinner 尚未完成，等待可靠 provider control/event transport；不能將存活／輸出當成工作中。使用者已選定的輸出提示另見下方。
+
+已加入使用者同意的新輸出 pulse／背景未讀提示與短暫連線 spinner；這些不提供 Agent busy／idle 判定。該能力仍等待可靠 provider 事件，與輸出提示分開驗收。
+
+專案清單以拖曳排序取代置頂，保留首次遷移順序，提供 Alt＋上／下鍵盤替代操作，不再顯示上／下移按鈕。專案／目錄清單、開啟中的工作區獨立收合並記住狀態；不更動執行中程序。前端測試與原生跨平台驗收分別記錄，不以瀏覽器測試取代原生驗收。
+
+- 拖曳讓位預覽候選：transform-only 的專案／分頁排序與鍵盤等效；本地測試與真實 Chrome 動畫／保存證據分開記錄，macOS 原生 WebView 仍待實機驗收。
+
+
+### 工作區專注模式
+
+- [ ] 可逆收起外框、完整功能入口、常駐終端及尺寸更新的自動化驗證。
+- [ ] macOS／Linux／Windows 真實桌面、原生全螢幕與多分頁下的視覺及輸入驗收。
+
+### 工具設定下拉選擇
+
+已實作可搜尋工具下拉與三區設定；單元回歸與瀏覽器合成腳本隨程式更新。原生 WebView、真實數十個 provider 與螢幕閱讀器實測仍待驗收。

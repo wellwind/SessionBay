@@ -25,7 +25,13 @@ impl<'a, F: FnMut(&str, u64)> TerminalEvents<'a, F> {
         let event = self
             .receiver
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .expect("terminal event timeout");
+            .unwrap_or_else(|error| {
+                panic!(
+                    "terminal event timeout: {error:?}; last sequence {}; output {:?}",
+                    self.previous,
+                    String::from_utf8_lossy(&self.output)
+                )
+            });
         if let TerminalEvent::Output {
             runtime_id,
             sequence,

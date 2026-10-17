@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowRight,
   ChevronLeft,
@@ -12,9 +12,12 @@ import {
   RefreshCw,
   Search,
   X,
+  Trash2,
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { agentNames, historyAgentKinds } from '../agents';
+import { Dialog } from './Dialog';
+import { hasBlockingDialog } from '../dialog-focus';
 import { AgentIcon } from './AgentIcon';
 import { DatePicker, Select } from './controls';
 import { localDayBound } from '../workspace';
@@ -63,6 +66,7 @@ export function HistoryView({
   onResume,
   onNew,
   onCurate,
+  onHistoryChanged,
   curating = false,
   disabled = false,
 }: {
@@ -72,17 +76,56 @@ export function HistoryView({
   onResume: (session: Session) => void;
   onNew: () => void;
   onCurate?: (session: Session) => void;
+  onHistoryChanged?: () => Promise<void> | void;
   curating?: boolean;
   disabled?: boolean;
 }) {
+  const [trashTarget, setTrashTarget] = useState<Session | null>(null);
+  const [trashBusy, setTrashBusy] = useState(false);
+  const trashLock = useRef(false);
+  const [trashError, setTrashError] = useState('');
+  const trashTrigger = useRef<HTMLButtonElement | null>(null);
+  const focusUndo = useRef<{ trigger: HTMLButtonElement | null } | null>(null);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  const [undoId, setUndoId] = useState<string | null>(null);
+  // A completed deletion may still be awaiting a parent refresh. Any newer
+  // interaction owns focus; a delayed completion must never reclaim it.
+  useEffect(() => {
+    const cancel = () => { focusUndo.current = null; };
+    const focus = (event: FocusEvent) => {
+      const pending = focusUndo.current;
+      // Dialog cleanup may restore its original trigger. That is not new intent.
+      if (pending && event.target !== pending.trigger) cancel();
+    };
+    document.addEventListener('focusin', focus);
+    document.addEventListener('pointerdown', cancel, true);
+    document.addEventListener('keydown', cancel, true);
+    return () => {
+      document.removeEventListener('focusin', focus);
+      document.removeEventListener('pointerdown', cancel, true);
+      document.removeEventListener('keydown', cancel, true);
+      cancel();
+    };
+  }, []);
+  useEffect(() => {
+    const pending = focusUndo.current;
+    if (pending && undoId && !trashBusy) {
+      focusUndo.current = null;
+      const active = document.activeElement;
+      if (!hasBlockingDialog() && (active === document.body || active === pending.trigger)) {
+        undoButton.current?.focus();
+      }
+    }
+  }, [undoId, trashBusy]);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [saved, setSaved] = useState<Record<string, Filters>>({});
   const key = projectId ?? '__all';
   const filters = saved[key] ?? initialFilters;
-  const change = (patch: Partial<Filters>) =>
+  const change = useCallback((patch: Partial<Filters>) =>
     setSaved((previous) => ({
       ...previous,
       [key]: { ...(previous[key] ?? initialFilters), offset: 0, ...patch },
-    }));
+    })), [key]);
   const [storedPage, setPage] = useState<SessionPage>({ items: [], total: 0 });
   const [resultKey, setResultKey] = useState<string | null>(null);
   const page = resultKey === key ? storedPage : { items: [], total: 0 };
@@ -123,6 +166,10 @@ export function HistoryView({
           })
           .then((result) => {
             if (!cancelled) {
+              if (filters.offset && filters.offset >= result.total) {
+                change({ offset: Math.max(0, Math.floor((result.total - 1) / 40) * 40) });
+                return;
+              }
               setPage(result);
               setResultKey(projectId ?? '__all');
               setSelected(
@@ -158,6 +205,8 @@ export function HistoryView({
     filters.children,
     filters.offset,
     refreshToken,
+    historyRevision,
+    change,
     disabled,
   ]);
   useEffect(() => {
@@ -237,6 +286,38 @@ export function HistoryView({
       if (generation === previewGeneration.current) setPreviewLoading(false);
     }
   };
+  const moveToTrash = async () => {
+    if (!trashTarget?.trashIdentity || trashLock.current) return;
+    trashLock.current = true;
+    setTrashBusy(true);
+    setTrashError('');
+    try {
+      const id = await api.trashSession(trashTarget.id, trashTarget.trashIdentity);
+      focusUndo.current = { trigger: trashTrigger.current };
+      setUndoId(id);
+      setTrashTarget(null);
+      setSelected(previous => previous?.id === trashTarget.id ? null : previous);
+      setHistoryRevision((value) => value + 1);
+      await onHistoryChanged?.();
+    } catch (reason) {
+      setTrashError(errorMessage(reason));
+      setHistoryRevision((value) => value + 1);
+    }
+    finally { trashLock.current = false; setTrashBusy(false); }
+  };
+  const undoTrash = async () => {
+    if (!undoId || trashLock.current) return;
+    trashLock.current = true;
+    setTrashBusy(true);
+    setTrashError('');
+    try {
+      await api.restoreSession(undoId);
+      setUndoId(null);
+      setHistoryRevision((value) => value + 1);
+      await onHistoryChanged?.();
+    } catch (reason) { setTrashError(errorMessage(reason)); }
+    finally { trashLock.current = false; setTrashBusy(false); }
+  };
   const filtered =
     !!filters.query ||
     !!filters.kind ||
@@ -247,6 +328,23 @@ export function HistoryView({
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
   return (
     <div className="history-view">
+      {undoId && <div className="history-undo" role="status">
+        <p>已移入資源回收筒。</p>
+        <div className="history-undo-actions">
+          <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>
+          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => setUndoId(null)}><X size={15} /></button>
+        </div>
+      </div>}
+      {trashError && !trashTarget && <p className="inline-error" role="alert">{trashError}</p>}
+      {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
+        <p>「{trashTarget.title || trashTarget.externalId}」將從 Session Bay 歷史與搜尋隱藏，之後可從資源回收筒還原。</p>
+        <p>原始 Agent 歷史會保留，執行中的工作會繼續。</p>
+        {trashError && <p className="inline-error" role="alert">{trashError}</p>}
+        <div className="dialog-actions">
+          <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>取消</button>
+          <button data-dialog-confirm className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
+        </div>
+      </Dialog>}
       <div className="history-controls">
         <div className="search-field">
           <Search size={17} />
@@ -351,36 +449,42 @@ export function HistoryView({
               )}
             </div>
           ) : (
-            <div className="session-list" aria-label="Session 清單" aria-busy={loading}>
+            <div className="session-list" role="list" aria-label="Session 清單" aria-busy={loading}>
               {page.items.map((session) => (
-                <button
-                  key={session.id}
-                  className={`session-card ${selected?.id === session.id ? 'active' : ''}`}
-                  onClick={() => {
-                    setSelected(session);
-                    setPreviewOpen(true);
-                  }}
-                >
-                  <div className="session-card-top">
-                    <span className={`agent-badge ${session.kind}`}>{agentName(session.kind)}</span>
-                    <span className="session-time">{dateLabel(session.updatedAt)}</span>
-                  </div>
-                  <h3>{session.title || session.externalId.slice(0, 12)}</h3>
-                  <p className="session-snippet">
-                    {session.snippet || '開啟預覽，查看最近的對話脈絡。'}
-                  </p>
-                  <div className="session-card-meta">
-                    <span title={session.cwd ?? ''}>
-                      {session.cwd || projects.find((p) => p.id === session.projectId)?.launchPath || '工作目錄未知'}
-                    </span>
-                    <span>
-                      {session.archived && '封存 '}
-                      {session.partial && '解析不完整 '}
-                      {session.parentId && '子代理／分支 '}
-                      {session.timeSource === 'mtime' && '檔案時間'}
-                    </span>
-                  </div>
-                </button>
+                <div key={session.id} role="listitem"
+                  className={`session-card ${selected?.id === session.id ? 'active' : ''}`}>
+                  <button className="session-card-select" aria-current={selected?.id === session.id ? 'true' : undefined}
+                    onClick={() => {
+                      setSelected(session);
+                      setPreviewOpen(true);
+                    }}
+                  >
+                    <div className="session-card-top">
+                      <span className={`agent-badge ${session.kind}`}>{agentName(session.kind)}</span>
+                      <span className="session-time">{dateLabel(session.updatedAt)}</span>
+                    </div>
+                    <h3>{session.title || session.externalId.slice(0, 12)}</h3>
+                    <p className="session-snippet">
+                      {session.snippet || '開啟預覽，查看最近的對話脈絡。'}
+                    </p>
+                    <div className="session-card-meta">
+                      <span title={session.cwd ?? ''}>
+                        {session.cwd || projects.find((p) => p.id === session.projectId)?.launchPath || '工作目錄未知'}
+                      </span>
+                      <span>
+                        {session.archived && '封存 '}
+                        {session.partial && '解析不完整 '}
+                        {session.parentId && '子代理／分支 '}
+                        {session.timeSource === 'mtime' && '檔案時間'}
+                      </span>
+                    </div>
+                  </button>
+                  <button className="icon-button session-card-delete" aria-label={`刪除 Session ${session.title || session.externalId}`}
+                    title="移入資源回收筒" disabled={disabled || trashBusy || !session.trashIdentity}
+                    onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(session); }}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -413,19 +517,23 @@ export function HistoryView({
             {selected ? (
               <>
                 <header className="transcript-header">
-                  <div>
+                  <div className="transcript-heading">
                     <span className="eyebrow">對話預覽</span>
                     <h3>{selected.title || selected.externalId}</h3>
                   </div>
-                  <button
-                    className="primary"
-                    disabled={disabled || !!selected.resumeDisabledReason}
-                    aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
-                    onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
-                  >
-                    接續工作
-                    <ArrowRight size={15} />
-                  </button>
+                  <div className="transcript-actions">
+                    <button className="icon-button" aria-label="刪除 Session" title="移入資源回收筒，可還原"
+                      disabled={disabled || trashBusy || !selected.trashIdentity} onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(selected); }}><Trash2 size={17} /></button>
+                    <button
+                      className="primary"
+                      disabled={disabled || !!selected.resumeDisabledReason}
+                      aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
+                      onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
+                    >
+                      接續工作
+                      <ArrowRight size={15} />
+                    </button>
+                  </div>
                 </header>
                 {selected.resumeDisabledReason && (
                   <div className="inline-warning" id={resumeReasonId} role="status">

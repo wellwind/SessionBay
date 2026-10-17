@@ -92,6 +92,7 @@ struct OwnedChild {
     // full lifetime. Borrow only while this owner is alive; never OpenProcess.
     child: Box<dyn Child + Send + Sync>,
     collected: bool,
+    termination_requested: bool,
 }
 
 impl OwnedChild {
@@ -123,7 +124,7 @@ impl OwnedChild {
     }
 
     fn terminate(&mut self) -> io::Result<()> {
-        if self.collected || self.poll()?.is_some() {
+        if self.collected || self.termination_requested || self.poll()?.is_some() {
             return Ok(());
         }
         // Do not use portable-pty 0.9's kill(), which swallows API failures.
@@ -133,6 +134,11 @@ impl OwnedChild {
             if self.poll()?.is_none() {
                 return Err(error);
             }
+        } else {
+            // Termination is asynchronous. Repeating it before the process
+            // handle signals can return ACCESS_DENIED for an already dying
+            // process and incorrectly report a successful Stop as failed.
+            self.termination_requested = true;
         }
         Ok(())
     }
@@ -261,6 +267,7 @@ pub(super) fn spawn(
     spawned.child = Some(OwnedChild {
         child,
         collected: false,
+        termination_requested: false,
     });
     // The slave shares ConPTY ownership with the master. It must be dropped
     // before requesting closure, otherwise dropping the master cannot close it.
@@ -376,12 +383,14 @@ fn write_pipe(runtime: Arc<Runtime>, pipes: Arc<Pipes>, mut writer: Box<dyn Writ
             (
                 reply,
                 state.cursor_ready,
-                state.close_done && state.reader_done,
+                state.close_done && (state.cursor_ready || state.reader_done),
             )
         };
         if closed {
-            // On Windows 11 24H2 ClosePseudoConsole returns before clients have
-            // disconnected. EOF, not API return alone, ends protocol service.
+            // After ClosePseudoConsole returns, finish the initial handshake
+            // (unless output has already ended), then close the input pipe.
+            // Waiting for output EOF unconditionally can keep attached clients
+            // alive on 24H2. The independent reader still drains final output.
             break;
         }
         let input: Vec<u8> = if reply {

@@ -175,6 +175,91 @@ export function Select({ value, onChange, options, id, disabled = false, classNa
   </div>;
 }
 
+/** Editable combobox: focus stays in the input while the list is navigated. */
+export function SearchableSelect({ value, onChange, options, disabled = false, query, onQueryChange, ...aria }: SelectProps & {
+  query: string;
+  onQueryChange: (query: string) => void;
+}) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const composing = useRef(false);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const selected = options.find((option) => option.value === value);
+  const filtered = options.filter((option) => `${option.label} ${option.value}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const activeIndex = Math.min(active, filtered.length - 1);
+  const close = () => { setOpen(false); onQueryChange(''); };
+  const latestClose = useRef(close);
+  latestClose.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.isComposing || composing.current || event.keyCode === 229) return;
+      event.preventDefault();
+      event.stopPropagation();
+      latestClose.current();
+    };
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !root.current?.contains(event.target) && !panel.current?.contains(event.target)) latestClose.current();
+    };
+    window.addEventListener('keydown', escape, true);
+    window.addEventListener('pointerdown', outside, true);
+    return () => { window.removeEventListener('keydown', escape, true); window.removeEventListener('pointerdown', outside, true); };
+  }, [open]);
+  useEffect(() => { if (disabled) latestClose.current(); }, [disabled]);
+  useEffect(() => { latestClose.current(); }, [value]);
+  useEffect(() => {
+    if (open) panel.current?.querySelector<HTMLElement>(`[data-option-index="${activeIndex}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, activeIndex, query]);
+  const begin = () => { if (!disabled) { setOpen(true); setActive(0); } };
+  const choose = (index: number) => {
+    const option = filtered[index];
+    if (!option || option.disabled || disabled) return;
+    onChange(option.value);
+    close();
+  };
+  return <div ref={root} className="searchable-select">
+    <div className="searchable-select-field">
+      <span className="select-icon" aria-hidden="true">{selected?.icon}</span>
+      <input {...aria} ref={input} role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
+        aria-expanded={open} aria-controls={open ? `${id}-list` : undefined}
+        aria-activedescendant={open && activeIndex >= 0 ? `${id}-${activeIndex}` : undefined}
+        disabled={disabled} value={open ? query : selected?.label ?? ''} placeholder="搜尋工具名稱…"
+        onFocus={begin} onClick={() => { if (!open) begin(); }} onBlur={close}
+        onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
+        onChange={(event) => { onQueryChange(event.target.value); setActive(0); setOpen(true); }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) { event.stopPropagation(); return; }
+          if (event.key === 'Tab') { close(); return; }
+          if (event.key === 'Enter') { event.preventDefault(); if (open) choose(activeIndex); else begin(); }
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (!open) begin();
+            else if (filtered.length) setActive((activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + filtered.length) % filtered.length);
+          }
+        }} />
+      <ChevronDown size={16} aria-hidden="true" />
+    </div>
+    {!open && <p className="settings-help searchable-select-status">{selected?.description}</p>}
+    {open && <FloatingPanel anchor={root} panel={panel} className="select-options searchable-select-options">
+      <div role="listbox" id={`${id}-list`} aria-label="選擇要設定的 Agent">
+        {filtered.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} data-value={option.value}
+          aria-selected={option.value === value} aria-disabled={option.disabled || undefined}
+          data-option-index={index} data-active={activeIndex === index || undefined} className="select-option"
+          onPointerDown={(event) => event.preventDefault()} onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActive(index)} onClick={() => choose(index)}>
+          <span className="select-icon" aria-hidden="true">{option.icon}</span>
+          <span className="select-option-copy"><span>{option.label}</span><small>{option.description}</small></span>
+          {value === option.value && <Check size={15} aria-hidden="true" />}
+        </div>)}
+      </div>
+      {!filtered.length && <p role="status" className="settings-help">沒有符合的 Agent。請試試其他名稱。</p>}
+    </FloatingPanel>}
+  </div>;
+}
+
 function localDate(year: number, month: number, day: number): Date {
   const date = new Date(0);
   date.setHours(12, 0, 0, 0);

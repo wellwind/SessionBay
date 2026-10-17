@@ -1,6 +1,7 @@
 //! Detached runtime host. The desktop is a disposable client; only this process
 //! owns PTYs. Restoring metadata never grants authority over an old process ID.
 mod client;
+mod output_batch;
 mod screen;
 mod transport;
 use crate::runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent};
@@ -37,6 +38,8 @@ pub struct RuntimeRecord {
     pub resume_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home_directory: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub image_input: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -193,6 +196,7 @@ struct Host {
     runtime: Arc<RuntimeManager>,
     entries: Mutex<HashMap<String, Entry>>,
     shutdown: std::sync::atomic::AtomicBool,
+    shutdown_reply_complete: tokio::sync::Notify,
     persisted: Mutex<Vec<u8>>,
 }
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -246,6 +250,7 @@ impl Host {
             runtime: Arc::new(RuntimeManager::new()),
             entries: Mutex::new(entries),
             shutdown: std::sync::atomic::AtomicBool::new(false),
+            shutdown_reply_complete: tokio::sync::Notify::new(),
             persisted: Mutex::new(Vec::new()),
         });
         host.persist()?;
@@ -303,6 +308,9 @@ impl Host {
         Ok(())
     }
     fn handle(self: &Arc<Self>, request: Request) -> Result<Response, String> {
+        if self.shutdown.load(std::sync::atomic::Ordering::Acquire) {
+            return Err("The runtime broker is shutting down".into());
+        }
         if request
             .generation()
             .is_some_and(|generation| generation != self.generation)
@@ -374,6 +382,7 @@ impl Host {
                 let screen = Arc::new(Mutex::new(screen::TerminalScreen::new(cols, rows)));
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
+                let image_input = crate::image_input::supports_launch(&kind, &spec);
                 let info = self.runtime.launch(
                     *spec,
                     cols,
@@ -421,6 +430,7 @@ impl Host {
                             profile_id,
                             resume_id,
                             home_directory: Some(home_directory),
+                            image_input,
                         },
                         screen: Some(screen),
                     },
@@ -516,7 +526,7 @@ pub fn run(directory: PathBuf) -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
-    runtime.block_on(async move {
+    let result = runtime.block_on(async move {
         let host = Host::open(directory.clone())?;
         let listener = transport::listener(&directory).map_err(|e| e.to_string())?;
         let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CLIENTS));
@@ -548,8 +558,23 @@ pub fn run(directory: PathBuf) -> Result<(), String> {
                 last_persist = Instant::now();
             }
         }
+        drop(listener);
+        // Do not cancel the shutdown response just because its handler stopped
+        // the runtimes. The response task also signals on error or timeout.
+        host.shutdown_reply_complete.notified().await;
         Ok(())
-    })
+    });
+    // Windows pipe flush uses a blocking task. A peer that never reads must not
+    // keep broker process shutdown waiting forever after REQUEST_TIMEOUT.
+    runtime.shutdown_timeout(Duration::from_millis(250));
+    result
+}
+
+struct ShutdownReply<'a>(&'a Host);
+impl Drop for ShutdownReply<'_> {
+    fn drop(&mut self) {
+        self.0.shutdown_reply_complete.notify_one();
+    }
 }
 async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
     transport::authenticate(&stream).map_err(|e| e.to_string())?;
@@ -557,25 +582,41 @@ async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     // Launch/paste limits are stricter than a bounded screen response.
+    let mut shutting_down = false;
     let response = if bytes.len() > 1024 * 1024 {
         Response::Error {
             message: "Runtime request exceeds 1 MiB".into(),
         }
     } else {
         match serde_json::from_slice::<Request>(&bytes) {
-            Ok(request) => match host.handle(request) {
-                Ok(response) => response,
-                Err(message) => Response::Error { message },
-            },
+            Ok(request) => {
+                let shutdown = matches!(request, Request::Shutdown { .. });
+                match host.handle(request) {
+                    Ok(response) => {
+                        shutting_down = shutdown;
+                        response
+                    }
+                    Err(message) => Response::Error { message },
+                }
+            }
             Err(_) => Response::Error {
                 message: "Invalid runtime request".into(),
             },
         }
     };
+    // Keep the completion guard alive across write/flush. Cancellation by the
+    // enclosing request timeout must release the main loop as well.
+    let _completion = shutting_down.then(|| ShutdownReply(&host));
     let bytes = serde_json::to_vec(&response).map_err(|e| e.to_string())?;
     transport::write_frame(&mut stream, &bytes)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if shutting_down {
+        transport::flush_shutdown_reply(&mut stream)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 pub fn stop_arguments() -> Option<PathBuf> {
@@ -601,6 +642,22 @@ pub fn broker_arguments() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_capability_is_additive_and_defaults_closed_for_old_records() {
+        let value = serde_json::json!({"id":"runtime", "paneId":"pane", "sessionId":null,
+            "state":"running", "cwd":"/synthetic", "exitCode":null, "kind":"codex",
+            "projectId":null, "profileId":null, "resumeId":null});
+        let mut record: RuntimeRecord = serde_json::from_value(value).unwrap();
+        assert!(!record.image_input);
+        assert!(serde_json::to_value(&record)
+            .unwrap()
+            .get("imageInput")
+            .is_none());
+        record.image_input = true;
+        let restored: RuntimeRecord =
+            serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(restored.image_input);
+    }
     #[cfg(unix)]
     #[test]
     fn host_consumes_output_without_any_ui_and_replay_survives_new_readers() {
@@ -714,6 +771,7 @@ mod tests {
             profile_id: None,
             resume_id: None,
             home_directory: Some(false),
+            image_input: false,
         };
         fs::write(
             temp.path().join("sessions.json"),

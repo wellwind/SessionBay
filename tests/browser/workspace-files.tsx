@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { WorkspaceCanvas } from '../../src/components/WorkspaceCanvas';
 import { api } from '../../src/api';
-import type { Settings } from '../../src/types';
+import type { Settings, Workspace } from '../../src/types';
+import { setRatio } from '../../src/workspace';
 import { defaultAgentOptions } from '../../src/agents';
 import '../../src/styles.css';
 import '../../src/workbench.css';
@@ -38,13 +39,27 @@ api.listWorkspaceFiles = async (_projectId, path, offset, showHidden) => ({
 api.readWorkspaceFile = async (_projectId, path) => ({ path, text: path === 'src/index.ts'
   ? 'export const greeting = "Hello, Session Bay";\nconsole.log(greeting);\n'
   : '# Synthetic project\n\nThis is read-only text.\n<script>alert("never executed")</script>\n', sizeBytes: 90 });
-createRoot(document.getElementById('root')!).render(
+function Fixture() {
+  const [workspace, setWorkspace] = useState<Workspace>(() => ({ version: 1,
+    tabs: [{ id: 'tab', projectId: 'project', name: 'Shell', focusedPaneId: 'pane',
+      layout: new URLSearchParams(location.search).has('split')
+        ? { kind: 'split', id: 'split', axis: 'horizontal', ratio: 0.5,
+          first: { kind: 'pane', paneId: 'pane' }, second: { kind: 'pane', paneId: 'second' } }
+        : { kind: 'pane', paneId: 'pane' } }],
+    panes: Object.fromEntries(['pane', 'second'].map(id => [id, { id, kind: 'shell', title: 'Shell',
+      projectId: 'project', cwd: '/synthetic/project', state: 'running', runtimeId: `synthetic-${id}` }])),
+    activeTabByProject: { project: 'tab' },
+  }));
+  return (
   <main style={{ height: '100vh', position: 'relative' }}>
     <WorkspaceCanvas
-      workspace={{ version: 1, tabs: [{ id: 'tab', projectId: 'project', name: 'Shell', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }],
-        panes: { pane: { id: 'pane', kind: 'shell', title: 'Shell', projectId: 'project', cwd: '/synthetic/project', state: 'running', runtimeId: 'synthetic' } }, activeTabByProject: { project: 'tab' } }}
+      workspace={workspace}
       knownProjectIds={['project']} activeTabId="tab" settings={settings} visible maximizedId={null}
-      onPatch={noop} onFocus={noop} onStart={noop} onClose={noop} onMaximize={noop} onSplit={noop} onRatio={noop} onAlreadyOpen={noop}
+      onPatch={noop} onFocus={noop} onStart={noop} onClose={noop} onMaximize={noop} onSplit={noop}
+      onRatio={(id, ratio) => setWorkspace(old => ({ ...old, tabs: old.tabs.map(tab => ({ ...tab, layout: setRatio(tab.layout, id, ratio) })) }))}
+      onAlreadyOpen={noop}
     />
-  </main>,
-);
+  </main>
+  );
+}
+createRoot(document.getElementById('root')!).render(<Fixture />);

@@ -269,7 +269,7 @@
 }
 .settings-installations {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 .settings-installation {
@@ -911,3 +911,26 @@
 .settings-source-discovery { margin-top: 12px; display: grid; gap: 10px; }
 .settings-source-candidate { border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: grid; gap: 8px; justify-items: start; }
 .settings-source-candidate code { font-size: 12px; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }
+
+.settings-agent-picker { margin-bottom: 24px; }
+/* A bounded dropdown scales without expanding the settings page. */
+.searchable-select { min-width: 0; width: 100%; }
+.searchable-select-field { display: flex; align-items: center; gap: 10px; padding: 0 12px; min-height: 44px; border: 1px solid var(--settings-border); border-radius: 8px; background: var(--settings-surface); }
+.searchable-select-field:focus-within { outline: 2px solid var(--settings-accent); outline-offset: 2px; }
+.settings-field .searchable-select-field input { min-width: 0; width: 100%; padding: 12px 0; border: 0; background: transparent; box-shadow: none; outline: none; }
+.searchable-select-status { margin: 8px 0 0; overflow-wrap: anywhere; }
+.searchable-select-options { max-height: min(320px, 60vh); overflow-y: auto; }
+.searchable-select-options .select-option { min-height: 44px; }
+.searchable-select-options .select-option-copy { min-width: 0; overflow-wrap: anywhere; }
+.settings-agent-health { margin-top: 16px; border-top: 1px solid var(--settings-border); padding-top: 16px; }
+.settings-agent-enabled {
+  padding: 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--settings-border);
+  border-radius: 10px;
+}
+
+.searchable-select-options [role="listbox"] { max-height: min(320px, 50vh); overflow-y: auto; }
+.searchable-select-field:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+
+.searchable-select-options .select-option-copy > small { font-size: 12px; }

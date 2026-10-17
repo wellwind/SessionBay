@@ -70,10 +70,11 @@ fn project_identity_is_required_and_null_original_path_cannot_use_launch_overrid
         .contains("沒有本機目錄"));
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod supported {
     use super::*;
     use sessionbay_lib::models::WorkspaceEntryKind;
+    #[cfg(unix)]
     use std::{ffi::CString, os::unix::fs::symlink, time::Instant};
 
     #[test]
@@ -253,6 +254,7 @@ mod supported {
     }
 
     #[test]
+    #[cfg(unix)]
     fn rejects_outside_links_in_root_links_fifo_and_link_components() {
         let fixture = Fixture::new();
         let outside = fixture.base.join("outside");
@@ -352,7 +354,9 @@ mod supported {
             .is_err());
         for (index, path) in [
             "relative/project",
+            #[cfg(not(windows))]
             "C:\\project",
+            #[cfg(not(windows))]
             "C:/project",
             "\\\\server\\share",
             "//server/share",
@@ -372,7 +376,7 @@ mod supported {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 #[test]
 fn unsupported_platform_fails_closed_before_filesystem_access() {
     let fixture = Fixture::new();

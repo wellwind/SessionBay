@@ -4,7 +4,7 @@ import App from './App';
 import { api } from './api';
 import { runSmokeInteraction } from './smoke';
 import { smokeSnapshot } from './startup';
-import { defaultAgentOptions } from './agents';
+import { agentKinds, agentNames, defaultAgentOptions } from './agents';
 import { emptyWorkspace } from './workspace';
 import type { Bootstrap, Project, Session } from './types';
 
@@ -176,7 +176,17 @@ describe('native visual smoke scenario against real React UI', () => {
       if (name.startsWith('projects')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('專案');
       if (name.startsWith('directories')) expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('所有目錄');
       if (name.startsWith('providers')) {
-        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(5);
+        expect(document.querySelectorAll('.settings-history-provider')).toHaveLength(1);
+        expect(screen.getByRole('region', { name: 'Codex 歷史來源' })).toBeVisible();
+        expect(screen.getByRole('textbox', { name: 'Codex 執行檔路徑' })).toHaveValue('/missing/codex');
+        for (const kind of agentKinds) {
+          expect(screen.getByRole('combobox', { name: '搜尋 Agent' })).toHaveValue('Codex');
+          expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+          if (kind !== 'codex') {
+            expect(screen.queryByRole('region', { name: `${agentNames[kind]} 歷史來源` })).not.toBeInTheDocument();
+            expect(screen.queryByRole('textbox', { name: `${agentNames[kind]} 執行檔路徑` })).not.toBeInTheDocument();
+          }
+        }
         expect(api.detectHistorySources).not.toHaveBeenCalled();
       }
       if (name.startsWith('launcher')) {

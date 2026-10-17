@@ -19,6 +19,7 @@ import type {
   Settings,
   TerminalEvent,
   TranscriptPage,
+  TrashPage,
 } from './types';
 export const isDesktop = () => isTauri();
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -29,6 +30,11 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
 // UI/window detach deliberately never waits for or cancels these launches.
 const pendingLaunches = new Map<string, Set<Promise<RuntimeInfo>>>();
 export const api = {
+  beginImage: (runtimeId: string, mime: string, size: number) => call<string>('begin_image_input', { runtimeId, mime, size }),
+  appendImage: (runtimeId: string, id: string, offset: number, bytes: number[]) => call<void>('append_image_input', { runtimeId, id, offset, bytes }),
+  finishImage: (runtimeId: string, id: string) => call<{ id: string; path: string }>('finish_image_input', { runtimeId, id }),
+  retainImage: (runtimeId: string, id: string) => call<void>('retain_image_input', { runtimeId, id }),
+  discardImage: (runtimeId: string, id: string) => call<void>('discard_image_input', { runtimeId, id }),
   setWorkspaceZoom: async (percent: number): Promise<void> => {
     if (!isDesktop()) throw new Error('工作台縮放需要桌面執行環境。');
     await getCurrentWebview().setZoom(percent / 100);
@@ -45,9 +51,12 @@ export const api = {
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
   createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),
-  updateProject: (projectId: string, values: { pinned?: boolean; launchPath?: string; curated?: boolean; name?: string }) =>
+  updateProject: (projectId: string, values: { launchPath?: string; curated?: boolean; name?: string }) =>
     call<Project>('update_project', { projectId, ...values }),
   sessions: (query: SessionQuery) => call<SessionPage>('query_sessions', { query }),
+  trashSession: (sessionId: string, expectedIdentity: string) => call<string>('trash_session', { sessionId, expectedIdentity }),
+  restoreSession: (sessionId: string) => call<void>('restore_session', { sessionId }),
+  trash: (offset = 0, limit = 40) => call<TrashPage>('list_trashed_sessions', { offset, limit }),
   transcript: (sessionId: string, beforeLine?: number) =>
     call<TranscriptPage>('read_transcript', { sessionId, beforeLine, limit: 40 }),
   scan: (rebuild = false) => call<IndexStatus>('start_index', { rebuild }),
