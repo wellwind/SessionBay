@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial,(SELECT root FROM sources WHERE id=s.source_id),(SELECT identity FROM files WHERE session_id=s.id LIMIT 1),(SELECT storage_root FROM sources WHERE id=s.source_id)";
 const MAX_ERRORS: usize = 100;
 const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
@@ -341,12 +341,58 @@ impl Catalog {
             }
             tx.commit().map_err(error)?;
         }
+        if version < 5 {
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(error)?;
+            // The revision commits atomically with every catalog mutation. Readers
+            // capture it in their own short WAL snapshot; no transaction spans IPC.
+            tx.execute_batch("CREATE TABLE catalog_revision(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+                INSERT INTO catalog_revision VALUES(1,0);
+                CREATE INDEX sessions_oldest ON sessions(updated_at ASC,id ASC);
+                CREATE INDEX sessions_project_oldest ON sessions(project_id,updated_at ASC,id ASC);
+                PRAGMA user_version=5;").map_err(error)?;
+            for table in [
+                "sources",
+                "projects",
+                "project_directories",
+                "sessions",
+                "files",
+                "messages",
+                "session_trash",
+            ] {
+                let changed = tx
+                    .prepare(&format!("PRAGMA table_info({table})"))
+                    .map_err(error)?
+                    .query_map([], |row| row.get::<_, String>(1))
+                    .map_err(error)?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(error)?
+                    .into_iter()
+                    .map(|column| format!("old.\"{column}\" IS NOT new.\"{column}\""))
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                for operation in ["INSERT", "UPDATE", "DELETE"] {
+                    let condition = if operation == "UPDATE" {
+                        format!("WHEN {changed}")
+                    } else {
+                        String::new()
+                    };
+                    tx.execute_batch(&format!("CREATE TRIGGER revision_{table}_{operation} AFTER {operation} ON {table} {condition} BEGIN UPDATE catalog_revision SET revision=revision+1 WHERE id=1; END;")).map_err(error)?;
+                }
+            }
+            tx.commit().map_err(error)?;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(error)?;
         }
         Ok(catalog)
+    }
+
+    pub fn revision(&self) -> Result<u64, String> {
+        read_revision(&self.connect()?)
     }
 
     fn connect(&self) -> Result<Connection, String> {
@@ -625,6 +671,7 @@ impl Catalog {
     pub fn trashed_sessions(&self, offset: usize, limit: usize) -> Result<TrashPage, String> {
         let conn = self.connect()?;
         let tx = conn.unchecked_transaction().map_err(error)?;
+        let catalog_revision = read_revision(&tx)?.to_string();
         let total: u64 = tx
             .query_row("SELECT COUNT(*) FROM session_trash", [], |r| r.get(0))
             .map_err(error)?;
@@ -658,7 +705,11 @@ impl Catalog {
                 unavailable_reason,
             });
         }
-        Ok(TrashPage { items, total })
+        Ok(TrashPage {
+            items,
+            total,
+            catalog_revision,
+        })
     }
 
     pub fn restore_session(&self, id: &str) -> Result<(), String> {
@@ -714,8 +765,10 @@ impl Catalog {
     ) -> Result<SessionPage, String> {
         let conn = self.connect()?;
         let conn = conn.unchecked_transaction().map_err(error)?;
+        let catalog_revision = read_revision(&conn)?.to_string();
         observe("connect");
-        let mut clauses = vec!["NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id AND t.source_root=(SELECT storage_root FROM sources WHERE id=s.source_id))".to_owned()];
+        // Probe tombstones first; an empty recycle bin needs no per-row source lookup.
+        let mut clauses = vec!["NOT EXISTS(SELECT 1 FROM session_trash t CROSS JOIN sources src ON src.id=s.source_id WHERE t.session_id=s.id AND t.source_root=src.storage_root)".to_owned()];
         let mut values: Vec<SqlValue> = Vec::new();
         if let Some(ref id) = query.project_id {
             clauses.push("s.project_id=?".into());
@@ -807,7 +860,12 @@ impl Catalog {
         let offset = query.offset.unwrap_or(0).min(i64::MAX as usize);
         values.push((limit as i64).into());
         values.push((offset as i64).into());
-        let mut stmt = conn.prepare(&format!("SELECT {SESSION_COLUMNS} FROM sessions s WHERE {filter} ORDER BY s.updated_at DESC,s.id ASC LIMIT ? OFFSET ?")).map_err(error)?;
+        let direction = if query.oldest_first.unwrap_or(false) {
+            "ASC"
+        } else {
+            "DESC"
+        };
+        let mut stmt = conn.prepare(&format!("SELECT {SESSION_COLUMNS} FROM sessions s WHERE {filter} ORDER BY s.updated_at {direction},s.id ASC LIMIT ? OFFSET ?")).map_err(error)?;
         let rows = stmt
             .query_map(params_from_iter(values.iter()), session_row)
             .map_err(error)?;
@@ -836,6 +894,7 @@ impl Catalog {
         }
         observe("snippets");
         Ok(SessionPage {
+            catalog_revision,
             items,
             total: total as u64,
         })
@@ -3278,5 +3337,44 @@ mod dedup_tests {
             .collect::<Result<_, _>>()
             .unwrap();
         assert_eq!(hidden, vec![1, 0, 0, 0, 0, 0, 0, 0]);
+    }
+}
+
+fn read_revision(conn: &Connection) -> Result<u64, String> {
+    conn.query_row(
+        "SELECT revision FROM catalog_revision WHERE id=1",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(error)
+}
+
+#[cfg(test)]
+mod revision_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn batch_revision_count_and_rows_share_one_snapshot_without_blocking_a_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("synthetic.sqlite");
+        let catalog = Catalog::open(&path).unwrap();
+        let writer = Connection::open(&path).unwrap();
+        let before = catalog.revision().unwrap().to_string();
+        let page = catalog.query_observed(&SessionQuery::default(), |phase| {
+            if phase == "connect" {
+                // Commits after the reader captured its revision, before COUNT.
+                writer.execute_batch("INSERT INTO sources VALUES('s','codex','synthetic',1,'synthetic');
+                    INSERT INTO projects(id,name) VALUES('p','Synthetic');
+                    INSERT INTO sessions(id,source_id,kind,external_id,project_id,title,updated_at,time_source,archived,partial)
+                    VALUES('s','s','codex','s','p','Synthetic','2026-01-01T00:00:00Z','event',0,0);").unwrap();
+            }
+        }).unwrap();
+        assert_eq!(page.catalog_revision, before);
+        assert_eq!(page.total, 0);
+        assert!(page.items.is_empty());
+        let next = catalog.query(&SessionQuery::default()).unwrap();
+        assert_ne!(next.catalog_revision, before);
+        assert_eq!(next.total, 1);
+        assert_eq!(next.items.len(), 1);
     }
 }

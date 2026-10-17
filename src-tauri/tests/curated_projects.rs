@@ -1,3 +1,5 @@
+#[path = "support/revision_schema.rs"]
+mod revision_schema;
 use rusqlite::{params, Connection};
 use serde_json::json;
 use sessionbay_lib::{
@@ -220,6 +222,7 @@ fn version_two_migration_preserves_only_manual_or_pinned_membership() {
     let before = catalog.query(&SessionQuery::default()).unwrap();
     let conn = Connection::open(&db).unwrap();
     conn.execute("UPDATE projects SET manual=(name='manual'),pinned=(name='pinned'),launch_path=CASE WHEN name='relocated' THEN ?1 ELSE NULL END", [root.to_str().unwrap()]).unwrap();
+    revision_schema::remove_revision_schema(&conn);
     conn.execute_batch("DROP TABLE project_directories; DROP TABLE session_trash; ALTER TABLE sources DROP COLUMN storage_root; PRAGMA user_version=2;")
         .unwrap();
     drop(conn);
@@ -237,8 +240,8 @@ fn version_two_migration_preserves_only_manual_or_pinned_membership() {
     }
     let after = migrated.query(&SessionQuery::default()).unwrap();
     assert_eq!(
-        serde_json::to_value(before).unwrap(),
-        serde_json::to_value(after).unwrap()
+        serde_json::to_value((&before.items, before.total)).unwrap(),
+        serde_json::to_value((&after.items, after.total)).unwrap()
     );
     let reopened = Catalog::open(&db).unwrap();
     assert_eq!(
@@ -254,7 +257,7 @@ fn version_two_migration_preserves_only_manual_or_pinned_membership() {
     assert_eq!(
         conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
             .unwrap(),
-        4
+        5
     );
 }
 

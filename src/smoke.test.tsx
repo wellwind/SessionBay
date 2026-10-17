@@ -146,15 +146,14 @@ describe('native visual smoke scenario against real React UI', () => {
         timeSource: 'event', archived: false, parentId: null, partial: false, snippet: '合成內容',
       });
       if (delayedMixedList && kind === 'antigravity') {
-        // Native fixtures already select the newest CLI transcript before filtering.
-        // Its markers cannot establish that this asynchronous list refresh committed.
-        expect(screen.getByText(/SESSIONBAY_SYNTHETIC_AG_ASSISTANT/)).toBeInTheDocument();
+        // New query generations hide stale rows and their preview while loading.
+        expect(screen.queryByText(/SESSIONBAY_SYNTHETIC_AG_ASSISTANT/)).not.toBeInTheDocument();
         expect(Array.from(document.querySelectorAll('.session-card .agent-badge')).map((badge) => badge.textContent))
-          .toEqual(['Antigravity CLI', 'Codex']);
+          .toEqual([]);
         await new Promise<void>((resolve) => setTimeout(resolve, 300));
       }
       const items = delayedMixedList && !kind ? [session('antigravity'), session('codex')] : [session(kind ?? 'codex')];
-      return { total: items.length, items };
+      return { catalogRevision: 'fixture', total: items.length, items };
     });
     vi.mocked(api.transcript).mockImplementation(async (id) => ({ messages: id === 'smoke-antigravity-session' ? [
       { role: 'user', text: 'SESSIONBAY_SYNTHETIC_AG_USER：檢查唯讀歷史預覽。', timestamp: null, line: 1 },

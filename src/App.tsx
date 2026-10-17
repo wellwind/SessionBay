@@ -7,7 +7,6 @@ import {
   ArrowRight,
   ChevronRight,
   ChevronDown,
-  CircleHelp,
   Command as CommandIcon,
   Folder,
   FolderPlus,
@@ -132,6 +131,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
+  const lastHistoryProject = useRef<string | null | undefined>(undefined);
   const [view, setView] = useState<'history' | 'workspace'>('history');
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
@@ -266,6 +266,8 @@ export default function App() {
   );
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
+  const historyVisible = !!current || allSessionsSearch;
+  if (historyVisible) lastHistoryProject.current = selectedId ?? null;
   const launchProjectId = current && !current.workspaceOnly ? current.id : undefined;
   useEffect(() => {
     setLaunchPreview(null);
@@ -1284,15 +1286,6 @@ export default function App() {
                 </nav>
               </section>
             )}
-            <div className="sidebar-bottom">
-              <span className="eyebrow">你的工作，留在本機</span>
-              <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
-              <button onClick={() => setSettingsOpen(true)} disabled={!boot || themeSaving || palette || quickThemeOpen}>
-                <CircleHelp size={14} />
-                資料來源與支援範圍
-                <ChevronRight size={14} />
-              </button>
-            </div>
           </aside>
         )}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
@@ -1487,8 +1480,9 @@ export default function App() {
                   className="history-mount"
                   style={{ display: view === 'history' ? undefined : 'none' }}
                 >
-                  {current || allSessionsSearch ? <HistoryView
-                    projectId={selectedId ?? undefined}
+                  {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
+                    projectId={lastHistoryProject.current ?? undefined}
+                    disabled={!historyVisible}
                     projects={projects}
                     refreshToken={refreshToken}
                     onHistoryChanged={refresh}
@@ -1496,7 +1490,8 @@ export default function App() {
                     onCurate={curateSession}
                     curating={projectBusy}
                     onNew={() => openLauncher(settings?.defaultAgent ?? 'codex')}
-                  /> : <DirectoryOverview page={navigation} projects={sortedProjects} searching={!!projectSearch}
+                  /></div>}
+                  {!historyVisible && <DirectoryOverview page={navigation} projects={sortedProjects} searching={!!projectSearch}
                     busy={projectBusy} onSelect={selectProject} onMembership={saveMembership}
                     onAdd={() => setProjectDialog({})} onDirectories={() => selectNavigation('directories')} />}
                 </div>
