@@ -1617,3 +1617,11 @@ kbd {
   .directory-path-controls { flex-wrap: wrap; }
   .directory-path-controls > input { flex-basis: 100%; }
 }
+
+.session-trash-list { max-height: 52vh; overflow-y: auto; }
+.session-trash-entry { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
+.session-trash-entry > div { min-width: 0; }
+.session-trash-entry h3 { margin: 0; overflow-wrap: anywhere; }
+.session-trash-entry p { margin: 6px 0; }
+.session-trash-source { font-size: 12px; opacity: .75; overflow-wrap: anywhere; }
+.session-trash-entry > button { flex-shrink: 0; }

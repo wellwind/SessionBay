@@ -1306,7 +1306,7 @@ export function SettingsPanel({
               </h3>
               <p id="settings-confirm-description">
                 {confirmation === 'clear'
-                  ? '只會刪除 Session Bay 建立的衍生索引。原始 Agent 對話、來源檔案、專案與設定都不會被修改；之後可以重新掃描建立索引。'
+                  ? '只會刪除 Session Bay 建立的衍生索引。原始 Agent 對話、來源檔案、專案與設定都不會被修改；資源回收筒也會保留；之後可以重新掃描建立索引。'
                   : '剛才編輯的設定將不會保留。你可以返回繼續編輯。'}
               </p>
               <div className="settings-confirm-actions">
