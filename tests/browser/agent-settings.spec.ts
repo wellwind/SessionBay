@@ -15,7 +15,7 @@ for (const mode of ['dark', 'light']) {
       expect(await page.locator('.settings-content').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath('agent-settings.png'), fullPage: true });
       await page.getByRole('searchbox', { name: '搜尋 Agent' }).fill('no-such-provider');
-      await expect(page.getByRole('status')).toContainText('沒有符合的 Agent');
+      await expect(page.getByRole('status').filter({ hasText: '沒有符合的 Agent' })).toBeVisible();
       await expect(page.getByRole('textbox', { name: 'Grok Build 執行檔路徑' })).toHaveCount(1);
     });
   }
