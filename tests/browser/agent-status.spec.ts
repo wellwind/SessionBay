@@ -23,6 +23,15 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
       fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
     });
     await expect(tab).toHaveAttribute('title', /已結束/);
+    await tab.scrollIntoViewIfNeeded();
+    expect(await tab.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      const list = element.closest('.project-list')!.getBoundingClientRect();
+      const add = document.querySelector('.add-project')!.getBoundingClientRect();
+      return rect.top >= list.top && rect.bottom <= list.bottom && list.bottom <= add.top &&
+        element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+    })).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('project-runtime-reexpanded-hit-target.png'), fullPage: true });
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('已結束');
@@ -66,3 +75,48 @@ test('fresh output pulses locally, unread clears on visible foreground work, red
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(indicator).not.toHaveAttribute('title', /未讀輸出/);
 });
+
+for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom-200', 1600, 1000, 2]] as const) {
+  test(`project tree controls stay reachable in ${label} and focus reveal`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height });
+    await page.goto('/tests/browser/agent-status.html');
+    await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+    await page.evaluate(scale => {
+      const app = document.querySelector<HTMLElement>('.app-shell')!;
+      app.style.zoom = String(scale);
+      app.style.width = `${innerWidth / scale}px`;
+      app.style.height = `${innerHeight / scale}px`;
+    }, scale);
+    const tab = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex', exact: true });
+    const search = page.getByRole('textbox', { name: '搜尋專案', exact: true });
+    const footer = page.locator('.sidebar-bottom button');
+    for (const revealed of [false, true]) {
+      if (revealed) {
+        await tab.scrollIntoViewIfNeeded(); await tab.click();
+        await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+        await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+      }
+      for (const control of [search, tab, footer]) {
+        await control.scrollIntoViewIfNeeded();
+        await expect(control).toBeInViewport({ ratio: 1 });
+        expect(await control.evaluate(element => {
+          const rect = element.getBoundingClientRect();
+          return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+        })).toBe(true);
+      }
+      await page.screenshot({ path: info.outputPath(`${label}-${revealed ? 'focus-reveal' : 'normal'}-footer.png`) });
+      await search.fill('no matching synthetic project');
+      await expect(page.locator('.project-runtime-tabs')).toHaveCount(0);
+      await expect(page.locator('.open-workspaces')).toBeVisible();
+      await footer.scrollIntoViewIfNeeded();
+      await expect(footer).toBeInViewport({ ratio: 1 });
+      expect(await footer.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+      })).toBe(true);
+      await page.screenshot({ path: info.outputPath(`${label}-${revealed ? 'focus-reveal' : 'normal'}-filtered-footer.png`) });
+      await search.fill('');
+
+    }
+  });
+}

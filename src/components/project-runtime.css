@@ -27,3 +27,9 @@
 
 /* Do not inherit the numeric pane badge styling from .workspace-tab span. */
 .workspace-tab .runtime-activity { padding: 0; background: none; border-radius: 0; }
+
+/* Expanded project children must scroll inside a bounded list, never under
+   following sidebar controls. The outer sidebar keeps its footer reachable. */
+.sidebar { overflow-y: auto; }
+.sidebar .sidebar-project-content { flex-shrink: 0; max-height: min(480px, 55vh); }
+.sidebar .project-search { flex-shrink: 0; }
