@@ -517,21 +517,23 @@ export function HistoryView({
             {selected ? (
               <>
                 <header className="transcript-header">
-                  <div>
+                  <div className="transcript-heading">
                     <span className="eyebrow">對話預覽</span>
                     <h3>{selected.title || selected.externalId}</h3>
                   </div>
-                  <button className="icon-button" aria-label="刪除 Session" title="移入資源回收筒，可還原"
-                    disabled={disabled || trashBusy || !selected.trashIdentity} onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(selected); }}><Trash2 size={17} /></button>
-                  <button
-                    className="primary"
-                    disabled={disabled || !!selected.resumeDisabledReason}
-                    aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
-                    onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
-                  >
-                    接續工作
-                    <ArrowRight size={15} />
-                  </button>
+                  <div className="transcript-actions">
+                    <button className="icon-button" aria-label="刪除 Session" title="移入資源回收筒，可還原"
+                      disabled={disabled || trashBusy || !selected.trashIdentity} onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(selected); }}><Trash2 size={17} /></button>
+                    <button
+                      className="primary"
+                      disabled={disabled || !!selected.resumeDisabledReason}
+                      aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
+                      onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
+                    >
+                      接續工作
+                      <ArrowRight size={15} />
+                    </button>
+                  </div>
                 </header>
                 {selected.resumeDisabledReason && (
                   <div className="inline-warning" id={resumeReasonId} role="status">
