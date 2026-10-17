@@ -595,7 +595,7 @@ describe('App curated project navigation', () => {
     await tick();
     expect(api.updateProject).toHaveBeenLastCalledWith('project-a', { curated: false });
     expect(screen.getByRole('heading', { name: '專案', level: 1 })).toBeInTheDocument();
-    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-view')).not.toBeVisible();
     second.unmount();
     vi.mocked(api.bootstrap).mockResolvedValue(data);
     render(<App />);
@@ -1247,14 +1247,14 @@ describe('Projects and All Directories pages', () => {
     changePage('專案');
     expect(search()).toHaveValue('');
     expect(screen.getByRole('heading', { name: '專案', level: 1 })).toBeInTheDocument();
-    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-view')).not.toBeVisible();
     expect(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Curated manual/ })).toBeInTheDocument();
     selectGroup('Curated manual');
     expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
     changePage('所有目錄');
     expect(search()).toHaveValue('');
     expect(screen.getByRole('heading', { name: '所有目錄', level: 1 })).toBeInTheDocument();
-    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-view')).not.toBeVisible();
     expect(native.historyRender.mock.calls.every(([id]) => id !== undefined)).toBe(true);
   });
 
@@ -1323,7 +1323,7 @@ describe('Projects and All Directories pages', () => {
       changePage(page);
       expect(screen.getByRole('heading', { name: page, level: 1 })).toBeInTheDocument();
       expect(workspaceSnapshot()).toEqual(original);
-      expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+      expect(screen.getByTestId('history-view')).not.toBeVisible();
       fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
       expect(screen.getByRole('heading', { name: 'Synthetic project', level: 1 })).toBeInTheDocument();
       expect(workspaceSnapshot()).toEqual(original);
@@ -1373,15 +1373,21 @@ describe('directory navigation interruptions and direct management', () => {
     await tick();
     fireEvent.click(screen.getByRole('button', { name: '瀏覽專案 Curated manual' }));
     expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    const retainedHistory = screen.getByTestId('history-view');
+    fireEvent.change(screen.getByRole('textbox', { name: '搜尋 Session' }), { target: { value: 'retained query' } });
     fireEvent.click(screen.getByRole('button', { name: /^專案總覽/ }));
     expect(screen.getByRole('region', { name: '專案管理總覽' })).toBeInTheDocument();
-    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-view')).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '瀏覽專案 Curated manual' }));
+    expect(screen.getByTestId('history-view')).toBe(retainedHistory);
+    expect(screen.getByRole('textbox', { name: '搜尋 Session' })).toHaveValue('retained query');
+    fireEvent.click(screen.getByRole('button', { name: /^專案總覽/ }));
     changePage('所有目錄');
     fireEvent.click(screen.getByRole('button', { name: '瀏覽目錄 Missing directory' }));
     expect(screen.getByTestId('history-selected-project')).toHaveTextContent('missing');
     fireEvent.click(screen.getByRole('button', { name: /^目錄總覽/ }));
     expect(screen.getByRole('region', { name: '所有目錄總覽' })).toBeInTheDocument();
-    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-view')).not.toBeVisible();
     expect(native.historyRender.mock.calls.every(([id]) => id !== undefined)).toBe(true);
   });
 
@@ -1422,11 +1428,11 @@ describe('directory navigation interruptions and direct management', () => {
     expect(screen.getByTestId('history-selected-project')).toHaveTextContent('all');
     fireEvent.click(screen.getByRole('button', { name: '返回目錄總覽' }));
     expect(screen.getByRole('region', { name: '所有目錄總覽' })).toBeInTheDocument();
-    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-view')).not.toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '搜尋所有工作階段' }));
     changePage('專案');
     expect(screen.getByRole('region', { name: '專案管理總覽' })).toBeInTheDocument();
-    expect(screen.queryByTestId('history-view')).not.toBeInTheDocument();
+    expect(screen.getByTestId('history-view')).not.toBeVisible();
     expect(api.updateProject).not.toHaveBeenCalled();
     expect(api.launch).not.toHaveBeenCalled();
   });

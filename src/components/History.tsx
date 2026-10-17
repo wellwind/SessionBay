@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowRight,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   FileText,
   FolderPlus,
@@ -21,7 +19,9 @@ import { hasBlockingDialog } from '../dialog-focus';
 import { AgentIcon } from './AgentIcon';
 import { DatePicker, Select } from './controls';
 import { localDayBound } from '../workspace';
-import type { AgentKind, Project, Session, SessionPage, TranscriptPage } from '../types';
+import type { AgentKind, Project, Session, TranscriptPage } from '../types';
+import { useSessionFeed } from '../use-session-feed';
+import { VirtualSessionList } from './VirtualSessionList';
 export const agentName = (kind: AgentKind) => agentNames[kind];
 function mergeWarnings(previous: string | null | undefined, next: string | null): string | null {
   if (!previous) return next;
@@ -42,22 +42,22 @@ export function dateLabel(value: string | null): string {
     : '時間未知';
 }
 interface Filters {
+  oldestFirst: boolean;
   query: string;
   kind: '' | AgentKind;
   archived: 'active' | 'all' | 'archived';
   after: string;
   before: string;
   children: boolean;
-  offset: number;
 }
 const initialFilters: Filters = {
+  oldestFirst: false,
   query: '',
   kind: '',
   archived: 'active',
   after: '',
   before: '',
   children: false,
-  offset: 0,
 };
 export function HistoryView({
   projectId,
@@ -119,20 +119,29 @@ export function HistoryView({
   }, [undoId, trashBusy]);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [saved, setSaved] = useState<Record<string, Filters>>({});
+  const scrollPositions = useRef(new Map<string, { top: number }>());
   const key = projectId ?? '__all';
   const filters = saved[key] ?? initialFilters;
   const change = useCallback((patch: Partial<Filters>) =>
-    setSaved((previous) => ({
-      ...previous,
-      [key]: { ...(previous[key] ?? initialFilters), offset: 0, ...patch },
-    })), [key]);
-  const [storedPage, setPage] = useState<SessionPage>({ items: [], total: 0 });
-  const [resultKey, setResultKey] = useState<string | null>(null);
-  const page = resultKey === key ? storedPage : { items: [], total: 0 };
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+    setSaved((previous) => {
+      const next = { ...(previous[key] ?? initialFilters), ...patch };
+      scrollPositions.current.set(JSON.stringify([key, next]), { top: 0 });
+      return { ...previous, [key]: next };
+    }), [key]);
+  const feedKey = JSON.stringify([key, filters]);
+  if (!scrollPositions.current.has(feedKey)) scrollPositions.current.set(feedKey, { top: 0 });
+  if (scrollPositions.current.size > 8) scrollPositions.current.delete(scrollPositions.current.keys().next().value!);
+  const scrollMemory = scrollPositions.current.get(feedKey)!;
+  const page = useSessionFeed<Session>(feedKey, JSON.stringify([refreshToken, historyRevision]),
+    (offset, limit) => api.sessions({ projectId, kind: filters.kind || undefined,
+      query: filters.query.trim() || undefined,
+      archived: filters.archived === 'all' ? undefined : filters.archived === 'archived',
+      includeChildren: filters.children, after: localDayBound(filters.after),
+      before: localDayBound(filters.before, true), offset, limit,
+      ...(filters.oldestFirst ? { oldestFirst: true } : {}) }), disabled, filters.query ? 220 : 0);
+  const { loading, error } = page;
   const [selection, setSelected] = useState<Session | null>(null);
-  const selected = resultKey === key ? selection : null;
+  const selected = page.items.find(item => item.id === selection?.id) ?? page.items[0] ?? null;
   const [previewOpen, setPreviewOpen] = useState(true);
   const [moreFilters, setMoreFilters] = useState(false);
   const [dateReset, setDateReset] = useState(0);
@@ -145,70 +154,6 @@ export function HistoryView({
   const latestPage = useRef<{ sessionId: string; refresh: number; signature: string } | null>(null);
   const transcriptScroll = useRef<HTMLDivElement>(null);
   const resumeReasonId = useId();
-  useEffect(() => {
-    if (disabled) return;
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    const timer = setTimeout(
-      () => {
-        void api
-          .sessions({
-            projectId,
-            kind: filters.kind || undefined,
-            query: filters.query.trim() || undefined,
-            archived: filters.archived === 'all' ? undefined : filters.archived === 'archived',
-            includeChildren: filters.children,
-            after: localDayBound(filters.after),
-            before: localDayBound(filters.before, true),
-            offset: filters.offset,
-            limit: 40,
-          })
-          .then((result) => {
-            if (!cancelled) {
-              if (filters.offset && filters.offset >= result.total) {
-                change({ offset: Math.max(0, Math.floor((result.total - 1) / 40) * 40) });
-                return;
-              }
-              setPage(result);
-              setResultKey(projectId ?? '__all');
-              setSelected(
-                (previous) =>
-                  result.items.find((s) => s.id === previous?.id) ?? result.items[0] ?? null,
-              );
-            }
-          })
-          .catch((reason) => {
-            if (!cancelled) {
-              setError(errorMessage(reason));
-              setPage({ items: [], total: 0 });
-              setSelected(null);
-            }
-          })
-          .finally(() => {
-            if (!cancelled) setLoading(false);
-          });
-      },
-      filters.query ? 220 : 0,
-    );
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [
-    projectId,
-    filters.query,
-    filters.kind,
-    filters.archived,
-    filters.after,
-    filters.before,
-    filters.children,
-    filters.offset,
-    refreshToken,
-    historyRevision,
-    change,
-    disabled,
-  ]);
   useEffect(() => {
     const generation = ++previewGeneration.current;
     setPreviewError('');
@@ -319,6 +264,7 @@ export function HistoryView({
     finally { trashLock.current = false; setTrashBusy(false); }
   };
   const filtered =
+    filters.oldestFirst ||
     !!filters.query ||
     !!filters.kind ||
     filters.archived !== 'active' ||
@@ -384,6 +330,9 @@ export function HistoryView({
       </div>
       {moreFilters && (
         <div className="filter-bar">
+          <Select aria-label="Session 排序" value={filters.oldestFirst ? 'oldest' : 'latest'}
+            onChange={value => change({ oldestFirst: value === 'oldest' })}
+            options={[{ value: 'latest', label: '最新活動優先' }, { value: 'oldest', label: '最早活動優先' }]} />
           <label>
             從
             <DatePicker key={`${key}-after`} resetKey={dateReset} aria-label="開始日期" value={filters.after}
@@ -415,11 +364,12 @@ export function HistoryView({
       </div>
       <div className={`history-columns ${previewOpen ? '' : 'preview-hidden'}`}>
         <div className="session-column">
-          {error ? (
+          {error && !page.items.length ? (
             <div className="empty-state">
               <FileText size={32} />
               <h3>暫時無法讀取歷史</h3>
               <p role="alert">{error}</p>
+              <button onClick={page.retry}>重試載入</button>
             </div>
           ) : loading && !page.items.length ? (
             <div className="empty-state">
@@ -449,9 +399,11 @@ export function HistoryView({
               )}
             </div>
           ) : (
-            <div className="session-list" role="list" aria-label="Session 清單" aria-busy={loading}>
-              {page.items.map((session) => (
-                <div key={session.id} role="listitem"
+            <VirtualSessionList key={feedKey} items={page.items} total={page.total} label="Session 清單"
+              className="session-list" rowHeight={190} scrollMemory={scrollMemory}
+              loading={loading} done={page.done} error={error} loadMore={page.loadMore} retry={page.retry}
+              renderRow={(session) => (
+                <div
                   className={`session-card ${selected?.id === session.id ? 'active' : ''}`}>
                   <button className="session-card-select" aria-current={selected?.id === session.id ? 'true' : undefined}
                     onClick={() => {
@@ -485,32 +437,9 @@ export function HistoryView({
                     <Trash2 size={16} />
                   </button>
                 </div>
-              ))}
-            </div>
+              )} />
           )}
-          <div className="pagination">
-            <span>
-              {page.total
-                ? `${filters.offset + 1}–${Math.min(filters.offset + page.items.length, page.total)} / ${page.total}`
-                : '0 個結果'}
-            </span>
-            <div>
-              <button
-                aria-label="上一頁"
-                disabled={filters.offset === 0 || loading}
-                onClick={() => change({ offset: Math.max(0, filters.offset - 40) })}
-              >
-                <ChevronLeft size={15} />
-              </button>
-              <button
-                aria-label="下一頁"
-                disabled={filters.offset + 40 >= page.total || loading}
-                onClick={() => change({ offset: filters.offset + 40 })}
-              >
-                <ChevronRight size={15} />
-              </button>
-            </div>
-          </div>
+
         </div>
         {previewOpen && (
           <section className="transcript-column" aria-label="對話預覽">

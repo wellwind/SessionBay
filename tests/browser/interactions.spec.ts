@@ -5,7 +5,7 @@ for (const theme of ['dark', 'light']) {
     await page.locator('.project-main').filter({ hasText: '工作台介面' }).click();
     const rows = page.getByRole('list', { name: 'Session 清單' }).getByRole('listitem');
     await expect(rows).toHaveCount(3);
-    const row = rows.nth(1);
+    const row = rows.nth(1).locator('.session-card');
     const select = row.locator('.session-card-select');
     const remove = row.getByRole('button', { name: /刪除 Session/ });
     const before = await row.boundingBox();

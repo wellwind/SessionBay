@@ -88,7 +88,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.mocked(api.sessions)
     .mockReset()
-    .mockResolvedValue({ items: [session('alpha')], total: 1 });
+    .mockResolvedValue({ catalogRevision: 'fixture', items: [session('alpha')], total: 1 });
   vi.mocked(api.transcript).mockReset().mockResolvedValue(transcript('Synthetic transcript'));
   vi.mocked(isTauri).mockReturnValue(false);
 });
@@ -100,7 +100,7 @@ afterEach(() => {
 describe('HistoryView read-only rendering', () => {
   it('renders script and HTML-looking transcript, title and snippets as literal text', async () => {
     const unsafe = '<script>window.sessionBayInjected=true</script><img src=x onerror="alert(1)">';
-    vi.mocked(api.sessions).mockResolvedValue({
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture',
       items: [session('literal', { title: unsafe, snippet: '<b>not markup</b>' })],
       total: 1,
     });
@@ -130,13 +130,13 @@ describe('HistoryView read-only rendering', () => {
     ['read-only backup', '此來源為唯讀備份，無法透過目前 CLI 接續。'],
     ['missing transcript', '找不到對話的完整 transcript，僅可預覽索引。'],
   ])('keeps %s history readable and blocks mouse or keyboard resume with its reason', async (_scenario, reason) => {
-    vi.mocked(api.sessions).mockResolvedValue({ items: [session('alpha', {
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [session('alpha', {
       kind: 'antigravity', resumeDisabledReason: reason,
     })], total: 1 });
     const { props } = setup();
     await tick();
     expect(screen.getByText('Synthetic transcript')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(reason);
+    expect(within(screen.getByRole('region', { name: '對話預覽' })).getByRole('status')).toHaveTextContent(reason);
     const resume = screen.getByRole('button', { name: '接續工作' });
     expect(resume).toBeDisabled();
     expect(resume).toHaveAccessibleDescription(reason);
@@ -173,7 +173,7 @@ describe('HistoryView project selection', () => {
   it('shows the full original cwd and only curates after an explicit click', async () => {
     const cwd = '/synthetic/projects/full/original/worktree';
     const selected = session('alpha', { cwd });
-    vi.mocked(api.sessions).mockResolvedValue({ items: [selected], total: 1 });
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [selected], total: 1 });
     const onCurate = vi.fn();
     const { props, rerender } = setup({ projects: [{ ...project, curated: false, launchPath: '/synthetic/relocated' }], onCurate });
     await tick();
@@ -190,7 +190,7 @@ describe('HistoryView project selection', () => {
   });
   it('offers an explicit directory choice for a session without a recorded cwd', async () => {
     const selected = session('alpha', { cwd: null });
-    vi.mocked(api.sessions).mockResolvedValue({ items: [selected], total: 1 });
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [selected], total: 1 });
     const onCurate = vi.fn();
     setup({ projects: [{ ...project, curated: false, path: null, launchPath: null }], onCurate });
     await tick();
@@ -208,7 +208,7 @@ describe('HistoryView project selection', () => {
     expect(onCurate).not.toHaveBeenCalled();
   });
   it('keeps the missing original cwd explicit after choosing a resume directory', async () => {
-    vi.mocked(api.sessions).mockResolvedValue({ items: [session('alpha', { cwd: null })], total: 1 });
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [session('alpha', { cwd: null })], total: 1 });
     setup({ projects: [{ ...project, path: null, launchPath: '/synthetic/chosen-directory' }] });
     await tick();
     const preview = screen.getByRole('region', { name: '對話預覽' });
@@ -220,7 +220,7 @@ describe('HistoryView project selection', () => {
 describe('HistoryView asynchronous race protection', () => {
   it('ignores a previous session transcript that resolves after a new selection', async () => {
     const old = deferred<TranscriptPage>();
-    vi.mocked(api.sessions).mockResolvedValue({
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture',
       items: [session('alpha'), session('beta')],
       total: 2,
     });
@@ -242,7 +242,7 @@ describe('HistoryView asynchronous race protection', () => {
     const old = deferred<SessionPage>();
     vi.mocked(api.sessions)
       .mockReturnValueOnce(old.promise)
-      .mockResolvedValue({ items: [session('new-result')], total: 1 });
+      .mockResolvedValue({ catalogRevision: 'fixture', items: [session('new-result')], total: 1 });
     setup();
     await tick();
     fireEvent.change(screen.getByRole('textbox', { name: '搜尋 Session' }), {
@@ -251,7 +251,7 @@ describe('HistoryView asynchronous race protection', () => {
     await tick(220);
     expect(screen.getByRole('button', { name: /^(?!刪除).*Session new-result/ })).toBeInTheDocument();
     await act(async () => {
-      old.resolve({ items: [session('obsolete-result')], total: 1 });
+      old.resolve({ catalogRevision: 'fixture', items: [session('obsolete-result')], total: 1 });
     });
     expect(
       screen.queryByRole('button', { name: /^(?!刪除).*Session obsolete-result/ }),
@@ -260,7 +260,7 @@ describe('HistoryView asynchronous race protection', () => {
   });
   it('ignores late load-earlier results after switching sessions', async () => {
     const oldEarlier = deferred<TranscriptPage>();
-    vi.mocked(api.sessions).mockResolvedValue({
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture',
       items: [session('alpha'), session('beta')],
       total: 2,
     });
@@ -288,7 +288,7 @@ describe('HistoryView asynchronous race protection', () => {
     const old = deferred<SessionPage>();
     vi.mocked(api.sessions)
       .mockReturnValueOnce(old.promise)
-      .mockResolvedValue({ items: [session('latest')], total: 1 });
+      .mockResolvedValue({ catalogRevision: 'fixture', items: [session('latest')], total: 1 });
     setup();
     await tick();
     fireEvent.change(screen.getByRole('textbox', { name: '搜尋 Session' }), {
@@ -404,7 +404,7 @@ describe('HistoryView transcript paging and reload', () => {
     await tick();
     expect(screen.getByText('Before compaction')).toBeInTheDocument();
     expect(screen.getByText('Original snapshot changed.')).toBeInTheDocument();
-    vi.mocked(api.sessions).mockResolvedValue({ items: [session('alpha', { title: 'Updated metadata' })], total: 1 });
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [session('alpha', { title: 'Updated metadata' })], total: 1 });
     rerender(<HistoryView {...props} refreshToken={1} />);
     await tick();
     expect(api.transcript).toHaveBeenCalledTimes(2);
@@ -594,18 +594,18 @@ describe('HistoryView search and filters', () => {
       limit: 40,
     });
   });
-  it('pages by 40 and resets to the first page after a search change', async () => {
+  it('loads batches on demand and resets after a search change', async () => {
     const items = Array.from({ length: 40 }, (_, i) => session(`row-${i}`));
-    vi.mocked(api.sessions).mockResolvedValue({ items, total: 85 });
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items, total: 85 });
     setup();
     await tick();
-    expect(screen.getByRole('button', { name: '上一頁' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: '下一頁' }));
+    expect(screen.queryByRole('button', { name: '上一頁' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '載入更多 Session' }));
     await tick();
     expect(api.sessions).toHaveBeenLastCalledWith(
       expect.objectContaining({ offset: 40, limit: 40 }),
     );
-    expect(screen.getByText('41–80 / 85')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem').length).toBeLessThan(15);
     fireEvent.change(screen.getByRole('textbox', { name: '搜尋 Session' }), {
       target: { value: 'new' },
     });
@@ -613,7 +613,20 @@ describe('HistoryView search and filters', () => {
     expect(api.sessions).toHaveBeenLastCalledWith(
       expect.objectContaining({ query: 'new', offset: 0 }),
     );
-    expect(screen.getByRole('button', { name: '上一頁' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '上一頁' })).not.toBeInTheDocument();
+  });
+  it('resets the incremental range when switching time order', async () => {
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: Array.from({ length: 40 }, (_, i) => session(`row-${i}`)), total: 85 });
+    setup();
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '載入更多 Session' }));
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: '篩選' }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Session 排序' }));
+    fireEvent.click(screen.getByRole('option', { name: '最早活動優先' }));
+    await tick();
+    expect(api.sessions).toHaveBeenLastCalledWith(expect.objectContaining({ oldestFirst: true, offset: 0, limit: 40 }));
+    expect(screen.getByRole('list', { name: 'Session 清單' }).scrollTop).toBe(0);
   });
   it('keeps project-specific search filters when switching projects', async () => {
     const { props, rerender } = setup({ projectId: project.id });
@@ -632,7 +645,7 @@ describe('HistoryView search and filters', () => {
     rerender(<HistoryView {...props} projectId={project.id} />);
     await tick(220);
     expect(screen.getByRole('textbox', { name: '搜尋 Session' })).toHaveValue('alpha search');
-    expect(api.sessions).toHaveBeenLastCalledWith(
+    expect(api.sessions).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: project.id, query: 'alpha search' }),
     );
   });
@@ -687,7 +700,7 @@ describe('additional agent history capabilities', () => {
   });
   it('queries Grok history and forwards its catalog session only on explicit resume', async () => {
     const grokSession = session('grok-session', { kind: 'grok', externalId: 'grok-external', title: 'Synthetic Grok conversation' });
-    vi.mocked(api.sessions).mockResolvedValue({ items: [grokSession], total: 1 });
+    vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'fixture', items: [grokSession], total: 1 });
     const { props } = setup();
     await tick();
     fireEvent.click(screen.getByRole('combobox', { name: '篩選 Agent' }));
@@ -705,7 +718,7 @@ describe('additional agent history capabilities', () => {
 
 it('cannot resume or curate stale project results while the next directory is loading', async () => {
   const next = deferred<SessionPage>();
-  vi.mocked(api.sessions).mockResolvedValueOnce({ items: [session('project-a-session')], total: 1 }).mockReturnValueOnce(next.promise);
+  vi.mocked(api.sessions).mockResolvedValueOnce({ catalogRevision: 'fixture', items: [session('project-a-session')], total: 1 }).mockReturnValueOnce(next.promise);
   const onResume = vi.fn();
   const onCurate = vi.fn();
   const { props, rerender } = setup({ projectId: project.id, onResume, onCurate, projects: [{ ...project, curated: false }] });
@@ -716,7 +729,7 @@ it('cannot resume or curate stale project results while the next directory is lo
   expect(screen.queryByRole('button', { name: '將此目錄加入專案' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^(?!刪除).*Session project-a-session/ })).not.toBeInTheDocument();
   await tick();
-  await act(async () => next.resolve({ items: [session('project-b-session', { projectId: 'project-b', cwd: '/synthetic/b' })], total: 1 }));
+  await act(async () => next.resolve({ catalogRevision: 'fixture', items: [session('project-b-session', { projectId: 'project-b', cwd: '/synthetic/b' })], total: 1 }));
   fireEvent.click(screen.getByRole('button', { name: '接續工作' }));
   expect(onResume).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: 'project-b' }));
   expect(onCurate).not.toHaveBeenCalled();

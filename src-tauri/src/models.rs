@@ -121,6 +121,7 @@ pub struct Session {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionQuery {
+    pub oldest_first: Option<bool>,
     pub project_id: Option<String>,
     pub kind: Option<AgentKind>,
     pub query: Option<String>,
@@ -135,6 +136,7 @@ pub struct SessionQuery {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionPage {
+    pub catalog_revision: String,
     pub items: Vec<Session>,
     pub total: u64,
 }
@@ -152,6 +154,7 @@ pub struct TrashedSession {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashPage {
+    pub catalog_revision: String,
     pub items: Vec<TrashedSession>,
     pub total: u64,
 }

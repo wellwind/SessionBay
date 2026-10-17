@@ -35,7 +35,7 @@ api.projects = async () => data.projects;
 api.scan = api.index = async () => data.index;
 api.runtimes = async () => records;
 api.saveWorkspace = api.setWorkspaceZoom = api.ack = api.write = api.detach = api.resize = async () => {};
-api.sessions = async () => ({ items: [], total: 0 });
+api.sessions = async () => ({ catalogRevision: 'fixture', items: [], total: 0 });
 api.attach = async (id, callback) => {
   const record = records.find((item) => item.id === id)!;
   channels.set(id, callback);

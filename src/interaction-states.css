@@ -31,14 +31,14 @@
 .workspace-tab > button + button { min-height: 28px; height: 28px; border-radius: var(--interaction-radius); }
 
 /* Separate sibling buttons, with a reserved action rail: labels never jump. */
-.session-list > .session-card { display: flex; align-items: center; gap: 4px; padding: 0 8px 0 0; overflow: hidden; }
+.session-list .session-card { display: flex; align-items: center; gap: 4px; padding: 0 8px 0 0; overflow: hidden; }
 .session-card > .session-card-select {
   display: block; flex: 1; min-width: 0; align-self: stretch;
   padding: 16px; text-align: left; border-radius: inherit;
   --interaction-hover: transparent;
 }
-.session-list > .session-card:has(> .session-card-select:hover) { background: var(--surface-hover); }
-.session-list > .session-card.active:has(> .session-card-select:hover) { background: var(--interaction-selected-hover); }
+.session-list .session-card:has(> .session-card-select:hover) { background: var(--surface-hover); }
+.session-list .session-card.active:has(> .session-card-select:hover) { background: var(--interaction-selected-hover); }
 .session-card > .session-card-delete { flex-shrink: 0; color: var(--muted); }
 .session-card > .session-card-delete:not(:disabled):hover { color: var(--danger); background: var(--danger-bg); }
 @media (hover: hover) and (pointer: fine) {

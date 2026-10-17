@@ -61,3 +61,7 @@ strip = true
 [[example]]
 name = "search_benchmark"
 required-features = ["search-profile"]
+
+[[example]]
+name = "session_paging_benchmark"
+required-features = ["search-profile"]
