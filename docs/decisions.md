@@ -429,3 +429,9 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 相容模式由 workspace 保留已知 home 政策，附上僅供比對的 `homePolicyRuntimeId`；只有 broker 回傳同一 runtime／pane、仍為無 session／resume 的全域 Shell 且未提供 home 政策時才沿用。此值不復原 runtimeId、不自動啟動或授予附接權限。現代 broker 明確 true／false 優先；未宣告 capability 的中間版本之 false 視為未知，因為新 client 為相容而省略了欄位。任何正向 true 仍保留。
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
+
+## 2026-10-17 分頁拖曳事件修正
+
+- 分頁排序改用 Pointer Events 與 pointer capture，避免依賴原生 WebView 的 HTML5 檔案拖放事件。只在分頁名稱按鈕開始，移動至少 5px 並於同一專案分頁範圍內放開才提交一次排序；Escape、失焦、pointercancel、capture 遺失與區域外放開均取消。
+- 保留點擊選取、Alt 加左右鍵、原有 active／focused ID、其他專案位置與既有 workspace 保存管線；排序不更改 pane、runtime、PTY 或名稱。
+- 真實 App 的瀏覽器回歸使用合成 bridge 與 Playwright 滑鼠拖曳，涵蓋保存與重新載入。Chrome 驗證不等於 macOS 原生 WebView 驗收，後者仍須在裝置上驗證。
