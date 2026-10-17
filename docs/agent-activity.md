@@ -45,8 +45,11 @@ Grok 原生 `hookEventName` 是 snake_case；此輪明確只接受官方提供�
 
 ## 驗證記錄
 
-- 本地 typecheck、ESLint、production build 通過；52 個前端檔案、1,173 個測試通過。
+- 本地 typecheck、ESLint、production build 通過；52 個前端檔案、1,174 個測試通過。
 - Rust 核心 library 195 個測試通過（含 13 個活動 hook/reducer 測試）；兩個既有 socket/broker 測試先實際遇到 sandbox `EPERM`，最後重跑明確排除，並非完整 Rust suite 通過。
 - `cargo fmt --check` 與 no-default-features、all-targets Clippy `-D warnings` 通過。
 - 系統 Chromium 保持 sandbox 啟用；啟動因 Unix socket `Operation not permitted` 中止，六項瀏覽器驗收未能執行，沒有本地截圖。保留更新後的 existing agent-status Playwright 接受測試，由 exact-commit Linux CI 取得 UI 證據。
 - 真實 provider hooks、desktop build、macOS／Windows native QA 未執行；本輪未更動任何真實 Agent 設定。
+
+
+首輪 exact-commit CI（a0d5f7e）已通過六項 Agent-status browser acceptance，1200／1000px 截圖已檢視：已知狀態在名稱左側，未知不畫問號。Tab reorder 舊測試把 screen-reader-only description 納入完整 textContent 比較，因此改為驗證實際 `.workspace-tab-name`；名稱、accessible name/description 與拖曳保存流程分開驗證。完整 CI 仍以最後 head 的結果為準。

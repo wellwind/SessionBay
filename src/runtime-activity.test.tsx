@@ -117,3 +117,12 @@ it('keeps known status before the workspace tab name and preserves its descripti
   expect(indicator.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(button).toHaveAccessibleDescription(expect.stringContaining('已結束'));
 });
+
+
+it('unknown descriptions preserve the visible tab name and its accessible name', async () => {
+  const { WorkspaceTabs } = await import('./components/WorkspaceTabs');
+  render(<WorkspaceTabs tabs={[tab]} panes={{ p: pane }} onSelect={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} onReorder={vi.fn()} />);
+  const button = screen.getByRole('button', { name: 'Work 1' });
+  expect(button.querySelector('.workspace-tab-name')).toHaveTextContent(/^Work$/);
+  expect(button).toHaveAccessibleDescription(expect.stringContaining('已開啟'));
+});
