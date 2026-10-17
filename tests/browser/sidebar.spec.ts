@@ -1,0 +1,23 @@
+import { expect, test } from '@playwright/test';
+test('sidebar drag, collapse, navigation and reload', async ({ page }, info) => {
+  await page.goto('/tests/browser/sidebar.html');
+  const handles = page.getByRole('button', { name: /^排序 / });
+  await expect(handles).toHaveCount(3);
+  await expect(handles.first()).toHaveAttribute('aria-label', '排序 文件與設計');
+  await page.getByRole('button', { name: '排序 API 開發', exact: true }).dragTo(page.getByRole('button', { name: '排序 文件與設計', exact: true }), { targetPosition: { x: 10, y: 1 } });
+  await expect(handles.first()).toHaveAttribute('aria-label', '排序 API 開發');
+  await page.screenshot({ path: info.outputPath('sidebar-expanded.png') });
+  await page.getByRole('button', { name: '專案', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '搜尋專案' })).toBeHidden();
+  await expect(page.getByRole('button', { name: /開啟工作區/ })).toBeVisible();
+  await page.getByRole('button', { name: '開啟中的工作區', exact: true }).click();
+  await page.reload();
+  await expect(page.getByRole('button', { name: '專案', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: '開啟中的工作區', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await page.screenshot({ path: info.outputPath('sidebar-collapsed.png') });
+  await page.getByRole('button', { name: '專案', exact: true }).click();
+  await expect(handles.first()).toHaveAttribute('aria-label', '排序 API 開發');
+  await handles.first().focus(); await page.keyboard.press('Alt+ArrowDown');
+  await expect(handles.nth(1)).toBeFocused();
+  await expect(handles.nth(1)).toHaveAttribute('aria-label', '排序 API 開發');
+});

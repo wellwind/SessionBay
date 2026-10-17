@@ -600,7 +600,7 @@ export function TerminalPane({
           </button>
         </div>
       )}
-      <div className="terminal-body">
+      <div className="terminal-body" style={{ backgroundColor: terminalTheme(settings.terminalTheme).background }}>
         <div className="xterm-host" ref={host} />
         {pane.state === 'placeholder' && (
           <div className="terminal-placeholder">

@@ -596,8 +596,8 @@ it('restarts a recovered legacy projectless shell in its broker-confirmed direct
 
 describe('live terminal palette updates', () => {
   it('updates every open pane, including hidden panes, without resetting, fitting, focusing or restarting', async () => {
-    const first = props(makePane({ startToken: 1 }));
-    const second = props(makePane({ id: 'second', startToken: 1 }));
+    const first = props(makePane({ state: 'running', startToken: 1 }));
+    const second = props(makePane({ id: 'second', state: 'running', startToken: 1 }));
     mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
     const panes = (terminalTheme: string) => <>
       <TerminalPane {...first} settings={{ ...settings, terminalTheme }} />
@@ -607,10 +607,19 @@ describe('live terminal palette updates', () => {
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
     const snapshots = { reset: mocks.reset.mock.calls.length, fit: mocks.fit.mock.calls.length, focus: mocks.focus.mock.calls.length };
-    for (const id of ['rose-light', 'ocean-dark', 'classic']) {
+    for (const id of ['rose-light', 'ocean-dark', 'unknown-future-theme', 'classic']) {
       view.rerender(panes(id));
-      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : '#0d1929';
+      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : id === 'ocean-dark' ? '#0d1929' : '#11151a';
       for (const options of mocks.options) expect(options.theme).toMatchObject({ background: expected });
+      expect(view.container.querySelectorAll('.terminal-body')).toHaveLength(2);
+      for (const body of view.container.querySelectorAll('.terminal-body')) {
+        expect(body).toHaveStyle({ backgroundColor: expected });
+      }
+      expect(view.container.querySelectorAll('.pane-toolbar')).toHaveLength(2);
+      expect(view.container.querySelectorAll('.pane-footer')).toHaveLength(2);
+      for (const chrome of view.container.querySelectorAll('.pane-toolbar, .pane-footer')) {
+        expect((chrome as HTMLElement).style.backgroundColor).toBe('');
+      }
     }
     expect(mocks.options).toHaveLength(2);
     expect(mocks.launch).toHaveBeenCalledTimes(2);
