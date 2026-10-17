@@ -300,15 +300,99 @@ async fn close_application(app: tauri::AppHandle, state: AppState<'_>) -> Result
     Ok(())
 }
 
+// A native CloseWindow item consumes Cmd+W before the webview sees keydown.
+// Keep the standard application/edit/window actions, but route Cmd+W to the UI.
+#[cfg(target_os = "macos")]
+fn workspace_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem as Item, Submenu};
+    let package = app.package_info();
+    let about = AboutMetadata {
+        name: Some(package.name.clone()),
+        version: Some(package.version.to_string()),
+        copyright: app.config().bundle.copyright.clone(),
+        authors: app
+            .config()
+            .bundle
+            .publisher
+            .clone()
+            .map(|value| vec![value]),
+        ..Default::default()
+    };
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                &package.name,
+                true,
+                &[
+                    &Item::about(app, None, Some(about))?,
+                    &Item::separator(app)?,
+                    &Item::services(app, None)?,
+                    &Item::separator(app)?,
+                    &Item::hide(app, None)?,
+                    &Item::hide_others(app, None)?,
+                    &Item::separator(app)?,
+                    &Item::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[&MenuItem::with_id(
+                    app,
+                    "workspace-close-tab",
+                    "Close Tab",
+                    true,
+                    Some("Cmd+W"),
+                )?],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &Item::undo(app, None)?,
+                    &Item::redo(app, None)?,
+                    &Item::separator(app)?,
+                    &Item::cut(app, None)?,
+                    &Item::copy(app, None)?,
+                    &Item::paste(app, None)?,
+                    &Item::select_all(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(app, "View", true, &[&Item::fullscreen(app, None)?])?,
+            &Submenu::with_id_and_items(
+                app,
+                tauri::menu::WINDOW_SUBMENU_ID,
+                "Window",
+                true,
+                &[&Item::minimize(app, None)?, &Item::maximize(app, None)?],
+            )?,
+            &Submenu::with_id_and_items(app, tauri::menu::HELP_SUBMENU_ID, "Help", true, &[])?,
+        ],
+    )
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_menu(workspace_menu(app.handle())?)?;
             let directory = smoke_data_directory()?.unwrap_or(app.path().app_data_dir()?);
             let service = Service::open_desktop(directory).map_err(std::io::Error::other)?;
             app.manage(service.clone());
             service.begin_reconcile();
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "workspace-close-tab" {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("workspace-close-tab-requested", ());
+                }
+            }
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

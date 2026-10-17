@@ -15,6 +15,8 @@ const native = vi.hoisted(() => ({
   handlers: new Map<string, (event: { payload?: unknown }) => void>(),
   patch: undefined as ((id: string, patch: Partial<Pane>) => void) | undefined,
   sessionCwd: undefined as string | null | undefined,
+  sessionTitle: 'Synthetic session',
+  sessionKind: 'codex' as AgentKind,
   resumeDisabledReason: undefined as string | undefined,
   historyRender: vi.fn(),
   canvasMounted: vi.fn(),
@@ -68,8 +70,8 @@ vi.mock('./components/History', () => ({
     native.historyRender(projectId);
     const project = projects.find((entry) => entry.id === projectId);
     const session: Session | undefined = project ? {
-      id: 'synthetic-session', sourceId: 'synthetic-source', kind: 'codex', externalId: 'external',
-      projectId: project.id, title: 'Synthetic session',
+      id: 'synthetic-session', sourceId: 'synthetic-source', kind: native.sessionKind, externalId: 'external',
+      projectId: project.id, title: native.sessionTitle,
       cwd: native.sessionCwd === undefined ? project.path : native.sessionCwd,
       updatedAt: '2026-10-15T01:00:00Z', timeSource: 'event', archived: false,
       parentId: null, partial: false, snippet: null, resumeDisabledReason: native.resumeDisabledReason,
@@ -219,6 +221,8 @@ beforeEach(() => {
   native.handlers.clear();
   native.patch = undefined;
   native.sessionCwd = undefined;
+  native.sessionTitle = 'Synthetic session';
+  native.sessionKind = 'codex';
   native.resumeDisabledReason = undefined;
   native.alreadyOpen = undefined;
   vi.mocked(isDesktop).mockReturnValue(false);
@@ -718,19 +722,20 @@ describe('App curated project navigation', () => {
   });
 });
 
-describe('App retained shell exit navigation', () => {
-  it('keeps a successful final shell and its output workspace until explicit close', async () => {
+describe('App successful shell exit navigation', () => {
+  it('closes a successful final shell and returns to history', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />);
     await tick();
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
     fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
     act(() => { native.patch?.('pane-a', { state: 'exited', exitCode: 0 }); });
-    expect(JSON.parse(screen.getByTestId('workspace-snapshot').textContent!).panes['pane-a'])
-      .toMatchObject({ state: 'exited', exitCode: 0 });
-    expect(screen.getByRole('region', { name: '開啟中的工作區' })).toBeInTheDocument();
+    await tick();
+    expect(workspaceSnapshot().panes['pane-a']).toBeUndefined();
+    expect(workspaceSnapshot().tabs).toEqual([]);
+    expect(screen.queryByRole('region', { name: '開啟中的工作區' })).not.toBeInTheDocument();
     expect(api.stop).not.toHaveBeenCalled();
-    expect(api.forget).not.toHaveBeenCalled();
+    expect(api.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
   });
 });
 
@@ -1024,10 +1029,11 @@ describe('exact agent launch preview and manual resume', () => {
 });
 
 
-async function resumeWithExistingLiveSession(cwd: string, state: 'running' | 'starting' = 'running') {
+async function resumeWithExistingLiveSession(cwd: string, state: 'running' | 'starting' = 'running', tabName?: string) {
   vi.mocked(isDesktop).mockReturnValue(true);
   native.sessionCwd = cwd;
   const data = bootstrap();
+  if (tabName) (data.workspace as Workspace).tabs[0].name = tabName;
   data.settings.sources = [{ id: 'synthetic-source', kind: 'codex', root: '/synthetic/current-source-root', enabled: true }];
   (data.workspace as Workspace).panes['pane-a'] = {
     ...(data.workspace as Workspace).panes['pane-a'], kind: 'codex', sessionId: 'synthetic-session', cwd: '/synthetic/original-worktree',
@@ -1756,15 +1762,13 @@ describe('persistent broker application lifecycle', () => {
     expect(api.stop).not.toHaveBeenCalled();
     expect(api.forget).toHaveBeenCalledWith('runtime-a');
   });
-  it('removes a completed shell record only after explicit close, without stopping it', async () => {
+  it('automatically removes a completed shell record without stopping it', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();
     data.runtimes = [brokerRecord({ state: 'exited', exitCode: 0 })];
     vi.mocked(api.bootstrap).mockResolvedValue(data);
     vi.mocked(api.runtimes).mockResolvedValue(data.runtimes);
     render(<App />);
-    await tick();
-    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
     await tick();
     expect(api.stop).not.toHaveBeenCalled();
     expect(api.forget).toHaveBeenCalledExactlyOnceWith('runtime-a');
@@ -2585,4 +2589,109 @@ it('integrates temporary tab naming, selection and reordering without inventing 
   const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)![0] as Workspace;
   expect(saved.tabs.filter((tab) => tab.projectId === null).map((tab) => tab.name)).toEqual(['Terminal 2', 'Named global']);
   expect(saved.activeTemporaryTabId).toBe(globalTabs[0].id);
+});
+
+
+describe('resumed conversation tab titles', () => {
+  beforeEach(() => { vi.mocked(isDesktop).mockReturnValue(true); });
+  it.each(['codex', 'claude', 'grok', 'antigravity', 'opencode'] as const)('uses the preview title for a new %s tab and persists it', async kind => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    native.sessionKind = kind;
+    native.sessionTitle = '  修復搜尋 <title> $(echo literal)  ';
+    const data = bootstrap();
+    data.workspace = emptyWorkspace();
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
+    const current = workspaceSnapshot();
+    expect(current.tabs[0].name).toBe('修復搜尋 <title> $(echo literal)');
+    expect(Object.values(current.panes)[0]).toMatchObject({ kind, sessionId: 'synthetic-session', cwd: '/synthetic/project' });
+    await tick(500);
+    expect((vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0] as Workspace).tabs[0].name).toBe(current.tabs[0].name);
+  });
+  it.each(['', '  \t\n  '])('retains provider fallback for an empty title %j', async title => {
+    native.sessionTitle = title;
+    const data = bootstrap();
+    data.workspace = emptyWorkspace();
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
+    expect(workspaceSnapshot().tabs[0].name).toBe(agentNames.codex);
+  });
+  it('normalizes and bounds a long preview title without changing session identity', async () => {
+    native.sessionTitle = '  第一行\n' + '😀'.repeat(210);
+    const data = bootstrap();
+    data.workspace = emptyWorkspace();
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
+    expect(workspaceSnapshot().tabs[0].name).toBe('第一行 ' + '😀'.repeat(196));
+  });
+  it.each(['placeholder', 'disconnected'] as const)('preserves a manually named existing tab when resuming its %s pane', async state => {
+    const data = bootstrap();
+    const saved = data.workspace as Workspace;
+    saved.tabs[0].name = 'My manual name';
+    saved.panes['pane-a'] = { ...saved.panes['pane-a'], kind: 'codex', sessionId: 'synthetic-session' };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />);
+    await tick();
+    if (state === 'disconnected') act(() => native.patch?.('pane-a', { state, runtimeId: 'kept-runtime' }));
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
+    expect(workspaceSnapshot().tabs).toHaveLength(1);
+    expect(workspaceSnapshot().tabs[0].name).toBe('My manual name');
+  });
+});
+
+
+it('keeps a manually renamed live tab when backend resume focuses its existing runtime', async () => {
+  const { original, newPane } = await resumeWithExistingLiveSession('/synthetic/original-worktree', 'running', 'Keep my manual name');
+  act(() => native.alreadyOpen?.(newPane.id, {
+    id: 'original-runtime', paneId: 'pane-a', sessionId: 'synthetic-session',
+    state: 'running', cwd: '/synthetic/original-worktree', exitCode: null,
+  }));
+  expect(workspaceSnapshot().tabs).toEqual(original.tabs);
+  expect(workspaceSnapshot().tabs[0].name).toBe('Keep my manual name');
+});
+
+it.each(['running', 'exited'] as const)('closes only the newly titled resumed tab after its Agent is %s', async state => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+  native.sessionTitle = 'Resume preview title';
+  const data = bootstrap();
+  (data.workspace as Workspace).tabs[0].name = 'Keep original Shell';
+  vi.mocked(api.bootstrap).mockResolvedValue(data);
+  render(<App />);
+  await tick();
+  selectGroup();
+  fireEvent.click(screen.getByRole('button', { name: 'Resume synthetic history session' }));
+  const resumed = Object.values(workspaceSnapshot().panes).find((pane) => pane.sessionId === 'synthetic-session')!;
+  act(() => native.patch?.(resumed.id, { runtimeId: 'resumed-runtime', state, exitCode: state === 'exited' ? 0 : null }));
+  await tick();
+  expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell', 'Resume preview title']);
+  // Agent success remains inspectable even though successful Shells auto-close.
+  expect(api.forget).not.toHaveBeenCalled();
+  vi.mocked(api.runtimes).mockResolvedValue([
+    brokerRecord(),
+    brokerRecord({ id: 'resumed-runtime', paneId: resumed.id, kind: 'codex', state, exitCode: state === 'exited' ? 0 : null }),
+  ]);
+  expect(fireEvent.keyDown(window, { key: 'w', code: 'KeyW', metaKey: true })).toBe(false);
+  if (state === 'running')
+    fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+  await tick();
+  await tick(500);
+  expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);
+  expect(workspaceSnapshot().panes['pane-a']).toBeDefined();
+  expect(workspaceSnapshot().activeTabByProject['project-a']).toBe('tab-a');
+  expect(api.forget).toHaveBeenCalledExactlyOnceWith('resumed-runtime');
+  expect(vi.mocked(api.stop).mock.calls).toEqual(state === 'running' ? [['resumed-runtime']] : []);
+  expect(api.close).not.toHaveBeenCalled();
+  const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0] as Workspace;
+  expect(saved.tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);
 });

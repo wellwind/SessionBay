@@ -336,7 +336,7 @@ export function TerminalPane({
         runtime.current = undefined;
         setConnecting(false);
         setConnected(false);
-        latest.current.onPatch(pane.id, { state: active.failed ? 'failed' : 'exited', exitCode: event.exitCode });
+        latest.current.onPatch(pane.id, { runtimeId: event.runtimeId, state: active.failed ? 'failed' : 'exited', exitCode: event.exitCode });
       } else {
         active.failed = true;
         active.ended = true;

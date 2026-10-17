@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { startup } from './startup';
+import { resumedTabName } from './display-name';
 import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
 import { agentCapabilities, agentKinds, bypassFlags, installationState } from './agents';
 import { AgentIcon } from './components/AgentIcon';
@@ -46,6 +47,9 @@ import {
   activeWorkspaceTabId,
   selectWorkspaceTab,
   closePane,
+  closeSuccessfulShell,
+  closeConfirmedPane,
+  isSuccessfulShellExit,
   emptyWorkspace,
   mergeWorkspaceProjects,
   paneIds,
@@ -95,6 +99,7 @@ interface Confirmation {
   title: string;
   text: string;
   action: () => Promise<void>;
+  onCancel?: () => void;
 }
 const noIndex: IndexStatus = {
   running: false,
@@ -275,6 +280,11 @@ export default function App() {
   indexRef.current = index;
   const saveQueue = useRef(Promise.resolve());
   const closingApp = useRef(false);
+  const nativeCloseSealed = useRef(false);
+  const shellCleanupPending = useRef(new Map<string, Promise<void>>());
+  const cleanedShells = useRef(new Map<string, Pane>());
+  const pendingPaneClosures = useRef(new Set<Promise<void>>());
+  const closedPaneSnapshots = useRef(new Map<string, Pane>());
   const observedWorkspace = useRef<string | null>(null);
   const persistedWorkspace = useRef<string | null>(null);
   const workspaceSignature = useMemo(
@@ -372,16 +382,28 @@ export default function App() {
       try {
         if (stateRef.current.boot) {
           await saveQueue.current;
-          const snapshot = serializeWorkspace(stateRef.current.workspace);
-          const signature = JSON.stringify(snapshot);
-          if (signature !== persistedWorkspace.current) {
-            await api.saveWorkspace(snapshot);
-            persistedWorkspace.current = signature;
+          // Forget and layout persistence form one close operation. Project
+          // successful cleanups into the snapshot even before React commits.
+          const snapshotNow = () => serializeWorkspace([...cleanedShells.current.values()]
+            .reduce(closeSuccessfulShell, [...closedPaneSnapshots.current.values()]
+              .reduce(closeConfirmedPane, stateRef.current.workspace)));
+          for (;;) {
+            await Promise.all([...shellCleanupPending.current.values(), ...pendingPaneClosures.current].map((task) => task.catch(() => undefined)));
+            const snapshot = snapshotNow();
+            const signature = JSON.stringify(snapshot);
+            if (signature !== persistedWorkspace.current) {
+              await api.saveWorkspace(snapshot);
+              persistedWorkspace.current = signature;
+            }
+            if (!shellCleanupPending.current.size && !pendingPaneClosures.current.size && JSON.stringify(snapshotNow()) === signature) break;
           }
         }
+        nativeCloseSealed.current = true;
         await api.close();
       } catch (error) {
+        nativeCloseSealed.current = false;
         closingApp.current = false;
+        setWorkspace((current) => ({ ...current }));
         throw error;
       }
     };
@@ -411,6 +433,35 @@ export default function App() {
       setWorkspace((w) => patchWorkspacePane(w, id, patch)),
     [],
   );
+  const forgettingShells = useRef(new Set<string>());
+  useEffect(() => {
+    // After the final snapshot, retain newly exited broker records for startup
+    // reconciliation; forgetting them now would resurrect saved placeholders.
+    if (nativeCloseSealed.current) return;
+    for (const [key, target] of closedPaneSnapshots.current) {
+      const current = workspace.panes[target.id];
+      if (!current || current.startToken !== target.startToken ||
+        (target.runtimeId && current.runtimeId !== target.runtimeId)) closedPaneSnapshots.current.delete(key);
+    }
+    const referenced = new Set(Object.values(workspace.panes).map((pane) => pane.runtimeId));
+    for (const id of forgettingShells.current) {
+      if (!referenced.has(id) && !shellCleanupPending.current.has(id)) {
+        forgettingShells.current.delete(id);
+        cleanedShells.current.delete(id);
+      }
+    }
+    for (const pane of Object.values(workspace.panes)) {
+      if (!isSuccessfulShellExit(pane) || forgettingShells.current.has(pane.runtimeId!)) continue;
+      forgettingShells.current.add(pane.runtimeId!);
+      // Forget only this completed runtime. Never use the manual close path,
+      // which settles launches and stops processes by pane ID.
+      const cleanup = api.forget(pane.runtimeId!).then(() => {
+        cleanedShells.current.set(pane.runtimeId!, pane);
+        setWorkspace((current) => closeSuccessfulShell(current, pane));
+      }).catch(notify).finally(() => { shellCleanupPending.current.delete(pane.runtimeId!); });
+      shellCleanupPending.current.set(pane.runtimeId!, cleanup);
+    }
+  }, [workspace, notify]);
   const focus = useCallback((id: string) => {
     const tab = stateRef.current.workspace.tabs.find((t) => paneIds(t.layout).includes(id));
     if (!tab) return;
@@ -488,7 +539,7 @@ export default function App() {
           ),
         };
       const tabId = uid();
-      let name = kind === 'shell' ? 'Terminal' : agentName(kind);
+      let name = resumedTabName(session?.title) ?? (kind === 'shell' ? 'Terminal' : agentName(kind));
       if (projectId === null) {
         let number = 1;
         while (w.tabs.some((tab) => tab.projectId === null && tab.name === `Terminal ${number}`)) number++;
@@ -566,33 +617,100 @@ export default function App() {
       split,
     });
   };
-  const removePanes = (ids: string[]) => {
+  const removePanes = (ids: string[], onFinish?: () => void) => {
     const panes = ids.map((id) => workspace.panes[id]).filter(Boolean);
-    const live = panes.filter((p) => ['running', 'starting', 'disconnected'].includes(p.state));
-    const action = async () => {
-      await api.settleLaunches(ids);
-      const managed = await api.runtimes();
-      const targets = new Set(managed
-        .filter((record) => ids.includes(record.paneId) && ['running', 'starting'].includes(record.state))
-        .map((record) => record.id));
-      await Promise.all([...targets].map((id) => api.stop(id)));
-      const retained = new Set(managed.filter((record) => ids.includes(record.paneId)).map((record) => record.id));
-      await Promise.all([...retained].map((id) => api.forget(id)));
-      setWorkspace((w) => {
-        const next = ids.reduce((result, id) => closePane(result, id), w);
-        if (!next.tabs.some((t) => t.projectId === stateRef.current.selectedId) && stateRef.current.selectedId !== null) setView('history');
-        return next;
-      });
-      setMaximizedId(null);
+    const live = panes.filter((p) => ['running', 'starting', 'disconnected'].includes(p.state) ||
+      (p.state === 'placeholder' && (p.startToken ?? 0) > 0));
+    const action = () => {
+      const task = (async () => {
+        try {
+          if (nativeCloseSealed.current) return;
+          await api.settleLaunches(ids);
+          const sameGeneration = (pane: Pane, current: Pane | undefined) => !!current &&
+            current.startToken === pane.startToken &&
+            (!pane.runtimeId || pane.runtimeId === current.runtimeId);
+          const eligible = () => panes.filter((pane) => sameGeneration(pane, stateRef.current.workspace.panes[pane.id]));
+          const managed = await api.runtimes();
+          const eligibleIds = new Set(eligible().map((pane) => pane.id));
+          for (const id of eligibleIds) {
+            const current = stateRef.current.workspace.panes[id];
+            const records = managed.filter((record) => record.paneId === id);
+            if (current.runtimeId && records.length && !records.some((record) => record.id === current.runtimeId))
+              throw new Error('此面板的程序已變更，請重新連線後再關閉。');
+          }
+          const owned = managed.filter((record) => {
+            if (!eligibleIds.has(record.paneId)) return false;
+            const current = stateRef.current.workspace.panes[record.paneId];
+            if (current.runtimeId) return current.runtimeId === record.id;
+            const captured = panes.find((pane) => pane.id === record.paneId)!;
+            const launching = captured.state === 'starting' ||
+              (captured.state === 'placeholder' && (captured.startToken ?? 0) > 0);
+            if (!launching) {
+              if (['running', 'disconnected'].includes(captured.state))
+                throw new Error('無法確認此面板的程序，請重新連線後再關閉。');
+              return false; // Never adopt an unrelated broker record.
+            }
+            if (managed.filter((item) => item.paneId === record.paneId).length !== 1 ||
+              record.kind !== captured.kind) throw new Error('無法確認此面板的程序，請重新連線後再關閉。');
+            return true;
+          });
+          const targets = new Set(owned
+            .filter((record) => ['running', 'starting'].includes(record.state))
+            .map((record) => record.id));
+          await Promise.all([...targets].map((id) => api.stop(id)));
+          const results = await Promise.allSettled(owned.map(async (record) => {
+            await api.forget(record.id);
+            return record.id;
+          }));
+          const forgotten = new Set(results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []));
+          const completed = panes.filter((pane) => eligibleIds.has(pane.id) &&
+            owned.filter((record) => record.paneId === pane.id).every((record) => forgotten.has(record.id)));
+          for (const pane of completed) closedPaneSnapshots.current.set(`${pane.id}:${pane.startToken ?? 0}:${pane.runtimeId ?? ''}`, pane);
+          setWorkspace((w) => completed.reduce(closeConfirmedPane, w));
+          const failure = results.find((result) => result.status === 'rejected');
+          if (failure?.status === 'rejected') throw failure.reason;
+        } finally { onFinish?.(); }
+      })();
+      pendingPaneClosures.current.add(task);
+      void task.finally(() => { pendingPaneClosures.current.delete(task); }).catch(() => undefined);
+      return task;
     };
     if (live.length)
       setConfirmation({
         title: `關閉 ${panes.length} 個面板？`,
         text: `將結束受管程序：${live.map((p) => p.title).join('、')}，並移除面板。其他分頁的程序不受影響。`,
-        action,
+        action, onCancel: onFinish,
       });
     else void action().catch(notify);
   };
+  const closeTabPending = useRef(false);
+  const requestCloseTab = useRef(() => {});
+  requestCloseTab.current = () => {
+    if (closingApp.current || closeTabPending.current || composing.current || document.querySelector('[role="dialog"]')) return;
+    const current = stateRef.current;
+    if (current.view !== 'workspace') return;
+    const tab = current.workspace.tabs.find((item) => item.id === activeWorkspaceTabId(current.workspace, current.selectedId));
+    if (!tab) return;
+    closeTabPending.current = true;
+    removePanes(paneIds(tab.layout), () => { closeTabPending.current = false; });
+  };
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      // Cmd+W is owned by the tab layer, including while a modal blocks it.
+      if (!/Mac|iPhone|iPad/.test(navigator.platform) || !event.metaKey || event.ctrlKey ||
+        event.altKey || event.shiftKey || event.key.toLowerCase() !== 'w') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !event.isComposing && event.keyCode !== 229) requestCloseTab.current();
+    };
+    window.addEventListener('keydown', key, true);
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    if (desktop) void listen('workspace-close-tab-requested', () => requestCloseTab.current()).then((unlisten) => {
+      if (disposed) unlisten(); else stop = unlisten;
+    }).catch(notify);
+    return () => { disposed = true; stop?.(); window.removeEventListener('keydown', key, true); };
+  }, [desktop, notify]);
   const effectiveShortcuts = useMemo(
     () => normalizeLegacyShortcuts(settings?.shortcuts ?? {}),
     [settings?.shortcuts],
@@ -1557,10 +1675,10 @@ export default function App() {
           } finally { projectMutation.current = false; setProjectBusy(false); }
         }} />}
       {confirmation && (
-        <Dialog title={confirmation.title} onClose={() => !busy && setConfirmation(null)}>
+        <Dialog title={confirmation.title} onClose={() => { if (!busy) { confirmation.onCancel?.(); setConfirmation(null); } }}>
           <p className="dialog-description">{confirmation.text}</p>
           <div className="dialog-actions">
-            <button className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>
+            <button className="secondary" disabled={busy} onClick={() => { confirmation.onCancel?.(); setConfirmation(null); }}>
               取消
             </button>
             <button

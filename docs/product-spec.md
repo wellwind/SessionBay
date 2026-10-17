@@ -127,7 +127,7 @@ MVP 提供標題、使用者訊息與 agent 回覆的關鍵字搜尋。工具輸
 
 普通 Terminal 裡手動執行 Agent 時，仍維持普通面板。除非取得可靠 Session ID 或使用者明確建立關聯，不自動轉成已關聯的 Agent 面板。
 
-普通 Shell 與 Agent 退出後保留面板、最後畫面與結束碼，直到使用者明確關閉；不因結束碼 `0` 自動移除。此行為配合持續 Runtime，重開可查看已完成工作。
+普通 Shell 經 broker 確認以結束碼 `0` 正常退出後自動移除面板，最後一個面板退出則關閉分頁；專案與全域臨時 Terminal、背景分頁及重新附接皆適用。Agent、非零或未知結束碼、失敗、斷線與中斷狀態保留面板供檢視。僅還原布局的 placeholder 不會自動移除。
 
 Shell 設定另驗收：全新預設選有效絕對 `$SHELL`，否則 macOS `/bin/zsh`、Linux `/bin/bash`，args `[-l]`；不匯入 Terminal Profiles 或 rc。重新偵測只回傳候選，使用者明確加入／保存，保留既有自訂 Profiles 與預設項。Shell 啟動檔由 Shell 本身載入。
 

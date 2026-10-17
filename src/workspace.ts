@@ -143,11 +143,33 @@ export function closePane(workspace: Workspace, id: string): Workspace {
     ? workspace.activeTemporaryTabId : temporaryTabs[0]?.id;
   return { ...workspace, panes, tabs, activeTabByProject, activeTemporaryTabId };
 }
-/** Finished shells retain their final screen until explicitly closed. */
+/** Apply runtime metadata before asynchronous broker cleanup. */
 export function patchWorkspacePane(workspace: Workspace, id: string, patch: Partial<Pane>): Workspace {
   const pane = workspace.panes[id];
   if (!pane) return workspace;
   return { ...workspace, panes: { ...workspace.panes, [id]: { ...pane, ...patch } } };
+}
+
+/** Confirmed close completion cannot remove a newer launch in the same pane. */
+export function closeConfirmedPane(workspace: Workspace, target: Pane): Workspace {
+  const current = workspace.panes[target.id];
+  if (!current || current.startToken !== target.startToken ||
+    (target.runtimeId && current.runtimeId !== target.runtimeId)) return workspace;
+  return closePane(workspace, target.id);
+}
+
+/** Only a confirmed successful Shell exit is eligible; saved layouts have no runtime ID. */
+export function isSuccessfulShellExit(pane: Pane): boolean {
+  return pane.kind === 'shell' && pane.state === 'exited' && pane.exitCode === 0 &&
+    !!pane.runtimeId && !pane.error;
+}
+
+/** A delayed forget response must not remove a restarted/replaced pane. */
+export function closeSuccessfulShell(workspace: Workspace, exited: Pane): Workspace {
+  const current = workspace.panes[exited.id];
+  if (!current || !isSuccessfulShellExit(current) || current.runtimeId !== exited.runtimeId ||
+    current.startToken !== exited.startToken) return workspace;
+  return closePane(workspace, exited.id);
 }
 
 /** Runtime identities come only from the broker, never the saved layout. */

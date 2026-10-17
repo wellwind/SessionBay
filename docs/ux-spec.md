@@ -116,7 +116,7 @@ Session Bay
 - 暫時最大化後可回到原布局。
 - 不同專案的工作區分開顯示；面板頂部始終能確認工作目錄與工具。
 - 切換分頁保留背景執行；關閉面板依產品規格結束受管程序。
-- 普通 Shell 正常退出（結束碼 `0`）時保留最後畫面與面板；明確關閉才移除該面板及可能空出的分頁。
+- 普通 Shell 經 broker 確認正常退出（結束碼 `0`）時自動移除面板及可能空出的分頁；其餘面板與程序不受影響。Agent、異常或未知結束碼保留畫面供檢視。
 - Agent、非零／未知結束碼及錯誤同樣保留輸出與診斷，提供重新開 Shell 或恢復 Agent 的入口；broker／電腦重啟後清楚標示 interrupted，不冒稱原程序仍在。
 - 對仍執行中的程序，關閉確認清楚列出將受影響的面板，不使用模糊的「離開」文案。
 
@@ -181,3 +181,5 @@ UI 框架採宣告式狀態。Terminal 高頻輸出由 xterm 實例接收，不�
 ### Terminal 原位 Shift＋Enter
 
 所有 Terminal（包含 Shell、未知工具與 Windows）一律將 Shift＋Enter 傳送為 CSI-u modified Enter，輸入留在 Terminal，不開 modal，也不顯示模式選單或額外按鍵說明。一般 Enter、組字、貼上及輸入目標守衛不變。編碼一致不等於所有程式都支援換行；詳細版本、Grok 送出語意及原生驗收限制見 [Terminal 按鍵](terminal-keyboard.md)。
+
+macOS Cmd+W／File → Close Tab 關閉目前工作區分頁（包含分割面板）；有執行中工作先確認。最後一個分頁關閉仍保留視窗。對話框與 IME 組字期間不觸發；Cmd+Shift+W 仍為關閉焦點面板，Cmd+Q 與紅色關閉鈕仍為離開應用程式。
