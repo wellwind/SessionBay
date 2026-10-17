@@ -79,6 +79,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
 import { AppearanceSaveQueue } from './appearance-save-queue';
+import { CommandPalette } from './components/CommandPalette';
 import { CommandThemePicker } from './components/CommandThemePicker';
 import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
 import type { Appearance } from './themes';
@@ -1685,66 +1686,21 @@ export default function App() {
           {paletteTheme && settings ? <CommandThemePicker key={paletteTheme} target={paletteTheme}
             value={appearanceOf(settings)} saving={themeSaving} error={themeSaveError}
             onPreview={setCommandThemePreview} onCommit={patch => void commitCommandTheme(patch)}
-            onBack={closePaletteTheme} /> : <>
-          <div className="palette-input search-field">
-            <Search size={18} />
-            <input
-              autoFocus
-              aria-label="搜尋命令或專案"
-              placeholder="輸入命令或專案名稱…"
-              value={paletteQuery}
-              onChange={(event) => setPaletteQuery(event.target.value)}
-              onKeyDown={event => {
-                if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
-                const first = event.currentTarget.closest('[role="dialog"]')?.querySelector<HTMLButtonElement>('.palette-results button:not(:disabled)');
-                if (event.key === 'Enter') { event.preventDefault(); first?.click(); }
-                if (event.key === 'ArrowDown') { event.preventDefault(); first?.focus(); }
-              }}
-            />
-          </div>
-          <div className="palette-results">
-            {commands
-              .filter(
-                (c) =>
-                  c.id !== 'command-palette' &&
-                  c.label.toLowerCase().includes(paletteQuery.toLowerCase()),
-              )
-              .map((command) => (
-                <button
-                  disabled={command.disabled}
-                  key={command.id}
-                  onClick={() => {
-                    if (!command.id.startsWith('theme-')) closePalette();
-                    command.run();
-                  }}
-                >
-                  <span>{command.label}</span>
-                  <kbd>{command.shortcut}</kbd>
-                </button>
-              ))}
-            {projects.filter((p) => p.curated)
-              .filter((p) =>
-                `${p.name} ${p.path}`.toLowerCase().includes(paletteQuery.toLowerCase()),
-              )
-              .slice(0, 20)
-              .map((project) => (
-                <button
-                  key={project.id}
-                  onClick={() => {
-                    setSelectedId(project.id);
-                    setView('history');
-                    setPalette(false);
-                  }}
-                >
-                  <span>
-                    <Folder size={14} />
-                    {project.name}
-                  </span>
-                  <small>{project.path || '未分類'}</small>
-                </button>
-              ))}
-          </div>
-          </>}
+            onBack={closePaletteTheme} /> : <CommandPalette query={paletteQuery} onQueryChange={setPaletteQuery}
+            options={[
+              ...commands.filter(command => command.id !== 'command-palette').map(command => ({
+                id: `command-${command.id}`, label: command.label, search: command.label,
+                detail: <kbd>{command.shortcut}</kbd>, disabled: command.disabled,
+                run: () => { if (!command.id.startsWith('theme-')) closePalette(); command.run(); },
+              })),
+              ...projects.filter(project => project.curated)
+                .filter(project => `${project.name} ${project.path}`.toLowerCase().includes(paletteQuery.toLowerCase()))
+                .slice(0, 20).map(project => ({
+                  id: `project-${project.id}`, label: <><Folder size={14} />{project.name}</>,
+                  search: `${project.name} ${project.path}`, detail: <small>{project.path || '未分類'}</small>,
+                  run: () => { setSelectedId(project.id); setView('history'); closePalette(); },
+                })),
+            ]} />}
         </Dialog>
       )}
     </div>
