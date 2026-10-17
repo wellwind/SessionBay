@@ -433,3 +433,9 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 ## 2026-10-17：命令面板鍵盤選取
 
 命令與專案共用單一可搜尋清單；搜尋欄保留焦點，↑／↓ 循環移動至可用項目，Enter 執行選取，Escape 沿用對話框關閉與焦點返回。搜尋變更選取第一個可用項目，停用項目與空結果不能執行；滑鼠指向同步選取，選取項自動捲入可見範圍。組字中的方向鍵、Enter／Escape 與 keyCode 229 不觸發命令。主題子清單維持既有即時預覽、返回取消與儲存語意。
+
+## 2026-10-17 分頁拖曳事件修正
+
+- 分頁排序改用 Pointer Events 與 pointer capture，避免依賴原生 WebView 的 HTML5 檔案拖放事件。只在分頁名稱按鈕開始，移動至少 5px 並於同一專案分頁範圍內放開才提交一次排序；Escape、失焦、pointercancel、capture 遺失與區域外放開均取消。
+- 保留點擊選取、Alt 加左右鍵、原有 active／focused ID、其他專案位置與既有 workspace 保存管線；排序不更改 pane、runtime、PTY 或名稱。
+- 真實 App 的瀏覽器回歸使用合成 bridge 與 Playwright 滑鼠拖曳，涵蓋保存與重新載入。Chrome 驗證不等於 macOS 原生 WebView 驗收，後者仍須在裝置上驗證。
