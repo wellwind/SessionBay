@@ -26,6 +26,8 @@ const data: Bootstrap = {
     activeTabByProject: { p0: 'b', p1: 'other' }, activeTemporaryTabId: 'global-a' },
 };
 api.bootstrap = async () => ({ ...data, workspace: JSON.parse(localStorage.getItem('workspace-test') || JSON.stringify(data.workspace)) });
+api.listWorkspaceFiles = async () => ({ entries: [], nextOffset: null });
+api.readWorkspaceFile = async () => { throw new Error('No file fixture is configured for this scenario'); };
 api.projects = async () => data.projects;
 api.scan = api.index = async () => data.index;
 api.runtimes = async () => [];

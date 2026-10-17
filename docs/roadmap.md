@@ -192,6 +192,10 @@
 - [ ] ARM64 正式安裝包與一般使用者 UAC／SmartScreen 體驗另行驗收。
 
 
+## 2026-10-17 Files 工作區候選
+
+專案層 Files 側欄與共用唯讀分頁已列入獨立候選，不新增編輯器或 Runtime schema。合併門檻包含零 Terminal 瀏覽、預設隱藏檔、預覽／固定去重、正常／專注模式狀態、關閉／組字／拖曳隔離與原 Terminal 身分保留。GitHub Actions 已執行新版 Files 與正常／專注模式瀏覽器回歸並檢視合成資料截圖；原生驗收仍未執行，不能以瀏覽器紀錄替代。
+
 ## Session 清單漸進載入（2026-10-17）
 
 已補跨批 catalog revision 協定、刪除／插入／排序／索引中變更及空尾頁回歸，並新增真實 SQLite 一萬筆 COUNT + OFFSET 量測。原生各平台視覺、總 heap 與大量訊息索引寫入成本仍屬後續驗收，不以 DOM 列數或讀取 benchmark 代替。
