@@ -24,6 +24,7 @@ for (const theme of ['dark', 'light']) for (const palette of ['bay', 'code-moder
     const keyboard = await geometry(page);
     expect(await page.locator(':focus').evaluate(element => element.matches(':focus-visible') && getComputedStyle(element).outlineStyle !== 'none')).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('tabs.png'), fullPage: true });
+    expect(await page.locator('.workspace-tabs').evaluate(element => getComputedStyle(element).paddingInline)).toBe('0px');
     await testInfo.attach('geometry', { body: JSON.stringify({ before, active, keyboard }, null, 2), contentType: 'application/json' });
     await writeFile(testInfo.outputPath('geometry.json'), JSON.stringify({ before, active, keyboard }, null, 2));
     expect(active.map(({ x, width }) => ({ x, width }))).toEqual(before.map(({ x, width }) => ({ x, width })));
