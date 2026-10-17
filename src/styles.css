@@ -1651,7 +1651,7 @@ kbd {
 .workspace-file-list { flex: 0 1 38%; overflow: auto; min-height: 70px; border-bottom: 1px solid var(--border); padding: 4px; }
 .workspace-file-tree { list-style: none; margin: 0; padding: 0 0 0 12px; }
 .workspace-file-list > .workspace-file-tree { padding-left: 0; }
-.workspace-file-tree button { display: flex; gap: 5px; align-items: center; width: 100%; min-height: 30px; text-align: left; padding: 4px 6px; }
+.workspace-file-tree button { display: flex; gap: 5px; align-items: center; justify-content: flex-start; width: 100%; min-height: 30px; text-align: left; padding: 4px 6px; }
 .workspace-file-tree button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .workspace-file-tree button svg { flex-shrink: 0; }
 .workspace-file-tree button.selected { background: var(--accent-bg); outline: 1px solid var(--border); }

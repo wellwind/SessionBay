@@ -12,6 +12,11 @@ for (const width of [1200, 720]) {
     await page.getByRole('button', { name: 'index.ts', exact: true }).click();
     await expect(page.getByLabel('唯讀內容：src/index.ts')).toContainText('export const');
     await expect(page.getByRole('button', { name: /outside-link/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'src', exact: true })).toHaveCSS('justify-content', 'flex-start');
+    await expect(page.getByRole('button', { name: 'index.ts', exact: true })).toHaveCSS('justify-content', 'flex-start');
+    const parentRow = await page.getByRole('button', { name: 'src', exact: true }).boundingBox();
+    const childRow = await page.getByRole('button', { name: 'index.ts', exact: true }).boundingBox();
+    expect(childRow!.x).toBeGreaterThan(parentRow!.x);
     await page.screenshot({ path: testInfo.outputPath(`workspace-files-${width}.png`), fullPage: true });
     const geometry = await page.evaluate(() => {
       const terminal = document.querySelector('.workspace-terminal-surface')!.getBoundingClientRect();
