@@ -50,6 +50,8 @@ jobs:
         run: node node_modules/@playwright/test/cli.js test --config playwright.agent-settings.config.ts
       - name: Hover, selection, keyboard and touch interaction screenshots
         run: npm run test:interactions
+      - name: Conversation preview header layout and keyboard behavior
+        run: node node_modules/@playwright/test/cli.js test --config playwright.preview-header.config.ts
       - name: Workspace tab geometry
         run: node node_modules/@playwright/test/cli.js test --config playwright.tab-geometry.config.ts
       - name: Project membership star layout and keyboard behavior
