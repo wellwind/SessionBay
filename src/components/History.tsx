@@ -328,9 +328,12 @@ export function HistoryView({
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
   return (
     <div className="history-view">
-      {undoId && <div className="inline-warning" role="status">已移入資源回收筒。
-        <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>
-        <button aria-label="關閉復原提示" disabled={trashBusy} onClick={() => setUndoId(null)}>×</button>
+      {undoId && <div className="history-undo" role="status">
+        <p>已移入資源回收筒。</p>
+        <div className="history-undo-actions">
+          <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>
+          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => setUndoId(null)}><X size={15} /></button>
+        </div>
       </div>}
       {trashError && !trashTarget && <p className="inline-error" role="alert">{trashError}</p>}
       {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>

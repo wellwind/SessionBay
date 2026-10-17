@@ -923,6 +923,41 @@ kbd {
   text-decoration: underline;
   white-space: nowrap;
 }
+/* Separate from .inline-warning: that rule pushes every button to the far edge. */
+.history-undo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 8px 24px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.history-undo p {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.history-undo-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.history-undo-actions > button:not(.icon-button) {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--warning);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.history-undo-actions > .icon-button {
+  color: var(--warning);
+}
 .project-warning {
   margin: 0 30px 15px;
   border: 1px solid #d1a85c29;

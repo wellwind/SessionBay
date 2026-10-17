@@ -32,7 +32,17 @@ for (const theme of ['dark', 'light']) {
     await page.keyboard.press('Enter');
     await page.getByRole('button', { name: '確認移入資源回收筒' }).click();
     await expect(rows).toHaveCount(2);
-    await expect(page.getByRole('button', { name: '復原刪除' })).toBeFocused();
+    const undo = page.getByRole('button', { name: '復原刪除' });
+    const dismiss = page.getByRole('button', { name: '關閉復原提示' });
+    await expect(undo).toBeFocused();
+    const undoBox = await undo.boundingBox();
+    const dismissBox = await dismiss.boundingBox();
+    const statusBox = await page.getByRole('status').filter({ hasText: '已移入資源回收筒。' }).boundingBox();
+    expect(undoBox && dismissBox && statusBox).toBeTruthy();
+    expect(undoBox!.x).toBeGreaterThan(statusBox!.x + statusBox!.width / 2);
+    expect(dismissBox!.x).toBeGreaterThan(undoBox!.x + undoBox!.width);
+    expect(dismissBox!.x - (undoBox!.x + undoBox!.width)).toBeLessThan(20);
+    await page.screenshot({ path: info.outputPath(`${theme}-undo-banner.png`) });
     const project = page.locator('.project-main').first();
     await project.hover();
     await expect(project).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
