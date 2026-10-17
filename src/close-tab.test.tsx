@@ -67,6 +67,8 @@ beforeEach(() => {
   const data = fixture();
   bridge.bootstrap.mockResolvedValue(data); bridge.scan.mockResolvedValue(data.index); bridge.index.mockResolvedValue(data.index); bridge.projects.mockResolvedValue(data.projects);
   bridge.runtimes.mockResolvedValue(data.runtimes); bridge.attach.mockResolvedValue(record);
+  bridge.listWorkspaceFiles.mockResolvedValue({ entries: [], nextOffset: null });
+  bridge.readWorkspaceFile.mockImplementation(async (_id, path) => ({ path, text: `content ${path}`, sizeBytes: 12 }));
   bridge.saveSettings.mockImplementation(async (settings: Settings) => settings);
   for (const mock of [bridge.saveWorkspace, bridge.detach, bridge.write, bridge.resize, bridge.ack, bridge.stop, bridge.forget, bridge.settleLaunches, bridge.close, bridge.setWorkspaceZoom]) mock.mockResolvedValue(undefined);
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
@@ -128,14 +130,13 @@ describe('Cmd+W closes only the current workspace tab', () => {
     bridge.readWorkspaceFile.mockResolvedValue({ path: 'safe.ts', text: 'const safe = true;', sizeBytes: 18 });
     await openWorkspace();
     const terminal = screen.getByRole('textbox', { name: 'Integration terminal input' });
-    fireEvent.click(screen.getByRole('button', { name: '檔案預覽' }));
     fireEvent.click(await screen.findByRole('button', { name: 'safe.ts' }));
     const editor = await screen.findByLabelText('唯讀內容：safe.ts'); editor.focus();
     fireEvent.keyDown(editor, { key: 'w', code: 'KeyW', metaKey: true });
     expect(screen.queryByRole('tab', { name: /safe.ts/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'safe.ts' }));
     await screen.findByLabelText('唯讀內容：safe.ts');
-    screen.getByRole('button', { name: '關閉檔案預覽' }).focus();
+    screen.getByRole('button', { name: '隱藏 Files 側欄' }).focus();
     await nativeCloseTab();
     expect(screen.queryByRole('tab', { name: /safe.ts/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -294,4 +295,80 @@ it('does not begin a previously confirmed close after the native-close snapshot 
   expect(bridge.stop).not.toHaveBeenCalled();
   expect(bridge.forget).not.toHaveBeenCalled();
   expect(bridge.runtimes).not.toHaveBeenCalled();
+});
+
+
+describe('project Files workspace integration', () => {
+  const files = () => bridge.listWorkspaceFiles.mockResolvedValue({ entries: ['a.ts', 'b.ts', '.env.example'].map(path => ({ name: path, path, kind: 'file' })), nextOffset: null });
+  it('browses hidden files without creating a runtime, and preserves the document across Zen and sidebar toggles', async () => {
+    setup([]); files();
+    render(<App />);
+    const navigation = await screen.findByRole('navigation', { name: '專案' });
+    fireEvent.click(await within(navigation).findByRole('button', { name: /^Synthetic project/ }));
+    expect(await screen.findByRole('button', { name: '.env.example' })).toBeVisible();
+    expect(bridge.listWorkspaceFiles).toHaveBeenCalledWith('project-a', '', 0, true);
+    fireEvent.click(screen.getByRole('button', { name: 'a.ts' }));
+    const document = await screen.findByLabelText('唯讀內容：a.ts');
+    const tab = screen.getByRole('tab', { name: /a.ts/ });
+    expect(tab.closest('.workspace-tabs')).not.toBeNull();
+    expect(screen.queryByLabelText('顯示隱藏檔案')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '隱藏 Files 側欄' }));
+    expect(document).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+    expect(screen.getByLabelText('唯讀內容：a.ts')).toBe(document);
+    fireEvent.click(screen.getByRole('button', { name: '顯示 Files 側欄' }));
+    expect(screen.getByRole('button', { name: '.env.example' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+    expect(bridge.launch).not.toHaveBeenCalled(); expect(bridge.attach).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '關閉檔案 a.ts' }));
+    expect(screen.queryByRole('tab', { name: /a.ts/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '歷史 Session' })).toHaveClass('active');
+    expect(bridge.stop).not.toHaveBeenCalled();
+  });
+  it('shares files across runtime tabs, cycles common shortcuts, and never writes file keys to PTY', async () => {
+    setup([shell(), shell({ id: 'runtime-b', paneId: 'pane-b' })]); files();
+    await openWorkspace();
+    const terminals = screen.getAllByRole('textbox', { name: 'Integration terminal input', hidden: true });
+    fireEvent.doubleClick(await screen.findByRole('button', { name: 'a.ts' }));
+    await screen.findByLabelText('唯讀內容：a.ts');
+    const file = screen.getByRole('tab', { name: /a.ts/ });
+    fireEvent.keyDown(file, { key: '1', code: 'Digit1', metaKey: true });
+    expect(screen.getByRole('button', { name: 'pane-a 1' })).toHaveAttribute('aria-current', 'true');
+    fireEvent.keyDown(terminals[0], { key: '3', code: 'Digit3', metaKey: true });
+    expect(file).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'pane-b 1' }));
+    expect(file).toHaveAttribute('aria-selected', 'false');
+    fireEvent.click(file);
+    expect(screen.getByLabelText('唯讀內容：a.ts')).toBeVisible();
+    expect(screen.getAllByRole('textbox', { name: 'Integration terminal input', hidden: true })).toEqual(terminals);
+    expect(bridge.dispose).not.toHaveBeenCalled(); expect(bridge.detach).not.toHaveBeenCalled();
+    expect(bridge.stop).not.toHaveBeenCalled(); expect(bridge.write).not.toHaveBeenCalled();
+  });
+  it('keeps file closes blocked by a modal and composition, including when focus is on chrome', async () => {
+    setup([shell()]); files(); await openWorkspace();
+    fireEvent.click(await screen.findByRole('button', { name: 'a.ts' }));
+    await screen.findByLabelText('唯讀內容：a.ts');
+    const toggle = screen.getByRole('button', { name: '隱藏 Files 側欄' }); toggle.focus();
+    fireEvent.keyDown(toggle, { key: 'w', metaKey: true, isComposing: true });
+    expect(screen.getByRole('tab', { name: /a.ts/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '新增工作區分頁' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'w', metaKey: true });
+    expect(screen.getByRole('tab', { name: /a.ts/ })).toBeInTheDocument();
+    expect(bridge.stop).not.toHaveBeenCalled();
+  });
+});
+
+it('returns last-file close focus to the Files toggle when the tree is hidden', async () => {
+  setup([shell()]);
+  bridge.listWorkspaceFiles.mockResolvedValue({ entries: [{ name: 'a.ts', path: 'a.ts', kind: 'file' }], nextOffset: null });
+  await openWorkspace();
+  fireEvent.click(await screen.findByRole('button', { name: 'a.ts' }));
+  const editor = await screen.findByLabelText('唯讀內容：a.ts');
+  fireEvent.click(screen.getByRole('button', { name: '隱藏 Files 側欄' }));
+  editor.focus();
+  fireEvent.keyDown(editor, { key: 'w', metaKey: true });
+  await waitFor(() => expect(screen.getByRole('button', { name: '顯示 Files 側欄' })).toHaveFocus());
+  expect(screen.queryByRole('tab', { name: /a.ts/ })).not.toBeInTheDocument();
+  expect(bridge.stop).not.toHaveBeenCalled(); expect(bridge.write).not.toHaveBeenCalled();
 });

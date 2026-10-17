@@ -190,3 +190,8 @@
 - [x] 建立 [固定 SHA 的獨立手動 installer workflow](windows-installer-smoke.md) 與本機拒絕執行防呆。
 - [ ] 在核准的 GitHub hosted x64 runner dispatch 並檢視 installed binary／uninstall evidence。
 - [ ] ARM64 正式安裝包與一般使用者 UAC／SmartScreen 體驗另行驗收。
+
+
+## 2026-10-17 Files 工作區候選
+
+專案層 Files 側欄與共用唯讀分頁已列入獨立候選，不新增編輯器或 Runtime schema。合併門檻包含零 Terminal 瀏覽、預設隱藏檔、預覽／固定去重、正常／專注模式狀態、關閉／組字／拖曳隔離與原 Terminal 身分保留。雲端瀏覽器目前受啟動環境限制；視覺與原生驗收仍未完成，不能以舊預覽 UI 的通過紀錄替代。

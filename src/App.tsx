@@ -94,6 +94,8 @@ import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
 import type { Appearance } from './themes';
 import { useUiTheme } from './use-ui-theme';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
+import { WorkspaceFiles } from './components/WorkspaceFiles';
+import './project-files-workspace.css';
 interface Launcher {
   resumeId?: string;
   kind: 'shell' | AgentKind;
@@ -127,12 +129,17 @@ export default function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
   const [trashOpen, setTrashOpen] = useState(false);
-  const [fileToolbarHost, setFileToolbarHost] = useState<HTMLDivElement | null>(null);
+  const [fileTabsHost, setFileTabsHost] = useState<HTMLDivElement | null>(null);
+  const [fileSidebarHost, setFileSidebarHost] = useState<HTMLDivElement | null>(null);
+  const [fileDocumentHost, setFileDocumentHost] = useState<HTMLDivElement | null>(null);
+  const [visitedFileProjects, setVisitedFileProjects] = useState<string[]>([]);
+  const [hiddenFileSidebars, setHiddenFileSidebars] = useState<Record<string, boolean>>({});
+  const filesToggle = useRef<HTMLButtonElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
-  const [view, setView] = useState<'history' | 'workspace'>('history');
+  const [view, setView] = useState<'history' | 'workspace' | 'files'>('history');
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -283,6 +290,14 @@ export default function App() {
     }, 150);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [launcher, launchProjectId, settings]);
+  useEffect(() => {
+    if (current && !current.workspaceOnly) setVisitedFileProjects((ids) => ids.includes(current.id) ? ids : [...ids, current.id]);
+  }, [current]);
+  const filesVisible = !!current && !current.workspaceOnly && !hiddenFileSidebars[current.id];
+  const hideFilesSidebar = () => {
+    if (current) setHiddenFileSidebars((old) => ({ ...old, [current.id]: true }));
+    filesToggle.current?.focus({ preventScroll: true });
+  };
   const activeTabId = activeWorkspaceTabId(workspace, selectedId);
   const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   const focusPane = activeTab ? workspace.panes[activeTab.focusedPaneId] : undefined;
@@ -347,15 +362,24 @@ export default function App() {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || composing.current || event.keyCode === 229 || document.querySelector('[role="dialog"]')) return;
       const current = stateRef.current;
+      if (current.view === 'files' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
+        event.preventDefault(); event.stopPropagation();
+        if (!event.repeat) requestCloseTab.current();
+        return;
+      }
       const tabs = current.workspace.tabs.filter((tab) => tab.projectId === current.selectedId);
-      const active = current.view === 'workspace' ? tabs.findIndex((tab) => tab.id === activeWorkspaceTabId(current.workspace, current.selectedId)) : -1;
-      const index = workspaceTabIndex(event, tabs.length, active);
-      const reserved = index !== null || (tabs.length > 0 && workspaceTabIndex(event, 9, 0) !== null);
+      const fileButtons = [...document.querySelectorAll<HTMLButtonElement>('.project-file-tabs-host [role="tab"]')].filter((button) => !button.closest('[hidden]'));
+      const active = current.view === 'workspace' ? tabs.findIndex((tab) => tab.id === activeWorkspaceTabId(current.workspace, current.selectedId))
+        : current.view === 'files' ? tabs.length + fileButtons.findIndex((button) => button.getAttribute('aria-selected') === 'true') : -1;
+      const count = tabs.length + fileButtons.length;
+      const index = workspaceTabIndex(event, count, active);
+      const reserved = index !== null || (count > 0 && workspaceTabIndex(event, 9, 0) !== null);
       if (!reserved) return;
       // Capture before xterm's textarea keydown so reserved tab keys never reach PTY.
       event.preventDefault();
       event.stopPropagation();
       if (index === null) return; // A reserved number beyond the open tabs is a no-op, never PTY input.
+      if (index >= tabs.length) { fileButtons[index - tabs.length]?.click(); fileButtons[index - tabs.length]?.focus(); return; }
       setWorkspace((workspace) => selectWorkspaceTab(workspace, tabs[index]));
       setView('workspace');
       setMaximizedId(null);
@@ -847,8 +871,12 @@ export default function App() {
   const requestCloseTab = useRef(() => {});
   requestCloseTab.current = () => {
     if (closingApp.current || closeTabPending.current || composing.current || document.querySelector('[role="dialog"]')) return;
-    if (closeFocusedExplorer()) return;
     const current = stateRef.current;
+    if (current.view === 'files') {
+      document.querySelector<HTMLElement>('[data-file-explorer]')?.dispatchEvent(new Event('explorer-close-file'));
+      return;
+    }
+    if (closeFocusedExplorer()) return;
     if (current.view !== 'workspace') return;
     const tab = current.workspace.tabs.find((item) => item.id === activeWorkspaceTabId(current.workspace, current.selectedId));
     if (!tab) return;
@@ -1460,6 +1488,7 @@ export default function App() {
                   onRename={(tab) => setRenameTarget({ kind: 'tab', id: tab.id, name: tab.name })}
                   onClose={(tab) => removePanes(paneIds(tab.layout))}
                   onReorder={(id, targetId, after) => setWorkspace((w) => reorderWorkspaceTab(w, id, targetId, after))} />
+                <div className="project-file-tabs-host" ref={setFileTabsHost} />
                 {(current || temporaryWorkspace) && (
                   <button
                     className="icon-button"
@@ -1469,7 +1498,10 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
-                <div className="workspace-files-toolbar-host" ref={setFileToolbarHost} />
+                {current && !current.workspaceOnly && <button ref={filesToggle} className="project-files-toggle" aria-label={filesVisible ? '隱藏 Files 側欄' : '顯示 Files 側欄'} aria-expanded={filesVisible}
+                  onClick={() => setHiddenFileSidebars((old) => ({ ...old, [current.id]: !old[current.id] }))}>
+                  <Folder size={15} aria-hidden="true" /><span>Files</span>
+                </button>}
                 {focusAvailable && <button ref={focusToggle} className="focus-mode-toggle" aria-pressed={focusMode}
                   aria-label={focusMode ? '退出專注模式' : '進入專注模式'}
                   title={focusMode ? '退出專注模式' : '進入專注模式（保留分頁與面板）'} onClick={toggleFocusMode}>
@@ -1477,7 +1509,10 @@ export default function App() {
                   <span>{focusMode ? '退出專注' : '專注'}</span>
                 </button>}
               </div>}
-              <div className="main-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
+              <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
+                <div className="project-files-sidebar-host" ref={setFileSidebarHost} hidden={!filesVisible} />
+                <div className="project-work-content">
+                <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
                 {temporaryWorkspace && !activeTab && <div className="empty-state">
                   <TerminalSquare size={30} aria-hidden="true" /><h2>目前沒有臨時 Terminal</h2>
                   <p>隨時從家目錄開啟新的命令列，不需要建立專案。</p>
@@ -1502,7 +1537,6 @@ export default function App() {
                 </div>
                 {settings && (
                   <WorkspaceCanvas
-                    fileToolbarHost={fileToolbarHost}
                     workspace={workspace}
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
@@ -1554,6 +1588,24 @@ export default function App() {
                     }}
                   />
                 )}
+                </div>
+                {visitedFileProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <WorkspaceFiles key={id}
+                  projectId={id} visible={current?.id === id} active={view === 'files' && current?.id === id}
+                  sidebarVisible={!hiddenFileSidebars[id]} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
+                  onActivate={() => setView('files')} onEmpty={() => {
+                    setView(activeTab ? 'workspace' : 'history');
+                    const owner = document.activeElement;
+                    if (!filesVisible && owner?.closest('.project-file-tabs-group, [data-file-explorer]')) {
+                      let superseded = false;
+                      const moved = () => { superseded = true; };
+                      document.addEventListener('focusin', moved, { once: true });
+                      requestAnimationFrame(() => {
+                        document.removeEventListener('focusin', moved);
+                        if (!superseded && stateRef.current.selectedId === id && stateRef.current.view === (activeTab ? 'workspace' : 'history') && !document.querySelector('[role="dialog"], dialog[open]') &&
+                          (document.activeElement === owner || document.activeElement === document.body)) filesToggle.current?.focus({ preventScroll: true });
+                      });
+                    }
+                  }} onHideSidebar={hideFilesSidebar} />)}
               </div>
             </>
           )}
