@@ -2077,3 +2077,189 @@ fn paused_provider_preserves_trash_provenance_until_reenabled() {
     assert_eq!(h.total("hidden original"), 0);
     assert_eq!(h.catalog.trashed_sessions(0, 40).unwrap().total, 1);
 }
+
+#[test]
+fn search_pages_match_literal_oracle_across_filters_and_offsets() {
+    let h = Harness::new();
+    let codex_source = h.source("search-codex", AgentKind::Codex);
+    let claude_source = h.source("search-claude", AgentKind::Claude);
+    let mut paths = Vec::new();
+    for index in 0..240 {
+        let body = format!("shared_identifier 中文搜尋 100%_literal\\path \"quoted\" unique_{index}. École abc bcd cde prefix\0tailAFTERnull");
+        let mut text = codex(&format!("search-{index}"), &body);
+        // Repeated hits must still count one session. The final hit supplies the snippet.
+        for _ in 0..12 {
+            text.push_str(&user(&format!("latest {body}")));
+        }
+        if index % 2 == 0 {
+            text = text.replace(SHARED_CWD, &format!("{SHARED_CWD}/other"));
+        }
+        paths.push(h.write(&codex_source, &format!("sessions/{index}.jsonl"), &text));
+    }
+    paths.push(h.write(&claude_source, "projects/test/a.jsonl", CLAUDE));
+    let originals = paths
+        .iter()
+        .map(|p| fs::read(p).unwrap())
+        .collect::<Vec<_>>();
+    h.sync(&[codex_source, claude_source]);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    // Metadata-only variations exercise every independent filter without changing source text.
+    conn.execute("UPDATE sessions SET title='Neutral title'", [])
+        .unwrap();
+    conn.execute(
+        "UPDATE sessions SET title='title_only_identifier' WHERE external_id='search-0'",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE sessions SET archived=1 WHERE external_id LIKE '%2'",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE sessions SET child=1 WHERE external_id LIKE '%3'",
+        [],
+    )
+    .unwrap();
+    conn.execute("UPDATE messages SET hidden=1 WHERE file_id IN (SELECT f.id FROM files f JOIN sessions s ON s.id=f.session_id WHERE s.external_id='search-89')", []).unwrap();
+    // Integration with schema-4 Trash: exercise title, dense-body, and sparse-body
+    // hits while keeping their FTS postings present. The independent literal oracle
+    // must exclude tombstones before count and pagination on both strategies.
+    for external_id in ["search-0", "search-1", "search-87"] {
+        let id: String = conn
+            .query_row(
+                "SELECT id FROM sessions WHERE external_id=?1",
+                [external_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let session = h.catalog.session(&id).unwrap();
+        h.catalog
+            .trash_session(&id, session.trash_identity.as_deref().unwrap())
+            .unwrap();
+    }
+    let project = h.catalog.projects().unwrap().remove(0).id;
+    for query in [
+        "shared_identifier",
+        "SHARED_IDENTIFIER",
+        "中文",
+        "中文搜尋",
+        "100%_literal\\path",
+        "\"quoted\"",
+        "unique_19.",
+        "unique_87.",
+        "missing_token",
+        "title_only_identifier",
+        "École",
+        "école",
+        "tailafternull",
+        "abcde",
+        "   ",
+    ] {
+        for mode in 0..7 {
+            let mut request = SessionQuery {
+                query: Some(query.into()),
+                ..Default::default()
+            };
+            match mode {
+                1 => request.kind = Some(AgentKind::Codex),
+                2 => request.kind = Some(AgentKind::Claude),
+                3 => request.project_id = Some(project.clone()),
+                4 => request.project_id = Some("absent-project".into()),
+                5 => {
+                    request.archived = Some(true);
+                    request.include_children = Some(true);
+                }
+                6 => {
+                    request.after = Some("2026-01-01T00:00:00Z".into());
+                    request.before = Some("2026-03-01T00:00:00Z".into());
+                }
+                _ => (),
+            }
+            let expected = conn.prepare("SELECT s.id FROM sessions s WHERE NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id AND t.source_root=(SELECT storage_root FROM sources WHERE id=s.source_id)) AND (?2 IS NULL OR s.kind=?2) AND (?3 IS NULL OR s.project_id=?3) AND (?4 IS NULL OR s.archived=?4) AND (?5 OR s.child=0) AND (?6 IS NULL OR s.updated_at>=?6) AND (?7 IS NULL OR s.updated_at<?7) AND (?1='' OR instr(lower(s.title),lower(?1))>0 OR EXISTS(SELECT 1 FROM files f JOIN messages m ON m.file_id=f.id WHERE f.session_id=s.id AND m.hidden=0 AND instr(lower(m.search_text),lower(?1))>0)) ORDER BY s.updated_at DESC,s.id ASC").unwrap().query_map(rusqlite::params![query.trim(),request.kind.map(|k| k.as_str()),request.project_id,request.archived,request.include_children.unwrap_or(false),request.after.as_deref(),request.before.as_deref()], |row| row.get::<_,String>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+            for (offset, limit) in [
+                (0, 7),
+                (0, 0),
+                (0, 999),
+                (7, 11),
+                (77, 200),
+                (200, 0),
+                (usize::MAX, 999),
+            ] {
+                request.offset = Some(offset);
+                request.limit = Some(limit);
+                let page = h.catalog.query(&request).unwrap();
+                assert_eq!(
+                    page.total,
+                    expected.len() as u64,
+                    "query={query:?} mode={mode}"
+                );
+                let actual = page.items.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
+                let expected_page = expected
+                    .iter()
+                    .skip(offset)
+                    .take(limit.clamp(1, 200))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    actual, expected_page,
+                    "query={query:?} mode={mode} offset={offset}"
+                );
+                if query == "shared_identifier" {
+                    assert!(page.items.iter().all(|s| s
+                        .snippet
+                        .as_deref()
+                        .unwrap()
+                        .contains("latest shared_identifier")));
+                }
+            }
+        }
+    }
+    for (path, original) in paths.iter().zip(&originals) {
+        assert_eq!(&fs::read(path).unwrap(), original);
+    }
+    let session = h
+        .catalog
+        .query(&SessionQuery {
+            query: Some("unique_19.".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .remove(0);
+    let path = paths.get(19).unwrap();
+    fs::write(path, "source changed after indexing\n").unwrap();
+    // Search remains a cached catalog operation, exactly as before; opening its transcript
+    // must still reject the stale source rather than returning cached prose as provenance.
+    assert_eq!(h.total("unique_19."), 1);
+    let stale = h.catalog.transcript(&session.id, None, 50).unwrap();
+    assert!(stale.stale);
+    assert!(stale.messages.is_empty());
+}
+
+#[test]
+fn dense_search_probe_boundary_keeps_identical_results() {
+    let h = Harness::new();
+    let source = h.source("boundary", AgentKind::Codex);
+    let mut text = codex("boundary-session", "boundary_token");
+    for _ in 0..1023 {
+        text.push_str(&user("boundary_token"));
+    }
+    let path = h.write(&source, "sessions/boundary.jsonl", &text);
+    h.sync(std::slice::from_ref(&source));
+    let request = SessionQuery {
+        query: Some("boundary_token".into()),
+        ..Default::default()
+    };
+    let before = h.catalog.query(&request).unwrap();
+    assert_eq!(before.total, 1);
+    append(&path, &user("boundary_token"));
+    let expected_source = fs::read(&path).unwrap();
+    h.sync(&[source]);
+    let after = h.catalog.query(&request).unwrap();
+    assert_eq!(
+        serde_json::to_value(before).unwrap(),
+        serde_json::to_value(after).unwrap()
+    );
+    assert_eq!(fs::read(path).unwrap(), expected_source);
+}

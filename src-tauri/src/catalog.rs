@@ -36,6 +36,10 @@ type CheckpointRow = (
     String,
 );
 
+/// Search diagnostics, in milliseconds; available only to explicitly enabled benchmarks.
+#[cfg(feature = "search-profile")]
+pub type SearchPhaseTimings = Vec<(&'static str, f64)>;
+
 #[derive(Debug, Clone)]
 pub struct Catalog {
     path: PathBuf,
@@ -667,8 +671,32 @@ impl Catalog {
     }
 
     pub fn query(&self, query: &SessionQuery) -> Result<SessionPage, String> {
+        self.query_observed(query, |_| {})
+    }
+
+    /// Benchmark-only phase timings. Normal queries have no clock or logging overhead.
+    #[cfg(feature = "search-profile")]
+    pub fn query_profiled(
+        &self,
+        query: &SessionQuery,
+    ) -> Result<(SessionPage, SearchPhaseTimings), String> {
+        let mut phases = Vec::new();
+        let mut start = std::time::Instant::now();
+        let page = self.query_observed(query, |phase| {
+            phases.push((phase, start.elapsed().as_secs_f64() * 1000.));
+            start = std::time::Instant::now();
+        })?;
+        Ok((page, phases))
+    }
+
+    fn query_observed(
+        &self,
+        query: &SessionQuery,
+        mut observe: impl FnMut(&'static str),
+    ) -> Result<SessionPage, String> {
         let conn = self.connect()?;
         let conn = conn.unchecked_transaction().map_err(error)?;
+        observe("connect");
         let mut clauses = vec!["NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id AND t.source_root=(SELECT storage_root FROM sources WHERE id=s.source_id))".to_owned()];
         let mut values: Vec<SqlValue> = Vec::new();
         if let Some(ref id) = query.project_id {
@@ -721,15 +749,34 @@ impl Catalog {
             if search.chars().count() >= 3 {
                 // FTS is only a candidate set. Exact matching preserves literal punctuation,
                 // ASCII-only case folding, Chinese, and all original matching semantics.
-                // IN materializes candidates once, rather than MATCH per session.
-                values.push(trigram_candidates(search).into());
+                let candidates = trigram_candidates(search);
+                // Stop the probe after 1,025 matching FTS rowids, without reading
+                // message bodies (posting-list intersection work is not bounded
+                // by that limit). A broad posting list should not force us
+                // to validate every message after its session already matched.
+                let dense = conn.query_row(
+                    "SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1 LIMIT 1 OFFSET 1024",
+                    [&candidates], |row| row.get::<_, i64>(0),
+                ).optional().map_err(error)?.is_some();
+                values.push(candidates.into());
                 let candidate_parameter = values.len();
-                clauses.push(format!("({title_match} OR s.id IN (SELECT f.session_id FROM messages_fts JOIN messages m ON m.rowid=messages_fts.rowid JOIN files f ON f.id=m.file_id WHERE messages_fts MATCH ?{candidate_parameter} AND m.hidden=0 AND {body_match}))"));
+                if dense {
+                    // The uncorrelated IN set is built once per statement. Visit
+                    // each session's files/messages and stop on its first exact
+                    // hit. Pin the file-first indexed traversal so the planner
+                    // cannot rescan the entire posting list for every session.
+                    clauses.push(format!("({title_match} OR EXISTS(SELECT 1 FROM files f CROSS JOIN messages m INDEXED BY messages_file ON m.file_id=f.id WHERE f.session_id=s.id AND m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?{candidate_parameter}) AND m.hidden=0 AND {body_match}))"));
+                } else {
+                    // Selective queries keep the candidate-first path; enumerating
+                    // every session's messages would penalize rare and absent hits.
+                    clauses.push(format!("({title_match} OR s.id IN (SELECT f.session_id FROM messages_fts JOIN messages m ON m.rowid=messages_fts.rowid JOIN files f ON f.id=m.file_id WHERE messages_fts MATCH ?{candidate_parameter} AND m.hidden=0 AND {body_match}))"));
+                }
             } else {
                 clauses.push(format!("({title_match} OR EXISTS(SELECT 1 FROM files f JOIN messages m ON m.file_id=f.id WHERE f.session_id=s.id AND m.hidden=0 AND {body_match}))"));
             }
         }
         let filter = clauses.join(" AND ");
+        observe("plan");
         let total: i64 = conn
             .query_row(
                 &format!("SELECT COUNT(*) FROM sessions s WHERE {filter}"),
@@ -737,6 +784,7 @@ impl Catalog {
                 |r| r.get(0),
             )
             .map_err(error)?;
+        observe("count");
         let limit = query.limit.unwrap_or(50).clamp(1, 200);
         let offset = query.offset.unwrap_or(0).min(i64::MAX as usize);
         values.push((limit as i64).into());
@@ -746,6 +794,7 @@ impl Catalog {
             .query_map(params_from_iter(values.iter()), session_row)
             .map_err(error)?;
         let mut items = rows.collect::<Result<Vec<_>, _>>().map_err(error)?;
+        observe("page");
         for session in &mut items {
             let text: Option<String> = if search.is_empty() {
                 conn.query_row("SELECT substr(m.search_text,1,220) FROM messages m JOIN files f ON f.id=m.file_id WHERE f.session_id=?1 AND m.hidden=0 AND m.search_text<>'' ORDER BY m.line DESC LIMIT 1", [&session.id], |r| r.get(0)).optional().map_err(error)?
@@ -767,6 +816,7 @@ impl Catalog {
             };
             session.snippet = text.map(|text| snippet(&text, search));
         }
+        observe("snippets");
         Ok(SessionPage {
             items,
             total: total as u64,

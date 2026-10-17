@@ -478,6 +478,12 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 - 保留點擊選取、Alt 加左右鍵、原有 active／focused ID、其他專案位置與既有 workspace 保存管線；排序不更改 pane、runtime、PTY 或名稱。
 - 真實 App 的瀏覽器回歸使用合成 bridge 與 Playwright 滑鼠拖曳，涵蓋保存與重新載入。Chrome 驗證不等於 macOS 原生 WebView 驗收，後者仍須在裝置上驗證。
 
+## 2026-10-17 搜尋效能第二階段：按候選密度選擇查詢
+
+先以獨立 10k 合成搜尋量測確認 COUNT／分頁各自重跑 broad FTS 與全文驗證的成本；snippet 並非主瓶頸。對至少 1,025 筆 FTS 候選的查詢，改用 session-first EXISTS，透過既有 files／messages 索引走訪，在每個 Session 第一筆完整字串命中後停止。較少候選仍走原 candidate-first 策略，避免稀疏／不存在詞遍歷全部訊息。最多 1,025 筆的 FTS rowid probe 只決定執行策略，不截斷結果、不讀正文，也不改 exact predicate。
+
+不新增持久 schema、不共用跨 query cache、不修改索引或來源驗證；所有 filters、排序、總數與 snippet 語意保持原樣。一般 query 沒有 profiling clock 或 log；量測入口僅由 search-profile feature 開啟。Before／After 共用同一既有合成 catalog，保留 raw samples、p50／p95、RSS 與共享環境噪音，詳見[搜尋效能第二階段](search-performance.md)。合成 backend 結果不代替真實來源、原生 UI 或跨平台驗收。
+
 ## 2026-10-17：不顯示例行版本相容提示
 
 使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。
