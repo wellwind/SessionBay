@@ -402,7 +402,8 @@ export function TerminalPane({
       }
     };
     if (starting) {
-      onPatch(pane.id, { state: 'starting', error: undefined, runtimeId: undefined, exitCode: undefined });
+      onPatch(pane.id, { state: 'starting', error: undefined, runtimeId: undefined, exitCode: undefined,
+        resumedLaunch: pane.kind !== 'shell' && !!(pane.sessionId || pane.resumeId) });
       fitNow();
     }
     const task = starting

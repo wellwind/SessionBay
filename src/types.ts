@@ -165,6 +165,8 @@ export interface RuntimeInfo {
   exitCode: number | null;
 }
 export interface RuntimeRecord extends RuntimeInfo {
+  /** Immutable broker launch provenance, never inferred from later session association. */
+  resumedLaunch?: boolean;
   kind: 'shell' | AgentKind;
   projectId: string | null;
   profileId: string | null;
@@ -180,6 +182,8 @@ export type TerminalEvent =
   | { type: 'error'; runtimeId: string; message: string };
 export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed' | 'disconnected' | 'interrupted';
 export interface Pane {
+  /** Current runtime launch provenance; intentionally not restored from saved layouts. */
+  resumedLaunch?: boolean;
   id: string;
   kind: 'shell' | AgentKind;
   title: string;

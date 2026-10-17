@@ -30,6 +30,9 @@ pub type UiEmitter = Arc<dyn Fn(UiEvent) -> Result<(), String> + Send + Sync>;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeRecord {
+    /// Immutable launch intent, independent of later session association.
+    #[serde(default)]
+    pub resumed_launch: bool,
     #[serde(flatten)]
     pub info: RuntimeInfo,
     pub kind: String,
@@ -383,6 +386,8 @@ impl Host {
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
                 let image_input = crate::image_input::supports_launch(&kind, &spec);
+                let resumed_launch =
+                    kind != "shell" && (spec.session_id.is_some() || resume_id.is_some());
                 let info = self.runtime.launch(
                     *spec,
                     cols,
@@ -424,6 +429,7 @@ impl Host {
                     info.id.clone(),
                     Entry {
                         record: RuntimeRecord {
+                            resumed_launch,
                             info: info.clone(),
                             kind,
                             project_id,
@@ -649,14 +655,50 @@ mod tests {
             "projectId":null, "profileId":null, "resumeId":null});
         let mut record: RuntimeRecord = serde_json::from_value(value).unwrap();
         assert!(!record.image_input);
+        assert!(!record.resumed_launch);
         assert!(serde_json::to_value(&record)
             .unwrap()
             .get("imageInput")
             .is_none());
         record.image_input = true;
+        record.resumed_launch = true;
         let restored: RuntimeRecord =
             serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
         assert!(restored.image_input);
+        assert!(restored.resumed_launch);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn captures_original_resume_intent_for_all_agent_launches() {
+        for kind in ["codex", "claude", "antigravity"] {
+            for mode in ["fresh", "indexed", "manual"] {
+                let temp = tempfile::tempdir().unwrap();
+                let host = Host::open(temp.path().into()).unwrap();
+                let spec = LaunchSpec {
+                    executable: "/bin/sh".into(),
+                    args: vec!["-c".into(), "exit 0".into()],
+                    cwd: temp.path().into(),
+                    env: HashMap::new(),
+                    session_id: (mode == "indexed").then(|| "synthetic-indexed".into()),
+                    resume_key: None,
+                    pane_id: "synthetic-pane".into(),
+                };
+                host.handle(Request::Launch {
+                    generation: host.generation.clone(),
+                    spec: Box::new(spec),
+                    kind: kind.into(),
+                    project_id: None,
+                    profile_id: None,
+                    resume_id: (mode == "manual").then(|| "synthetic-manual".into()),
+                    home_directory: false,
+                    cols: 80,
+                    rows: 24,
+                })
+                .unwrap();
+                assert_eq!(host.records()[0].resumed_launch, mode != "fresh");
+                host.runtime.shutdown().unwrap();
+            }
+        }
     }
     #[cfg(unix)]
     #[test]
@@ -758,6 +800,7 @@ mod tests {
     fn metadata_only_recovery_marks_previous_live_records_interrupted() {
         let temp = tempfile::tempdir().unwrap();
         let record = RuntimeRecord {
+            resumed_launch: false,
             info: RuntimeInfo {
                 id: "synthetic-id".into(),
                 pane_id: "pane".into(),

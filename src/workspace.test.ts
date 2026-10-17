@@ -4,8 +4,8 @@ import {
   selectWorkspaceTab,
   mergeWorkspaceProjects,
   closePane,
-  closeSuccessfulShell,
-  isSuccessfulShellExit,
+  closeSuccessfulExit,
+  isSuccessfulAutoCloseExit,
   emptyWorkspace,
   layoutRects,
   localDayBound,
@@ -463,7 +463,7 @@ describe('completed Shell cleanup identity', () => {
   it('closes the split pane and transfers focus after broker cleanup', () => {
     const value = workspace();
     value.panes.a = exited();
-    const next = closeSuccessfulShell(value, value.panes.a);
+    const next = closeSuccessfulExit(value, value.panes.a);
     expect(paneIds(next.tabs[0].layout)).toEqual(['b']);
     expect(next.tabs[0].focusedPaneId).toBe('b');
     expect(next.panes.b).toEqual(value.panes.b);
@@ -476,12 +476,12 @@ describe('completed Shell cleanup identity', () => {
   ] satisfies Partial<Pane>[])('ignores stale cleanup after $state $runtimeId $startToken', patch => {
     const value = workspace();
     value.panes.a = { ...exited(), ...patch };
-    expect(closeSuccessfulShell(value, exited())).toBe(value);
+    expect(closeSuccessfulExit(value, exited())).toBe(value);
   });
   it('ignores missing runtime IDs and saved placeholders', () => {
-    expect(isSuccessfulShellExit({ ...exited(), runtimeId: undefined })).toBe(false);
-    expect(isSuccessfulShellExit({ ...exited(), state: 'placeholder' })).toBe(false);
-    expect(closeSuccessfulShell(closePane(workspace(), 'a'), exited()).panes.a).toBeUndefined();
+    expect(isSuccessfulAutoCloseExit({ ...exited(), runtimeId: undefined })).toBe(false);
+    expect(isSuccessfulAutoCloseExit({ ...exited(), state: 'placeholder' })).toBe(false);
+    expect(closeSuccessfulExit(closePane(workspace(), 'a'), exited()).panes.a).toBeUndefined();
   });
 });
 
@@ -506,4 +506,25 @@ it('preserves legacy home policy only for the same broker-confirmed runtime iden
   // A saved comparison token alone never adopts or starts a process.
   expect(reconcileRuntimes(saved, []).panes['home-pane'].runtimeId).toBeUndefined();
   expect(reconcileRuntimes(saved, []).panes['home-pane'].state).toBe('placeholder');
+});
+
+
+it('uses only current broker launch provenance and does not persist auto-close authority', () => {
+  const record: RuntimeRecord = { id: 'resume-runtime', paneId: 'resume-pane', kind: 'codex',
+    projectId: null, profileId: null, sessionId: 'indexed-id', resumeId: null, cwd: '/synthetic',
+    state: 'exited', exitCode: 0, resumedLaunch: true };
+  const next = reconcileRuntimes(emptyWorkspace(), [record]);
+  expect(isSuccessfulAutoCloseExit(next.panes['resume-pane'])).toBe(true);
+  const saved = restoreWorkspace(serializeWorkspace(next));
+  expect(saved.panes['resume-pane'].resumedLaunch).toBeUndefined();
+  expect(isSuccessfulAutoCloseExit(saved.panes['resume-pane'])).toBe(false);
+  const legacy = reconcileRuntimes(next, [{ ...record, resumedLaunch: undefined }]);
+  expect(isSuccessfulAutoCloseExit(legacy.panes['resume-pane'])).toBe(false);
+});
+
+it.each([{ runtimeId: 'replacement' }, { startToken: 2 }, { resumedLaunch: false }])('does not close a replaced resumed launch: %j', patch => {
+  const value = workspace();
+  const exited: Pane = { ...value.panes.a, kind: 'codex', resumedLaunch: true, runtimeId: 'old', state: 'exited', exitCode: 0 };
+  value.panes.a = { ...exited, ...patch };
+  expect(closeSuccessfulExit(value, exited)).toBe(value);
 });
