@@ -18,13 +18,18 @@ export async function runSmokeInteraction(): Promise<void> {
   const click = (button: HTMLElement | null) => {
     if (!button || button.matches(':disabled, [aria-disabled="true"]') || button.getBoundingClientRect().width <= 0)
       throw new Error('UI smoke: expected a visible, enabled control');
-    button.focus({ preventScroll: true });
+    if (button.getAttribute('role') !== 'option') button.focus({ preventScroll: true });
     button.click();
   };
   const selectAgent = async (kind: (typeof agentKinds)[number]) => {
     const name = agentNames[kind];
-    click(dialog()?.querySelector<HTMLButtonElement>(`button[data-agent-kind="${kind}"]`) ?? null);
-    await waitFor(() => dialog()?.querySelector(`button[data-agent-kind="${kind}"]`)?.getAttribute('aria-pressed') === 'true' &&
+    const picker = dialog()?.querySelector<HTMLInputElement>('[role="combobox"][aria-label="搜尋 Agent"]');
+    click(picker ?? null);
+    await waitFor(() => !!dialog()?.querySelector('[role="listbox"]'), 'tool dropdown did not open');
+    if (dialog()!.querySelectorAll('[role="option"]').length !== agentKinds.length)
+      throw new Error('UI smoke: expected all providers in the dropdown');
+    click(dialog()?.querySelector<HTMLElement>(`[role="option"][data-value="${kind}"]`) ?? null);
+    await waitFor(() => picker?.value === name && picker.getAttribute('aria-expanded') === 'false' &&
       !!dialog()?.querySelector(`[aria-label="${name} 歷史來源"]`), `${name} settings did not open`);
     if (dialog()!.querySelectorAll('.settings-history-provider').length !== 1 ||
       dialog()!.querySelectorAll('.settings-installation').length !== 1)
@@ -124,8 +129,6 @@ export async function runSmokeInteraction(): Promise<void> {
     await smokeSnapshot(`directories-${theme}`);
     open();
     await waitFor(() => !!dialog(), 'provider settings did not open');
-    if (dialog()!.querySelectorAll('button[data-agent-kind]').length !== agentKinds.length)
-      throw new Error('UI smoke: expected all providers in the settings picker');
     for (const kind of agentKinds) await selectAgent(kind);
     await selectAgent('codex');
     dialog()!.querySelector('.settings-agent-picker')?.scrollIntoView({ block: 'start' });
@@ -133,8 +136,8 @@ export async function runSmokeInteraction(): Promise<void> {
     // Exercise the native read-only discovery IPC against CI's isolated, empty GROK_HOME.
     // Merely finding a candidate must not add a draft source or launch a runtime.
     const sourceRoots = async () => {
-      const selected = dialog()!.querySelector<HTMLButtonElement>('button[data-agent-kind][aria-pressed="true"]')!
-        .dataset.agentKind as (typeof agentKinds)[number];
+      const name = dialog()!.querySelector<HTMLInputElement>('[role="combobox"][aria-label="搜尋 Agent"]')!.value;
+      const selected = agentKinds.find((kind) => agentNames[kind] === name)!;
       const roots: string[] = [];
       for (const kind of agentKinds) {
         await selectAgent(kind);

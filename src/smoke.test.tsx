@@ -180,8 +180,8 @@ describe('native visual smoke scenario against real React UI', () => {
         expect(screen.getByRole('region', { name: 'Codex 歷史來源' })).toBeVisible();
         expect(screen.getByRole('textbox', { name: 'Codex 執行檔路徑' })).toHaveValue('/missing/codex');
         for (const kind of agentKinds) {
-          expect(screen.getByRole('button', { name: new RegExp(`${agentNames[kind]}.*已啟用`) }))
-            .toHaveAttribute('aria-pressed', String(kind === 'codex'));
+          expect(screen.getByRole('combobox', { name: '搜尋 Agent' })).toHaveValue('Codex');
+          expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
           if (kind !== 'codex') {
             expect(screen.queryByRole('region', { name: `${agentNames[kind]} 歷史來源` })).not.toBeInTheDocument();
             expect(screen.queryByRole('textbox', { name: `${agentNames[kind]} 執行檔路徑` })).not.toBeInTheDocument();

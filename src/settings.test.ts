@@ -54,10 +54,12 @@ function props(overrides: Partial<SettingsPanelProps> = {}): SettingsPanelProps 
 }
 
 function selectAgent(kind: AgentKind) {
-  const picker = within(screen.getByRole('group', { name: '選擇要設定的 Agent' }));
-  const button = picker.getByRole('button', { name: new RegExp(agentNames[kind]) });
-  if (button.getAttribute('aria-pressed') !== 'true') fireEvent.click(button);
-  return button;
+  const picker = screen.getByRole('combobox', { name: '搜尋 Agent' });
+  if ((picker as HTMLInputElement).value === agentNames[kind] && picker.getAttribute('aria-expanded') === 'false') return picker.closest('.searchable-select')!;
+  fireEvent.focus(picker);
+  fireEvent.change(picker, { target: { value: '' } });
+  fireEvent.click(screen.getByRole('option', { name: new RegExp(agentNames[kind]) }));
+  return picker.closest('.searchable-select')!;
 }
 
 function openAgentOptions(name: string) {
@@ -232,8 +234,9 @@ describe('SettingsPanel', () => {
       ],
     });
     render(createElement(SettingsPanel, config));
-    expect(screen.getByRole('button', { name: /Codex.*可啟動/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('CLI 可啟動')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '搜尋 Agent' })).toHaveValue('Codex');
+    expect(screen.getByText('已啟用 · 可啟動')).toBeInTheDocument();
+    expect(screen.getByText('可啟動')).toBeInTheDocument();
     expect(screen.getByText('尚未掃描')).toBeInTheDocument();
     expect(screen.getByText('0.1.0')).toBeInTheDocument();
   });
@@ -366,10 +369,11 @@ describe('selected-agent settings', () => {
   it.each(agentKinds)('initially shows only the saved default %s configuration', (kind) => {
     const config = props({ settings: { ...validSettings(), defaultAgent: kind }, onDetectHistorySources: vi.fn() });
     render(createElement(SettingsPanel, config));
-    const picker = within(screen.getByRole('group', { name: '選擇要設定的 Agent' }));
-    expect(picker.getAllByRole('button')).toHaveLength(agentKinds.length);
+    fireEvent.focus(screen.getByRole('combobox', { name: '搜尋 Agent' }));
+    const picker = within(screen.getByRole('listbox', { name: '選擇要設定的 Agent' }));
+    expect(picker.getAllByRole('option')).toHaveLength(agentKinds.length);
     for (const other of agentKinds) {
-      expect(picker.getByRole('button', { name: new RegExp(agentNames[other]) })).toHaveAttribute('aria-pressed', String(other === kind));
+      expect(picker.getByRole('option', { name: new RegExp(agentNames[other]) })).toHaveAttribute('aria-selected', String(other === kind));
       const executable = screen.queryByRole('textbox', { name: `${agentNames[other]} 執行檔路徑` });
       const history = screen.queryByRole('region', { name: `${agentNames[other]} 歷史來源` });
       if (other === kind) {
@@ -391,19 +395,20 @@ describe('selected-agent settings', () => {
   it('filters names and IDs without changing the selected draft and recovers from no results', () => {
     const config = props({ onDetectHistorySources: vi.fn() });
     render(createElement(SettingsPanel, config));
-    const search = screen.getByRole('searchbox', { name: '搜尋 Agent' });
-    const picker = within(screen.getByRole('group', { name: '選擇要設定的 Agent' }));
+    const search = screen.getByRole('combobox', { name: '搜尋 Agent' });
+    fireEvent.focus(screen.getByRole('combobox', { name: '搜尋 Agent' }));
+    const picker = within(screen.getByRole('listbox', { name: '選擇要設定的 Agent' }));
     fireEvent.change(search, { target: { value: '  CLAUDE  ' } });
-    expect(picker.getAllByRole('button')).toHaveLength(1);
-    expect(picker.getByRole('button', { name: /Claude Code/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(picker.getAllByRole('option')).toHaveLength(1);
+    expect(picker.getByRole('option', { name: /Claude Code/ })).toHaveAttribute('aria-selected', 'false');
     expect(screen.getByRole('textbox', { name: 'Codex 執行檔路徑' })).toHaveValue('codex');
     fireEvent.change(search, { target: { value: 'missing-provider' } });
-    expect(picker.queryByRole('button')).not.toBeInTheDocument();
-    expect(picker.getByRole('status')).toHaveTextContent('沒有符合的 Agent');
+    expect(picker.queryByRole('option')).not.toBeInTheDocument();
+    expect(screen.getByText('沒有符合的 Agent。請試試其他名稱。')).toBeVisible();
     expect(screen.getByRole('region', { name: 'Codex 歷史來源' })).toBeVisible();
     fireEvent.change(search, { target: { value: '' } });
-    expect(picker.queryByRole('status')).not.toBeInTheDocument();
-    expect(picker.getAllByRole('button')).toHaveLength(agentKinds.length);
+    expect(screen.queryByText('沒有符合的 Agent。請試試其他名稱。')).not.toBeInTheDocument();
+    expect(picker.getAllByRole('option')).toHaveLength(agentKinds.length);
     for (const kind of agentKinds) selectAgent(kind);
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(config.onClose).toHaveBeenCalledOnce();
@@ -452,11 +457,10 @@ describe('selected-agent settings', () => {
     render(createElement(SettingsPanel, config));
     fireEvent.change(screen.getByRole('textbox', { name: 'CODEX_HOME 資料目錄' }), { target: { value: '' } });
     selectAgent('grok');
-    fireEvent.change(screen.getByRole('searchbox', { name: '搜尋 Agent' }), { target: { value: 'grok' } });
+    fireEvent.change(screen.getByRole('combobox', { name: '搜尋 Agent' }), { target: { value: 'grok' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
     expect(config.onSave).not.toHaveBeenCalled();
-    expect(screen.getByRole('searchbox', { name: '搜尋 Agent' })).toHaveValue('');
-    expect(screen.getByRole('button', { name: /Codex.*已啟用/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('combobox', { name: '搜尋 Agent' })).toHaveValue('Codex');
     expect(screen.getByRole('textbox', { name: 'CODEX_HOME 資料目錄' })).toHaveAttribute('aria-invalid', 'true');
   });
 });
@@ -762,8 +766,9 @@ describe('fixed provider history capabilities', () => {
       status: 'versionCheckFailed' as const, loginStatus: 'unknown' as const, error: 'Synthetic version timeout' };
     expect(installationState(installation)).toEqual({ text: '已找到執行檔 · 版本檢查失敗', className: 'warning' });
     render(createElement(SettingsPanel, props({ installations: [installation] })));
-    expect(providerHistory('grok').getByText('CLI 已找到執行檔 · 版本檢查失敗')).toBeInTheDocument();
-    expect(providerHistory('grok').queryByText('CLI 未偵測到')).not.toBeInTheDocument();
+    selectAgent('grok');
+    expect(screen.getByText('已找到執行檔 · 版本檢查失敗')).toBeInTheDocument();
+    expect(screen.queryByText('未偵測到')).not.toBeInTheDocument();
     expect(screen.getByText('Synthetic version timeout')).toBeInTheDocument();
     for (const kind of agentKinds) {
       selectAgent(kind);
@@ -883,9 +888,10 @@ describe('fixed provider history capabilities', () => {
     settings.sources.push({ id: 'grok-disabled', kind: 'grok', root: '/synthetic/archived-grok', enabled: false });
     const config = props({ settings });
     render(createElement(SettingsPanel, config));
-    const picker = within(screen.getByRole('group', { name: '選擇要設定的 Agent' }));
-    expect(picker.getAllByRole('button')).toHaveLength(agentKinds.length);
-    for (const kind of agentKinds) expect(picker.getByRole('button', { name: new RegExp(agentNames[kind]) })).toBeInTheDocument();
+    fireEvent.focus(screen.getByRole('combobox', { name: '搜尋 Agent' }));
+    const picker = within(screen.getByRole('listbox', { name: '選擇要設定的 Agent' }));
+    expect(picker.getAllByRole('option')).toHaveLength(agentKinds.length);
+    for (const kind of agentKinds) expect(picker.getByRole('option', { name: new RegExp(agentNames[kind]) })).toBeInTheDocument();
     selectAgent('grok');
     await userEvent.click(screen.getByRole('button', { name: '新增 Grok Build 歷史來源' }));
     const fields = providerHistory('grok').getAllByRole('textbox', { name: 'GROK_HOME 資料目錄' });
@@ -910,13 +916,13 @@ describe('fixed provider history capabilities', () => {
   it('shows installed Antigravity and unconfigured history as independent states', () => {
     render(createElement(SettingsPanel, props({ onDetectHistorySources: vi.fn(), installations: [{ kind: 'antigravity', executable: '/synthetic/agy', version: 'test', available: true, error: null }] })));
     const history = providerHistory('antigravity');
-    expect(history.getByText('CLI 可啟動')).toBeInTheDocument();
+    expect(screen.getByText('可啟動')).toBeInTheDocument();
     expect(history.getByText('尚未設定來源')).toBeInTheDocument();
     expect(history.getByText(/不包含 App／IDE/)).toBeInTheDocument();
     expect(history.queryByRole('textbox')).not.toBeInTheDocument();
     expect(history.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' })).toBeEnabled();
     expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Antigravity CLI.*可啟動/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('combobox', { name: '搜尋 Agent' })).toHaveValue('Antigravity CLI');
     expect(history.getByRole('button', { name: '設定 Antigravity CLI 歷史來源' })).toBeEnabled();
   });
   it.each([
@@ -932,7 +938,7 @@ describe('fixed provider history capabilities', () => {
     config.index.sources = [{ sourceId: 'source-a', status, files, message: 'Synthetic source detail' }];
     render(createElement(SettingsPanel, config));
     const history = providerHistory('codex');
-    expect(history.getByText('CLI 未偵測到')).toBeInTheDocument();
+    expect(screen.getByText('未偵測到')).toBeInTheDocument();
     expect(history.getByText(expected)).toBeInTheDocument();
     expect(history.getByText('Synthetic source detail')).toBeInTheDocument();
     if (status !== 'empty') expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
@@ -942,7 +948,7 @@ describe('fixed provider history capabilities', () => {
     settings.sources = [];
     render(createElement(SettingsPanel, props({ settings, installations: [{ kind: 'grok', executable: '/synthetic/grok', version: 'test', available: true, error: null }] })));
     const history = providerHistory('grok');
-    expect(history.getByText('CLI 可啟動')).toBeInTheDocument();
+    expect(screen.getByText('可啟動')).toBeInTheDocument();
     expect(history.getByText('尚未設定來源')).toBeInTheDocument();
     expect(history.queryByText('尚無歷史')).not.toBeInTheDocument();
   });
@@ -962,7 +968,7 @@ describe('fixed provider history capabilities', () => {
     config.index.sources = [{ sourceId: 'source-a', status: 'ready', files: 4, message: null }];
     render(createElement(SettingsPanel, config));
     fireEvent.change(screen.getByRole('textbox', { name: 'Codex 執行檔路徑' }), { target: { value: '/synthetic/new-codex' } });
-    expect(providerHistory('codex').getByText('CLI 設定尚未套用')).toBeInTheDocument();
+    expect(screen.getByText('設定尚未套用')).toBeInTheDocument();
     expect(providerHistory('codex').getByText('可讀取 · 4 個檔案')).toBeInTheDocument();
   });
   it('invalidates old scan health in the edited draft instead of presenting it as current', () => {
@@ -1078,8 +1084,8 @@ describe('shared settings controls integration', () => {
     view.rerender(createElement(SettingsPanel, { ...config, busy: true }));
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Agent 類型' })).toBeDisabled();
-    expect(screen.getByRole('searchbox', { name: '搜尋 Agent' })).toBeDisabled();
-    for (const button of within(screen.getByRole('group', { name: '選擇要設定的 Agent' })).getAllByRole('button')) expect(button).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: '搜尋 Agent' })).toBeDisabled();
+    expect(screen.queryByRole('listbox', { name: '選擇要設定的 Agent' })).not.toBeInTheDocument();
     expect(config.onSave).not.toHaveBeenCalled();
     expect(config.settings.sources).toEqual(validSettings().sources);
   });
@@ -1200,7 +1206,7 @@ it('detects and explicitly saves a CLI-only Antigravity source without installin
   const config = props({ settings, onDetectHistorySources: discover });
   render(createElement(SettingsPanel, config));
   const card = providerHistory('antigravity');
-  expect(card.getByText('CLI 尚未偵測')).toBeInTheDocument();
+  expect(screen.getByText('尚未偵測')).toBeInTheDocument();
   expect(card.getByText('尚未設定來源')).toBeInTheDocument();
   fireEvent.click(card.getByRole('button', { name: '偵測 Antigravity CLI 歷史來源' }));
   const add = await screen.findByRole('button', { name: `加入 Antigravity CLI 偵測來源 ${root}` });

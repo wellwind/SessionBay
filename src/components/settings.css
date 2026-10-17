@@ -913,39 +913,24 @@
 .settings-source-candidate code { font-size: 12px; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }
 
 .settings-agent-picker { margin-bottom: 24px; }
-.settings-agent-choices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-  max-height: 240px;
-  overflow-y: auto;
-  padding: 3px;
-}
-.settings-agent-choice {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  flex: 1 1 220px;
-  padding: 12px;
-  text-align: left;
-  border: 1px solid var(--settings-border);
-  border-radius: 10px;
-  background: var(--settings-surface);
-  color: var(--settings-text);
-  cursor: pointer;
-}
-.settings-agent-choice[aria-pressed="true"] {
-  border-color: var(--settings-accent);
-  box-shadow: inset 0 0 0 1px var(--settings-accent);
-}
-.settings-agent-choice .settings-status { margin-left: auto; font-size: 11px; }
-.settings-agent-choice:focus-visible { outline: 2px solid var(--settings-accent); outline-offset: 3px; }
-.settings-agent-choice small { color: var(--settings-muted); white-space: nowrap; }
+/* A bounded dropdown scales without expanding the settings page. */
+.searchable-select { min-width: 0; width: 100%; }
+.searchable-select-field { display: flex; align-items: center; gap: 10px; padding: 0 12px; min-height: 44px; border: 1px solid var(--settings-border); border-radius: 8px; background: var(--settings-surface); }
+.searchable-select-field:focus-within { outline: 2px solid var(--settings-accent); outline-offset: 2px; }
+.settings-field .searchable-select-field input { min-width: 0; width: 100%; padding: 12px 0; border: 0; background: transparent; box-shadow: none; outline: none; }
+.searchable-select-status { margin: 8px 0 0; overflow-wrap: anywhere; }
+.searchable-select-options { max-height: min(320px, 60vh); overflow-y: auto; }
+.searchable-select-options .select-option { min-height: 44px; }
+.searchable-select-options .select-option-copy { min-width: 0; overflow-wrap: anywhere; }
+.settings-agent-health { margin-top: 16px; border-top: 1px solid var(--settings-border); padding-top: 16px; }
 .settings-agent-enabled {
   padding: 16px;
   margin-bottom: 20px;
   border: 1px solid var(--settings-border);
   border-radius: 10px;
 }
+
+.searchable-select-options [role="listbox"] { max-height: min(320px, 50vh); overflow-y: auto; }
+.searchable-select-field:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+
+.searchable-select-options .select-option-copy > small { font-size: 12px; }

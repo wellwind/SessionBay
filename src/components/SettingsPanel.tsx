@@ -23,7 +23,7 @@ import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions, isAgentEnabled } from '../agents';
 import type { HistoryAgentKind } from '../agents';
 import { isAbsoluteFilesystemPath } from '../paths';
-import { Select } from './controls';
+import { Select, SearchableSelect } from './controls';
 import { AgentIcon } from './AgentIcon';
 import { ThemeControls, TerminalPreview } from './ThemeControls';
 import { appearanceOf, validThemeId } from '../themes';
@@ -614,25 +614,15 @@ export function SettingsPanel({
                 {section === 'sources' && (
                   <>
                     <div className="settings-agent-picker">
-                      <label className="settings-field">
-                        <span>搜尋 Agent</span>
-                        <input type="search" aria-label="搜尋 Agent" placeholder="依名稱搜尋…"
-                          value={agentSearch} onChange={(event) => setAgentSearch(event.target.value)} />
+                      <label className="settings-field"><span>搜尋 Agent</span>
+                        <SearchableSelect aria-label="搜尋 Agent" value={selectedAgent} disabled={locked}
+                          query={agentSearch} onQueryChange={setAgentSearch} onChange={(value) => setSelectedAgent(value as AgentKind)}
+                          options={agentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} />,
+                            description: `${isAgentEnabled(draft, kind) ? '已啟用' : '已停用'} · ${installationState(installations.find((item) => item.kind === kind), draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind])).text}`,
+                          }))} />
                       </label>
-                      <div className="settings-agent-choices" role="group" aria-label="選擇要設定的 Agent">
-                        {agentKinds.filter((kind) => `${agentNames[kind]} ${kind}`.toLowerCase().includes(agentSearch.trim().toLowerCase())).map((kind) => {
-                          const binary = installationState(installations.find((item) => item.kind === kind));
-                          return <button type="button" key={kind} className="settings-agent-choice" data-agent-kind={kind}
-                            aria-pressed={selectedAgent === kind} onClick={() => setSelectedAgent(kind)}>
-                            <AgentIcon kind={kind} /><strong>{agentNames[kind]}</strong>
-                            <small>{isAgentEnabled(draft, kind) ? '已啟用' : '已停用'}</small>
-                            <span className={`settings-status ${binary.className}`}>{binary.text}</span>
-                          </button>;
-                        })}
-                        {!agentKinds.some((kind) => `${agentNames[kind]} ${kind}`.toLowerCase().includes(agentSearch.trim().toLowerCase())) &&
-                          <p className="settings-help" role="status">沒有符合的 Agent。請試試其他名稱。</p>}
-                      </div>
                     </div>
+                    <div className="settings-section-heading"><div><h3>啟用與安裝狀態</h3><p>設定只會在儲存後套用。</p></div></div>
                     <div className="settings-agent-enabled">
                       <label className="settings-toggle-label">
                         <input className="checkbox" type="checkbox" aria-label={`啟用 ${agentNames[selectedAgent]}`}
@@ -641,11 +631,30 @@ export function SettingsPanel({
                         <strong>啟用 {agentNames[selectedAgent]}</strong>
                       </label>
                       <p className="settings-help">儲存後套用。停用會暫停新啟動、接續與歷史掃描；保留既有歷史、來源與工具設定，執行中的工作不受影響。</p>
+                      {[selectedAgent].map((kind) => {
+                        const installation = installations.find((item) => item.kind === kind);
+                        const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
+                        return <div className="settings-agent-health" key={kind}>
+                            <div className="settings-installation-top">
+                              <AgentIcon kind={kind} />
+                              <strong>{agentNames[kind]}</strong>
+                              <span className={`settings-status ${binary.className}`}>
+                                {binary.className === 'success' && <Check size={12} />}{binary.text}
+                              </span>
+                            </div>
+                            <p className="settings-help">登入狀態：未驗證；沿用 CLI 自身登入。</p>
+                            <p className="settings-version">
+                              {installation?.available
+                                ? installation.version || '已找到執行檔'
+                                : agentCapabilities[kind].history.supported ? '仍可瀏覽已存在的歷史紀錄' : '支援啟動／指定對話 ID 恢復，尚不索引歷史'}
+                            </p>
+                        </div>;
+                      })}
                       {!isAgentEnabled(draft, selectedAgent) && <p className="settings-subtle-warning">此 Agent 已停用，仍可調整設定；重新啟用後恢復使用。</p>}
                     </div>
                     <div className="settings-section-heading" id="settings-agent-tools">
                       <div>
-                        <h3>{agentNames[selectedAgent]} 工具</h3>
+                        <h3>啟動設定</h3>
                         <p>工具可啟動與歷史可讀取，會分別確認。</p>
                       </div>
                       <button
@@ -663,22 +672,8 @@ export function SettingsPanel({
                         const installation = installations.find((item) => item.kind === kind);
                         const parsedArgs = parseAgentArgs(agentJson[kind]);
                         const argumentSummary = parsedArgs.error ? '參數待修正' : parsedArgs.value?.length ? '已有自訂參數' : '使用安全預設';
-                        const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
                         return (
                           <div className="settings-installation" key={kind}>
-                            <div className="settings-installation-top">
-                              <AgentIcon kind={kind} />
-                              <strong>{agentNames[kind]}</strong>
-                              <span className={`settings-status ${binary.className}`}>
-                                {binary.className === 'success' && <Check size={12} />}{binary.text}
-                              </span>
-                            </div>
-                            <p className="settings-help">登入狀態：未驗證；沿用 CLI 自身登入。</p>
-                            <p className="settings-version">
-                              {installation?.available
-                                ? installation.version || '已找到執行檔'
-                                : agentCapabilities[kind].history.supported ? '仍可瀏覽已存在的歷史紀錄' : '支援啟動／指定對話 ID 恢復，尚不索引歷史'}
-                            </p>
                             <label className="settings-field">
                               <span>執行檔路徑</span>
                               <input
@@ -754,15 +749,12 @@ export function SettingsPanel({
                     <div className="settings-history-providers">
                       {[selectedAgent].map((kind) => {
                         const capability = agentCapabilities[kind];
-                        const installation = installations.find((item) => item.kind === kind);
-                        const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
                         const sources = draft.sources.map((source, i) => ({ source, i })).filter(({ source }) => source.kind === kind);
                         return (
                           <section className="settings-history-provider" key={kind} aria-label={`${capability.name} 歷史來源`}>
                             <div className="settings-history-provider-top">
                               <AgentIcon kind={kind} />
                               <h4>{capability.name}</h4>
-                              <span className={`settings-status ${binary.className}`}>CLI {binary.text}</span>
                             </div>
                             <p className="settings-help">{capability.history.description}</p>
                             <button type="button" className="settings-button secondary compact"
