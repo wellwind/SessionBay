@@ -16,7 +16,7 @@
 - 原本逐事件的 lease／取消／30 秒 ACK 等待不變；前端必須等整批 xterm.write callback 完成才 ACK。1 MiB／128 frame 的 replay 上限、過期後 snapshot 重建、OSC 52 與查詢過濾均維持。
 - 合成延遲模型每個 write／ACK 往返期間產生四個小 chunk，30 次 Poll：原逐 chunk 模型為 513 次 write 與 9 次 snapshot；批次模型為 30 次 write、0 次 snapshot。這是固定條件的單元模型，不是實際使用者效能或 macOS 視覺驗收。
 - 真實 TerminalPane／xterm 的 Chrome fixture 分開觀察跨 write 的同步清除／重繪與同一批次 write；只記錄 reset、write、ACK、resize、render 與空白 render 計數，不擷取使用者輸入。CI 證據與原生桌面驗收需分別確認。
-- xterm 5.5 尚未支援 DEC 2026；跨 Poll 的同步 repaint 仍可能閃爍。6.0 升級需獨立審查 Fit／Search addon、鍵盤與 IME 相容性，本次不升級、不加入私有 renderer hook。
+- 此節為 xterm 5.5 時期紀錄：當時未支援 DEC 2026，跨 Poll 同步 repaint 仍可能閃爍。後續 CapsLock 候選升級 6.0 與相容 Fit／Search addons，已取得同步分幀 blank=0 的 Chromium 合成證據；原生顯示與 IME 驗收另列，未加入私有 renderer hook。
 
 ## 2026-10-17 啟動時最大化
 
@@ -612,6 +612,10 @@ Agent 搜尋欄與下拉選單共用 surface／control-border／radius／spacing
 ## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
 
 正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。
+
+## 2026-10-17：Caps Lock 改採上游穩定版與公開 hook
+
+可取消 private finalizer 候選 e750ad1 原生驗收失敗：真實事件沒有 insertText，不能延續該假設。依使用者要求參照 VS Code／xterm，升級精確 6.0.0 與相容 addons，移除 private helper 改寫。既有公開 custom handler 依尚未合併的上游 #6191 原則保留 browser-marked composing key；原生 input/composition 決定提交。不做時間窗或文字去重。原生 trace 缺少 legacy keyCode，因此 0／229 分支皆測，不能推定實機數值。詳見 [證據、差異與驗收限制](capslock-ime.md)。新版原生驗收為 NOTRUN；使用者後續明確要求 #49 不用 Mac 驗證直接合併，已豁免該門檻。仍須通過最新 exact-commit CI，不能把豁免記為原生 PASS。
 
 ## 2026-10-17：移除重複的介面輔助文案
 

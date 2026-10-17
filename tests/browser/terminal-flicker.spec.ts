@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
-test('characterize split synchronized repaint with real xterm renderer', async ({ page, browser }, testInfo) => {
-  await page.goto('/tests/browser/terminal-flicker.html');
+for (const synchronized of [true, false]) {
+test(`split repaint with real xterm 6 renderer (synchronized=${synchronized})`, async ({ page, browser }, testInfo) => {
+  await page.goto(`/tests/browser/terminal-flicker.html?unsynchronized=${synchronized ? '0' : '1'}`);
   await expect.poll(() => page.evaluate(() => (window as unknown as { flickerCounts: { done: boolean } }).flickerCounts.done)).toBe(true);
   const counts = await page.evaluate(() => (window as unknown as { flickerCounts: Record<string, number | boolean> }).flickerCounts);
   const evidence = testInfo.outputPath('synthetic-render-counters.json');
@@ -12,11 +13,13 @@ test('characterize split synchronized repaint with real xterm renderer', async (
   expect(counts.resets).toBe(1);
   expect(counts.writes).toBe(61);
   expect(counts.acks).toBe(61);
-  // Baseline characterization for pinned xterm 5.5, not a post-fix acceptance test.
-  expect(counts.blankRenders).toBeGreaterThan(0);
+  // Stable xterm 6 supports DEC 2026 across writes. Keep an unsynchronized
+  // negative control so a broken/empty render counter cannot pass this check.
+  if (synchronized) expect(counts.blankRenders).toBe(0);
+  else expect(counts.blankRenders).toBeGreaterThan(0);
   await expect(page.locator('.xterm-rows')).toContainText('Synthetic complete frame 29');
 });
-
+}
 
 test('one bounded response write avoids intermediate blank repaint', async ({ page, browser }, testInfo) => {
   await page.goto('/tests/browser/terminal-flicker.html?batched=1');
