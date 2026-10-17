@@ -65,6 +65,9 @@ npm run tauri -- build
 | [搜尋效能第二階段](docs/search-performance.md) | 獨立 10k 搜尋 profiling、候選密度策略與完整 raw before／after |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
+| [原始對話永久刪除調查](docs/permanent-deletion-investigation.md) | 功能未完成：provider 契約、架構缺口與後續路線 |
+| [永久刪除安全分析](docs/permanent-deletion-safety-review.md) | 普通競態、外部 ABA、API 邊界與驗收前提 |
+| [永久刪除合成探針](docs/permanent-deletion-probes.md) | 只使用暫存 marker DB 的可重現負面案例 |
 
 ## 目前範圍
 

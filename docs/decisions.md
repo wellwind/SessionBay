@@ -520,6 +520,14 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。
 
+## 2026-10-17：原始對話永久刪除仍未完成
+
+本階段只交付契約調查、架構缺口與合成負面探針文件；不新增刪除按鈕、來源寫入或 provider capability。既有 SQLite path 來源不得人工配對 API 後直接永久刪除：相同 session ID／正文不能證明是同一份資料庫，事後發現刪錯副本無法復原。
+
+下一步優先評估身分從建立時就是 endpoint 的新 API 型來源，或受管且能證明來源與 runtime 身分的 provider control transport。兩者都尚未實作；不得擅自改變既有 Agent 啟動架構、啟動 server 或建立憑證。本階段不引入大型自製 SQLite VFS。普通設定／受管程序競態與外部 namespace ABA 必須分別處理；不能把負面探針解讀成所有 SQLite adapter 都不可能。
+
+永久執行仍須逐次明確確認、原子 idle／children 範圍保護、完整 cleanup、local-only routing、部分失敗及重掃防回流驗收。詳見[契約調查與路線](permanent-deletion-investigation.md)、[獨立安全分析](permanent-deletion-safety-review.md)與[合成探針](permanent-deletion-probes.md)。
+
 ## 2026-10-17：一致互動狀態與列表快速移入回收筒
 
 將主操作高亮限制在單一完整點擊面；列表內次要操作只亮自己的範圍。選取狀態保持 accent 標記，hover 不覆蓋成一般列；鍵盤焦點在可捲動容器內採 inset outline，不增減 padding。繼續採緊湊桌面密度及既有 reduced-motion 規則，不變更工作區或 runtime。

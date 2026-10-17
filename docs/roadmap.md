@@ -136,6 +136,8 @@
 ### 2026-10-17：Session 可復原刪除
 
 第一階段：Session Bay metadata tombstone、回收筒與還原；原始 Agent 歷史唯讀。第二階段仍待設計：依 provider 安全刪除原始歷史、共用資料庫與執行中 Agent 的競爭保護、刪除前逐次確認與不可復原影響。不得將第二階段列為已支援。
+
+- [ ] 原始對話永久刪除：功能未完成。已整理[契約與架構缺口](permanent-deletion-investigation.md)及[合成負面探針](permanent-deletion-probes.md)，不代表功能驗收。既有 SQLite path 來源不人工配對 API 後執行刪除；下一步評估新 API 型來源或受管 provider transport，仍須解決 atomic idle／children／cleanup／remote routing。
 ### 臨時 Terminal 混版相容
 
 - [x] 固定舊 protocol 1 schema 的未知欄位重現、雙向 Hello 相容、scope／generation 與 workspace 身分比對回歸。
