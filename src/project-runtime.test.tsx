@@ -1,0 +1,81 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { agentKinds } from './agents';
+import { projectRuntimeSummary, runtimePaneLabel, tabRuntimeSummary } from './project-runtime';
+import { ProjectRuntimeTabs } from './components/ProjectRuntimeTabs';
+import { SidebarProjectList } from './components/SidebarProjectList';
+import { emptyWorkspace } from './workspace';
+import type { Pane, Project, Workspace } from './types';
+const pane = (id: string, patch: Partial<Pane> = {}): Pane => ({ id, kind: 'codex', title: id, projectId: 'p', cwd: '/synthetic', runtimeId: `runtime-${id}`, state: 'running', ...patch });
+const workspace = (): Workspace => ({ ...emptyWorkspace(), panes: { a: pane('a'), b: pane('b', { kind: 'shell' }) }, tabs: [{ id: 'tab', projectId: 'p', name: 'Work', focusedPaneId: 'a', layout: { kind: 'split', id: 'split', axis: 'horizontal', ratio: .5, first: { kind: 'pane', paneId: 'a' }, second: { kind: 'pane', paneId: 'b' } } }] });
+const project: Project = { id: 'p', name: 'Project', path: '/synthetic', launchPath: null, exists: true, curated: true, pinned: false, sessionCount: 19, updatedAt: null, agents: ['codex'] };
+describe('truthful project runtime projection', () => {
+  it('never infers activity for any provider from a live process', () => {
+    for (const kind of agentKinds) expect(runtimePaneLabel(pane('a', { kind }))).toBe('已開啟 · 活動未知');
+    expect(runtimePaneLabel(pane('a', { kind: 'shell' }))).toBe('已開啟');
+    expect(runtimePaneLabel(pane('a', { state: 'disconnected' }))).toBe('連線中斷 · 存活未知');
+    expect(runtimePaneLabel(pane('a', { state: 'starting' }))).toBe('啟動中');
+    expect(runtimePaneLabel(pane('a', { state: 'exited' }))).toBe('已結束');
+  });
+  it('summarizes split tabs, counts agents separately and ignores historical sessions', () => {
+    const ws = workspace();
+    expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已開啟 · 活動未知；已開啟');
+    expect(projectRuntimeSummary(ws.tabs, ws.panes)).toBe('1 分頁 · 1 Agent');
+    ws.panes.b = pane('b', { runtimeId: 'runtime-a' });
+    expect(projectRuntimeSummary(ws.tabs, ws.panes)).toBe('1 分頁 · 1 Agent');
+    expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已開啟 · 活動未知');
+    ws.panes.b.state = 'exited';
+    expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已結束');
+  });
+  it('focuses the existing split target, reflects updates and tolerates stale focus ids', () => {
+    const ws = workspace(), onFocus = vi.fn();
+    const view = render(<ProjectRuntimeTabs tabs={ws.tabs} panes={ws.panes} activeId="tab" onFocus={onFocus} projectName="Project" />);
+    const button = screen.getByRole('button', { name: '開啟工作區 Project Work' });
+    expect(button).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(button); expect(onFocus).toHaveBeenLastCalledWith('a');
+    ws.tabs[0].focusedPaneId = 'stale'; ws.panes.a.state = 'exited';
+    view.rerender(<ProjectRuntimeTabs tabs={ws.tabs} panes={ws.panes} onFocus={onFocus} projectName="Project" />);
+    expect(button).not.toHaveAttribute('aria-current');
+    expect(button).toHaveAttribute('title', 'Work');
+    expect(button).toHaveAccessibleDescription('已結束；已開啟');
+    fireEvent.click(button); expect(onFocus).toHaveBeenLastCalledWith('a');
+  });
+  it('expands independently of selection and preserves counts, keyboard access and active tab', () => {
+    const ws = workspace(), onSelect = vi.fn(), onFocus = vi.fn();
+    render(<SidebarProjectList projects={[project]} selectedId="p" label="專案" reorderable={false} onSelect={onSelect} onReorder={vi.fn()} empty="Empty" workspace={ws} onFocus={onFocus} activeTabId="tab" />);
+    expect(screen.getByText('19')).toBeInTheDocument();
+    expect(screen.getByText('1 分頁 · 1 Agent')).toBeInTheDocument();
+    const collapse = screen.getByRole('button', { name: '收合 Project 的分頁' });
+    collapse.focus(); fireEvent.click(collapse);
+    expect(collapse).toHaveFocus(); expect(collapse).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: '開啟工作區 Project Work' })).not.toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled(); expect(onFocus).not.toHaveBeenCalled();
+    fireEvent.click(collapse);
+    fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Project Work' }));
+    expect(onFocus).toHaveBeenCalledWith('a'); expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+it('integrated project reorder measures whole expanded groups but rejects child tab drop targets', () => {
+  const ws = workspace();
+  ws.tabs.push({ ...ws.tabs[0], id: 'tab-q', projectId: 'q', name: 'Other work' });
+  const changed = vi.fn();
+  const view = render(<SidebarProjectList projects={[project, { ...project, id: 'q', name: 'Other' }]} selectedId="p" label="專案" reorderable onSelect={vi.fn()} onReorder={changed} empty="Empty" workspace={ws} onFocus={vi.fn()} />);
+  const bounds = (top: number, height: number) => ({ x: 0, y: top, left: 0, right: 200, top, bottom: top + height, width: 200, height, toJSON: () => ({}) });
+  vi.spyOn(screen.getByRole('navigation'), 'getBoundingClientRect').mockReturnValue(bounds(0, 300));
+  const groups = view.container.querySelectorAll<HTMLElement>('.project-group');
+  const headers = view.container.querySelectorAll<HTMLElement>('.project-row');
+  groups.forEach((el, i) => vi.spyOn(el, 'getBoundingClientRect').mockReturnValue(bounds(i * 150, 146)));
+  headers.forEach((el, i) => vi.spyOn(el, 'getBoundingClientRect').mockReturnValue(bounds(i * 150, 40)));
+  const source = screen.getByRole('button', { name: '排序 Project' });
+  source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+  const pointer = (type: string, y: number) => { const event = new Event(type, { bubbles: true }); Object.assign(event, { clientX: 10, clientY: y, pointerId: 1, button: 0, isPrimary: true }); fireEvent(source, event); };
+  pointer('pointerdown', 10); pointer('pointermove', 220); pointer('pointerup', 220);
+  expect(changed).not.toHaveBeenCalled();
+  pointer('pointerdown', 10); pointer('pointermove', 180);
+  expect(groups[1]).toHaveStyle({ transform: 'translateY(-150px)' });
+  expect(headers[1].style.transform).toBe('');
+  expect(screen.getByRole('button', { name: '開啟工作區 Project Work' }).closest('.project-group')).toBe(groups[0]);
+  pointer('pointerup', 180);
+  expect(changed).toHaveBeenCalledExactlyOnceWith('p', 'q', true);
+});

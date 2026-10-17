@@ -5,6 +5,7 @@ pub mod broker;
 pub mod catalog;
 pub mod config;
 pub mod history_sources;
+pub mod image_input;
 pub mod launch_options;
 pub mod models;
 pub mod opencode;
@@ -20,3 +21,6 @@ pub use desktop::run;
 
 #[cfg(windows)]
 mod windows_fs;
+#[cfg(windows)]
+#[path = "broker/windows_security.rs"]
+mod windows_security;

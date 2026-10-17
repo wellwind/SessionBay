@@ -245,7 +245,7 @@ fn global_terminals_reopen_same_broker_ids_and_explicit_close_keeps_the_other_ru
     assert_eq!(records.len(), 2);
     for record in &records {
         assert!(record.project_id.is_none());
-        assert!(record.home_directory);
+        assert_eq!(record.home_directory, Some(true));
         assert!(ids.contains(&record.info.id));
         assert_eq!(record.info.state, "running");
         // Runtime launch resolves filesystem aliases, including Windows' verbatim prefix.
@@ -274,7 +274,7 @@ fn global_terminals_reopen_same_broker_ids_and_explicit_close_keeps_the_other_ru
     assert_eq!(remaining[0].info.id, ids[1]);
     assert_eq!(remaining[0].info.state, "running");
     assert!(remaining[0].project_id.is_none());
-    assert!(remaining[0].home_directory);
+    assert_eq!(remaining[0].home_directory, Some(true));
     assert!(service.catalog.projects().unwrap().is_empty());
     reopened.shutdown_broker().unwrap();
 }

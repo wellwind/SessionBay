@@ -2,7 +2,9 @@ use crate::{
     broker::{RuntimeRecord, UiEvent},
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
-    models::{AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
+    models::{
+        AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
+    },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
     shells::{self, ShellCandidate},
@@ -54,6 +56,12 @@ fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
 fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
     if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
         return Ok(false);
+    }
+    if phase == "terminal-probe" {
+        return Ok(
+            std::env::var("SESSIONBAY_SMOKE_TERMINAL").as_deref() == Ok("1")
+                && smoke_data_directory().map_err(|e| e.to_string())?.is_some(),
+        );
     }
     let line = diagnostic_line(&phase, &message)?;
     if FRONTEND_DIAGNOSTICS.fetch_add(1, Ordering::Relaxed) < 32 {
@@ -163,6 +171,33 @@ async fn query_sessions(state: AppState<'_>, query: SessionQuery) -> Result<Sess
     blocking(move || s.catalog.query(&query)).await
 }
 #[tauri::command]
+async fn trash_session(
+    state: AppState<'_>,
+    session_id: String,
+    expected_identity: String,
+) -> Result<String, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.trash_session(&session_id, &expected_identity)).await
+}
+#[tauri::command]
+async fn restore_session(state: AppState<'_>, session_id: String) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.restore_session(&session_id)).await
+}
+#[tauri::command]
+async fn list_trashed_sessions(
+    state: AppState<'_>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<TrashPage, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.catalog
+            .trashed_sessions(offset.unwrap_or(0), limit.unwrap_or(40))
+    })
+    .await
+}
+#[tauri::command]
 async fn read_transcript(
     state: AppState<'_>,
     session_id: String,
@@ -222,6 +257,94 @@ async fn launch_runtime(
         )
     })
     .await
+}
+// The broker is authoritative for runtime identity. A pane label alone is insufficient.
+fn image_runtime(s: &Service, runtime_id: &str) -> Result<(), String> {
+    let record = s
+        .broker()?
+        .list()?
+        .into_iter()
+        .find(|r| r.info.id == runtime_id)
+        .ok_or("圖片目標工作階段不存在。")?;
+    if record.info.state != "running"
+        || !matches!(
+            record.kind.as_str(),
+            "codex" | "claude" | "grok" | "opencode"
+        )
+    {
+        return Err("此工作階段尚未支援圖片路徑輸入。".into());
+    }
+    if !record.image_input {
+        return Err("此工作階段未確認本機圖片輸入能力。自訂／遠端包裝程式不支援；舊版背景程序需結束後重新啟動。".into());
+    }
+    Ok(())
+}
+fn with_images<T>(
+    s: &Service,
+    f: impl FnOnce(&mut crate::image_input::ImageStaging) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut store = s.image_staging.lock().map_err(|_| "圖片暫存鎖定失敗。")?;
+    if store.is_none() {
+        *store = Some(crate::image_input::ImageStaging::open(&s.config.directory)?);
+    }
+    f(store.as_mut().ok_or("圖片暫存未就緒。")?)
+}
+#[tauri::command]
+async fn begin_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    mime: String,
+    size: usize,
+) -> Result<String, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        image_runtime(&s, &runtime_id)?;
+        with_images(&s, |store| store.begin(&runtime_id, &mime, size))
+    })
+    .await
+}
+#[tauri::command]
+async fn append_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+    offset: usize,
+    bytes: crate::image_input::ImageChunk,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || with_images(&s, |store| store.append(&runtime_id, &id, offset, &bytes.0)))
+        .await
+}
+#[tauri::command]
+async fn finish_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<crate::image_input::StagedImage, String> {
+    let s = state.inner().clone();
+    blocking(move || with_images(&s, |store| store.finish(&runtime_id, &id))).await
+}
+#[tauri::command]
+async fn retain_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        image_runtime(&s, &runtime_id)?;
+        with_images(&s, |store| store.retain(&runtime_id, &id))
+    })
+    .await
+}
+#[tauri::command]
+async fn discard_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || with_images(&s, |store| store.discard(&runtime_id, &id))).await
 }
 #[tauri::command]
 async fn write_runtime(
@@ -300,15 +423,99 @@ async fn close_application(app: tauri::AppHandle, state: AppState<'_>) -> Result
     Ok(())
 }
 
+// A native CloseWindow item consumes Cmd+W before the webview sees keydown.
+// Keep the standard application/edit/window actions, but route Cmd+W to the UI.
+#[cfg(target_os = "macos")]
+fn workspace_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem as Item, Submenu};
+    let package = app.package_info();
+    let about = AboutMetadata {
+        name: Some(package.name.clone()),
+        version: Some(package.version.to_string()),
+        copyright: app.config().bundle.copyright.clone(),
+        authors: app
+            .config()
+            .bundle
+            .publisher
+            .clone()
+            .map(|value| vec![value]),
+        ..Default::default()
+    };
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                &package.name,
+                true,
+                &[
+                    &Item::about(app, None, Some(about))?,
+                    &Item::separator(app)?,
+                    &Item::services(app, None)?,
+                    &Item::separator(app)?,
+                    &Item::hide(app, None)?,
+                    &Item::hide_others(app, None)?,
+                    &Item::separator(app)?,
+                    &Item::quit(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "File",
+                true,
+                &[&MenuItem::with_id(
+                    app,
+                    "workspace-close-tab",
+                    "Close Tab",
+                    true,
+                    Some("Cmd+W"),
+                )?],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &Item::undo(app, None)?,
+                    &Item::redo(app, None)?,
+                    &Item::separator(app)?,
+                    &Item::cut(app, None)?,
+                    &Item::copy(app, None)?,
+                    &Item::paste(app, None)?,
+                    &Item::select_all(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(app, "View", true, &[&Item::fullscreen(app, None)?])?,
+            &Submenu::with_id_and_items(
+                app,
+                tauri::menu::WINDOW_SUBMENU_ID,
+                "Window",
+                true,
+                &[&Item::minimize(app, None)?, &Item::maximize(app, None)?],
+            )?,
+            &Submenu::with_id_and_items(app, tauri::menu::HELP_SUBMENU_ID, "Help", true, &[])?,
+        ],
+    )
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            app.set_menu(workspace_menu(app.handle())?)?;
             let directory = smoke_data_directory()?.unwrap_or(app.path().app_data_dir()?);
             let service = Service::open_desktop(directory).map_err(std::io::Error::other)?;
             app.manage(service.clone());
             service.begin_reconcile();
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "workspace-close-tab" {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("workspace-close-tab-requested", ());
+                }
+            }
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -337,6 +544,9 @@ pub fn run() {
             create_project,
             update_project,
             query_sessions,
+            trash_session,
+            restore_session,
+            list_trashed_sessions,
             read_transcript,
             start_index,
             index_status,
@@ -349,6 +559,11 @@ pub fn run() {
             detach_runtime,
             forget_runtime,
             write_runtime,
+            begin_image_input,
+            append_image_input,
+            finish_image_input,
+            retain_image_input,
+            discard_image_input,
             resize_runtime,
             ack_runtime,
             stop_runtime,

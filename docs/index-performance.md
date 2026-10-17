@@ -138,3 +138,7 @@ BIN=src-tauri/target/release/examples/index_lifecycle_benchmark
 ```
 
 本次使用獨立 `CARGO_TARGET_DIR`，並保存 before／after release executable 後才修改程式。可用 `sourceSha256`、`sourceBytes` 與語意斷言核對相同輸入；報告中的小數是觀測值，非保證效能。
+
+## 後續搜尋量測
+
+上述 2026-10-16 搜尋結果與未達標紀錄保持不變。獨立的 [2026-10-17 搜尋第二階段](search-performance.md) 針對 COUNT／分頁候選驗證做 profiling 與改善，搜尋與索引時間分開，不能用後續較快樣本覆蓋本報告的波動與限制。

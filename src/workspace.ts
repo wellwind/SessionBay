@@ -143,11 +143,33 @@ export function closePane(workspace: Workspace, id: string): Workspace {
     ? workspace.activeTemporaryTabId : temporaryTabs[0]?.id;
   return { ...workspace, panes, tabs, activeTabByProject, activeTemporaryTabId };
 }
-/** Finished shells retain their final screen until explicitly closed. */
+/** Apply runtime metadata before asynchronous broker cleanup. */
 export function patchWorkspacePane(workspace: Workspace, id: string, patch: Partial<Pane>): Workspace {
   const pane = workspace.panes[id];
   if (!pane) return workspace;
   return { ...workspace, panes: { ...workspace.panes, [id]: { ...pane, ...patch } } };
+}
+
+/** Confirmed close completion cannot remove a newer launch in the same pane. */
+export function closeConfirmedPane(workspace: Workspace, target: Pane): Workspace {
+  const current = workspace.panes[target.id];
+  if (!current || current.startToken !== target.startToken ||
+    (target.runtimeId && current.runtimeId !== target.runtimeId)) return workspace;
+  return closePane(workspace, target.id);
+}
+
+/** Only a confirmed successful Shell exit is eligible; saved layouts have no runtime ID. */
+export function isSuccessfulShellExit(pane: Pane): boolean {
+  return pane.kind === 'shell' && pane.state === 'exited' && pane.exitCode === 0 &&
+    !!pane.runtimeId && !pane.error;
+}
+
+/** A delayed forget response must not remove a restarted/replaced pane. */
+export function closeSuccessfulShell(workspace: Workspace, exited: Pane): Workspace {
+  const current = workspace.panes[exited.id];
+  if (!current || !isSuccessfulShellExit(current) || current.runtimeId !== exited.runtimeId ||
+    current.startToken !== exited.startToken) return workspace;
+  return closePane(workspace, exited.id);
 }
 
 /** Runtime identities come only from the broker, never the saved layout. */
@@ -166,7 +188,11 @@ export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]
       title: existing?.title || (record.kind === 'shell' ? '已保留的 Shell' : `已保留的 ${record.kind}`),
       sessionId: record.sessionId ?? undefined, resumeId: record.resumeId ?? undefined,
       profileId: record.profileId ?? undefined,
-      homeDirectory: record.kind === 'shell' && projectId === null && record.homeDirectory === true,
+      homeDirectory: record.kind === 'shell' && projectId === null && !record.sessionId && !record.resumeId &&
+        (record.homeDirectory === true || (record.homeDirectory === undefined &&
+          existing?.kind === 'shell' && existing.projectId === null && existing.homeDirectory === true &&
+          !existing.sessionId && !existing.resumeId &&
+          (existing.runtimeId ?? existing.homePolicyRuntimeId) === record.id)),
       runtimeId: record.id, state, exitCode: record.exitCode,
       ...(state === 'interrupted' ? { error: '背景程序已中斷；請確認後明確重新啟動。' } : {}),
     };
@@ -198,6 +224,7 @@ export function serializeWorkspace(workspace: Workspace): unknown {
           projectId: pane.projectId,
           cwd: pane.cwd,
           homeDirectory: pane.homeDirectory,
+          homePolicyRuntimeId: pane.homeDirectory === true ? pane.runtimeId ?? pane.homePolicyRuntimeId : undefined,
           sessionId: pane.sessionId,
           resumeId: pane.resumeId,
           profileId: pane.profileId,
@@ -242,6 +269,8 @@ export function restoreWorkspace(value: unknown): Workspace {
         projectId: p.projectId,
         cwd: p.cwd,
         homeDirectory: p.kind === 'shell' && p.projectId === null && p.homeDirectory === true,
+        ...(p.kind === 'shell' && p.projectId === null && p.homeDirectory === true && safeString(p.homePolicyRuntimeId, 128)
+          ? { homePolicyRuntimeId: p.homePolicyRuntimeId } : {}),
         ...(safeString(p.sessionId, 1024) ? { sessionId: p.sessionId } : {}),
         ...(safeString(p.resumeId, 1024) ? { resumeId: p.resumeId } : {}),
         ...(safeString(p.profileId, 128) ? { profileId: p.profileId } : {}),

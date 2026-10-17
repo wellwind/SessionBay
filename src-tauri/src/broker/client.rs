@@ -1,5 +1,6 @@
 use super::{
-    lock, transport, Request, Response, RuntimeInfo, RuntimeRecord, UiEmitter, UiEvent, PROTOCOL,
+    lock, transport, Request, Response, RuntimeInfo, RuntimeRecord, UiEmitter, UiEvent,
+    HOME_DIRECTORY_CAPABILITY, PROTOCOL,
 };
 use crate::{runtime::LaunchSpec, service::LaunchRequest};
 use std::{
@@ -29,6 +30,7 @@ impl Subscription {
 struct Inner {
     directory: PathBuf,
     generation: String,
+    home_directory_supported: bool,
     subscriptions: Mutex<HashMap<String, Arc<Subscription>>>,
 }
 /// Dropping this handle disconnects UI rendering only. It never stops the broker.
@@ -154,19 +156,34 @@ impl BrokerClient {
         Err(format!("Cannot connect to the runtime broker. Existing sessions were not restarted: {last_error}.{startup}"))
     }
     fn existing(directory: &Path) -> Result<Self, String> {
-        match exchange(directory, &Request::Hello { protocol: PROTOCOL })? {
+        Self::from_hello(
+            directory,
+            exchange(directory, &Request::Hello { protocol: PROTOCOL })?,
+        )
+    }
+    fn from_hello(directory: &Path, response: Response) -> Result<Self, String> {
+        match response {
             Response::Hello {
                 protocol: PROTOCOL,
                 generation,
+                capabilities,
             } => Ok(Self {
                 inner: Arc::new(Inner {
                     directory: directory.into(),
                     generation,
+                    home_directory_supported: capabilities
+                        .iter()
+                        .any(|value| value == HOME_DIRECTORY_CAPABILITY),
                     subscriptions: Mutex::new(HashMap::new()),
                 }),
             }),
             _ => Err("Incompatible runtime broker response".into()),
         }
+    }
+    #[cfg(all(test, unix))]
+    pub(crate) fn existing_for_test(parent: &Path) -> Result<Self, String> {
+        let directory = transport::private_directory(parent).map_err(|error| error.to_string())?;
+        Self::existing(&directory)
     }
     fn generation(&self) -> String {
         self.inner.generation.clone()
@@ -178,7 +195,18 @@ impl BrokerClient {
         match self.request(Request::List {
             generation: self.generation(),
         })? {
-            Response::Records { records } => Ok(records),
+            Response::Records { mut records } => {
+                if !self.inner.home_directory_supported {
+                    for record in &mut records {
+                        // Pre-capability hosts cannot know the policy omitted by this client.
+                        // Keep a positive flag from intermediate hosts, but expose false as unknown.
+                        if record.home_directory != Some(true) {
+                            record.home_directory = None;
+                        }
+                    }
+                }
+                Ok(records)
+            }
             _ => Err("Invalid runtime list response".into()),
         }
     }
@@ -199,17 +227,7 @@ impl BrokerClient {
         emit: UiEmitter,
     ) -> Result<RuntimeInfo, String> {
         let requested_pane = spec.pane_id.clone();
-        let response = self.request(Request::Launch {
-            generation: self.generation(),
-            spec: Box::new(spec),
-            kind: request.kind.clone(),
-            project_id: request.project_id.clone(),
-            profile_id: request.profile_id.clone(),
-            resume_id: request.resume_id.clone(),
-            home_directory: request.uses_home_directory(),
-            cols: request.cols,
-            rows: request.rows,
-        })?;
+        let response = self.request(self.launch_request(spec, request))?;
         let info = match response {
             Response::Runtime { info: Some(info) } => info,
             _ => return Err("Invalid runtime launch response".into()),
@@ -218,6 +236,21 @@ impl BrokerClient {
             self.attach_info(&info, lease, emit)?;
         }
         Ok(info)
+    }
+    fn launch_request(&self, spec: LaunchSpec, request: &LaunchRequest) -> Request {
+        Request::Launch {
+            generation: self.generation(),
+            spec: Box::new(spec),
+            kind: request.kind.clone(),
+            project_id: request.project_id.clone(),
+            profile_id: request.profile_id.clone(),
+            resume_id: request.resume_id.clone(),
+            // The desktop service already resolved/validated cwd. Older v1 hosts
+            // reject unknown fields, so omit only this metadata extension.
+            home_directory: request.uses_home_directory() && self.inner.home_directory_supported,
+            cols: request.cols,
+            rows: request.rows,
+        }
     }
     pub fn attach(&self, id: &str, lease: String, emit: UiEmitter) -> Result<RuntimeInfo, String> {
         let info = self
@@ -274,7 +307,9 @@ impl BrokerClient {
                             thread::sleep(Duration::from_millis(40));
                             continue;
                         }
-                        for event in events {
+                        // One acknowledged write for adjacent output already in this response.
+                        // Keep the existing per-event lease/cancellation and ACK wait below.
+                        for event in super::output_batch::batch_output(events) {
                             if subscription.cancelled.load(Ordering::Acquire) { return Ok(()); }
                             if let Some(sequence) = event.sequence() {
                                 lock(&subscription.flow).0 = Some(sequence);
@@ -381,3 +416,7 @@ impl BrokerClient {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "legacy_v1_tests.rs"]
+mod legacy_v1_tests;

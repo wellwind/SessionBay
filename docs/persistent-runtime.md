@@ -44,3 +44,9 @@ Broker 使用 vt100 重建 normal／alternate screen、游標、SGR 顏色、常
 開發環境禁止 Unix socket：本機 E2E 回報 EPERM；提出合法的執行升級後，執行器在建立 sandbox 時失敗，測試未執行。這個限制不會被忽略／轉成 passed。自動 Linux checks 必須在同提交執行完整核心測試後，才能勾選 Linux broker E2E。
 
 仍需手動驗收：macOS ARM64／Intel、Windows x64、Linux 桌面真實關窗與重開；Shell、Codex、Claude、Grok、Antigravity CLI 的進階 TUI；多 UI 同時 resize；UI 強制結束與 broker 強制結束；電腦重新開機後 interrupted 呈現。完整矩陣維持手動，不增加自動 CI 用量。原生 smoke 會在刪除自己的合成資料前，透過內部 `--sessionbay-runtime-broker-stop <appdata>` 明確關閉隔離 broker；此 helper 不使用 PID，也不會新建 broker。
+
+### Protocol 1 的功能協商
+
+Hello request 維持舊格式，Hello response 以可選 capabilities 宣告延伸功能。目前 `homeDirectory` 表示支援全域臨時 Shell 的家目錄政策 metadata。沒有此能力的既有 broker 可使用已由 Rust 解析好的明確家目錄 cwd 啟動；只省略未知政策欄位，保留 null project 與原 profile，不重送 Launch 或重啟任何既有程序。
+
+相容模式的 home 政策由已儲存 workspace 的 `homePolicyRuntimeId` 與 broker 回傳 runtime ID 比對；該 token 不可用來附接或自動啟動。舊 broker 沒有政策資料、workspace 也遺失時，恢復的 Terminal 使用明確 cwd。協商與相容處理在背景進行，不因缺少 capability 顯示例行版本提示；真正的連線、啟動與資料讀取錯誤仍保留。現代 broker 回傳的政策優先。詳細相容邊界見 2026-10-17 決策。

@@ -3,7 +3,7 @@
 from pathlib import Path
 import re
 
-css = (Path(__file__).resolve().parent.parent / 'src/workbench.css').read_text()
+css = (Path(__file__).resolve().parent.parent / 'src/workbench.css').read_text(encoding='utf-8')
 
 def luminance(color):
     channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]

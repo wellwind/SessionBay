@@ -4,6 +4,8 @@ import {
   selectWorkspaceTab,
   mergeWorkspaceProjects,
   closePane,
+  closeSuccessfulShell,
+  isSuccessfulShellExit,
   emptyWorkspace,
   layoutRects,
   localDayBound,
@@ -454,4 +456,54 @@ it('takes home launch policy only from the broker when restoring a live global r
     state: 'running', exitCode: null, homeDirectory: true }]);
   expect(next.panes['home-pane'].homeDirectory).toBe(true);
   expect(restoreWorkspace(serializeWorkspace(next)).panes['home-pane'].homeDirectory).toBe(true);
+});
+
+describe('completed Shell cleanup identity', () => {
+  const exited = (): Pane => ({ ...pane('a'), runtimeId: 'old', state: 'exited', exitCode: 0 });
+  it('closes the split pane and transfers focus after broker cleanup', () => {
+    const value = workspace();
+    value.panes.a = exited();
+    const next = closeSuccessfulShell(value, value.panes.a);
+    expect(paneIds(next.tabs[0].layout)).toEqual(['b']);
+    expect(next.tabs[0].focusedPaneId).toBe('b');
+    expect(next.panes.b).toEqual(value.panes.b);
+    expect(next.tabs[1]).toEqual(value.tabs[1]);
+  });
+  it.each([
+    { runtimeId: 'replacement' }, { startToken: 2 }, { state: 'running' },
+    { state: 'disconnected' }, { state: 'failed' }, { error: 'PTY error' },
+    { exitCode: null }, { kind: 'codex' },
+  ] satisfies Partial<Pane>[])('ignores stale cleanup after $state $runtimeId $startToken', patch => {
+    const value = workspace();
+    value.panes.a = { ...exited(), ...patch };
+    expect(closeSuccessfulShell(value, exited())).toBe(value);
+  });
+  it('ignores missing runtime IDs and saved placeholders', () => {
+    expect(isSuccessfulShellExit({ ...exited(), runtimeId: undefined })).toBe(false);
+    expect(isSuccessfulShellExit({ ...exited(), state: 'placeholder' })).toBe(false);
+    expect(closeSuccessfulShell(closePane(workspace(), 'a'), exited()).panes.a).toBeUndefined();
+  });
+});
+
+it('preserves legacy home policy only for the same broker-confirmed runtime identity', () => {
+  const record: RuntimeRecord = { id: 'home-runtime', paneId: 'home-pane', kind: 'shell',
+    projectId: null, profileId: 'chosen', sessionId: null, resumeId: null, cwd: '/trusted/home',
+    state: 'running', exitCode: null };
+  const live = reconcileRuntimes(emptyWorkspace(), [{ ...record, homeDirectory: true }]);
+  const saved = restoreWorkspace(serializeWorkspace(live));
+  expect(saved.panes['home-pane'].runtimeId).toBeUndefined();
+  expect(saved.panes['home-pane'].startToken).toBeUndefined();
+  expect(saved.panes['home-pane'].homePolicyRuntimeId).toBe(record.id);
+  const recovered = reconcileRuntimes(saved, [record]);
+  expect(recovered.panes['home-pane'].homeDirectory).toBe(true);
+  expect(recovered.panes['home-pane'].runtimeId).toBe(record.id);
+  expect(reconcileRuntimes(saved, [{ ...record, id: 'replacement' }]).panes['home-pane'].homeDirectory).toBe(false);
+  expect(reconcileRuntimes(saved, [{ ...record, homeDirectory: false }]).panes['home-pane'].homeDirectory).toBe(false);
+  expect(reconcileRuntimes(saved, [{ ...record, projectId: 'other-project' }]).panes['home-pane'].homeDirectory).toBe(false);
+  expect(reconcileRuntimes(saved, [{ ...record, sessionId: 'other-session' }]).panes['home-pane'].homeDirectory).toBe(false);
+  expect(reconcileRuntimes(saved, [{ ...record, resumeId: 'other-resume' }]).panes['home-pane'].homeDirectory).toBe(false);
+  expect(reconcileRuntimes(emptyWorkspace(), [record]).panes['home-pane'].homeDirectory).toBe(false);
+  // A saved comparison token alone never adopts or starts a process.
+  expect(reconcileRuntimes(saved, []).panes['home-pane'].runtimeId).toBeUndefined();
+  expect(reconcileRuntimes(saved, []).panes['home-pane'].state).toBe('placeholder');
 });

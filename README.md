@@ -47,7 +47,8 @@ npm run tauri -- build
 | [技術架構](docs/architecture.md) | Tauri、Rust、PTY、資料流、索引與效能設計 |
 | [持續 Runtime](docs/persistent-runtime.md) | 背景 broker、同程序重新附接與原生待驗項目 |
 | [OpenCode 整合](docs/opencode-integration.md) | 唯讀 SQLite 歷史、安全接續與版本限制 |
-| [Terminal Shift＋Enter](docs/terminal-keyboard.md) | 原位輸入、工具預設與 Shell 手動模式 |
+| [Terminal 工作列邊界回歸](docs/terminal-layout-regression.md) | xterm 尺寸契約、合成 browser 截圖與原生驗收限制 |
+| [Terminal Shift＋Enter](docs/terminal-keyboard.md) | 統一 CSI-u 原位輸入、查核版本與相容性限制 |
 | [批次整合驗證](docs/batch-integration-validation.md) | 修訂後來源、自動化證據與原生待驗項目 |
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
 | [Antigravity CLI 歷史相容性](docs/antigravity-cli-history.md) | 持久化格式依據、唯讀安全、接續限制與 1.3.5 待驗條件 |
@@ -61,8 +62,12 @@ npm run tauri -- build
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
 | [全域臨時 Terminal](docs/temporary-terminal.md) | 無專案 home Shell、舊 cwd 相容與驗證邊界 |
 | [索引效能量測](docs/index-performance.md) | 1k／10k／長對話的可重複合成 before／after、資料安全與未解瓶頸 |
+| [搜尋效能第二階段](docs/search-performance.md) | 獨立 10k 搜尋 profiling、候選密度策略與完整 raw before／after |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
+| [原始對話永久刪除調查](docs/permanent-deletion-investigation.md) | 功能未完成：provider 契約、架構缺口與後續路線 |
+| [永久刪除安全分析](docs/permanent-deletion-safety-review.md) | 普通競態、外部 ABA、API 邊界與驗收前提 |
+| [永久刪除合成探針](docs/permanent-deletion-probes.md) | 只使用暫存 marker DB 的可重現負面案例 |
 
 ## 目前範圍
 
@@ -97,4 +102,8 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 - [持續執行與重新附接](docs/persistent-runtime.md)：獨立 broker、關閉介面保留程序、狀態恢復與原生待驗項目。
 
-- [Terminal Shift＋Enter](docs/terminal-keyboard.md)：原位輸入模式、Shell 手動選擇、查核版本與平台限制。
+- [Terminal Shift＋Enter](docs/terminal-keyboard.md)：統一 CSI-u 原位輸入、查核版本與平台限制。
+
+- [Agent 圖片拖放與貼上：範圍、限制及驗證狀態](docs/image-input.md)
+
+側欄瀏覽器回歸測試：`npm run test:sidebar`（需 Playwright Chromium；可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安裝執行檔）。測試使用合成 bridge，不啟動原生 Shell 或讀取使用者資料；不等同原生 WebView 驗收。

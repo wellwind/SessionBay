@@ -1,6 +1,6 @@
 # Native WebView/IPC smoke with no real histories, credentials, or agent launches.
 # Requires a built Windows executable and the logged-in CI desktop session.
-param([string]$Binary = "$PSScriptRoot/../src-tauri/target/release/sessionbay.exe")
+param([string]$Binary = "$PSScriptRoot/../src-tauri/target/release/sessionbay.exe", [switch]$Terminal)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/windows-smoke-cleanup.ps1"
 $Binary = (Resolve-Path $Binary).Path
@@ -21,11 +21,11 @@ try {
             version = 1; theme = $theme; terminalTheme = 'bay'
             fontFamily = 'Consolas, monospace'; fontSize = 14
             defaultAgent = 'codex'; defaultProfileId = 'smoke-shell'
-            profiles = @(@{ id = 'smoke-shell'; name = 'PowerShell'; executable = $shell; args = @('-NoLogo'); env = @{} })
+            profiles = @(@{ id = 'smoke-shell'; name = 'PowerShell'; executable = $shell; args = @('-NoLogo', '-NoProfile'); env = @{ SESSIONBAY_SMOKE_INPUT_MARKER = (Join-Path $state 'terminal-input.txt') } })
             sources = @(); executables = @{}; agentOptions = @{}
             shortcuts = @{}; onboardingComplete = $false
         }
-        foreach ($kind in @('codex', 'claude', 'grok', 'antigravity')) {
+        foreach ($kind in @('codex', 'claude', 'grok', 'antigravity', 'opencode')) {
             $settings.executables[$kind] = Join-Path $state "unavailable-$kind.exe"
             $settings.agentOptions[$kind] = @{ extraArgs = @(); bypassPermissions = $false }
         }
@@ -33,7 +33,7 @@ try {
         $stdoutPath = Join-Path $output "$theme-stdout.log"
         $stderrPath = Join-Path $output "$theme-stderr.log"
         $process = Start-SessionBaySmokeCapture -Binary $Binary -StdoutPath $stdoutPath -StderrPath $stderrPath `
-            -Environment @{ SESSIONBAY_SMOKE = '1'; SESSIONBAY_SMOKE_APP_DATA = $state }
+            -Environment @{ SESSIONBAY_SMOKE = '1'; SESSIONBAY_SMOKE_APP_DATA = $state; SESSIONBAY_SMOKE_TERMINAL = $(if ($Terminal) { '1' } else { '0' }) }
         # The process stays open after the self-check. Bounded timing avoids leaving
         # a hung WebView behind; file capture does not wait for descendant pipe EOF.
         $deadline = [DateTime]::UtcNow.AddSeconds(45)
@@ -53,6 +53,12 @@ try {
         $log | Set-Content -Encoding utf8 (Join-Path $output "$theme-app.log")
         if ($exitedEarly -or !$windowSeen) { throw 'Native Windows window did not remain alive.' }
         Assert-SessionBaySmokeMarkers -Log $log
+        if ($Terminal) {
+            if ($log -notmatch 'terminal:launch-input-exit-close') { throw 'Terminal UI lifecycle smoke did not finish.' }
+            if ((Get-Content -Raw -LiteralPath (Join-Path $state 'terminal-input.txt')) -ne 'received') {
+                throw 'The isolated shell did not execute the input received through xterm.'
+            }
+        }
         $saved = Get-Content -Raw (Join-Path $state 'settings.json') | ConvertFrom-Json
         if (@($saved.sources).Count -ne 0) { throw 'Smoke unexpectedly added a history source.' }
         $process.Dispose()
@@ -75,5 +81,10 @@ try {
     Clear-SessionBaySmokeState -Binary $Binary -States $states.ToArray() `
         -TemporaryDirectory $temporary -OutputDirectory $output -PriorError (($primaryError, $closeError | Where-Object { $_ }) -join "`n")
 }
-'Native Windows dark/light startup, visible window, DOM interaction, backend IPC, and awaited broker cleanup passed with isolated empty sources. Terminal/IME, real CLI resume, and installer execution require separate acceptance.' |
+'Native Windows dark/light startup, visible window, DOM interaction, backend IPC, and awaited broker cleanup passed with isolated empty sources. See terminal-result.txt when -Terminal was requested; IME, real CLI resume, and installer execution require separate acceptance.' |
     Set-Content -Encoding utf8 (Join-Path $output 'result.txt')
+
+if ($Terminal) {
+    'Native dark/light PowerShell launch, xterm input, marker verification, exit code 0, automatic pane/record cleanup, and broker cleanup passed.' |
+        Set-Content -Encoding utf8 (Join-Path $output 'terminal-result.txt')
+}

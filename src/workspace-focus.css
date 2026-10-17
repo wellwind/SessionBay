@@ -1,0 +1,37 @@
+/* Focus is app chrome presentation, never another workspace or native fullscreen. */
+.app-shell.workspace-focus > .app-topbar,
+.app-shell.workspace-focus > .app-body > .sidebar,
+.app-shell.workspace-focus .project-header,
+.app-shell.workspace-focus > .statusbar:not(.statusbar-important) {
+  display: none;
+}
+.workspace-tabs > .focus-project-control,
+.workspace-tabs > .focus-mode-toggle {
+  flex-shrink: 0;
+  gap: 6px;
+  min-height: 44px;
+  color: var(--text);
+}
+.workspace-tabs > .focus-project-control {
+  max-width: 200px;
+}
+.focus-project-control span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tabs > .focus-mode-toggle {
+  margin-left: auto;
+  position: sticky;
+  right: -1px;
+  z-index: 2;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding-inline: 10px;
+}
+.workspace-focus .workspace-tabs {
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .workspace-tabs > .focus-project-control { max-width: 130px; }
+}

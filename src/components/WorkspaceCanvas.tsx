@@ -64,7 +64,7 @@ export function WorkspaceCanvas({
   };
   return (
     <div
-      className="workspace-canvas"
+      className={`workspace-canvas${tab?.layout.kind === 'pane' ? ' single-pane' : ''}`}
       ref={root}
       style={{ display: visible ? undefined : 'none' }}
       aria-label="開發工作區"
@@ -87,6 +87,7 @@ export function WorkspaceCanvas({
               projectAvailable={pane.projectId !== null && knownProjectIds.includes(pane.projectId)}
               settings={settings}
               visible={show}
+              activityVisible={visible && !!rect}
               focused={tab?.focusedPaneId === pane.id}
               maximized={maximizedId === pane.id}
               onPatch={onPatch}

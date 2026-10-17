@@ -57,7 +57,7 @@
 
 ## 08 Shift＋Enter 換行
 
-- [x] 原位 Shift＋Enter、registry 預設／面板手動模式及焦點／IME 自動回歸；無 LF／CR fallback。
+- [x] 原位 Shift＋Enter 與焦點／IME 自動回歸；2026-10-17 改為統一 CSI-u、不顯示模式介面，無 LF／CR fallback。
 - [ ] 原生三平台 WebView／真實 Shell 或 Agent 互動驗收。
 - 類型：問題／功能
 - 需求與驗收重點：使用者表示目前似乎不可用，需重現。確認各 Shell／Agent 的多行輸入與鍵盤協定；支援時能換行而不提前送出，與 IME 組字互不干擾。不支援的工具應明示限制。最新原位方案、decoder 查核與 Windows Codex 等平台限制見 [Terminal 按鍵](terminal-keyboard.md)。
@@ -78,6 +78,7 @@
 - 類型：效能問題／研究
 - 需求與驗收重點：使用者回報索引時間過長，需用實際資料量與平台量測冷啟動、首次全量、增量及不變資料重掃；記錄耗時、CPU、記憶體與 UI 可用性。找出瓶頸再設定改善目標，不能以合成搜尋延遲代替索引耗時。
 - 2026-10-16 第一階段：SQL statement 重用與 Codex fallback 去重熱路徑已有實作及合成 1k／10k／長對話 before／after，詳見[索引效能量測](index-performance.md)。尚缺真實來源、原生 UI／CPU 分析及其他平台驗收；10k 高命中率字串搜尋仍有瓶頸，本項維持未完成。
+- 2026-10-17 第二階段：獨立[搜尋 profiling 與候選密度策略](search-performance.md)在兩組合成 10k 觀測達到 backend warm p95 1 秒內，保留完整 raw 結果、RSS 增加與 filter-only 成本回歸。原生 UI、真實來源／其他 provider 與跨平台驗收仍未完成；不覆寫第一階段波動紀錄。
 
 ## 11 參考 Herdr／Orca 等 ADE
 

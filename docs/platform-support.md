@@ -90,3 +90,9 @@ Windows workflow 執行完整 Rust tests／Clippy、NSIS build，再以 `ci-wind
 Linux cloud：前端 401 個、Rust core 248 個測試，以及 typecheck／lint／build／fmt／strict Clippy 通過。正式 repo Windows GNU target 包含 Tauri desktop 的 all-target check／strict Clippy、bundled SQLite 與所有 core test executables 交叉連結通過；未執行 Windows 二進位檔。完整範圍見 [MVP 驗收紀錄](mvp-validation.md)。
 
 此環境沒有 Windows／macOS 原生執行器，也沒有 WebKitGTK 開發套件。未執行的原生 MSVC／macOS／Linux desktop build、installer、WebView／ConPTY 及真實 CLI 驗收一律保持待驗；保留 Draft 不等於已可合併或發行。
+
+### Windows 合成 Terminal GUI 回歸
+
+`./scripts/ci-windows-smoke.ps1 -Terminal` 在原本 dark/light 原生視窗檢查之外，明確啟用隔離 PowerShell 回歸。runner 使用 `-NoProfile`、空白 history sources、全部不可用的 Agent executable 與獨立 app-data；透過真正的 Terminal 按鈕啟動 shell，再由 xterm input event 輸入固定合成命令。runner 核對隔離 marker、正常退出後面板／broker record 自動清理，以及最後 broker shutdown。這不讀取剪貼簿、不啟動外部 Agent，不涵蓋實體鍵盤、IME 或 installer 安裝。未加 `-Terminal` 時，既有 smoke 不啟動 shell。
+
+可用 `-Binary <本次建置的 sessionbay.exe 絕對路徑>` 指定隔離 build。輸出位於 `artifacts/windows-smoke/`；成功的額外結果寫入 `terminal-result.txt`。Windows ARM64 上實際執行 x64 binary 屬於 emulation 驗證，不能標記為實體 x64／Windows Server 或 pre-24H2 驗證。

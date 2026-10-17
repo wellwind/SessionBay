@@ -4,7 +4,7 @@ import ts from 'typescript';
 import vector from '../fixtures/keyboard/shift-enter.json';
 import terminalSource from '../node_modules/@xterm/xterm/src/browser/Terminal.ts?raw';
 import keyboardSource from '../node_modules/@xterm/xterm/src/common/input/Keyboard.ts?raw';
-import { defaultShiftEnter, handleTerminalKey, shiftEnterSequence } from './terminal-keyboard';
+import { handleTerminalKey, shiftEnterSequence } from './terminal-keyboard';
 import { reservedWorkspaceShortcut, shortcutConflicts } from './commands';
 
 const key = (type = 'keydown', init: KeyboardEventInit = {}) => new KeyboardEvent(type, {
@@ -12,23 +12,11 @@ const key = (type = 'keydown', init: KeyboardEventInit = {}) => new KeyboardEven
 });
 function harness(patch: Partial<Parameters<typeof handleTerminalKey>[1]> = {}) {
   const input = vi.fn();
-  const options = { encoding: 'csi-u' as const, composing: false, canInput: true, blocked: false, input, ...patch };
+  const options = { composing: false, canInput: true, blocked: false, input, ...patch };
   return { input, run: (event: KeyboardEvent) => handleTerminalKey(event, options) };
 }
 
 describe('explicit modified Enter compatibility', () => {
-  it.each(['codex', 'claude', 'opencode'])('defaults verified %s Unix decoders to CSI-u', (kind) => {
-    expect(defaultShiftEnter(kind, 'posix')).toBe('csi-u');
-  });
-  it.each(['shell', 'grok', 'antigravity', 'custom', '', '__proto__', 'toString'])('retains native behavior for %j', (kind) => {
-    expect(defaultShiftEnter(kind, 'posix')).toBe('native');
-    expect(defaultShiftEnter(kind, 'windows')).toBe('native');
-  });
-  it('does not extrapolate the Unix Codex parser to Windows console input', () => {
-    expect(defaultShiftEnter('codex', 'windows')).toBe('native');
-    expect(defaultShiftEnter('claude', 'windows')).toBe('csi-u');
-    expect(defaultShiftEnter('opencode', 'windows')).toBe('csi-u');
-  });
   it('consumes all three phases with exactly one input and no CR/LF', () => {
     const h = harness();
     for (const type of ['keydown', 'keypress', 'keyup']) {
@@ -56,8 +44,8 @@ describe('explicit modified Enter compatibility', () => {
     expect(event.defaultPrevented).toBe(false);
     expect(h.input).not.toHaveBeenCalled();
   });
-  it.each([{ composing: true }, { encoding: 'native' as const }])('does not interfere with %j', (options) => {
-    const h = harness(options); const event = key();
+  it('does not interfere with active IME composition', () => {
+    const h = harness({ composing: true }); const event = key();
     expect(h.run(event)).toBe(true);
     expect(event.defaultPrevented).toBe(false);
     expect(h.input).not.toHaveBeenCalled();

@@ -122,6 +122,8 @@ pub struct Settings {
     pub executables: Executables,
     #[serde(default)]
     pub agent_options: AgentOptions,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub agent_enabled: HashMap<String, bool>,
     pub shortcuts: HashMap<String, String>,
     pub onboarding_complete: bool,
 }
@@ -174,6 +176,7 @@ impl Default for Settings {
                 .collect(),
             executables: Executables::default(),
             agent_options: AgentOptions::default(),
+            agent_enabled: HashMap::new(),
             shortcuts,
             onboarding_complete: false,
         }
@@ -203,6 +206,15 @@ fn valid_theme_id(id: &str) -> bool {
 }
 
 impl Settings {
+    /// Absent entries remain enabled, including settings saved before this field existed.
+    /// String keys preserve future provider IDs across older application versions.
+    pub fn is_agent_enabled(&self, kind: AgentKind) -> bool {
+        self.agent_enabled
+            .get(kind.as_str())
+            .copied()
+            .unwrap_or(true)
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
             return Err("不支援的設定版本；請保留原檔並更新應用程式".into());
@@ -835,6 +847,61 @@ mod tests {
         let settings = Settings::default();
         settings.validate().unwrap();
         assert_eq!(settings.shortcuts["next-pane"], "Mod+Alt+ArrowDown");
+    }
+    #[test]
+    fn legacy_agent_enablement_defaults_to_enabled_and_keeps_other_settings() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("agentEnabled");
+        old["fontSize"] = 21.into();
+        old["executables"]["codex"] = "synthetic-custom-codex".into();
+        let migrated: Settings = serde_json::from_value(old).unwrap();
+        assert!(migrated.agent_enabled.is_empty());
+        for kind in AgentKind::ALL {
+            assert!(migrated.is_agent_enabled(kind));
+        }
+        assert_eq!(migrated.font_size, 21);
+        assert_eq!(migrated.executables.codex, "synthetic-custom-codex");
+        migrated.validate().unwrap();
+    }
+
+    #[test]
+    fn agent_enablement_roundtrips_known_and_future_ids_without_changing_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ConfigStore::open(dir.path().join("app")).unwrap();
+        let mut settings = Settings {
+            agent_enabled: HashMap::from([
+                ("codex".into(), false),
+                ("claude".into(), true),
+                ("future-agent".into(), false),
+            ]),
+            ..Settings::default()
+        };
+        settings.sources[0].enabled = false;
+        let sources = serde_json::to_value(&settings.sources).unwrap();
+        store.save_settings(&settings).unwrap();
+        let (loaded, warnings) = store.load_settings();
+        assert!(warnings.is_empty());
+        assert_eq!(loaded.agent_enabled, settings.agent_enabled);
+        assert!(!loaded.is_agent_enabled(AgentKind::Codex));
+        assert!(loaded.is_agent_enabled(AgentKind::Claude));
+        assert!(loaded.is_agent_enabled(AgentKind::Grok));
+        assert_eq!(serde_json::to_value(&loaded.sources).unwrap(), sources);
+        let serialized = serde_json::to_value(&loaded).unwrap();
+        assert_eq!(serialized["agentEnabled"]["future-agent"], false);
+        assert!(serialized.get("agent_enabled").is_none());
+    }
+
+    #[test]
+    fn agent_enablement_rejects_non_boolean_map_values() {
+        for value in [
+            serde_json::json!({"codex":"false"}),
+            serde_json::json!({"codex":0}),
+            serde_json::Value::Null,
+        ] {
+            let mut settings = serde_json::to_value(Settings::default()).unwrap();
+            settings["agentEnabled"] = value;
+            assert!(serde_json::from_value::<Settings>(settings).is_err());
+        }
     }
     #[test]
     fn workspace_zoom_migrates_and_roundtrips_independently_of_font() {

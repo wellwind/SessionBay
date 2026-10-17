@@ -49,26 +49,6 @@ pub struct LaunchCapability {
     pub cwd_args: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum ShiftEnterEncoding {
-    Native,
-    CsiU,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlatformKeyEncoding {
-    pub posix: ShiftEnterEncoding,
-    pub windows: ShiftEnterEncoding,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct KeyboardCapability {
-    pub shift_enter: PlatformKeyEncoding,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderDefinition {
@@ -77,7 +57,6 @@ pub struct ProviderDefinition {
     pub executable: String,
     pub logo: String,
     pub bypass_flag: String,
-    pub keyboard: KeyboardCapability,
     pub history: HistoryCapability,
     pub resume: ResumeCapability,
     pub launch: LaunchCapability,
@@ -334,35 +313,6 @@ mod tests {
             .history
             .source_env
             .is_none());
-    }
-
-    #[test]
-    fn shift_enter_defaults_are_explicit_and_platform_bounded() {
-        for provider in definitions() {
-            let verified = matches!(
-                provider.id,
-                AgentKind::Codex | AgentKind::Claude | AgentKind::OpenCode
-            );
-            assert_eq!(
-                provider.keyboard.shift_enter.posix,
-                if verified {
-                    ShiftEnterEncoding::CsiU
-                } else {
-                    ShiftEnterEncoding::Native
-                }
-            );
-            assert_eq!(
-                provider.keyboard.shift_enter.windows,
-                if verified && provider.id != AgentKind::Codex {
-                    ShiftEnterEncoding::CsiU
-                } else {
-                    ShiftEnterEncoding::Native
-                }
-            );
-        }
-        let mut invalid: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
-        invalid["providers"][0]["keyboard"]["shiftEnter"]["posix"] = "lf".into();
-        assert!(Manifest::parse(&invalid.to_string()).is_err());
     }
 
     #[test]
