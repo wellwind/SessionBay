@@ -1,0 +1,19 @@
+{
+  "os": "Linux",
+  "release": "6.18.44",
+  "architecture": "x86_64",
+  "availableLogicalCpus": 9,
+  "cpuModel": "AMD EPYC 9V74 80-Core Processor",
+  "memoryTotalKiB": "10206508",
+  "build": "Rust 1.99.0, --release --locked --offline --no-default-features --features search-profile",
+  "sqlite": "3.50.2 bundled",
+  "baseCommit": "990ece9",
+  "baselineInstrumentationCommit": "188eaa24f6a5b3c669286a22776280ebdec4b58a",
+  "measurementOrder": [
+    "before",
+    "after",
+    "before-repeat",
+    "after-repeat"
+  ],
+  "cache": "No OS cache eviction. Fresh SQLite connection for every query; first query excluded from warm percentiles. Shared machine, no CPU or IO exclusivity."
+}

@@ -206,3 +206,13 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 ## 圖片輸入來源（2026-10-17）
 
 固定官方來源 commit、版本與適用限制集中於 [圖片輸入來源](image-input.md#固定來源2026-10-17-查閱)。
+
+## Terminal 同步重繪（2026-10-17）
+
+- [xterm 6.0.0 release](https://github.com/xtermjs/xterm.js/releases/tag/6.0.0)：DEC 2026 synchronized output 為 6.0 新增功能；目前 5.5 安裝來源沒有此 mode 分支。
+- [6.0 InputHandler](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/common/InputHandler.ts) 與 [RenderService](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/services/RenderService.ts)：同步模式由 parser 與 renderer 協作，不宜以任意延遲或無上限 ANSI 字串緩衝代替。此次只調整既有 Poll 回應的傳輸批次，未升級依賴；來源查核不代表使用者問題已在原生 WebView 解決。
+
+## 搜尋候選密度與查詢計畫（2026-10-17）
+
+- [SQLite optimizer overview](https://www.sqlite.org/optoverview.html#manual_control_of_query_plans_using_cross_join)：CROSS JOIN 固定左側迴圈在前；本次配合既有 messages_file index，避免 dense candidate-aware EXISTS 對每個 Session 重掃全體候選。實際 bundled SQLite query plan 另存於搜尋報告，不把 planner 選擇視為所有 SQLite 版本的效能保證。
+- [SQLite FTS5 trigram tokenizer](https://www.sqlite.org/fts5.html#the_trigram_tokenizer)：FTS trigram 用來縮小候選，本產品仍以原 literal predicate 驗證正文，保留 ASCII 大小寫、標點與多語語意。候選密度 probe 不修改 FTS 資料，也不縮小完整結果集。

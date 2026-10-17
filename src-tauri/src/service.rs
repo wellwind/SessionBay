@@ -8,7 +8,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -125,13 +125,6 @@ impl Service {
         if let Some(w) = warning {
             warnings.push(w);
         }
-        if let Some(warning) = self
-            .broker
-            .as_ref()
-            .and_then(BrokerClient::compatibility_warning)
-        {
-            warnings.push(warning.into());
-        }
         Ok(Bootstrap {
             projects: self.catalog.projects()?,
             installations: config::detect_paths(&settings),
@@ -205,15 +198,22 @@ impl Service {
                 if rebuild {
                     service.catalog.clear()?;
                 }
-                let sources = service.settings()?.sources;
-                service
-                    .catalog
-                    .sync(&sources, &service.cancel, |mut progress| {
+                let settings = service.settings()?;
+                let paused_providers: HashSet<_> = AgentKind::ALL
+                    .into_iter()
+                    .filter(|kind| !settings.is_agent_enabled(*kind))
+                    .collect();
+                service.catalog.sync_with_paused_providers(
+                    &settings.sources,
+                    &paused_providers,
+                    &service.cancel,
+                    |mut progress| {
                         if let Ok(mut status) = service.index.lock() {
                             progress.revision = service.revision.load(Ordering::Acquire);
                             *status = progress;
                         }
-                    })
+                    },
+                )
             })();
             if let Ok(mut status) = service.index.lock() {
                 match result {
@@ -289,6 +289,17 @@ impl Service {
             return Err("Choose an indexed session or a manual resume ID, not both.".into());
         }
         let settings = self.settings()?;
+        let agent = if request.kind == "shell" {
+            None
+        } else {
+            Some(AgentKind::parse(&request.kind)?)
+        };
+        if let Some(kind) = agent.filter(|kind| !settings.is_agent_enabled(*kind)) {
+            return Err(format!(
+                "{} is disabled. Enable it in Settings before starting or resuming a session.",
+                crate::providers::definition(kind).name
+            ));
+        }
         let mut env = HashMap::new();
         let mut args = vec![];
         let mut resume_key = None;
@@ -314,11 +325,6 @@ impl Service {
                 cwd = project.launch_path.or(project.path);
             }
         }
-        let agent = if request.kind == "shell" {
-            None
-        } else {
-            Some(AgentKind::parse(&request.kind)?)
-        };
         if let Some(resume_id) = &request.resume_id {
             if !agent.is_some_and(|kind| crate::providers::definition(kind).resume.manual_id) {
                 return Err("Manual resume IDs are not supported by this provider.".into());
@@ -405,26 +411,7 @@ impl Service {
             }
             if let Some(id) = &request.resume_id {
                 args = resume_arguments(kind, id);
-                let provider = crate::providers::definition(kind);
-                let source_root = history_environment(kind)
-                    .and_then(|key| env.get(key).cloned())
-                    .map(|value| {
-                        if kind == AgentKind::OpenCode {
-                            PathBuf::from(&value)
-                                .parent()
-                                .unwrap()
-                                .to_string_lossy()
-                                .into_owned()
-                        } else {
-                            value
-                        }
-                    })
-                    .unwrap_or_else(|| {
-                        provider
-                            .state_root(&config::default_home())
-                            .to_string_lossy()
-                            .into_owned()
-                    });
+                let source_root = manual_resume_root(&settings, kind)?;
                 resume_key = Some(provider_resume_key(kind, &source_root, id)?);
             }
         }
@@ -501,6 +488,62 @@ impl Service {
         request: &LaunchRequest,
         emit: Arc<dyn Fn(TerminalEvent) -> Result<(), String> + Send + Sync>,
     ) -> Result<RuntimeInfo, String> {
+        if let Some(key) = self.existing_resume_key(request)? {
+            if let Some(existing) = self.runtime.find_running_resume(&key) {
+                return Ok(existing);
+            }
+        }
+        let spec = self.plan_launch(request)?;
+        self.runtime.launch(spec, request.cols, request.rows, emit)
+    }
+
+    fn existing_resume_key(&self, request: &LaunchRequest) -> Result<Option<String>, String> {
+        if request.pane_id.is_empty()
+            || request.pane_id.len() > 128
+            || request.pane_id.contains('\0')
+            || request.cols < 2
+            || request.cols > 1000
+            || request.rows < 1
+            || request.rows > 1000
+        {
+            return Ok(None);
+        }
+        if let Some(id) = request
+            .resume_id
+            .as_ref()
+            .filter(|_| request.session_id.is_none())
+        {
+            let kind = AgentKind::parse(&request.kind)?;
+            if !crate::providers::definition(kind).resume.manual_id {
+                return Ok(None);
+            }
+            validate_resume_id(id)?;
+            if kind == AgentKind::OpenCode && !crate::opencode::valid_session_id(id) {
+                return Ok(None);
+            }
+            let mut cwd = request.cwd.clone();
+            if let Some(project_id) = &request.project_id {
+                let project = self
+                    .catalog
+                    .projects()?
+                    .into_iter()
+                    .find(|project| &project.id == project_id)
+                    .ok_or("找不到專案，請重新選擇")?;
+                if cwd.is_none() {
+                    cwd = project.launch_path.or(project.path);
+                }
+            }
+            if !cwd.as_ref().is_some_and(|cwd| {
+                let path = std::path::Path::new(cwd);
+                path.is_absolute() && path.is_dir()
+            }) {
+                return Ok(None);
+            }
+            let Ok(root) = manual_resume_root(&self.settings()?, kind) else {
+                return Ok(None);
+            };
+            return Ok(provider_resume_key(kind, &root, id).ok());
+        }
         // Focus a live source-qualified conversation even when its transcript
         // has grown. A catalog ID alone is insufficient: source IDs can
         // be repointed to another root while an older runtime is still active.
@@ -531,21 +574,18 @@ impl Service {
                                     && cached.root == source.root
                             });
                         if source_unchanged && self.catalog.indexed_files_still_match(id)? {
-                            let key = provider_resume_key(
+                            return provider_resume_key(
                                 session.kind,
                                 &source.root,
                                 &session.external_id,
-                            )?;
-                            if let Some(existing) = self.runtime.find_running_resume(&key) {
-                                return Ok(existing);
-                            }
+                            )
+                            .map(Some);
                         }
                     }
                 }
             }
         }
-        let spec = self.plan_launch(request)?;
-        self.runtime.launch(spec, request.cols, request.rows, emit)
+        Ok(None)
     }
     pub fn broker(&self) -> Result<&BrokerClient, String> {
         self.broker
@@ -558,6 +598,17 @@ impl Service {
         attachment_id: String,
         emit: UiEmitter,
     ) -> Result<RuntimeInfo, String> {
+        // Focus/reattach an existing process before applying the new-launch policy.
+        // A provider toggle must never strand a live conversation behind plan_launch.
+        if let Some(key) = self.existing_resume_key(request)? {
+            if let Some(existing) = self.broker()?.find_running_resume(&key)? {
+                return if existing.pane_id == request.pane_id {
+                    self.broker()?.attach(&existing.id, attachment_id, emit)
+                } else {
+                    Ok(existing)
+                };
+            }
+        }
         let spec = self.plan_launch(request)?;
         self.broker()?.launch(spec, request, attachment_id, emit)
     }
@@ -581,6 +632,25 @@ fn temporary_terminal_home(home: Option<PathBuf>) -> Result<PathBuf, String> {
         return Err("本機家目錄不存在或不是絕對目錄".into());
     }
     Ok(home)
+}
+
+fn manual_resume_root(settings: &Settings, kind: AgentKind) -> Result<String, String> {
+    if history_environment(kind).is_some() {
+        let mut sources = settings
+            .sources
+            .iter()
+            .filter(|source| source.enabled && source.kind == kind);
+        if let Some(source) = sources.next() {
+            if sources.next().is_some() {
+                return Err("Manual resume is ambiguous with multiple enabled history sources. Choose an indexed session or enable only the intended source.".into());
+            }
+            return Ok(source.root.clone());
+        }
+    }
+    Ok(crate::providers::definition(kind)
+        .state_root(&config::default_home())
+        .to_string_lossy()
+        .into_owned())
 }
 
 fn provider_resume_key(kind: AgentKind, root: &str, id: &str) -> Result<String, String> {
@@ -661,6 +731,120 @@ fn empty_index() -> IndexStatus {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn disabled_provider_keeps_persistent_focus_and_attachment_without_new_processes() {
+        use std::{fs, os::unix::fs::PermissionsExt, time::Instant};
+        let temp = tempfile::tempdir().unwrap();
+        let app = temp.path().join("app");
+        ConfigStore::open(app.clone()).unwrap();
+        let broker_dir = app.clone();
+        let host = std::thread::spawn(move || crate::broker::run(broker_dir));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let client = loop {
+            if let Ok(client) = BrokerClient::existing_for_test(&app) {
+                break client;
+            }
+            if host.is_finished() {
+                panic!("Test broker stopped: {:?}", host.join().unwrap());
+            }
+            assert!(Instant::now() < deadline, "test broker did not start");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let service = Service::open_internal(app, Some(client.clone())).unwrap();
+        let executable = temp.path().join("synthetic sleeper");
+        fs::write(&executable, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let root = temp.path().join("history");
+        fs::create_dir_all(root.join("sessions")).unwrap();
+        fs::write(root.join("sessions/live.jsonl"), format!("{}\n", serde_json::json!({"type":"session_meta","payload":{"id":"live-session","cwd":temp.path()}}))).unwrap();
+        let mut settings = service.settings().unwrap();
+        settings.sources = vec![crate::models::HistorySource {
+            id: "synthetic-codex".into(),
+            kind: AgentKind::Codex,
+            root: root.to_string_lossy().into_owned(),
+            enabled: true,
+        }];
+        settings.executables.codex = executable.to_string_lossy().into_owned();
+        settings.executables.grok = settings.executables.codex.clone();
+        service.save_settings(settings.clone()).unwrap();
+        service
+            .catalog
+            .sync(&settings.sources, &AtomicBool::new(false), |_| {})
+            .unwrap();
+        let session = service
+            .catalog
+            .query(&crate::models::SessionQuery::default())
+            .unwrap()
+            .items
+            .remove(0);
+        for kind in [AgentKind::Codex, AgentKind::Grok] {
+            let mut launch = request(Some(temp.path().to_string_lossy().into_owned()));
+            launch.kind = kind.as_str().into();
+            launch.pane_id = format!("{}-pane", kind.as_str());
+            if kind == AgentKind::Codex {
+                launch.session_id = Some(session.id.clone());
+            } else {
+                launch.resume_id = Some("synthetic-live-grok".into());
+            }
+            let first = service
+                .launch_persistent(
+                    &launch,
+                    uuid::Uuid::new_v4().to_string(),
+                    Arc::new(|_| Ok(())),
+                )
+                .unwrap();
+            settings.agent_enabled.insert(kind.as_str().into(), false);
+            service.save_settings(settings.clone()).unwrap();
+            let reattached = service
+                .launch_persistent(
+                    &launch,
+                    uuid::Uuid::new_v4().to_string(),
+                    Arc::new(|_| Ok(())),
+                )
+                .unwrap();
+            assert_eq!(reattached.id, first.id);
+            launch.pane_id = format!("{}-other-pane", kind.as_str());
+            let focused = service
+                .launch_persistent(
+                    &launch,
+                    uuid::Uuid::new_v4().to_string(),
+                    Arc::new(|_| Ok(())),
+                )
+                .unwrap();
+            assert_eq!(focused.id, first.id);
+            let attached = client
+                .attach(
+                    &first.id,
+                    uuid::Uuid::new_v4().to_string(),
+                    Arc::new(|_| Ok(())),
+                )
+                .unwrap();
+            assert_eq!(attached.state, "running");
+            assert_eq!(
+                client
+                    .list()
+                    .unwrap()
+                    .iter()
+                    .filter(|record| record.info.state == "running")
+                    .count(),
+                1
+            );
+            client.stop(&first.id).unwrap();
+            assert!(service
+                .launch_persistent(
+                    &launch,
+                    uuid::Uuid::new_v4().to_string(),
+                    Arc::new(|_| Ok(()))
+                )
+                .unwrap_err()
+                .contains("is disabled"));
+        }
+        service.shutdown().unwrap();
+        client.shutdown_broker().unwrap();
+        host.join().unwrap().unwrap();
+    }
+
     #[test]
     fn appearance_saves_during_indexing_but_other_changes_remain_blocked() {
         let temp = tempfile::tempdir().unwrap();
@@ -683,6 +867,9 @@ mod tests {
         assert!(service.save_settings(next).is_err());
         let mut other = service.settings().unwrap();
         other.profiles[0].name = "Unrelated edit".into();
+        assert!(service.save_settings(other).is_err());
+        let mut other = service.settings().unwrap();
+        other.agent_enabled.insert("codex".into(), false);
         assert!(service.save_settings(other).is_err());
         assert_eq!(service.settings().unwrap().theme_palette, "rose");
     }
@@ -743,6 +930,23 @@ mod tests {
         assert!(s
             .plan_launch(&request(Some(d.path().to_string_lossy().into())))
             .is_ok());
+    }
+    #[test]
+    fn bootstrap_has_no_routine_notice_and_preserves_real_workspace_warnings() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = Service::open(directory.path().join("app")).unwrap();
+        let mut settings = service.settings().unwrap();
+        settings.sources.clear();
+        service.save_settings(settings).unwrap();
+        assert!(service.bootstrap().unwrap().warnings.is_empty());
+        std::fs::write(
+            service.config.directory.join("workspace.json"),
+            b"invalid-json",
+        )
+        .unwrap();
+        let bootstrap = service.bootstrap().unwrap();
+        assert_eq!(bootstrap.warnings.len(), 1);
+        assert!(bootstrap.warnings[0].contains("布局已還原預設值；原檔保留"));
     }
     #[test]
     fn temporary_home_fails_closed_without_a_real_absolute_directory() {

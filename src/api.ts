@@ -17,6 +17,7 @@ import type {
   Settings,
   TerminalEvent,
   TranscriptPage,
+  TrashPage,
 } from './types';
 export const isDesktop = () => isTauri();
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -44,9 +45,12 @@ export const api = {
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
   createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),
-  updateProject: (projectId: string, values: { pinned?: boolean; launchPath?: string; curated?: boolean; name?: string }) =>
+  updateProject: (projectId: string, values: { launchPath?: string; curated?: boolean; name?: string }) =>
     call<Project>('update_project', { projectId, ...values }),
   sessions: (query: SessionQuery) => call<SessionPage>('query_sessions', { query }),
+  trashSession: (sessionId: string, expectedIdentity: string) => call<string>('trash_session', { sessionId, expectedIdentity }),
+  restoreSession: (sessionId: string) => call<void>('restore_session', { sessionId }),
+  trash: (offset = 0, limit = 40) => call<TrashPage>('list_trashed_sessions', { offset, limit }),
   transcript: (sessionId: string, beforeLine?: number) =>
     call<TranscriptPage>('read_transcript', { sessionId, beforeLine, limit: 40 }),
   scan: (rebuild = false) => call<IndexStatus>('start_index', { rebuild }),

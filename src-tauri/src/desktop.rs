@@ -2,7 +2,9 @@ use crate::{
     broker::{RuntimeRecord, UiEvent},
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
-    models::{AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage},
+    models::{
+        AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
+    },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
     shells::{self, ShellCandidate},
@@ -161,6 +163,33 @@ async fn update_project(
 async fn query_sessions(state: AppState<'_>, query: SessionQuery) -> Result<SessionPage, String> {
     let s = state.inner().clone();
     blocking(move || s.catalog.query(&query)).await
+}
+#[tauri::command]
+async fn trash_session(
+    state: AppState<'_>,
+    session_id: String,
+    expected_identity: String,
+) -> Result<String, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.trash_session(&session_id, &expected_identity)).await
+}
+#[tauri::command]
+async fn restore_session(state: AppState<'_>, session_id: String) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.restore_session(&session_id)).await
+}
+#[tauri::command]
+async fn list_trashed_sessions(
+    state: AppState<'_>,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<TrashPage, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.catalog
+            .trashed_sessions(offset.unwrap_or(0), limit.unwrap_or(40))
+    })
+    .await
 }
 #[tauri::command]
 async fn read_transcript(
@@ -509,6 +538,9 @@ pub fn run() {
             create_project,
             update_project,
             query_sessions,
+            trash_session,
+            restore_session,
+            list_trashed_sessions,
             read_transcript,
             start_index,
             index_status,

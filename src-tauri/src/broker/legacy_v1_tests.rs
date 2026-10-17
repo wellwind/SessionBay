@@ -145,8 +145,6 @@ fn new_home_field_reproduces_old_decoder_failure_and_negotiation_omits_only_that
     invalid["cols"] = "80".into();
     assert!(serde_json::from_value::<LegacyRequest>(invalid.clone()).is_err());
     assert!(serde_json::from_value::<Request>(invalid).is_err());
-    assert!(legacy.compatibility_warning().is_some());
-    assert!(modern.compatibility_warning().is_none());
 }
 #[test]
 fn hello_extensions_are_backward_compatible_and_unknown_capabilities_do_not_enable_home_policy() {

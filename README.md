@@ -62,6 +62,7 @@ npm run tauri -- build
 | [MVP 驗收紀錄](docs/mvp-validation.md) | 可重複測試、平台結果、效能與未完成驗收 |
 | [全域臨時 Terminal](docs/temporary-terminal.md) | 無專案 home Shell、舊 cwd 相容與驗證邊界 |
 | [索引效能量測](docs/index-performance.md) | 1k／10k／長對話的可重複合成 before／after、資料安全與未解瓶頸 |
+| [搜尋效能第二階段](docs/search-performance.md) | 獨立 10k 搜尋 profiling、候選密度策略與完整 raw before／after |
 | [IPC 契約](docs/ipc-contract.md) | 前後端命令與資料模型 |
 | [資料來源](docs/sources.md) | 技術事實的官方來源與適用限制 |
 
@@ -101,3 +102,5 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 - [Terminal Shift＋Enter](docs/terminal-keyboard.md)：統一 CSI-u 原位輸入、查核版本與平台限制。
 
 - [Agent 圖片拖放與貼上：範圍、限制及驗證狀態](docs/image-input.md)
+
+側欄瀏覽器回歸測試：`npm run test:sidebar`（需 Playwright Chromium；可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安裝執行檔）。測試使用合成 bridge，不啟動原生 Shell 或讀取使用者資料；不等同原生 WebView 驗收。

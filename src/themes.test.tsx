@@ -239,6 +239,38 @@ describe('live settings appearance transaction', () => {
     fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
     expect(appearance()).toMatchObject({ theme: 'light', themePalette: 'forest', terminalTheme: 'forest-light' });
   });
+  it('cancels and saves appearance and selected-agent enablement as one draft', async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const initial = { ...settings, agentEnabled: { 'future-provider': false } };
+    render(<Harness initial={initial} save={save} />);
+    const edit = () => {
+      fireEvent.click(within(screen.getByRole('group', { name: '選擇要設定的 Agent' })).getByRole('button', { name: /Grok Build/ }));
+      fireEvent.click(screen.getByRole('checkbox', { name: '啟用 Grok Build' }));
+      openAppearance();
+      fireEvent.click(screen.getByRole('button', { name: '淺色' }));
+      choose('終端色票', '淺色 · Ocean · 海洋');
+      fireEvent.click(screen.getByRole('button', { name: '來源與工具' }));
+      expect(screen.getByRole('checkbox', { name: '啟用 Grok Build' })).not.toBeChecked();
+      expect(screen.queryByRole('textbox', { name: 'Codex 執行檔路徑' })).not.toBeInTheDocument();
+      expect(appearance()).toMatchObject({ theme: 'light', terminalTheme: 'ocean-light' });
+    };
+    edit();
+    expect(save).not.toHaveBeenCalled();
+    expect(initial.agentEnabled).toEqual({ 'future-provider': false });
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '捨棄變更' }));
+    expect(appearance()).toMatchObject({ theme: 'dark', terminalTheme: 'classic' });
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    expect(screen.getByRole('checkbox', { name: '啟用 Codex' })).toBeChecked();
+    edit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '儲存設定' })));
+    expect(save).toHaveBeenCalledExactlyOnceWith({ ...initial, theme: 'light', terminalTheme: 'ocean-light', agentEnabled: { 'future-provider': false, grok: false } });
+    expect(appearance()).toMatchObject({ theme: 'light', terminalTheme: 'ocean-light' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
+    fireEvent.click(within(screen.getByRole('group', { name: '選擇要設定的 Agent' })).getByRole('button', { name: /Grok Build/ }));
+    expect(screen.getByRole('checkbox', { name: '啟用 Grok Build' })).not.toBeChecked();
+  });
   it('keeps unknown IDs and all unrelated settings when saving a known mode change', async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     render(<Harness initial={{ ...settings, themePalette: 'future-ui', terminalTheme: 'future-terminal' }} save={save} />);

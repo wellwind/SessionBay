@@ -217,6 +217,7 @@ beforeEach(() => {
   vi.mocked(pickDirectory).mockReset();
 
   vi.mocked(api.setWorkspaceZoom).mockReset().mockResolvedValue(undefined);
+  localStorage.clear();
   vi.useFakeTimers();
   native.handlers.clear();
   native.patch = undefined;
@@ -2696,6 +2697,82 @@ it.each(['running', 'exited'] as const)('closes only the newly titled resumed ta
   expect(saved.tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);
 });
 
+describe('disabled agent launch preferences', () => {
+  it('falls back from a disabled default and marks it unavailable in the launcher', async () => {
+    const data = bootstrap();
+    data.settings.agentEnabled = { codex: false };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    const dialog = await openLauncher();
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
+    const selector = within(dialog).getByRole('combobox', { name: 'Agent' });
+    expect(selector).toHaveTextContent('Claude Code');
+    fireEvent.click(selector);
+    const disabled = screen.getByRole('option', { name: /^Codex/ });
+    expect(disabled).toHaveAttribute('aria-disabled', 'true');
+    expect(disabled).toHaveTextContent('已停用');
+    fireEvent.click(disabled);
+    expect(selector).toHaveTextContent('Claude Code');
+    await tick(150);
+    expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'claude' }));
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+  it('keeps Shell available when every provider is disabled', async () => {
+    const data = bootstrap();
+    data.settings.agentEnabled = Object.fromEntries(Object.keys(agentNames).map((kind) => [kind, false]));
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    const dialog = await openLauncher();
+    expect(within(dialog).getByRole('button', { name: /^Agent/ })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: /^Shell/ })).toBeEnabled();
+    await tick(150);
+    expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'shell' }));
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('sidebar organization persistence', () => {
+  it('reports persistence failure while keeping the requested collapse usable', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />); await tick();
+    const save = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: '專案' }));
+      expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByText(/側欄偏好無法儲存/)).toBeInTheDocument();
+      expect(api.stop).not.toHaveBeenCalled();
+    } finally { save.mockRestore(); }
+  });
+  it('independently collapses sections and restores them without stopping a workspace', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const first = render(<App />); await tick();
+    fireEvent.click(screen.getByRole('button', { name: '專案' }));
+    expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('textbox', { name: '搜尋專案' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /開啟工作區 Synthetic/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '開啟中的工作區' }));
+    expect(screen.queryByRole('button', { name: /開啟工作區 Synthetic/ })).not.toBeInTheDocument();
+    expect(api.stop).not.toHaveBeenCalled(); expect(api.updateProject).not.toHaveBeenCalled();
+    first.unmount(); render(<App />); await tick();
+    expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: '開啟中的工作區' })).toHaveAttribute('aria-expanded', 'false');
+  });
+  it('restores manual order after reload without changing project records or runtime state', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.projects.push({ ...data.projects[0], id: 'project-b', name: 'Second project', pinned: true });
+    vi.mocked(api.bootstrap).mockResolvedValue(data); vi.mocked(api.projects).mockResolvedValue(data.projects);
+    const first = render(<App />); await tick();
+    const names = () => within(screen.getByRole('navigation', { name: '專案' })).getAllByRole('button', { name: /^排序 / }).map(item => item.getAttribute('aria-label'));
+    expect(names()).toEqual(['排序 Second project', '排序 Synthetic project']);
+    fireEvent.click(screen.getByRole('button', { name: '上移 Synthetic project' }));
+    expect(names()).toEqual(['排序 Synthetic project', '排序 Second project']);
+    expect(screen.queryByLabelText(/置頂/)).not.toBeInTheDocument();
+    expect(api.updateProject).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled();
+    first.unmount(); render(<App />); await tick();
+    expect(names()).toEqual(['排序 Synthetic project', '排序 Second project']);
+  });
+});
+
 describe('command palette keyboard navigation', () => {
   function open() {
     const opener = screen.getByRole('button', { name: /搜尋專案或執行命令/ });
@@ -2769,4 +2846,100 @@ describe('command palette keyboard navigation', () => {
     expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
     expect(api.launch).not.toHaveBeenCalled();
   });
+});
+
+
+describe('workspace focus presentation', () => {
+  beforeEach(() => { vi.mocked(isDesktop).mockReturnValue(true); });
+
+  it.each([true, false])('restores sidebar preference %s without remounting or changing workspace', async sidebarOpen => {
+    render(<App />);
+    await tick();
+    selectGroup();
+    if (!sidebarOpen) fireEvent.click(screen.getByRole('button', { name: '隱藏側欄' }));
+    const initial = workspaceSnapshot();
+    const canvas = screen.getByTestId('workspace-canvas');
+    const mounts = native.canvasMounted.mock.calls.length;
+    const unmounts = native.canvasUnmounted.mock.calls.length;
+    const saves = vi.mocked(api.saveWorkspace).mock.calls.length;
+    for (let i = 0; i < 3; i++) {
+      fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+      expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
+      fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+      expect(document.querySelector('.app-shell')).not.toHaveClass('workspace-focus');
+      expect(screen.getByRole('button', { name: '隱藏側欄' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: '收起完整控制列' }));
+      fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+      expect(document.querySelector('.app-shell')).not.toHaveClass('workspace-focus');
+    }
+    expect(!!document.querySelector('.sidebar')).toBe(sidebarOpen);
+    expect(screen.getByTestId('workspace-canvas')).toBe(canvas);
+    expect(workspaceSnapshot()).toEqual(initial);
+    expect(native.canvasMounted).toHaveBeenCalledTimes(mounts);
+    expect(native.canvasUnmounted).toHaveBeenCalledTimes(unmounts);
+    expect(api.saveWorkspace).toHaveBeenCalledTimes(saves);
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+
+  it('leaves Escape alone, exposes full settings, and preserves focus state through history and overview', async () => {
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+    expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
+    expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
+    fireEvent.click(screen.getByRole('button', { name: '歷史 Session' }));
+    expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
+    fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    changePage('所有目錄');
+    expect(document.querySelector('.app-shell')).not.toHaveClass('workspace-focus');
+    expect(screen.getByRole('button', { name: '退出專注模式' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+    expect(document.querySelector('.app-shell')).toHaveAttribute('data-focus-mode', 'false');
+  });
+
+  it('consumes an opt-in shortcut before terminal input and respects dialogs and IME', async () => {
+    const data = bootstrap();
+    data.settings.shortcuts = { 'toggle-focus-mode': 'Mod+Shift+Z' };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
+    render(<App />);
+    await tick();
+    selectGroup();
+    const target = screen.getByTestId('workspace-canvas');
+    const input = vi.fn();
+    target.addEventListener('keydown', input);
+    expect(fireEvent.keyDown(target, { key: 'z', ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(input).not.toHaveBeenCalled();
+    expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
+    expect(fireEvent.keyDown(target, { key: 'z', ctrlKey: true, shiftKey: true, isComposing: true })).toBe(true);
+    expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
+    fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    expect(fireEvent.keyDown(target, { key: 'z', ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(document.querySelector('.app-shell')).toHaveAttribute('data-focus-mode', 'true');
+  });
+});
+
+it('preserves persisted sidebar section preferences across focus controls reveal', async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  render(<App />);
+  await tick();
+  selectGroup();
+  fireEvent.click(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' }));
+  fireEvent.click(screen.getByRole('button', { name: '開啟中的工作區' }));
+  const preferences = localStorage.getItem('sessionbay.sidebar.v1');
+  fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
+  fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+  expect(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.getByRole('button', { name: '開啟中的工作區' })).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+  expect(localStorage.getItem('sessionbay.sidebar.v1')).toBe(preferences);
+  expect(api.stop).not.toHaveBeenCalled();
+  expect(api.launch).not.toHaveBeenCalled();
 });

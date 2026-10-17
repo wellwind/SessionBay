@@ -64,7 +64,7 @@ export function WorkspaceCanvas({
   };
   return (
     <div
-      className="workspace-canvas"
+      className={`workspace-canvas${tab?.layout.kind === 'pane' ? ' single-pane' : ''}`}
       ref={root}
       style={{ display: visible ? undefined : 'none' }}
       aria-label="開發工作區"

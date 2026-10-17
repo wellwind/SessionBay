@@ -16,6 +16,8 @@
         "title": "Session Bay",
         "width": 1440,
         "height": 940,
+        "maximized": true,
+        "fullscreen": false,
         "minWidth": 900,
         "minHeight": 620,
         "zoomHotkeysEnabled": false,
