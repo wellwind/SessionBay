@@ -1,4 +1,5 @@
-import { AgentStatusOverview } from './components/AgentStatusOverview';
+import { RuntimeActivityProvider, RuntimeActivityIndicator } from './components/RuntimeActivity';
+import { tabRuntimeSummary } from './project-runtime';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -1136,7 +1137,7 @@ export default function App() {
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
   return (
-    <div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
+    <RuntimeActivityProvider><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
       <header className="app-topbar">
         <div className="brand">
@@ -1243,6 +1244,7 @@ export default function App() {
               />
             </div>
             <SidebarProjectList projects={sortedProjects} selectedId={selectedId} label={navigationName}
+              workspace={workspace} activeTabId={view === 'workspace' ? activeTabId : undefined} onFocus={focus}
               reorderable={navigation === 'projects'} onSelect={selectProject}
               onReorder={(id, target, after) => updateSidebar({ projectOrder: reorderProject(reconcileProjectOrder(sidebarRef.current.projectOrder, projects), id, target, after) })}
               empty={projectSearch ? `沒有符合的${navigationName}` : navigation === 'projects'
@@ -1257,25 +1259,24 @@ export default function App() {
               <FolderPlus size={16} />
               加入／建立專案
             </button>
-            {workspace.tabs.length > 0 && (
+            {workspace.tabs.some(tab => !sortedProjects.some(project => project.id === tab.projectId)) && (
               <section className="open-workspaces" aria-label="開啟中的工作區">
                 <div className="sidebar-section"><button className="sidebar-section-toggle" aria-expanded={!sidebar.workspacesCollapsed} aria-controls="sidebar-open-workspaces"
                   onClick={() => updateSidebar({ workspacesCollapsed: !sidebar.workspacesCollapsed })}>
-                  {sidebar.workspacesCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>開啟中的工作區</span></button><span>{workspace.tabs.length}</span></div>
+                  {sidebar.workspacesCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>開啟中的工作區</span></button><span>{workspace.tabs.filter(tab => !sortedProjects.some(project => project.id === tab.projectId)).length}</span></div>
                 <nav id="sidebar-open-workspaces" hidden={sidebar.workspacesCollapsed}>
-                  {workspace.tabs.map((tab) => {
+                  {workspace.tabs.filter(tab => !sortedProjects.some(project => project.id === tab.projectId)).map((tab) => {
                     const project = visibleProjects.find((p) => p.id === tab.projectId);
                     return <button key={tab.id} className={view === 'workspace' && activeTabId === tab.id ? 'active' : ''}
                       aria-label={`開啟工作區 ${tab.projectId === null ? '臨時 Terminal' : project?.name || '工作目錄'} ${tab.name}`}
                       title={tab.projectId === null ? '不屬於任何專案' : project?.launchPath || project?.path || '目錄待確認'} onClick={() => focus(tab.focusedPaneId)}>
-                      <TerminalSquare size={14} /><span><strong>{tab.projectId === null ? '臨時 Terminal' : project?.name || '工作目錄'}</strong>
-                        <small>{tab.name}{project?.workspaceOnly ? ' · 僅工作區' : ''}</small></span>
+                      <RuntimeActivityIndicator tab={tab} panes={workspace.panes} /><span><strong>{tab.projectId === null ? '臨時 Terminal' : project?.name || '工作目錄'}</strong>
+                        <small>{tab.name}{project?.workspaceOnly ? ' · 僅工作區' : ''}</small><small>{tabRuntimeSummary(tab, workspace.panes)}</small></span>
                     </button>;
                   })}
                 </nav>
               </section>
             )}
-            {boot && <AgentStatusOverview workspace={workspace} projects={visibleProjects} onFocus={focus} />}
             <div className="sidebar-bottom">
               <span className="eyebrow">你的工作，留在本機</span>
               <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
@@ -1444,7 +1445,7 @@ export default function App() {
                   <History size={14} />
                   歷史 Session
                 </button>}
-                <WorkspaceTabs tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
+                <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
                   onSelect={(tab) => {
                     setWorkspace((w) => selectWorkspaceTab(w, tab));
@@ -1871,6 +1872,6 @@ export default function App() {
             ]} />}
         </Dialog>
       )}
-    </div>
+    </div></RuntimeActivityProvider>
   );
 }

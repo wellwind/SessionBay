@@ -1,12 +1,15 @@
 import { useId, useState } from 'react';
 import { useAnimatedReorder } from './useAnimatedReorder';
 import { Pencil, TerminalSquare, X } from 'lucide-react';
-import type { WorkspaceTab } from '../types';
+import { RuntimeActivityIndicator } from './RuntimeActivity';
+import './project-runtime.css';
+import type { Workspace, WorkspaceTab } from '../types';
 import { paneIds } from '../workspace';
 import './workspace-organization.css';
 
-export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onReorder }: {
+export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onReorder, panes }: {
   tabs: WorkspaceTab[];
+  panes?: Workspace['panes'];
   activeId?: string;
   onSelect: (tab: WorkspaceTab) => void;
   onRename: (tab: WorkspaceTab) => void;
@@ -31,7 +34,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
     {tabs.map((tab, index) => <div key={tab.id}
       className={`workspace-tab ${tab.id === activeId ? 'active' : ''} ${reorder.className(tab.id)}`}
       style={reorder.style(tab.id)} ref={element => reorder.ref(tab.id, element)}>
-      <button className="workspace-tab-select" aria-current={tab.id === activeId ? 'true' : undefined} aria-describedby={helpId}
+      <button className="workspace-tab-select" aria-current={tab.id === activeId ? 'true' : undefined} aria-label={`${tab.name} ${paneIds(tab.layout).length}`} aria-describedby={`${helpId}${panes ? ` ${helpId}-activity-${index}` : ''}`}
         aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
         title={`${tab.name} · 第 ${index + 1} 個分頁；拖曳或 Alt+←／→ 排序`}
         {...reorder.handlers(tab.id)}
@@ -47,6 +50,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
           onSelect(tab);
         }}>
         <TerminalSquare size={13} /><span className="workspace-tab-name">{tab.name}</span>
+        {panes && <RuntimeActivityIndicator id={`${helpId}-activity-${index}`} tab={tab} panes={panes} />}
         <span>{paneIds(tab.layout).length}</span>
       </button>
       <button aria-label={`重新命名分頁 ${tab.name}`} title="重新命名分頁" onClick={(event) => { event.currentTarget.focus(); onRename(tab); }}><Pencil size={13} /></button>

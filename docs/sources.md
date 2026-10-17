@@ -217,6 +217,11 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [SQLite optimizer overview](https://www.sqlite.org/optoverview.html#manual_control_of_query_plans_using_cross_join)：CROSS JOIN 固定左側迴圈在前；本次配合既有 messages_file index，避免 dense candidate-aware EXISTS 對每個 Session 重掃全體候選。實際 bundled SQLite query plan 另存於搜尋報告，不把 planner 選擇視為所有 SQLite 版本的效能保證。
 - [SQLite FTS5 trigram tokenizer](https://www.sqlite.org/fts5.html#the_trigram_tokenizer)：FTS trigram 用來縮小候選，本產品仍以原 literal predicate 驗證正文，保留 ASCII 大小寫、標點與多語語意。候選密度 probe 不修改 FTS 資料，也不縮小完整結果集。
 
+### 活動事件查證（2026-10-17）
+- [Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs)：TurnStartedEvent、TurnCompleteEvent、SessionConfiguredEvent。main 會變動；需正式版本驗證才可成為支援能力，不能假設 PTY 輸出提供相同事件。
+- [Codex rollout recorder](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/recorder.rs)：追加與 flush 為持久化機制，不是與本機 PTY 綁定的活動 API。
+- [OpenCode Server](https://docs.opencode.ai/docs/server/)：既有 HTTP server 的事件與 session API；SessionBay 未建立該 server 的身分與連線，不自動啟動。
+
 ## 原始對話永久刪除調查（2026-10-17）
 
 - OpenCode v1.19.2 固定 commit `7901b7d325c34852caa84fc2c325f3a08dd7a473`，Grok Build 固定 commit `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`：官方契約、資料表、sidecar 與 CLI 限制的逐項來源見[調查](permanent-deletion-investigation.md)。不能套用到未知版本或視為已完成刪除 adapter。
