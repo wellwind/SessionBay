@@ -7,7 +7,7 @@ import '../../src/styles.css';
 import '../../src/workbench.css';
 
 // Synthetic bridge only: no native filesystem, history, shell, or user data.
-Object.assign(window, { __TAURI_INTERNALS__: { invoke: async () => 1, transformCallback: () => 1,
+Object.assign(window, { isTauri: true, __TAURI_INTERNALS__: { invoke: async () => 1, transformCallback: () => 1,
   metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } } },
   __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} } });
 const data: Bootstrap = {
