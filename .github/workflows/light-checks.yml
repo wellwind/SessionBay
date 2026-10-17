@@ -59,6 +59,16 @@ jobs:
           path: test-results/sidebar/
           retention-days: 7
           if-no-files-found: warn
+      - name: Workspace focus-mode browser integration
+        run: npm run test:focus-mode
+      - name: Upload focus-mode browser evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
+        with:
+          name: workspace-focus-mode-evidence
+          path: test-results/focus-mode/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Validate visual assets and semantic contrast
         run: python3 scripts/validate-ui-design.py && python3 scripts/validate-macos-icon.py
       - name: Rust formatting

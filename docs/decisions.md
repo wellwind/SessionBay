@@ -452,3 +452,10 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 - 分頁排序改用 Pointer Events 與 pointer capture，避免依賴原生 WebView 的 HTML5 檔案拖放事件。只在分頁名稱按鈕開始，移動至少 5px 並於同一專案分頁範圍內放開才提交一次排序；Escape、失焦、pointercancel、capture 遺失與區域外放開均取消。
 - 保留點擊選取、Alt 加左右鍵、原有 active／focused ID、其他專案位置與既有 workspace 保存管線；排序不更改 pane、runtime、PTY 或名稱。
 - 真實 App 的瀏覽器回歸使用合成 bridge 與 Playwright 滑鼠拖曳，涵蓋保存與重新載入。Chrome 驗證不等於 macOS 原生 WebView 驗收，後者仍須在裝置上驗證。
+
+## 2026-10-17 工作區專注模式
+
+- 專注模式為獨立、可逆的 UI 狀態，不切換作業系統全螢幕，不修改分割比例、面板最大化、側欄偏好或持久化 workspace。
+- 專案／臨時 Terminal 可從分頁列進入；保留歷史、工作分頁、新增、面板工具列與明確退出入口。專案名稱按鈕暫時展開原有完整控制列與側欄，提供所有原有操作；總覽自動顯示完整導覽。
+- 命令面板可進入／退出；快捷鍵預設空白，可於設定自行配置並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
+- 相同 WorkspaceCanvas 與 TerminalPane 持續掛載，依 ResizeObserver 更新終端尺寸。索引進行／失敗、縮放失敗、目錄警告與面板錯誤保留可見。原生桌面驗收仍待完成。

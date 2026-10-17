@@ -31,9 +31,16 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
     // Reject that clipped geometry before considering any tab as a drop target.
     const strip = dragging.current?.button.closest('.workspace-tabs')?.getBoundingClientRect();
     if (strip && (event.clientX < strip.left || event.clientX >= strip.right || event.clientY < strip.top || event.clientY >= strip.bottom)) return null;
+    // Pointer capture retargets events, but hit testing still identifies the visible control.
+    // Sticky controls can cover an otherwise valid tab rectangle inside the strip.
+    const canHitTest = typeof document.elementFromPoint === 'function';
+    const hit = canHitTest ? document.elementFromPoint(event.clientX, event.clientY) : null;
+    if (canHitTest && !hit) return null;
     for (const tab of tabs) {
       if (tab.projectId !== source.projectId) continue;
-      const rect = tabElements.current.get(tab.id)?.getBoundingClientRect();
+      const element = tabElements.current.get(tab.id);
+      if (canHitTest && (!hit || !element?.contains(hit))) continue;
+      const rect = element?.getBoundingClientRect();
       if (rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)
         return { id: tab.id, after: event.clientX >= rect.left + rect.width / 2 };
     }
