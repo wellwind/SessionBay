@@ -2774,7 +2774,7 @@ describe('sidebar organization persistence', () => {
     const first = render(<App />); await tick();
     const names = () => within(screen.getByRole('navigation', { name: '專案' })).getAllByRole('button', { name: /^排序 / }).map(item => item.getAttribute('aria-label'));
     expect(names()).toEqual(['排序 Second project', '排序 Synthetic project']);
-    fireEvent.click(screen.getByRole('button', { name: '上移 Synthetic project' }));
+    fireEvent.keyDown(screen.getByRole('button', { name: '排序 Synthetic project' }), { key: 'ArrowUp', altKey: true });
     expect(names()).toEqual(['排序 Synthetic project', '排序 Second project']);
     expect(screen.queryByLabelText(/置頂/)).not.toBeInTheDocument();
     expect(api.updateProject).not.toHaveBeenCalled(); expect(api.stop).not.toHaveBeenCalled();

@@ -15,21 +15,38 @@ describe('sidebar project sorting', () => {
     const handle = screen.getByRole('button', { name: '排序 b' }); handle.focus();
     fireEvent.keyDown(handle, { key: 'ArrowUp', altKey: true });
     expect(onReorder).toHaveBeenLastCalledWith('b', 'a', false); expect(handle).toHaveFocus();
-    fireEvent.click(screen.getByRole('button', { name: '下移 b' }));
+    fireEvent.keyDown(handle, { key: 'ArrowDown', altKey: true });
     expect(onReorder).toHaveBeenLastCalledWith('b', 'c', true);
-    fireEvent.click(screen.getByRole('button', { name: '上移 a' })); expect(onReorder).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: /上移|下移/ })).not.toBeInTheDocument();
   });
-  it('handles internal drops, cancelled drags and rejects external drags', () => {
-    const { onReorder } = setup();
-    const transfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+  it('previews pointer movement, commits on release and cancels outside or Escape', () => {
+    const { onReorder, onSelect } = setup();
+    const list = screen.getByRole('navigation');
+    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 250, top: 0, bottom: 150 } as DOMRect);
+    for (const [index, id] of ['a', 'b', 'c'].entries()) {
+      const row = screen.getByRole('button', { name: `排序 ${id}` }).parentElement!;
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 250, top: index * 50, bottom: index * 50 + 46, width: 250, height: 46 } as DOMRect);
+    }
     const source = screen.getByRole('button', { name: '排序 a' });
-    const target = screen.getByRole('button', { name: '排序 c' }).parentElement!;
-    fireEvent.drop(target, { dataTransfer: transfer, clientY: 100 }); expect(onReorder).not.toHaveBeenCalled();
-    fireEvent.dragStart(source, { dataTransfer: transfer }); fireEvent.dragOver(target, { dataTransfer: transfer });
-    const drop = new Event('drop', { bubbles: true, cancelable: true }); Object.assign(drop, { dataTransfer: transfer, clientY: 100 });
-    fireEvent(target, drop); expect(onReorder).toHaveBeenCalledWith('a', 'c', true);
-    fireEvent.dragStart(source, { dataTransfer: transfer }); fireEvent.keyDown(window, { key: 'Escape' });
-    fireEvent.drop(target, { dataTransfer: transfer }); expect(onReorder).toHaveBeenCalledTimes(1);
+    source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+    const pointer = (type: string, y: number) => {
+      const event = new Event(type, { bubbles: true });
+      Object.assign(event, { clientX: 10, clientY: y, button: 0, pointerId: 1, isPrimary: true }); fireEvent(source, event);
+    };
+    for (const cancel of ['outside', 'escape', 'pointercancel', 'blur']) {
+      pointer('pointerdown', 10); pointer('pointermove', 130);
+      expect(onReorder).not.toHaveBeenCalled();
+      expect(source.parentElement).toHaveClass('reorder-dragging');
+      expect(screen.getByRole('button', { name: '排序 b' }).parentElement).toHaveStyle({ transform: 'translateY(-50px)' });
+      if (cancel === 'escape') fireEvent.keyDown(window, { key: 'Escape' });
+      if (cancel === 'pointercancel') pointer('pointercancel', 130);
+      if (cancel === 'blur') fireEvent.blur(window);
+      pointer('pointerup', cancel === 'outside' ? 200 : 130);
+      expect(onReorder).not.toHaveBeenCalled();
+    }
+    pointer('pointerdown', 10); pointer('pointermove', 130); pointer('pointerup', 130);
+    expect(onReorder).toHaveBeenCalledExactlyOnceWith('a', 'c', true);
+    expect(onSelect).not.toHaveBeenCalled();
   });
   it('leaves discovery directories without reorder controls', () => {
     setup(false); expect(screen.queryByRole('button', { name: /排序|上移|下移/ })).not.toBeInTheDocument();

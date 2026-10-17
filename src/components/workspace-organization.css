@@ -3,7 +3,11 @@
 .workspace-tab > button { min-width: 28px; }
 .workspace-tab .workspace-tab-select { cursor: grab; max-width: 260px; touch-action: none; user-select: none; }
 .workspace-tab .workspace-tab-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; font: inherit; color: inherit; background: none; padding: 0; }
-.workspace-tab.drop-before { box-shadow: inset 3px 0 var(--accent); }
-.workspace-tab.drop-after { box-shadow: inset -3px 0 var(--accent); }
 .pane-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane-title { min-width: 0; }
+/* Keep the DOM in persisted order while sibling slots visibly make room. */
+.reorder-preview { position: relative; transition: transform 160ms cubic-bezier(.2,.8,.2,1); will-change: transform; }
+.reorder-dragging { z-index: 5; transition: none; background: var(--surface); box-shadow: 0 3px 12px #0004; }
+.reorder-dragging button { cursor: grabbing; }
+.project-drag { touch-action: none; user-select: none; }
+@media (prefers-reduced-motion: reduce) { .reorder-preview { transition: none; } }

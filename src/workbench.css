@@ -284,8 +284,3 @@ input.checkbox::before { border-color: var(--on-accent); }
 .project-drag { flex-shrink: 0; width: 24px; cursor: grab; color: var(--muted); }
 .project-drag:active { cursor: grabbing; }
 .project-row .project-main { min-width: 0; padding-left: 5px; }
-.project-move-buttons { display: flex; flex-direction: column; justify-content: center; flex-shrink: 0; }
-.project-move-buttons button { width: 24px; min-height: 24px; color: var(--muted); }
-.project-move-buttons button[aria-disabled="true"] { opacity: .4; cursor: default; }
-.project-row.drop-before { box-shadow: 0 -2px 0 var(--accent); }
-.project-row.drop-after { box-shadow: 0 2px 0 var(--accent); }
