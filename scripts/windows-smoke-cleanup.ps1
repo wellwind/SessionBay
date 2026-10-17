@@ -1,4 +1,51 @@
 # Shared by native smoke and its synthetic GUI-subsystem regression tests.
+function Start-SessionBaySmokeCapture {
+    param(
+        [Parameter(Mandatory)][string]$Binary,
+        [Parameter(Mandatory)][string]$StdoutPath,
+        [Parameter(Mandatory)][string]$StderrPath,
+        [Parameter(Mandatory)][hashtable]$Environment
+    )
+    # On Windows, Start-Process redirects directly to shared file handles. A
+    # surviving descendant can keep its handle without withholding pipe EOF.
+    # The UI takes no arguments; do not introduce shell command construction.
+    Start-Process -FilePath $Binary -PassThru -RedirectStandardOutput $StdoutPath `
+        -RedirectStandardError $StderrPath -Environment $Environment
+}
+
+function Read-SessionBaySmokeFiles {
+    param([Parameter(Mandatory)][string[]]$Paths)
+    $logs = foreach ($path in $Paths) {
+        $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try {
+            # Snapshot a bounded file length, not EOF on a live descendant's pipe.
+            $length = $stream.Length
+            if ($length -gt 1MB) { throw 'Smoke log exceeded the 1 MiB file limit.' }
+            $bytes = [byte[]]::new([int]$length)
+            $read = 0
+            while ($read -lt $length) {
+                $count = $stream.Read($bytes, $read, [int]$length - $read)
+                if ($count -eq 0) { throw 'Smoke log changed during its bounded read.' }
+                $read += $count
+            }
+            [Text.Encoding]::UTF8.GetString($bytes)
+        } finally {
+            $stream.Dispose()
+        }
+    }
+    return $logs -join "`n"
+}
+
+function Assert-SessionBaySmokeMarkers {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Log)
+    if ($Log -match 'SESSIONBAY_FRONTEND .*"phase":"error"') { throw 'Native frontend reported an error.' }
+    foreach ($phase in @('ready', 'interaction')) {
+        if ($Log -notmatch ('SESSIONBAY_FRONTEND .*"phase":"' + $phase + '"')) {
+            throw "Missing native frontend marker: $phase"
+        }
+    }
+}
+
 function Read-SessionBaySmokeOutput {
     param(
         [Parameter(Mandatory)][Threading.Tasks.Task]$Stdout,
@@ -7,7 +54,7 @@ function Read-SessionBaySmokeOutput {
     # A descendant can retain an inherited pipe after its parent exits. Never let
     # output draining bypass the process deadline or prevent authenticated cleanup.
     if (![Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($Stdout, $Stderr), 5000)) {
-        throw 'Smoke output pipes did not close within their deadline.'
+        throw 'Smoke broker-stop output pipes did not close within their deadline.'
     }
     return $Stderr.GetAwaiter().GetResult() + $Stdout.GetAwaiter().GetResult()
 }

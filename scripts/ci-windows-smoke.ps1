@@ -30,40 +30,33 @@ try {
             $settings.agentOptions[$kind] = @{ extraArgs = @(); bypassPermissions = $false }
         }
         $settings | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $state 'settings.json')
-        $start = [Diagnostics.ProcessStartInfo]::new($Binary)
-        $start.UseShellExecute = $false
-        $start.RedirectStandardOutput = $true
-        $start.RedirectStandardError = $true
-        $start.Environment['SESSIONBAY_SMOKE'] = '1'
-        $start.Environment['SESSIONBAY_SMOKE_APP_DATA'] = $state
-        $process = [Diagnostics.Process]::Start($start)
-        $stdout = $process.StandardOutput.ReadToEndAsync()
-        $stderr = $process.StandardError.ReadToEndAsync()
+        $stdoutPath = Join-Path $output "$theme-stdout.log"
+        $stderrPath = Join-Path $output "$theme-stderr.log"
+        $process = Start-SessionBaySmokeCapture -Binary $Binary -StdoutPath $stdoutPath -StderrPath $stderrPath `
+            -Environment @{ SESSIONBAY_SMOKE = '1'; SESSIONBAY_SMOKE_APP_DATA = $state }
         # The process stays open after the self-check. Bounded timing avoids leaving
-        # a hung WebView behind; output pipes are drained concurrently throughout.
+        # a hung WebView behind; file capture does not wait for descendant pipe EOF.
         $deadline = [DateTime]::UtcNow.AddSeconds(45)
         $windowSeen = $false
         while ([DateTime]::UtcNow -lt $deadline -and !$process.HasExited) {
             $process.Refresh()
             if ($process.MainWindowHandle -ne [IntPtr]::Zero) { $windowSeen = $true }
+            foreach ($path in @($stdoutPath, $stderrPath)) {
+                if ((Get-Item -LiteralPath $path).Length -gt 1MB) { throw 'Smoke log exceeded the 1 MiB file limit.' }
+            }
             Start-Sleep -Milliseconds 200
         }
         $exitedEarly = $process.HasExited
         Stop-SessionBaySmokeWindow -Process $process
-        $log = Read-SessionBaySmokeOutput -Stdout $stdout -Stderr $stderr
+        Stop-SessionBaySmokeBroker -Binary $Binary -State $state -LogPath (Join-Path $output "$theme-broker-stop.log")
+        $log = Read-SessionBaySmokeFiles -Paths @($stderrPath, $stdoutPath)
         $log | Set-Content -Encoding utf8 (Join-Path $output "$theme-app.log")
         if ($exitedEarly -or !$windowSeen) { throw 'Native Windows window did not remain alive.' }
-        if ($log -match 'SESSIONBAY_FRONTEND .*"phase":"error"') { throw 'Native frontend reported an error.' }
-        foreach ($phase in @('ready', 'interaction')) {
-            if ($log -notmatch ('SESSIONBAY_FRONTEND .*"phase":"' + $phase + '"')) {
-                throw "Missing native frontend marker: $phase"
-            }
-        }
+        Assert-SessionBaySmokeMarkers -Log $log
         $saved = Get-Content -Raw (Join-Path $state 'settings.json') | ConvertFrom-Json
         if (@($saved.sources).Count -ne 0) { throw 'Smoke unexpectedly added a history source.' }
         $process.Dispose()
         $process = $null
-        Stop-SessionBaySmokeBroker -Binary $Binary -State $state -LogPath (Join-Path $output "$theme-broker-stop.log")
     }
 } catch {
     $primaryError = $_.Exception.Message

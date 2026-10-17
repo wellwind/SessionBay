@@ -6,9 +6,52 @@ $output = Join-Path $PSScriptRoot '../artifacts/windows-smoke/cleanup-regression
 New-Item -ItemType Directory -Force $root, $output | Out-Null
 $binary = Join-Path $root 'synthetic GUI helper.exe'
 $savedExitCode = $global:LASTEXITCODE
+$capture = $null
+$inherited = Join-Path $root 'inherited output state'
 try {
     & rustc --edition 2021 --deny warnings "$PSScriptRoot/fixtures/smoke-cleanup-child.rs" -o $binary
     if ($LASTEXITCODE -ne 0) { throw 'Cannot build the GUI-subsystem cleanup fixture.' }
+
+    New-Item -ItemType Directory $inherited | Out-Null
+    [IO.File]::WriteAllText((Join-Path $inherited 'mode'), 'inherited-output')
+    $stdoutPath = Join-Path $output 'inherited-stdout.log'
+    $stderrPath = Join-Path $output 'inherited-stderr.log'
+    $capture = Start-SessionBaySmokeCapture -Binary $binary -StdoutPath $stdoutPath -StderrPath $stderrPath `
+        -Environment @{ SESSIONBAY_SMOKE_APP_DATA = $inherited }
+    if (!$capture.WaitForExit(5000)) { throw 'Synthetic UI did not exit.' }
+    Stop-SessionBaySmokeWindow -Process $capture
+    if (!(Test-Path -LiteralPath (Join-Path $inherited 'holder-started')) -or
+        (Test-Path -LiteralPath (Join-Path $inherited 'holder-completed'))) {
+        throw 'Synthetic descendant did not retain output after UI exit.'
+    }
+    # Reading the complete UI output must not require killing the surviving child.
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $log = Read-SessionBaySmokeFiles -Paths @($stderrPath, $stdoutPath)
+    Assert-SessionBaySmokeMarkers -Log $log
+    if ($timer.Elapsed.TotalSeconds -gt 2) { throw 'File capture waited for descendant EOF.' }
+    if (Test-Path -LiteralPath (Join-Path $inherited 'holder-completed')) {
+        throw 'Reading UI logs unexpectedly stopped the surviving descendant.'
+    }
+    foreach ($invalid in @('SESSIONBAY_FRONTEND {"phase":"ready"}', ($log + "`nSESSIONBAY_FRONTEND {`"phase`":`"error`"}"))) {
+        $rejected = $false
+        try { Assert-SessionBaySmokeMarkers -Log $invalid } catch { $rejected = $true }
+        if (!$rejected) { throw 'File capture weakened frontend marker validation.' }
+    }
+    $oversized = Join-Path $root 'oversized.log'
+    $file = [IO.File]::Create($oversized)
+    $file.SetLength(1MB + 1)
+    $file.Dispose()
+    $rejected = $false
+    try { Read-SessionBaySmokeFiles -Paths @($oversized) | Out-Null } catch {
+        $rejected = $_.Exception.Message -match 'file limit'
+    }
+    if (!$rejected) { throw 'File capture accepted an oversized log.' }
+    Stop-SessionBaySmokeBroker -Binary $binary -State $inherited -LogPath (Join-Path $output 'inherited-stop.log')
+    if (!(Test-Path -LiteralPath (Join-Path $inherited 'holder-completed'))) {
+        throw 'Explicit fixture cleanup did not release the descendant.'
+    }
+    $capture.Dispose()
+    $capture = $null
 
     $success = Join-Path $root 'success state with spaces'
     New-Item -ItemType Directory $success | Out-Null
@@ -80,9 +123,26 @@ try {
     Clear-SessionBaySmokeState -Binary $binary -States @($success) `
         -TemporaryDirectory $success -OutputDirectory $output
     if (Test-Path -LiteralPath $success) { throw 'Successful cleanup did not remove its isolated state.' }
-    'GUI-subsystem cleanup: awaited completion, exact spaced arguments, actual exit code, process/pipe deadlines, cleanup after UI failure, and diagnostic-state retention passed.' |
+    'GUI-subsystem cleanup: inherited-file capture after UI exit, strict markers/log limits, explicit descendant cleanup, awaited completion, exact spaced arguments, actual exit code, process/pipe deadlines, cleanup after UI failure, and diagnostic-state retention passed.' |
         Set-Content -Encoding utf8 -LiteralPath (Join-Path $output 'cleanup-regression-result.txt')
 } finally {
     $global:LASTEXITCODE = $savedExitCode
+    $captureCloseError = ''
+    if ($null -ne $capture) {
+        try { Stop-SessionBaySmokeWindow -Process $capture } catch {
+            $captureCloseError = $_.Exception.Message
+        } finally { $capture.Dispose() }
+    }
+    if (Test-Path -LiteralPath (Join-Path $inherited 'holder-started')) {
+        [IO.File]::WriteAllText((Join-Path $inherited 'release-holder'), 'fixture finally cleanup')
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        while (!(Test-Path -LiteralPath (Join-Path $inherited 'holder-completed')) -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 20
+        }
+        if (!(Test-Path -LiteralPath (Join-Path $inherited 'holder-completed'))) {
+            throw "Synthetic descendant did not release; preserved $root"
+        }
+    }
+    if ($captureCloseError) { throw "$captureCloseError; preserved $root" }
     Remove-Item -Recurse -Force -LiteralPath $root
 }
