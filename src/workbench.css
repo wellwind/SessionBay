@@ -83,7 +83,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .workspace-tabs > button, .workspace-tab > button { min-height: 40px; font-size: 12px; }
 .directory-overview { padding: 24px 28px 32px; }
 .directory-overview-heading { align-items: center; margin-bottom: 20px; gap: 16px; }
-.directory-overview-heading h2 { font-size: 16px; margin-bottom: 6px; }
+.directory-overview-heading h2 { font-size: 16px; margin-bottom: 0; }
 .directory-overview-heading p { font-size: 12px; max-width: 70ch; line-height: 1.7; }
 .overview-total { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; padding: 6px 10px; border: 1px solid var(--border); border-radius: 16px; }
 .directory-cards { grid-template-columns: repeat(auto-fill, minmax(min(300px,100%),1fr)); gap: 16px; }

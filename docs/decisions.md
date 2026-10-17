@@ -612,3 +612,7 @@ Agent 搜尋欄與下拉選單共用 surface／control-border／radius／spacing
 ## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
 
 正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。
+
+## 2026-10-17：移除重複的介面輔助文案
+
+專案／目錄總覽、設定、快速主題及歷史搜尋移除重複 subtitle、操作說明和本機儲存成功文案，連同不再需要的容器一起移除，不保留空白列。保留欄位標籤、載入／儲存中狀態、未儲存提醒、錯誤、必要確認與無障礙名稱；預覽、取消、儲存及原始歷史唯讀等實際行為不變。
