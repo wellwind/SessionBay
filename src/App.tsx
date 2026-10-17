@@ -190,6 +190,7 @@ export default function App() {
   const projectReadGeneration = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [busy, setBusy] = useState(false);
+  const confirmationLock = useRef(false);
   const [toast, setToast] = useState('');
   const [palette, setPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
@@ -1759,14 +1760,17 @@ export default function App() {
             </button>
             <button
               className="danger"
+              data-dialog-confirm
               disabled={busy}
               onClick={() => {
+                if (confirmationLock.current) return;
+                confirmationLock.current = true;
                 setBusy(true);
                 void confirmation
                   .action()
                   .then(() => setConfirmation(null))
                   .catch(notify)
-                  .finally(() => setBusy(false));
+                  .finally(() => { confirmationLock.current = false; setBusy(false); });
               }}
             >
               {busy ? '處理中…' : '結束並關閉'}
