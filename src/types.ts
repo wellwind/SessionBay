@@ -1,3 +1,4 @@
+import type { AgentActivityEvent } from './agent-observation';
 export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 export interface AgentOptions { extraArgs: string[]; bypassPermissions: boolean; }
 export interface HistorySource {
@@ -175,6 +176,7 @@ export interface RuntimeRecord extends RuntimeInfo {
   homeDirectory?: boolean;
 }
 export type TerminalEvent =
+  | AgentActivityEvent
   | { type: 'snapshot'; runtimeId: string; sequence: number; data: number[]; cols: number; rows: number; truncated: boolean }
   | { type: 'disconnected'; runtimeId: string; message: string }
   | { type: 'output'; runtimeId: string; sequence: number; data: number[] }

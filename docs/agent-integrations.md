@@ -199,4 +199,4 @@ Agent 入口接受所有檔案類型而不解碼或執行；直接本機路由�
 
 ## 結構化活動 hooks
 
-共享 registry 已宣告五工具的純 observation adapters，但 transport 仍全部 `notImplemented`，不提供 live busy／idle。事件不是持續狀態，gateable Stop 不是 idle；不自動修改 Agent 設定。格式、測試及後續安全邊界見[活動 hook 基礎](agent-activity.md)。
+第一階段（#53）宣告五工具的純 observation adapters，當時 transport 為 `notImplemented`。目前已有 [opt-in ordered bridge](agent-activity-transport.md)，registry 為 `orderedBridgeOptIn`；一般啟動仍不提供 live busy／idle。事件不是持續狀態，gateable Stop 不是 idle；不自動修改 Agent 設定。格式、測試及後續安全邊界見[活動 hook 基礎](agent-activity.md)。
