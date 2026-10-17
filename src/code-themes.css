@@ -63,6 +63,6 @@
 }
 
 /* Preserve Code palette focus colors while keeping clipped row rings inset. */
-:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tabs button, .project-row > button, .session-card > button, .settings-nav > button):focus-visible {
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tabs button, .project-row > button, .session-card > button, .settings-nav > button, .directory-cards > li > .directory-card-main):focus-visible {
   outline-offset: var(--interaction-focus-offset, -3px);
 }

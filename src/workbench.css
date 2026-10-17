@@ -89,6 +89,13 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .directory-cards { grid-template-columns: repeat(auto-fill, minmax(min(300px,100%),1fr)); gap: 16px; }
 .directory-cards > li { background: var(--panel); border-radius: 12px; box-shadow: 0 2px 4px #0000000a; }
 .directory-card-main { padding: 20px; }
+/* The outer card owns the silhouette; keep the main action flush with its footer. */
+.directory-cards > li > .directory-card-main {
+  border-radius: inherit;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.directory-cards > li > .directory-card-main:focus-visible { outline-offset: var(--interaction-focus-offset, -3px); }
 .directory-card-title { gap: 12px; }
 .directory-folder-mark { width: 40px; height: 40px; display: inline-flex; justify-content: center; align-items: center; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); flex-shrink: 0; }
 .directory-card-title h3 { font-size: 16px; font-weight: 600; }
