@@ -97,7 +97,7 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
         await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
       }
       for (const control of [search, tab, footer]) {
-        await control.scrollIntoViewIfNeeded();
+        await control.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
         await expect(control).toBeInViewport({ ratio: 1 });
         expect(await control.evaluate(element => {
           const rect = element.getBoundingClientRect();
@@ -108,7 +108,7 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
       await search.fill('no matching synthetic project');
       await expect(page.locator('.project-runtime-tabs')).toHaveCount(0);
       await expect(page.locator('.open-workspaces')).toBeVisible();
-      await footer.scrollIntoViewIfNeeded();
+      await footer.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
       await expect(footer).toBeInViewport({ ratio: 1 });
       expect(await footer.evaluate(element => {
         const rect = element.getBoundingClientRect();
@@ -116,6 +116,17 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
       })).toBe(true);
       await page.screenshot({ path: info.outputPath(`${label}-${revealed ? 'focus-reveal' : 'normal'}-filtered-footer.png`) });
       await search.fill('');
+      // Tab navigation must bring the search back after scrolling elsewhere.
+      await search.focus();
+      await page.keyboard.press('Shift+Tab');
+      await footer.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+      await page.keyboard.press('Tab');
+      await expect(search).toBeFocused();
+      await expect(search).toBeInViewport();
+      expect(await search.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+      })).toBe(true);
 
     }
   });
