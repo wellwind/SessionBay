@@ -73,7 +73,7 @@ import {
   splitNode,
   uid,
 } from './workspace';
-import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex, workspaceTabShortcutHelp } from './commands';
+import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex } from './commands';
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
@@ -1357,7 +1357,7 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs" title={workspaceTabShortcutHelp}>
+              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs">
                 {focusMode && focusAvailable && <button className="focus-project-control" aria-label={focusControlsOpen ? '收起完整控制列' : '展開完整控制列'}
                   aria-expanded={focusControlsOpen} title="顯示專案、設定與完整操作"
                   onClick={() => { setFocusControlsOpen((value) => !value); if (focusControlsOpen) restoreWorkspaceFocus(); }}>

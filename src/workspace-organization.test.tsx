@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { displayNameError } from './display-name';
 import { RenameDialog } from './components/RenameDialog';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
+import { ProjectRuntimeTabs } from './components/ProjectRuntimeTabs';
 import { patchWorkspacePane, renameWorkspaceTab, reorderWorkspaceTab, restoreWorkspace, serializeWorkspace } from './workspace';
 import { workspaceTabIndex } from './commands';
 import type { Workspace } from './types';
@@ -110,6 +111,23 @@ function pointer(target: HTMLElement, type: string, x = 180, y = 10) {
 }
 
 describe('tab reordering controls', () => {
+  it.each(['工作分頁', '很長的合成分頁名稱'.repeat(20)])('shows only the complete tab name in native tooltips: %s', name => {
+    const ws = fixture();
+    const tab = { ...ws.tabs[0], name };
+    render(<><WorkspaceTabs tabs={[tab]} panes={ws.panes}
+      onSelect={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} onReorder={vi.fn()} />
+      <ProjectRuntimeTabs tabs={[tab]} panes={ws.panes} projectName="Project" onFocus={vi.fn()} /></>);
+    const workspaceButton = screen.getByRole('button', { name: `${name} 1` });
+    const sidebarButton = screen.getByRole('button', { name: `開啟工作區 Project ${name}` });
+    for (const button of [workspaceButton, sidebarButton]) {
+      expect(button).toHaveAttribute('title', name);
+      expect(button.title).not.toMatch(/第 \d+ 個分頁|拖曳|排序/);
+      expect(button).toHaveTextContent(name);
+    }
+    expect(workspaceButton).toHaveAccessibleDescription(/可拖曳分頁排序/);
+    expect(workspaceButton).toHaveAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+    expect(sidebarButton).toHaveAccessibleDescription('已開啟');
+  });
   it('supports keyboard moves, keeps focus and announces position without moving across a boundary', () => {
     const changed = vi.fn(); render(<TabsHarness changed={changed} />);
     const button = tabButton('b'); button.focus();
