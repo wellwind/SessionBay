@@ -223,3 +223,25 @@ pub struct IndexStatus {
     pub errors: Vec<String>,
     pub sources: Vec<SourceHealth>,
 }
+
+/// Informational only: never accepted as deletion authorization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovalInspection {
+    pub trash_id: String,
+    pub session_id: String,
+    pub external_id: String,
+    pub kind: AgentKind,
+    pub source_root: String,
+    pub catalog_revision: String,
+    pub indexed_artifacts: Vec<RemovalArtifact>,
+    pub blockers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovalArtifact {
+    pub relative_path: String,
+    pub status: String,
+    pub indexed_bytes: Option<u64>,
+}

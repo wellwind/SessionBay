@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import type { Session } from './types';
 
 vi.mock('./api', () => ({
-  api: { sessions: vi.fn(), transcript: vi.fn(), trashSession: vi.fn(), restoreSession: vi.fn(), trash: vi.fn(), stop: vi.fn(), launch: vi.fn() },
+  api: { sessions: vi.fn(), transcript: vi.fn(), trashSession: vi.fn(), restoreSession: vi.fn(), inspectSessionRemoval: vi.fn(), trash: vi.fn(), stop: vi.fn(), launch: vi.fn() },
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 const session: Session = { id: 'real-catalog-id', trashIdentity: 'displayed-source-token', sourceId: 'source', kind: 'codex', externalId: 'real-external-id', projectId: 'project', title: 'Synthetic work', cwd: '/synthetic', updatedAt: '2026-10-16T12:00:00Z', timeSource: 'event', archived: false, parentId: null, partial: false, snippet: null };
@@ -194,4 +194,60 @@ it.each(['blur', 'pointer', 'dialog'] as const)('relinquishes pending Undo focus
   await act(async () => finishRefresh());
   expect(document.activeElement).toBe(owner);
   expect(screen.getByRole('button', { name: '復原刪除' })).not.toHaveFocus();
+});
+
+it('inspects only a tombstone ID, shows blockers and never offers destructive execution', async () => {
+  vi.mocked(api.inspectSessionRemoval).mockResolvedValue({ trashId: entry.id, sessionId: session.id,
+    externalId: session.externalId, kind: 'codex', sourceRoot: entry.sourceRoot, catalogRevision: 'fixture',
+    indexedArtifacts: [{ relativePath: 'sessions/synthetic.jsonl', status: 'metadataMatchesIndex', indexedBytes: 42 }],
+    blockers: ['Synthetic provider exclusion is unavailable'] });
+  render(<SessionTrash onClose={vi.fn()} onChanged={vi.fn()} refreshToken={0} />);
+  fireEvent.click(await screen.findByRole('button', { name: '檢查來源 Synthetic work' }));
+  expect(await screen.findByText('sessions/synthetic.jsonl')).toBeInTheDocument();
+  expect(api.inspectSessionRemoval).toHaveBeenCalledExactlyOnceWith(entry.id);
+  expect(screen.getByText('Synthetic provider exclusion is unavailable')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /永久|清空|確認刪除/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '返回資源回收筒' }));
+  expect(await screen.findByRole('button', { name: '還原 Synthetic work' })).toBeInTheDocument();
+  expect(api.restoreSession).not.toHaveBeenCalled();
+});
+it('discards a closed inspection response and allows retry after failure', async () => {
+  let resolve!: (value: Awaited<ReturnType<typeof api.inspectSessionRemoval>>) => void;
+  vi.mocked(api.inspectSessionRemoval).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  render(<SessionTrash onClose={vi.fn()} onChanged={vi.fn()} refreshToken={0} />);
+  fireEvent.click(await screen.findByRole('button', { name: '檢查來源 Synthetic work' }));
+  expect(screen.getByRole('button', { name: '重新檢查' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '返回資源回收筒' }));
+  await act(async () => resolve({ trashId: entry.id, sessionId: session.id, externalId: session.externalId,
+    kind: 'codex', sourceRoot: entry.sourceRoot, catalogRevision: 'fixture', indexedArtifacts: [], blockers: ['Stale result'] }));
+  expect(screen.queryByText('Stale result')).not.toBeInTheDocument();
+  vi.mocked(api.inspectSessionRemoval).mockRejectedValueOnce(new Error('Source changed'));
+  fireEvent.click(await screen.findByRole('button', { name: '檢查來源 Synthetic work' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Source changed');
+  vi.mocked(api.inspectSessionRemoval).mockResolvedValueOnce({ trashId: entry.id, sessionId: session.id,
+    externalId: session.externalId, kind: 'codex', sourceRoot: entry.sourceRoot, catalogRevision: 'fixture',
+    indexedArtifacts: [], blockers: ['Refreshed blocker'] });
+  fireEvent.click(screen.getByRole('button', { name: '重新檢查' }));
+  expect(await screen.findByText('Refreshed blocker')).toBeInTheDocument();
+  expect(screen.queryByText('Source changed')).not.toBeInTheDocument();
+});
+it('returns keyboard focus through inspection and restores the original modal launcher', async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.inspectSessionRemoval).mockImplementation(() => new Promise(() => {}));
+  const launcher = document.createElement('button');
+  launcher.textContent = 'Synthetic launcher';
+  document.body.append(launcher);
+  launcher.focus();
+  const close = vi.fn();
+  const view = render(<SessionTrash onClose={close} onChanged={vi.fn()} refreshToken={0} />);
+  const inspect = await screen.findByRole('button', { name: '檢查來源 Synthetic work' });
+  await user.click(inspect);
+  expect(screen.getByRole('button', { name: '返回資源回收筒' })).toHaveFocus();
+  await user.keyboard('{Escape}');
+  expect(screen.getByRole('button', { name: '檢查來源 Synthetic work' })).toHaveFocus();
+  await user.keyboard('{Escape}');
+  expect(close).toHaveBeenCalledOnce();
+  view.unmount();
+  expect(launcher).toHaveFocus();
+  launcher.remove();
 });

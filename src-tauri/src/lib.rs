@@ -13,6 +13,7 @@ pub mod launch_provenance;
 pub mod models;
 pub mod opencode;
 pub mod providers;
+pub mod removal;
 pub mod runtime;
 pub mod service;
 pub mod shells;

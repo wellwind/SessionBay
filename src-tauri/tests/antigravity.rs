@@ -37,6 +37,8 @@ impl Harness {
         // Intentionally not a native CLI root: readable backups must not be resumable.
         let root = temp.path().join("antigravity-backup");
         fs::create_dir_all(&root).unwrap();
+        #[cfg(unix)]
+        let root = root.canonicalize().unwrap();
         let catalog = Catalog::open(&temp.path().join("catalog.sqlite")).unwrap();
         Self {
             source: HistorySource {
@@ -886,4 +888,25 @@ fn antigravity_empty_root_and_unknown_layout_keep_distinct_source_health() {
     assert_eq!(h.total("UNSUPPORTED_LAYOUT_PRIVATE"), 0);
     fs::remove_dir_all(&h.root).unwrap();
     assert_eq!(h.sync().sources[0].status, "missing");
+}
+
+#[test]
+fn removal_inspection_keeps_metadata_only_records_explicitly_shared() {
+    let h = Harness::new();
+    h.standard_metadata();
+    h.sync();
+    let session = h.sessions().remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let before = fs::read(h.db_path()).unwrap();
+    let inspection = h.catalog.inspect_removal(&id).unwrap();
+    assert_eq!(inspection.indexed_artifacts.len(), 1);
+    assert_eq!(inspection.indexed_artifacts[0].status, "sharedStore");
+    assert!(inspection.indexed_artifacts[0]
+        .relative_path
+        .starts_with("conversation_summaries.db"));
+    assert!(inspection.blockers[0].contains("禁止刪除整個資料庫"));
+    assert_eq!(fs::read(h.db_path()).unwrap(), before);
 }
