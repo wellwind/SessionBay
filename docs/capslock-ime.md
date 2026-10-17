@@ -28,7 +28,7 @@ trusted 事件順序為 CapsLock keydown（isComposing=true）、Unidentified ke
 
 ### 雲端檢查（2026-10-17）
 
-typecheck、ESLint、46 檔 1015 項 Vitest 與 production build 通過；其中 IME／keyboard focused 58 項。13 項 bundle 測試已完成 discovery（含 Fit／Search 相容），實際 Chromium 結果待 CI。此數字不代表原生輸入法通過；本輪未改 Rust，未重跑 Rust／三平台 desktop matrix。
+typecheck、ESLint、46 檔 1015 項 Vitest 與 production build 通過；其中 IME／keyboard focused 58 項。13 項 bundle 測試（含 Fit／Search 相容）與 4 項 layout 在 [CI 39045111951](https://github.com/wellwind/SessionBay/actions/runs/39045111951) 通過。該 run 後續因舊 5.5 repaint 測試預期 blank>0 而失敗：6.0 的同步分幀實際 blank=0。已更新為 6.0 驗證並加入未同步負對照；整套最終 CI 仍待確認。此數字不代表原生輸入法通過；本輪未改 Rust，未重跑 Rust／三平台 desktop matrix。
 
 ## Mac 驗收
 

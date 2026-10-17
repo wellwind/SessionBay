@@ -9,7 +9,7 @@
 - 原本逐事件的 lease／取消／30 秒 ACK 等待不變；前端必須等整批 xterm.write callback 完成才 ACK。1 MiB／128 frame 的 replay 上限、過期後 snapshot 重建、OSC 52 與查詢過濾均維持。
 - 合成延遲模型每個 write／ACK 往返期間產生四個小 chunk，30 次 Poll：原逐 chunk 模型為 513 次 write 與 9 次 snapshot；批次模型為 30 次 write、0 次 snapshot。這是固定條件的單元模型，不是實際使用者效能或 macOS 視覺驗收。
 - 真實 TerminalPane／xterm 的 Chrome fixture 分開觀察跨 write 的同步清除／重繪與同一批次 write；只記錄 reset、write、ACK、resize、render 與空白 render 計數，不擷取使用者輸入。CI 證據與原生桌面驗收需分別確認。
-- xterm 5.5 尚未支援 DEC 2026；跨 Poll 的同步 repaint 仍可能閃爍。6.0 升級需獨立審查 Fit／Search addon、鍵盤與 IME 相容性，本次不升級、不加入私有 renderer hook。
+- 此節為 xterm 5.5 時期紀錄：當時未支援 DEC 2026，跨 Poll 同步 repaint 仍可能閃爍。後續 CapsLock 候選升級 6.0 與相容 Fit／Search addons，已取得同步分幀 blank=0 的 Chromium 合成證據；原生顯示與 IME 驗收另列，未加入私有 renderer hook。
 
 ## 2026-10-17 啟動時最大化
 
