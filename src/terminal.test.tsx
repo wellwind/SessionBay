@@ -76,6 +76,7 @@ vi.mock('@xterm/xterm', () => ({
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
     fit() { mocks.fit(); }
+    proposeDimensions() { return undefined; }
   },
 }));
 vi.mock('@xterm/addon-search', () => ({

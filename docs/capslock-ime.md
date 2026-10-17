@@ -49,3 +49,11 @@ typecheck、ESLint、46 檔 1015 項 Vitest 與 production build 通過；其中
 - [CompositionHelper 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/input/CompositionHelper.ts)
 - [CoreBrowserTerminal 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/CoreBrowserTerminal.ts)
 - [VS Code terminalInstance](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts)
+
+## 6.0 Fit 相容回歸
+
+完整 CI 在 CSS zoom 50% 的 focus single→split→one 發現相同 pane 還原為 252 欄、初始 251 欄（rows 同為 76），同 SHA 重跑可再現；沒有放寬原 exact-size 驗證。xterm DOM renderer 以 round(canvasWidth)/cols 回推 cell 寬，FitAddon 再用此近似值計算欄數。安裝的 FitAddon 來源回歸以合成字寬 7.826、可用寬 1972 重現 221→251→252 的取整差異；此字寬為模型值，不是從原生 Mac 測得。
+
+每次公開 fit() 後，用公開 proposeDimensions() 檢查一次，必要時同步再 fit()，然後才依原流程送 PTY resize。沒有私有 renderer 讀寫、timer 或無限收斂迴圈；某些字寬可能震盪，因此補償最多一次。保留尺寸上限及原有隱藏／attachment 守衛。真實 browser 的原 exact-size 回歸仍是驗證門檻。
+
+此相容修正本地 typecheck／lint／47 檔 1019 項 Vitest／build 通過；原 focus exact-size browser case 待新 CI，尚不宣稱通過。

@@ -256,3 +256,5 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [xterm #5282](https://github.com/xtermjs/xterm.js/pull/5282)：已納入 6.0 的 CapsLock 修正。
 - [xterm #6191](https://github.com/xtermjs/xterm.js/pull/6191)：尚未合併；isComposing keydown 不應以 legacy code 提前 finalize 的原則。
 - [VS Code terminalInstance](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts)：公開 custom keyboard handler 分流，沒有自製 composition finalizer。
+
+- [FitAddon 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/addons/addon-fit/src/FitAddon.ts) 與 [DOM renderer 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/renderer/dom/DomRenderer.ts)：公開 fit/proposeDimensions 與 canvas/cols 取整的相容依據；來源層模型與 Chromium zoom 回歸不等同原生 WebView。
