@@ -281,7 +281,8 @@ for (const [size, width, height, zoom] of [
       await expect(page.locator('.workspace-canvas')).not.toHaveClass(/single-pane/);
       const second = page.getByRole('region', { name: 'Synthetic shell 終端面板', exact: true });
       await expect(second.locator('.pane-meta')).toContainText('執行中');
-      await expect.poll(() => second.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
+      // The project sidebar reduces split width; xterm may wrap even inside words.
+      await expect.poll(async () => (await second.locator('.xterm-rows').innerText()).replace(/\s/g, '')).toContain('Syntheticfocusoutput');
       await expect(page.getByRole('separator', { name: '左右面板比例' })).toBeVisible();
       await expect.poll(async () => (await originalSize())?.cols ?? 0).toBeLessThan(initialSize!.cols!);
       const splitSize = await originalSize();
