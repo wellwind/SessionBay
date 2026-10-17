@@ -180,6 +180,14 @@ Antigravity CLI 使用 `defaultDirectory=.gemini/antigravity-cli`、`probeDirect
 
 SQLite 歷史、XDG 路徑、OPENCODE_DB 精確接續、--auto opt-in、合成 fixtures 與明確限制，見 [OpenCode 整合與驗證](opencode-integration.md)。
 
+### 工作中狀態的可靠性界線（2026-10-17）
+
+目前 Codex、Claude Code、Grok Build、Antigravity CLI、OpenCode 均只接 PTY 生命週期，busy／idle 未支援。專案展開 tabs 與分頁指示如實顯示「活動未知」。啟動中只描述啟動，不代表 Agent 正在工作。
+
+Codex 官方 structured event 的 `TurnStartedEvent`／`TurnCompleteEvent` 可依 `turn_id` 配對，舊 rollout 名稱 `task_started`／`task_complete` 已被歷史 adapter 識別。但 catalog session ID、檔案 EOF 與啟動時間不足以證明是此 PTY 的活動：broker 只能排除自己的重複 resume，外部 CLI 可操作同一 session。新版 protocol 的 `SessionConfiguredEvent` 有 `rollout_path`，目前 PTY transport 未提供此控制通道。未建立 provider/runtime 來源綁定前，不把追加紀錄冒充本 tab 忙碌。
+
+安全後續方案：建立使用者明確選用的 scoped structured event transport，由啟動 handshake 綁定 session、runtime generation 與事件序列，再接 busy/idle。若採既有檔案事件，需版本化 schema、啟動前 EOF、水位、bounded read、截斷／替換／失聯降為 unknown，以及可靠 writer/runtime 身分；只有時間戳不夠。OpenCode 官方 `/event` 與 `/session/status` 是候選，但目前沒有已驗證的既有 server endpoint 身分，不自動啟動服務或擴大權限。
+
 ## 圖片輸入
 
 本機已知 Agent 的圖片路徑 adapter、版本來源與保留生命週期見 [圖片輸入](image-input.md)。不宣稱所有 CLI／平台均已原生驗收。

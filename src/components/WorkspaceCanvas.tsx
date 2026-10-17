@@ -87,6 +87,7 @@ export function WorkspaceCanvas({
               projectAvailable={pane.projectId !== null && knownProjectIds.includes(pane.projectId)}
               settings={settings}
               visible={show}
+              activityVisible={visible && !!rect}
               focused={tab?.focusedPaneId === pane.id}
               maximized={maximizedId === pane.id}
               onPatch={onPatch}

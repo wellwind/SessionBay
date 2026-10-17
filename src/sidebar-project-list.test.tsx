@@ -25,6 +25,7 @@ describe('sidebar project sorting', () => {
     vi.spyOn(list, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 250, top: 0, bottom: 150 } as DOMRect);
     for (const [index, id] of ['a', 'b', 'c'].entries()) {
       const row = screen.getByRole('button', { name: `排序 ${id}` }).parentElement!;
+      vi.spyOn(row.parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 250, top: index * 50, bottom: index * 50 + 46, width: 250, height: 46 } as DOMRect);
       vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 250, top: index * 50, bottom: index * 50 + 46, width: 250, height: 46 } as DOMRect);
     }
     const source = screen.getByRole('button', { name: '排序 a' });
@@ -36,8 +37,8 @@ describe('sidebar project sorting', () => {
     for (const cancel of ['outside', 'escape', 'pointercancel', 'blur']) {
       pointer('pointerdown', 10); pointer('pointermove', 130);
       expect(onReorder).not.toHaveBeenCalled();
-      expect(source.parentElement).toHaveClass('reorder-dragging');
-      expect(screen.getByRole('button', { name: '排序 b' }).parentElement).toHaveStyle({ transform: 'translateY(-50px)' });
+      expect(source.closest('.project-group')).toHaveClass('reorder-dragging');
+      expect(screen.getByRole('button', { name: '排序 b' }).closest('.project-group')).toHaveStyle({ transform: 'translateY(-50px)' });
       if (cancel === 'escape') fireEvent.keyDown(window, { key: 'Escape' });
       if (cancel === 'pointercancel') pointer('pointercancel', 130);
       if (cancel === 'blur') fireEvent.blur(window);
