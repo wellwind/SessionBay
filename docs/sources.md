@@ -236,3 +236,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [Microsoft ClosePseudoConsole](https://learn.microsoft.com/en-us/windows/console/closepseudoconsole)：24H2 起關閉 API 立即返回；輸出 reader 仍需排空到 EOF。實作讓輸入在初始 handshake 完成後釋放，輸出維持獨立排空。
 - [Microsoft TerminateProcess](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess)：外部終止為非同步操作，應等待原始 process handle；對已終止程序重送可能取得 access denied。
 - [Rust 1.99 libtest terminfo searcher](https://github.com/rust-lang/rust/blob/1.99.0/library/test/src/term/terminfo/searcher.rs)：TERMINFO、TERMINFO_DIRS 與預設 home／系統目錄的搜尋規則。Windows acceptance fixtures 明確限制搜尋到本次合成目錄，不依賴主機的終端資料庫。
+
+## Windows installer 隔離驗收（2026-10-17 查閱）
+
+- [GitHub hosted runner 規格與權限](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)：Windows disposable VM、x64／ARM64 labels 與管理員／UAC 預設。
+- [GitHub runner 環境變數](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)：RUNNER_ENVIRONMENT 等執行環境防呆訊號。
+- [NSIS command line](https://nsis.sourceforge.io/Docs/Chapter3.html)：正式 installer／uninstaller silent 參數及安裝路徑語法。
+- [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/)：currentUser NSIS 與 WebView2 封裝行為。適用範圍與限制見 [測試說明](windows-installer-smoke.md)。
