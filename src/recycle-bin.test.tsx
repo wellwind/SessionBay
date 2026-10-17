@@ -30,7 +30,12 @@ it('confirms recoverable deletion, supports undo and never stops or launches run
   fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
   vi.mocked(api.sessions).mockResolvedValue({ items: [], total: 0 });
   fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
-  fireEvent.click(await screen.findByRole('button', { name: '復原刪除' }));
+  const undo = await screen.findByRole('button', { name: '復原刪除' });
+  const dismiss = screen.getByRole('button', { name: '關閉復原提示' });
+  expect(undo.parentElement).toBe(dismiss.parentElement);
+  expect(undo.parentElement).toHaveClass('history-undo-actions');
+  expect(dismiss).not.toHaveTextContent('×');
+  fireEvent.click(undo);
   await waitFor(() => expect(api.restoreSession).toHaveBeenCalledWith(entry.id));
   expect(api.trashSession).toHaveBeenCalledWith(session.id, session.trashIdentity);
   expect(changed).toHaveBeenCalledTimes(2);
