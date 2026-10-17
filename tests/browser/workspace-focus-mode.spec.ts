@@ -231,13 +231,18 @@ for (const [size, width, height, zoom] of [
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.locator('.terminal-pane:visible')).toHaveCount(2);
       await expect(page.locator('.workspace-canvas')).not.toHaveClass(/single-pane/);
-      const second = page.locator('.terminal-pane:visible').last();
+      const second = page.getByRole('region', { name: 'Synthetic shell 終端面板', exact: true });
+      await expect(second.locator('.pane-meta')).toContainText('執行中');
+      await expect.poll(() => second.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
       await expect(page.getByRole('separator', { name: '左右面板比例' })).toBeVisible();
       await expect.poll(async () => (await originalSize())?.cols ?? 0).toBeLessThan(initialSize!.cols!);
       const splitSize = await originalSize();
       const split = await capture();
       expect(split.canvas.left - split.work.left).toBeCloseTo(6 * zoom, 1);
-      expect([split.border, split.radius, split.padding]).toEqual(['1px', '7px', '3px']);
+      // Chrome floors a nonzero border to one device pixel at DPR 1. At
+      // 50% CSS zoom its computed width is therefore 2 CSS px, painted as 1 px.
+      expect(Number.parseFloat(split.border) * zoom).toBeCloseTo(Math.max(1, zoom), 5);
+      expect([split.radius, split.padding]).toEqual(['7px', '3px']);
       expect(split.pane.width).toBeLessThan(before.pane.width);
       await assertPreserved();
       await page.screenshot({ path: testInfo.outputPath('split.png'), fullPage: true });

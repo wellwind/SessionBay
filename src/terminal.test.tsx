@@ -1082,3 +1082,17 @@ it('refits after native page zoom without changing terminal font or runtime, and
   expect(mocks.launch).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.disposed).not.toHaveBeenCalled();
   expect(mocks.reset).toHaveBeenCalledTimes(resets);
 });
+
+it('reserves the focus badge slot without exposing an inactive focus label', () => {
+  const p = props();
+  const view = render(<TerminalPane {...p} focused={false} />);
+  const badge = view.container.querySelector('.focus-label')!;
+  const close = screen.getByRole('button', { name: '關閉面板' });
+  expect(badge).toHaveStyle({ visibility: 'hidden' });
+  expect(badge).toHaveAttribute('aria-hidden', 'true');
+  view.rerender(<TerminalPane {...p} focused />);
+  expect(view.container.querySelector('.focus-label')).toBe(badge);
+  expect(badge).not.toHaveStyle({ visibility: 'hidden' });
+  expect(badge).toHaveAttribute('aria-hidden', 'false');
+  expect(screen.getByRole('button', { name: '關閉面板' })).toBe(close);
+});
