@@ -443,6 +443,10 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
 
+## 2026-10-17：Terminal 留白沿用終端背景
+
+Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 terminalTheme resolver；明暗色與即時預覽／取消皆隨設定更新，未知色票沿用既有 fallback。工具列與 footer 仍用介面色系，不改其分隔線。這是純樣式更新，不重建 PTY、不 reset、不因顏色變更重新 fit。
+
 ## 2026-10-17：命令面板鍵盤選取
 
 命令與專案共用單一可搜尋清單；搜尋欄保留焦點，↑／↓ 循環移動至可用項目，Enter 執行選取，Escape 沿用對話框關閉與焦點返回。搜尋變更選取第一個可用項目，停用項目與空結果不能執行；滑鼠指向同步選取，選取項自動捲入可見範圍。組字中的方向鍵、Enter／Escape 與 keyCode 229 不觸發命令。主題子清單維持既有即時預覽、返回取消與儲存語意。
@@ -452,3 +456,7 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 - 分頁排序改用 Pointer Events 與 pointer capture，避免依賴原生 WebView 的 HTML5 檔案拖放事件。只在分頁名稱按鈕開始，移動至少 5px 並於同一專案分頁範圍內放開才提交一次排序；Escape、失焦、pointercancel、capture 遺失與區域外放開均取消。
 - 保留點擊選取、Alt 加左右鍵、原有 active／focused ID、其他專案位置與既有 workspace 保存管線；排序不更改 pane、runtime、PTY 或名稱。
 - 真實 App 的瀏覽器回歸使用合成 bridge 與 Playwright 滑鼠拖曳，涵蓋保存與重新載入。Chrome 驗證不等於 macOS 原生 WebView 驗收，後者仍須在裝置上驗證。
+
+## 2026-10-17：不顯示例行版本相容提示
+
+使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。
