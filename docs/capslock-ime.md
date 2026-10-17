@@ -30,8 +30,8 @@ xterm 5.5.0 的 `CompositionHelper.keydown` 把 Caps Lock 當作一般按鍵，�
 
 ### 本次雲端結果（2026-10-17）
 
-- typecheck、ESLint、完整 Vitest **44 檔 1017 測試**、production build 通過；其中 IME **56 案**。
-- Chromium bundle suite **未執行**：受限執行器禁止 Chromium 建立本機 socket；標準提升執行又遇到唯讀掛載錯誤。未停用 Chromium sandbox 或改動 OS 安全設定；保留腳本供可用環境驗證。
+- typecheck、ESLint、完整 Vitest **44 檔 1017 測試**、production build 通過；其中 IME **56 案**。整合最新 main `ce43370` 後再跑 typecheck／lint／**46 檔 1030 測試**／build 通過，IME 程式碼未變。
+- Chromium bundle suite **未執行**：受限執行器禁止 Chromium 建立本機 socket；標準提升執行又遇到唯讀掛載錯誤。未停用 Chromium sandbox 或改動 OS 安全設定；保留腳本，並接入既有 Linux lightweight 的 sandbox Chrome 步驟；該 CI 結果仍待確認。
 - 未改 Rust；沒有在本輪重跑 Rust、三平台 desktop matrix 或原生 IME。
 
 ## 尚待原生驗收

@@ -103,6 +103,32 @@ test('history, settings, theme and project navigation remain reachable without r
   await expect(page.locator('.app-topbar')).toBeVisible();
 });
 
+test('preview tabstrip control preserves full-height pane and focus lifecycle', async ({ page }) => {
+  const toggle = page.getByRole('button', { name: '檔案預覽', exact: true });
+  await expect(page.locator('.workspace-tabs').getByRole('button', { name: '檔案預覽', exact: true })).toBeVisible();
+  const verticalBounds = () => page.locator('.terminal-pane:visible').evaluate(element => {
+    const pane = element.getBoundingClientRect();
+    const work = document.querySelector('.main-work-area')!.getBoundingClientRect();
+    return { top: pane.top - work.top, bottom: work.bottom - pane.bottom };
+  });
+  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
+  await toggle.click();
+  await page.getByRole('button', { name: 'synthetic.txt', exact: true }).click();
+  const preview = page.getByLabel('唯讀內容：synthetic.txt');
+  await expect(preview).toContainText('synthetic preview only');
+  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
+  await preview.focus();
+  await page.keyboard.press('Escape');
+  await expect(toggle).toBeFocused();
+  await page.getByRole('button', { name: '歷史 Session', exact: true }).click();
+  await expect(toggle).toHaveCount(0);
+  await page.locator('.workspace-tab-select').click();
+  await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+  await expect(toggle).toBeVisible();
+  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
+  await sameTerminal(page);
+});
+
 test('long tab names keep a keyboard-operable focus exit at supported narrow width', async ({ page }) => {
   await page.getByRole('button', { name: '重新命名分頁 Focus shell', exact: true }).click();
   await page.getByRole('textbox', { name: '顯示名稱', exact: true }).fill('Long synthetic workspace name '.repeat(6));

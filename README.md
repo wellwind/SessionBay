@@ -36,6 +36,8 @@ npm run tauri -- build
 
 ## 文件導覽
 
+- [工作區檔案預覽](docs/workspace-file-preview.md)：唯讀目錄、文字限制及平台安全邊界。
+
 | 文件 | 內容 |
 | --- | --- |
 | [產品企劃](docs/product-plan.md) | 定位、痛點、目標使用者、價值主張與驗證方式 |

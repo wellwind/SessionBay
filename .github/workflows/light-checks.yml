@@ -39,6 +39,10 @@ jobs:
           sudo apt-get install --no-install-recommends -y fonts-noto-cjk fontconfig
       - name: Terminal layout screenshots and bounds
         run: npm run test:layout
+      - name: Caps Lock composition transaction browser regression
+        run: npm run test:ime
+      - name: Workspace file preview screenshots and bounds
+        run: npm run test:files -- --output=test-results/files
       - name: Agent lifecycle overview browser acceptance
         run: npm run test:agent-status
       - name: Workspace tab mouse drag and persistence

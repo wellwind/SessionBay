@@ -4,6 +4,7 @@ use crate::{
     history_sources::{self, HistorySourceDiscovery},
     models::{
         AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
+        WorkspaceFilePage, WorkspaceFilePreview,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
@@ -57,11 +58,14 @@ fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
     if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
         return Ok(false);
     }
-    if phase == "terminal-probe" {
-        return Ok(
-            std::env::var("SESSIONBAY_SMOKE_TERMINAL").as_deref() == Ok("1")
-                && smoke_data_directory().map_err(|e| e.to_string())?.is_some(),
-        );
+    if phase == "terminal-probe" || phase == "files-probe" {
+        let flag = if phase == "files-probe" {
+            "SESSIONBAY_SMOKE_FILES"
+        } else {
+            "SESSIONBAY_SMOKE_TERMINAL"
+        };
+        return Ok(std::env::var(flag).as_deref() == Ok("1")
+            && smoke_data_directory().map_err(|e| e.to_string())?.is_some());
     }
     let line = diagnostic_line(&phase, &message)?;
     if FRONTEND_DIAGNOSTICS.fetch_add(1, Ordering::Relaxed) < 32 {
@@ -125,6 +129,34 @@ async fn save_settings(state: AppState<'_>, settings: Settings) -> Result<Settin
 async fn list_projects(state: AppState<'_>) -> Result<Vec<Project>, String> {
     let s = state.inner().clone();
     blocking(move || s.catalog.projects()).await
+}
+#[tauri::command]
+async fn list_workspace_files(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+    offset: Option<usize>,
+    show_hidden: Option<bool>,
+) -> Result<WorkspaceFilePage, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.list_workspace_files(
+            &project_id,
+            &path,
+            offset.unwrap_or(0),
+            show_hidden.unwrap_or(false),
+        )
+    })
+    .await
+}
+#[tauri::command]
+async fn read_workspace_file(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+) -> Result<WorkspaceFilePreview, String> {
+    let s = state.inner().clone();
+    blocking(move || s.read_workspace_file(&project_id, &path)).await
 }
 #[tauri::command]
 async fn add_project(
@@ -540,6 +572,8 @@ pub fn run() {
             detect_shells,
             save_settings,
             list_projects,
+            list_workspace_files,
+            read_workspace_file,
             add_project,
             create_project,
             update_project,

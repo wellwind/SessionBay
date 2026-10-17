@@ -62,6 +62,8 @@ mockIPC((command, payload = {}) => {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
     case 'list_projects': return bootstrap.projects;
+    case 'list_workspace_files': return { entries: [{ name: 'synthetic.txt', path: 'synthetic.txt', kind: 'file' }], nextOffset: null };
+    case 'read_workspace_file': return { path: 'synthetic.txt', text: 'synthetic preview only', sizeBytes: 22 };
     case 'update_project': {
       const project = bootstrap.projects.find(item => item.id === args.projectId)!;
       for (const field of ['name', 'curated', 'launchPath'] as const)

@@ -96,6 +96,37 @@ pub struct Project {
     pub agents: Vec<AgentKind>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspaceEntryKind {
+    Directory,
+    File,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceEntry {
+    pub name: String,
+    pub path: String,
+    pub kind: WorkspaceEntryKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFilePage {
+    pub entries: Vec<WorkspaceEntry>,
+    pub next_offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFilePreview {
+    pub path: String,
+    pub text: String,
+    pub size_bytes: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
