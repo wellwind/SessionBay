@@ -123,7 +123,7 @@
 
 ### Shift＋Enter 原位輸入（取代未合併的 modal 方案）
 
-- 實作 registry 驅動的單鍵 CSI-u 相容模式與面板覆寫；Shell／未知工具不猜測，無 LF／CR fallback。
+- 2026-10-17 依使用者要求統一所有 Terminal 的單鍵 CSI-u 相容輸入，移除依 provider／平台選擇與面板模式介面；不偵測前景程式，無 LF／CR fallback。
 - 自動化與原生驗收分開；完整 CLI、三平台 WebView／ConPTY、IME、tmux／SSH／WSL 尚待驗收，不能標成全工具通過。見 [版本與驗證清單](terminal-keyboard.md)。
 
 

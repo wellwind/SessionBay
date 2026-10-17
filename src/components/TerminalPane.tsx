@@ -21,7 +21,7 @@ import { api, errorMessage } from '../api';
 import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { workspaceZoomEvent } from '../workspace-zoom';
-import { defaultShiftEnter, handleTerminalKey, type ShiftEnterMode } from '../terminal-keyboard';
+import { handleTerminalKey } from '../terminal-keyboard';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
   lease: string;
@@ -90,13 +90,6 @@ export function TerminalPane({
   const [searchOpen, setSearchOpen] = useState(false);
   const [needle, setNeedle] = useState('');
   const [notice, setNotice] = useState('');
-  const [keyOverride, setKeyOverride] = useState<{ paneId: string; runtimeId?: string; startToken?: number; mode: ShiftEnterMode } | null>(null);
-  const keyMode = keyOverride?.paneId === pane.id && keyOverride.runtimeId === pane.runtimeId && keyOverride.startToken === pane.startToken
-    ? keyOverride.mode : 'default';
-  const defaultEncoding = defaultShiftEnter(pane.kind);
-  const keyEncoding = keyMode === 'default' ? defaultEncoding : keyMode;
-  const keyEncodingRef = useRef(keyEncoding);
-  keyEncodingRef.current = keyEncoding;
   const actionPending = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const actionGeneration = useRef(0);
@@ -168,7 +161,6 @@ export function TerminalPane({
       const current = latest.current;
       const active = attachment.current;
       return handleTerminalKey(event, {
-        encoding: keyEncodingRef.current,
         composing,
         blocked: hasBlockingDialog(),
         canInput: mounted.current && current.visible && current.focused && document.activeElement === terminal.textarea &&
@@ -632,20 +624,6 @@ export function TerminalPane({
                 ? '普通 Shell · 不自動關聯 Agent'
                 : '新的 Agent 工作'}
           </span>
-          <label className="terminal-keyboard-mode">
-            <span>Shift+Enter</span>
-            <select aria-label="Shift+Enter 輸入模式" aria-describedby={`keyboard-help-${pane.id}`}
-              value={keyMode} disabled={!connected || !live}
-              onChange={(event) => setKeyOverride({ paneId: pane.id, runtimeId: pane.runtimeId, startToken: pane.startToken, mode: event.target.value as ShiftEnterMode })}>
-              <option value="default">預設：{defaultEncoding === 'csi-u' ? 'CSI-u' : '原生'}（啟動來源）</option>
-              <option value="csi-u">CSI-u（Agent 相容）</option>
-              <option value="native">原生（xterm）</option>
-            </select>
-          </label>
-          <details className="terminal-keyboard-help">
-            <summary>按鍵說明</summary>
-            <p id={`keyboard-help-${pane.id}`}>CSI-u 傳送 Shift+Enter，由目前程式決定行為；不偵測前景程式。Shell 內啟動支援的 Agent 可手動選用，返回 Shell 請切回原生。原生通常等同 Enter，可能送出。手動模式於重新啟動後重設；同一工作重新連線則保留。Grok 多行模式的 Shift+Enter 是送出。</p>
-          </details>
           {pane.state === 'disconnected' ? (
             <button disabled={connecting} onClick={() => setReconnect((value) => value + 1)}>重新連線</button>
           ) : live ? (

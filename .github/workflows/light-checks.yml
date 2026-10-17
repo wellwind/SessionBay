@@ -29,6 +29,24 @@ jobs:
       - run: npm ci
       - name: Frontend checks
         run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: Verify sandbox-supported Chrome and install browser dependencies
+        run: |
+          command -v google-chrome
+          readlink -f "$(command -v google-chrome)"
+          google-chrome --version
+          test -x /opt/google/chrome/chrome
+          npx playwright install-deps chromium
+          sudo apt-get install --no-install-recommends -y fonts-noto-cjk fontconfig
+      - name: Terminal layout screenshots and bounds
+        run: npm run test:layout
+      - name: Upload terminal layout evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
+        with:
+          name: terminal-layout-evidence
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Validate visual assets and semantic contrast
         run: python3 scripts/validate-ui-design.py && python3 scripts/validate-macos-icon.py
       - name: Rust formatting

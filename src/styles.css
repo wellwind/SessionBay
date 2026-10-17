@@ -1178,11 +1178,14 @@ kbd {
 .terminal-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   position: relative;
+  overflow: hidden;
+  /* FitAddon measures the host border box; keep spacing outside that host. */
+  padding: 9px 7px;
 }
 .xterm-host {
   height: 100%;
-  padding: 9px 7px;
 }
 .terminal-placeholder {
   position: absolute;
@@ -1631,22 +1634,3 @@ kbd {
   .directory-path-controls { flex-wrap: wrap; }
   .directory-path-controls > input { flex-basis: 100%; }
 }
-
-.terminal-keyboard-mode {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted);
-  font-size: 11px;
-  min-width: 0;
-}
-.terminal-keyboard-mode select {
-  min-width: 0;
-  max-width: 190px;
-  padding: 3px;
-  font-size: 11px;
-}
-.terminal-keyboard-help { font-size: 11px; }
-.terminal-keyboard-help summary { cursor: pointer; }
-.terminal-keyboard-help[open] { flex-basis: 100%; }
-.terminal-keyboard-help p { color: var(--muted); line-height: 1.5; max-width: 70ch; }

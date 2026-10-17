@@ -57,7 +57,7 @@
 
 ## 08 Shift＋Enter 換行
 
-- [x] 原位 Shift＋Enter、registry 預設／面板手動模式及焦點／IME 自動回歸；無 LF／CR fallback。
+- [x] 原位 Shift＋Enter 與焦點／IME 自動回歸；2026-10-17 改為統一 CSI-u、不顯示模式介面，無 LF／CR fallback。
 - [ ] 原生三平台 WebView／真實 Shell 或 Agent 互動驗收。
 - 類型：問題／功能
 - 需求與驗收重點：使用者表示目前似乎不可用，需重現。確認各 Shell／Agent 的多行輸入與鍵盤協定；支援時能換行而不提前送出，與 IME 組字互不干擾。不支援的工具應明示限制。最新原位方案、decoder 查核與 Windows Codex 等平台限制見 [Terminal 按鍵](terminal-keyboard.md)。
