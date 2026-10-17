@@ -183,3 +183,7 @@ UI 框架採宣告式狀態。Terminal 高頻輸出由 xterm 實例接收，不�
 所有 Terminal（包含 Shell、未知工具與 Windows）一律將 Shift＋Enter 傳送為 CSI-u modified Enter，輸入留在 Terminal，不開 modal，也不顯示模式選單或額外按鍵說明。一般 Enter、組字、貼上及輸入目標守衛不變。編碼一致不等於所有程式都支援換行；詳細版本、Grok 送出語意及原生驗收限制見 [Terminal 按鍵](terminal-keyboard.md)。
 
 macOS Cmd+W／File → Close Tab 關閉目前工作區分頁（包含分割面板）；有執行中工作先確認。最後一個分頁關閉仍保留視窗。對話框與 IME 組字期間不觸發；Cmd+Shift+W 仍為關閉焦點面板，Cmd+Q 與紅色關閉鈕仍為離開應用程式。
+
+### Agent 狀態（2026-10-17）
+
+側欄獨立可收合的 Agent 狀態區顯示總計，各專案展開後列出 Runtime；全域工作階段不混入專案。標題列同時提供文字生命週期，不只使用狀態圓點。存活顯示活動未知，斷線顯示存活未知。點選狀態列回到既有面板，不啟動新程序。計數與既有專案歷史 Session 數分開。

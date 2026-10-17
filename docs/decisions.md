@@ -429,3 +429,11 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 相容模式由 workspace 保留已知 home 政策，附上僅供比對的 `homePolicyRuntimeId`；只有 broker 回傳同一 runtime／pane、仍為無 session／resume 的全域 Shell 且未提供 home 政策時才沿用。此值不復原 runtimeId、不自動啟動或授予附接權限。現代 broker 明確 true／false 優先；未宣告 capability 的中間版本之 false 視為未知，因為新 client 為相容而省略了欄位。任何正向 true 仍保留。
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
+
+## 2026-10-17：Agent 生命週期總覽
+
+Agent 狀態以共享 provider registry 辨識，不把 Shell 或歷史 Session 數當成 Agent 數。側欄按專案彙總已開啟、存活、已結束、中斷等數量；全域工作階段獨立一組。同一 runtime ID 只計一次，尚無 runtime 的面板按 pane ID 計數。已開啟包含尚未啟動及保留的結束面板，關閉後不再計數；存活只包含已有 runtime 的 starting／running，不代表忙碌或等待輸入。停用 provider 不排除既有程序。
+
+狀態來源限於 bootstrap 的 broker RuntimeRecord，以及現有 TerminalPane 的 launch／attach 回覆、exit／disconnected 事件。所有專案面板既有訂閱在背景保留，總覽只讀 workspace，不增加輪詢、程序探測或輸出分析。斷線不表示已結束，也不能聲稱仍存活；broker 復原的 interrupted 與斷線分開。重複 runtime 視圖使用保守狀態優先順序，終止狀態不被另一個舊的 running 視圖覆蓋。
+
+目前介面沒有可靠的 Agent 工作活動結構化事件，所以執行中顯示「活動未知」，不從靜默、CPU、輸出文字推測忙碌／等待輸入。總覽不跨應用程式猜測或掃描其他程序。前端合成測試可驗證狀態與 UI；原生跨平台實機驗收另行記錄。

@@ -39,6 +39,8 @@ jobs:
           sudo apt-get install --no-install-recommends -y fonts-noto-cjk fontconfig
       - name: Terminal layout screenshots and bounds
         run: npm run test:layout
+      - name: Agent lifecycle overview browser acceptance
+        run: npm run test:agent-status
       - name: Upload terminal layout evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24

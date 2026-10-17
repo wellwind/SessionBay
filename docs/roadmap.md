@@ -135,3 +135,11 @@
 
 - [x] 固定舊 protocol 1 schema 的未知欄位重現、雙向 Hello 相容、scope／generation 與 workspace 身分比對回歸。
 - [ ] macOS 真實舊 broker 持續執行時更新 UI，驗證新臨時 Terminal、既有 Agent 重附接與重開工作區；不得停止原有程序。
+
+### Agent 生命週期總覽
+
+- [x] 共用 registry 辨識、Runtime 去重、專案／全域分組、停用不漏計及背景面板事件更新的實作與合成回歸。
+- [ ] 原生三平台狀態顯示與重連實機驗收。
+- [ ] 忙碌／等待輸入：等待可靠結構化 Agent 活動訊號；目前明確顯示活動未知。
+- [x] 此候選的 826 項前端測試、typecheck、lint、production build；另含 actual-App Chrome 接受測試與截圖輸出，接入 CI。
+- [ ] Chrome 接受測試實際執行與截圖檢視：雲端未安裝 Google Chrome；系統 Chromium 在 sandbox 因 socket 權限中止。未繞過 sandbox，需在 CI 完成。
