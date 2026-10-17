@@ -23,6 +23,7 @@ import { api, errorMessage } from '../api';
 import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { workspaceZoomEvent } from '../workspace-zoom';
+import { imageInputChangesPrompt, imageLimits, imageProvider, imageUnsupportedReason, insertImageFiles } from '../image-input';
 import { handleTerminalKey } from '../terminal-keyboard';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
@@ -93,11 +94,14 @@ export function TerminalPane({
   const [needle, setNeedle] = useState('');
   const [notice, setNotice] = useState('');
   const actionPending = useRef(false);
+  const imageStaging = useRef(false);
+  const imagePasting = useRef(false);
+  const imageInput = useRef<(files: File[], mixedText?: string) => void>(() => {});
   const [confirming, setConfirming] = useState(false);
   const actionGeneration = useRef(0);
   useEffect(() => {
     actionGeneration.current += 1;
-  }, [pane.id, pane.runtimeId, pane.startToken, pane.state, visible, focused]);
+  }, [pane.id, pane.runtimeId, pane.startToken, pane.state, visible, focused, searchOpen, renameOpen]);
   const fitNow = useCallback(() => {
     if (
       !latest.current.visible ||
@@ -159,6 +163,29 @@ export function TerminalPane({
     const compositionEnd = () => { composing = false; };
     element.addEventListener('compositionstart', compositionStart, true);
     element.addEventListener('compositionend', compositionEnd, true);
+    const pasteImages = (event: ClipboardEvent) => {
+      if (event.target !== terminal.textarea || !event.clipboardData) return;
+      const files = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file').map((item) => item.getAsFile()).filter((file): file is File => !!file);
+      if (!files.length) return; // Leave ordinary text and native CLI shortcuts unchanged.
+      event.preventDefault();
+      event.stopImmediatePropagation(); // xterm must not also insert the text representation.
+      imageInput.current(files, event.clipboardData.getData('text/plain'));
+    };
+    const dragImages = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = 'copy';
+    };
+    const dropImages = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      imageInput.current(Array.from(event.dataTransfer.files));
+    };
+    element.addEventListener('paste', pasteImages, true);
+    element.addEventListener('dragover', dragImages, true);
+    element.addEventListener('drop', dropImages, true);
     terminal.attachCustomKeyEventHandler((event) => {
       const current = latest.current;
       const active = attachment.current;
@@ -181,6 +208,13 @@ export function TerminalPane({
       if (mounted.current) setNotice(errorMessage(error));
     });
     const input = terminal.onData((data) => {
+      // Input/Enter remains live while staging. Cancel its old prompt target first.
+      // Standard Enter, unframed multiline input, Ctrl+C/D/Z/\ interrupt the prompt.
+      // Printable typing remains in the same prompt; do not buffer or replay input.
+      if (actionPending.current && !imagePasting.current && imageInputChangesPrompt(data)) {
+        actionGeneration.current += 1;
+        if (imageStaging.current) setNotice('圖片準備已取消：已送出或中斷目前輸入，尚未插入的圖片不會加入下一則訊息。');
+      }
       if (runtime.current) inputQueue.current?.enqueue(runtime.current, data);
     });
     let frame = 0;
@@ -208,6 +242,9 @@ export function TerminalPane({
       input.dispose();
       element.removeEventListener('compositionstart', compositionStart, true);
       element.removeEventListener('compositionend', compositionEnd, true);
+      element.removeEventListener('paste', pasteImages, true);
+      element.removeEventListener('dragover', dragImages, true);
+      element.removeEventListener('drop', dropImages, true);
       clipboardBlock.dispose();
       terminal.dispose();
       term.current = null;
@@ -423,21 +460,52 @@ export function TerminalPane({
   const captureActionTarget = () => {
     const current = latest.current;
     const active = attachment.current;
-    if (!active?.ready || active.ended || active.disconnected || !mounted.current || !current.visible || !current.focused || current.pane.state !== 'running' ||
+    if (hasBlockingDialog() || !active?.ready || active.ended || active.disconnected || !mounted.current || !current.visible || !current.focused || current.pane.state !== 'running' ||
       !runtime.current || !term.current || current.pane.runtimeId !== runtime.current) return null;
-    return { attachment: active, lease: active.lease, terminal: term.current, runtimeId: runtime.current, paneId: current.pane.id,
+    return { attachment: active, lease: active.lease, terminal: term.current, runtimeId: runtime.current, paneId: current.pane.id, kind: current.pane.kind,
       startToken: current.pane.startToken, launchToken: launched.current, generation: actionGeneration.current };
   };
   const targetIsCurrent = (target: NonNullable<ReturnType<typeof captureActionTarget>>) =>
-    mounted.current && attachment.current === target.attachment && target.attachment.lease === target.lease &&
+    !hasBlockingDialog() && mounted.current && attachment.current === target.attachment && target.attachment.lease === target.lease &&
     target.attachment.ready && !target.attachment.ended && !target.attachment.disconnected && latest.current.visible && latest.current.focused && latest.current.pane.state === 'running' &&
     term.current === target.terminal && runtime.current === target.runtimeId &&
-    latest.current.pane.id === target.paneId && latest.current.pane.runtimeId === target.runtimeId &&
+    latest.current.pane.id === target.paneId && latest.current.pane.kind === target.kind && latest.current.pane.runtimeId === target.runtimeId &&
     latest.current.pane.startToken === target.startToken && launched.current === target.launchToken &&
     actionGeneration.current === target.generation;
   const finishAction = () => {
     actionPending.current = false;
     if (mounted.current) setConfirming(false);
+  };
+  const insertImages = async (files: File[], target: NonNullable<ReturnType<typeof captureActionTarget>>) => {
+    if (!target.terminal.modes.bracketedPasteMode) throw new Error('Agent 尚未啟用安全貼上模式，未插入圖片。');
+    imageStaging.current = true;
+    setNotice('正在準備圖片，尚未送出；可繼續輸入文字，按 Enter 或中斷輸入會取消尚未插入的圖片。');
+    try {
+      const count = await insertImageFiles({ files, kind: target.kind, runtimeId: target.runtimeId, api,
+        isCurrent: () => targetIsCurrent(target) && target.terminal.modes.bracketedPasteMode, paste: (text) => {
+          if (!targetIsCurrent(target) || !target.terminal.modes.bracketedPasteMode) throw new Error('圖片輸入目標或安全貼上模式已變更。');
+          const queue = inputQueue.current;
+          if (!queue || queue.pending + new TextEncoder().encode(text).length + 12 > queue.limit) throw new Error('終端輸入佇列已滿，圖片路徑尚未全部插入。');
+          imagePasting.current = true;
+          try { target.terminal.paste(text); } finally { imagePasting.current = false; }
+        } });
+      if (targetIsCurrent(target)) {
+        setNotice(`已插入 ${count} 張圖片的本機路徑，未送出。${latest.current.pane.kind === 'claude' ? 'Claude 會在送出後依路徑讀圖。' : '請確認 Agent 輸入區已辨識圖片。'}圖片會保留供接續對話使用。`);
+        target.terminal.focus();
+      }
+    } finally { imageStaging.current = false; }
+  };
+  imageInput.current = (files, mixedText) => {
+    if (mixedText?.trim()) { setNotice('這次包含圖片與文字，尚未插入；請分別貼上，避免遺漏內容。'); return; }
+    if (!imageProvider(latest.current.pane.kind)) { setNotice(imageUnsupportedReason(latest.current.pane.kind)); return; }
+    const target = captureActionTarget();
+    if (!target) { setNotice('請先聚焦已連線的 Agent 面板，再拖入或貼上圖片。'); return; }
+    if (actionPending.current) { setNotice('圖片或貼上操作仍在處理中，請稍候。'); return; }
+    actionPending.current = true;
+    setConfirming(true);
+    void insertImages(files, target).catch((error) => {
+      if (mounted.current) setNotice(`${errorMessage(error)} 請檢查原 Agent 輸入區，避免重複加入。`);
+    }).finally(finishAction);
   };
   const paste = async () => {
     const target = captureActionTarget();
@@ -445,14 +513,48 @@ export function TerminalPane({
     actionPending.current = true;
     setConfirming(true);
     try {
-      const text = await navigator.clipboard.readText();
+      let text: string;
+      if (latest.current.pane.kind !== 'shell' && typeof navigator.clipboard.read === 'function') {
+        const items = await navigator.clipboard.read();
+        if (!targetIsCurrent(target)) return;
+        const files: File[] = [];
+        const textParts: string[] = [];
+        let imageBytes = 0;
+        for (const item of items) {
+          const mime = item.types.find((type) => type.startsWith('image/'));
+          if (mime) {
+            if (!imageProvider(target.kind)) throw new Error(imageUnsupportedReason(target.kind));
+            if (!['image/png', 'image/jpeg'].includes(mime)) throw new Error('僅接受 PNG、JPEG 圖片。');
+            if (files.length >= imageLimits.count) throw new Error('一次最多加入 4 張圖片。');
+            const blob = await item.getType(mime);
+            if (!targetIsCurrent(target)) return;
+            imageBytes += blob.size;
+            if (!blob.size || blob.size > imageLimits.perFile || imageBytes > imageLimits.total) throw new Error('每張圖片最多 10 MiB，合計最多 20 MiB。');
+            files.push(new File([blob], `clipboard.${mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'unsupported'}`, { type: mime }));
+          }
+          if (item.types.includes('text/plain')) {
+            const blob = await item.getType('text/plain');
+            if (!targetIsCurrent(target)) return;
+            textParts.push(await blob.text());
+            if (!targetIsCurrent(target)) return;
+          }
+        }
+        if (files.length) {
+          if (textParts.some((part) => part.trim())) throw new Error('這次包含圖片與文字，尚未插入；請分別貼上。');
+          await insertImages(files, target);
+          return;
+        }
+        text = textParts.join('');
+      } else {
+        text = await navigator.clipboard.readText();
+      }
       if (!targetIsCurrent(target)) return;
       if (/[\r\n]/.test(text) && !await confirmAction('貼上的內容含多行，可能立即執行指令。確定貼上？')) return;
       if (!targetIsCurrent(target)) return;
       target.terminal.paste(text);
       target.terminal.focus();
-    } catch {
-      if (targetIsCurrent(target)) setNotice('無法讀取剪貼簿，請使用系統貼上快捷鍵。');
+    } catch (error) {
+      if (targetIsCurrent(target)) setNotice(`${errorMessage(error)} 請檢查輸入區，或使用系統貼上快捷鍵。`);
     } finally {
       finishAction();
     }

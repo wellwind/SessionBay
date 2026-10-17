@@ -43,6 +43,9 @@ jobs:
         run: npm run test:agent-status
       - name: Workspace tab mouse drag and persistence
         run: npm run test:tabs
+      - name: Agent image drop and paste
+        run: npm run test:images
+
       - name: Agent settings selection and enablement screenshots
         run: node node_modules/@playwright/test/cli.js test --config playwright.agent-settings.config.ts
       - name: Upload terminal layout evidence

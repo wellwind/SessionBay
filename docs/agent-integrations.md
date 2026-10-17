@@ -179,3 +179,7 @@ Antigravity CLI 使用 `defaultDirectory=.gemini/antigravity-cli`、`probeDirect
 ## OpenCode（2026-10-16）
 
 SQLite 歷史、XDG 路徑、OPENCODE_DB 精確接續、--auto opt-in、合成 fixtures 與明確限制，見 [OpenCode 整合與驗證](opencode-integration.md)。
+
+## 圖片輸入
+
+本機已知 Agent 的圖片路徑 adapter、版本來源與保留生命週期見 [圖片輸入](image-input.md)。不宣稱所有 CLI／平台均已原生驗收。

@@ -487,6 +487,16 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 - 保留點擊選取、Alt 加左右鍵、原有 active／focused ID、其他專案位置與既有 workspace 保存管線；排序不更改 pane、runtime、PTY 或名稱。
 - 真實 App 的瀏覽器回歸使用合成 bridge 與 Playwright 滑鼠拖曳，涵蓋保存與重新載入。Chrome 驗證不等於 macOS 原生 WebView 驗收，後者仍須在裝置上驗證。
 
+## 2026-10-17：Agent 圖片輸入採持久本機 staging（實作待驗收）
+
+使用者明確拖放／貼上 PNG、JPEG 才讀取 File bytes；以受限分塊 IPC 驗證並保存，再將單一圖片路徑經 xterm bracketed paste 插入，絕不自動送出。Codex、OpenCode、Grok 依固定版本來源提供 file URL adapter；Claude 使用官方文件的路徑參照；Antigravity 尚無已驗證路徑 adapter，暫停支援。保留舊 broker runtime record 相容性；無新增通用相容性 banner，也不重啟使用中的 Agent。
+
+保留檔不因 detach、resume 或逾時刪除；總額 512 MiB 與檔案數上限採跨程序獨占鎖，鎖失敗停止新增圖片。滿額訊息指出實際目錄與手動清理前提，管理 UI 留待後續。安全界線、官方來源與未驗收平台見 [圖片輸入](image-input.md)。
+
+## 2026-10-17：圖片準備期間保留手動 Enter，取消過期 prompt 目標
+
+拖放／貼上本身不自動送出，但使用者按 Enter 仍立即交給終端。準備期間顯示進度；一般文字及完整 bracketed multiline paste 可繼續，標準 CR/LF 送出與 Ctrl+C/D/Z/反斜線中斷會取消尚未插入的圖片，避免晚到下一則訊息。自己的 image paste frame 不觸發取消，不緩衝或補送 Enter。此 guard 不宣稱辨識所有 CLI 自訂鍵位／自主 prompt 切換。
+
 ## 2026-10-17 工作區專注模式
 
 - 專注模式為獨立、可逆的 UI 狀態，不切換作業系統全螢幕，不修改分割比例、面板最大化、側欄偏好或持久化 workspace。

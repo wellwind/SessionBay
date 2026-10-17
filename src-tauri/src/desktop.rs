@@ -252,6 +252,94 @@ async fn launch_runtime(
     })
     .await
 }
+// The broker is authoritative for runtime identity. A pane label alone is insufficient.
+fn image_runtime(s: &Service, runtime_id: &str) -> Result<(), String> {
+    let record = s
+        .broker()?
+        .list()?
+        .into_iter()
+        .find(|r| r.info.id == runtime_id)
+        .ok_or("圖片目標工作階段不存在。")?;
+    if record.info.state != "running"
+        || !matches!(
+            record.kind.as_str(),
+            "codex" | "claude" | "grok" | "opencode"
+        )
+    {
+        return Err("此工作階段尚未支援圖片路徑輸入。".into());
+    }
+    if !record.image_input {
+        return Err("此工作階段未確認本機圖片輸入能力。自訂／遠端包裝程式不支援；舊版背景程序需結束後重新啟動。".into());
+    }
+    Ok(())
+}
+fn with_images<T>(
+    s: &Service,
+    f: impl FnOnce(&mut crate::image_input::ImageStaging) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut store = s.image_staging.lock().map_err(|_| "圖片暫存鎖定失敗。")?;
+    if store.is_none() {
+        *store = Some(crate::image_input::ImageStaging::open(&s.config.directory)?);
+    }
+    f(store.as_mut().ok_or("圖片暫存未就緒。")?)
+}
+#[tauri::command]
+async fn begin_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    mime: String,
+    size: usize,
+) -> Result<String, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        image_runtime(&s, &runtime_id)?;
+        with_images(&s, |store| store.begin(&runtime_id, &mime, size))
+    })
+    .await
+}
+#[tauri::command]
+async fn append_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+    offset: usize,
+    bytes: crate::image_input::ImageChunk,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || with_images(&s, |store| store.append(&runtime_id, &id, offset, &bytes.0)))
+        .await
+}
+#[tauri::command]
+async fn finish_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<crate::image_input::StagedImage, String> {
+    let s = state.inner().clone();
+    blocking(move || with_images(&s, |store| store.finish(&runtime_id, &id))).await
+}
+#[tauri::command]
+async fn retain_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        image_runtime(&s, &runtime_id)?;
+        with_images(&s, |store| store.retain(&runtime_id, &id))
+    })
+    .await
+}
+#[tauri::command]
+async fn discard_image_input(
+    state: AppState<'_>,
+    runtime_id: String,
+    id: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || with_images(&s, |store| store.discard(&runtime_id, &id))).await
+}
 #[tauri::command]
 async fn write_runtime(
     state: AppState<'_>,
@@ -465,6 +553,11 @@ pub fn run() {
             detach_runtime,
             forget_runtime,
             write_runtime,
+            begin_image_input,
+            append_image_input,
+            finish_image_input,
+            retain_image_input,
+            discard_image_input,
             resize_runtime,
             ack_runtime,
             stop_runtime,

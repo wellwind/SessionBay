@@ -13,6 +13,8 @@
     "test:watch": "vitest",
     "lint": "eslint src",
     "tauri": "node scripts/tauri.mjs",
+    "test:images": "playwright test --config playwright.images.config.ts",
+
     "test:agent-status": "playwright test --config playwright.agent-status.config.ts",
     "test:tabs": "playwright test --config playwright.tabs.config.ts",
     "test:layout": "playwright test --config playwright.layout.config.ts",

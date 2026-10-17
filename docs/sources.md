@@ -203,6 +203,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - Tauri 2.12.4 Menu 預設原始碼與 PredefinedMenuItem（查閱 2026-10-17）：https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/menu.rs 、https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/predefined.rs 。macOS 預設 File／Window 含 CloseWindow，單靠 WebView keydown 不能取代原生 accelerator；本次使用自訂 Close Tab 選單事件。文件／原始碼查核不代表原生 macOS 驗收。
 
+## 圖片輸入來源（2026-10-17）
+
+固定官方來源 commit、版本與適用限制集中於 [圖片輸入來源](image-input.md#固定來源2026-10-17-查閱)。
+
 ## Terminal 同步重繪（2026-10-17）
 
 - [xterm 6.0.0 release](https://github.com/xtermjs/xterm.js/releases/tag/6.0.0)：DEC 2026 synchronized output 為 6.0 新增功能；目前 5.5 安裝來源沒有此 mode 分支。

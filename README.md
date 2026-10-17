@@ -101,4 +101,6 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 - [Terminal Shift＋Enter](docs/terminal-keyboard.md)：統一 CSI-u 原位輸入、查核版本與平台限制。
 
+- [Agent 圖片拖放與貼上：範圍、限制及驗證狀態](docs/image-input.md)
+
 側欄瀏覽器回歸測試：`npm run test:sidebar`（需 Playwright Chromium；可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安裝執行檔）。測試使用合成 bridge，不啟動原生 Shell 或讀取使用者資料；不等同原生 WebView 驗收。

@@ -38,6 +38,8 @@ pub struct RuntimeRecord {
     pub resume_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home_directory: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub image_input: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -375,6 +377,7 @@ impl Host {
                 let screen = Arc::new(Mutex::new(screen::TerminalScreen::new(cols, rows)));
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
+                let image_input = crate::image_input::supports_launch(&kind, &spec);
                 let info = self.runtime.launch(
                     *spec,
                     cols,
@@ -422,6 +425,7 @@ impl Host {
                             profile_id,
                             resume_id,
                             home_directory: Some(home_directory),
+                            image_input,
                         },
                         screen: Some(screen),
                     },
@@ -602,6 +606,22 @@ pub fn broker_arguments() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_capability_is_additive_and_defaults_closed_for_old_records() {
+        let value = serde_json::json!({"id":"runtime", "paneId":"pane", "sessionId":null,
+            "state":"running", "cwd":"/synthetic", "exitCode":null, "kind":"codex",
+            "projectId":null, "profileId":null, "resumeId":null});
+        let mut record: RuntimeRecord = serde_json::from_value(value).unwrap();
+        assert!(!record.image_input);
+        assert!(serde_json::to_value(&record)
+            .unwrap()
+            .get("imageInput")
+            .is_none());
+        record.image_input = true;
+        let restored: RuntimeRecord =
+            serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+        assert!(restored.image_input);
+    }
     #[cfg(unix)]
     #[test]
     fn host_consumes_output_without_any_ui_and_replay_survives_new_readers() {
@@ -715,6 +735,7 @@ mod tests {
             profile_id: None,
             resume_id: None,
             home_directory: Some(false),
+            image_input: false,
         };
         fs::write(
             temp.path().join("sessions.json"),
