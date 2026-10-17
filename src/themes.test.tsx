@@ -244,7 +244,8 @@ describe('live settings appearance transaction', () => {
     const initial = { ...settings, agentEnabled: { 'future-provider': false } };
     render(<Harness initial={initial} save={save} />);
     const edit = () => {
-      fireEvent.click(within(screen.getByRole('group', { name: '選擇要設定的 Agent' })).getByRole('button', { name: /Grok Build/ }));
+      fireEvent.focus(screen.getByRole('combobox', { name: '搜尋 Agent' }));
+    fireEvent.click(screen.getByRole('option', { name: /Grok Build/ }));
       fireEvent.click(screen.getByRole('checkbox', { name: '啟用 Grok Build' }));
       openAppearance();
       fireEvent.click(screen.getByRole('button', { name: '淺色' }));
@@ -268,7 +269,8 @@ describe('live settings appearance transaction', () => {
     expect(save).toHaveBeenCalledExactlyOnceWith({ ...initial, theme: 'light', terminalTheme: 'ocean-light', agentEnabled: { 'future-provider': false, grok: false } });
     expect(appearance()).toMatchObject({ theme: 'light', terminalTheme: 'ocean-light' });
     fireEvent.click(screen.getByRole('button', { name: 'Open settings' }));
-    fireEvent.click(within(screen.getByRole('group', { name: '選擇要設定的 Agent' })).getByRole('button', { name: /Grok Build/ }));
+    fireEvent.focus(screen.getByRole('combobox', { name: '搜尋 Agent' }));
+    fireEvent.click(screen.getByRole('option', { name: /Grok Build/ }));
     expect(screen.getByRole('checkbox', { name: '啟用 Grok Build' })).not.toBeChecked();
   });
   it('keeps unknown IDs and all unrelated settings when saving a known mode change', async () => {
