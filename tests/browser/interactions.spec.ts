@@ -80,9 +80,50 @@ for (const theme of ['dark', 'light']) {
     expect(bounds.width).toBe(32);
     expect(bounds.inside).toBe(true);
     expect(bounds.rowRight).toBeLessThanOrEqual(1000);
+    const fullName = `工作台介面：${'很長的專案名稱'.repeat(8)}`;
+    const heading = header.getByRole('heading', { level: 1, name: fullName, exact: true });
+    await expect(heading).toHaveAttribute('title', fullName);
+    await expect(header.locator('.breadcrumb [aria-current="page"]')).toHaveAttribute('title', fullName);
+    const geometry = await header.evaluate(el => {
+      const title = el.querySelector('h1')!;
+      const breadcrumb = el.querySelector('.breadcrumb')!;
+      const buttons = [...el.querySelectorAll('.header-buttons > button')];
+      return {
+        height: el.getBoundingClientRect().height,
+        titleHeight: title.getBoundingClientRect().height,
+        lineHeight: parseFloat(getComputedStyle(title).lineHeight),
+        breadcrumbHeight: breadcrumb.getBoundingClientRect().height,
+        fixedCrumbsFit: [...breadcrumb.querySelectorAll('span:not([aria-current]), button:not([aria-current])')]
+          .every(crumb => crumb.scrollWidth <= crumb.clientWidth),
+        currentCrumbEllipsized: (() => {
+          const crumb = breadcrumb.querySelector('[aria-current="page"]')!;
+          return crumb.scrollWidth > crumb.clientWidth && crumb.clientWidth > 0 &&
+            getComputedStyle(crumb).textOverflow === 'ellipsis';
+        })(),
+        buttonsReachable: buttons.every(button => {
+          const rect = button.getBoundingClientRect();
+          return rect.width >= 32 && rect.right <= innerWidth &&
+            button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+        }),
+      };
+    });
+    expect(geometry.height).toBeLessThanOrEqual(180);
+    expect(geometry.titleHeight).toBeLessThanOrEqual(geometry.lineHeight * 2 + 1);
+    expect(geometry.breadcrumbHeight).toBeLessThanOrEqual(20);
+    expect(geometry.buttonsReachable).toBe(true);
+    expect(geometry.fixedCrumbsFit).toBe(true);
+    expect(geometry.currentCrumbEllipsized).toBe(true);
     await rename.focus();
+    await page.keyboard.press('Tab');
+    await expect(header.getByRole('button', { name: '重新定位', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(header.getByRole('button', { name: '資源回收筒', exact: true })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(rename).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('dialog', { name: '重新命名專案' })).toBeVisible();
+    await expect(page.getByRole('dialog').getByRole('textbox')).toHaveValue(fullName);
     await page.keyboard.press('Escape');
     await expect(rename).toBeFocused();
     await page.screenshot({ path: info.outputPath(`${theme}-long-project-rename.png`) });

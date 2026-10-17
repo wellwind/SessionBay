@@ -1225,15 +1225,15 @@ export default function App() {
                     <Layers3 size={16} />
                   </button>
                 )}
-                Session Bay
+                <span>Session Bay</span>
                 <ChevronRight size={12} />
                 {current || allSessionsSearch || temporaryWorkspace ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
                 {temporaryWorkspace && <><ChevronRight size={12} /><span aria-current="page">臨時 Terminal</span></>}
-                {current && <><ChevronRight size={12} /><span aria-current="page">{current.name}</span></>}
+                {current && <><ChevronRight size={12} /><span aria-current="page" title={current.name}>{current.name}</span></>}
                 {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
               </nav>
               <div className="project-title-row">
-                <h1>
+                <h1 title={temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}>
                   {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
                 </h1>
                 {current && !current.workspaceOnly && <button className="icon-button project-rename" disabled={projectBusy}
