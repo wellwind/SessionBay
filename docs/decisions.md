@@ -429,3 +429,7 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 相容模式由 workspace 保留已知 home 政策，附上僅供比對的 `homePolicyRuntimeId`；只有 broker 回傳同一 runtime／pane、仍為無 session／resume 的全域 Shell 且未提供 home 政策時才沿用。此值不復原 runtimeId、不自動啟動或授予附接權限。現代 broker 明確 true／false 優先；未宣告 capability 的中間版本之 false 視為未知，因為新 client 為相容而省略了欄位。任何正向 true 仍保留。
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
+
+## 2026-10-17：Terminal 留白沿用終端背景
+
+Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 terminalTheme resolver；明暗色與即時預覽／取消皆隨設定更新，未知色票沿用既有 fallback。工具列與 footer 仍用介面色系，不改其分隔線。這是純樣式更新，不重建 PTY、不 reset、不因顏色變更重新 fit。
