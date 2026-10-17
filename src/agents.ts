@@ -9,6 +9,11 @@ export interface AgentCapability {
   executable: string;
   logo: string;
   bypassFlag: string;
+  /** Parser foundations only; this does not enable live activity status. */
+  activity: {
+    adapter: 'codexHooks' | 'claudeHooks' | 'grokHooks' | 'antigravityHooks' | 'openCodeV1Events';
+    transport: 'notImplemented';
+  };
   history: {
     supported: true;
     parserId: HistoryAgentKind;

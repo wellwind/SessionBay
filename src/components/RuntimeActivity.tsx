@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { CheckCircle2, CircleHelp, LoaderCircle, OctagonAlert, Unplug } from 'lucide-react';
+import { CheckCircle2, LoaderCircle, OctagonAlert, Unplug } from 'lucide-react';
 import { RuntimeActivityStore } from '../runtime-activity';
 import { tabRuntimeSummary } from '../project-runtime';
 import { paneIds } from '../workspace';
@@ -37,9 +37,11 @@ export function RuntimeActivityIndicator({ tab, panes, id }: { tab: WorkspaceTab
   const ended = states.length > 0 && states.every(state => state === 'exited');
   const recent = bits[0] === '1', unread = bits[1] === '1', connecting = bits[2] === '1';
   const label = [tabRuntimeSummary(tab, panes), recent ? '有新輸出' : '', unread ? '未讀輸出' : '', connecting ? '正在連線' : ''].filter(Boolean).join(' · ');
-  const Icon = attention ? OctagonAlert : ended ? CheckCircle2 : connecting ? LoaderCircle : disconnected ? Unplug : CircleHelp;
+  const Icon = attention ? OctagonAlert : ended ? CheckCircle2 : connecting ? LoaderCircle : disconnected ? Unplug : null;
+  // Keep lifecycle descriptions available without inventing an unknown activity icon.
+  if (!Icon && !recent && !unread) return <span id={id} className="organization-sr-only">{label}</span>;
   return <span id={id} className={`runtime-activity${attention ? ' attention' : ''}`} role="img" aria-label={label} title={label}>
-    <Icon size={12} aria-hidden="true" className={connecting && !attention && !ended ? 'runtime-connecting' : undefined} />
-    <span aria-hidden="true" className={`runtime-output-dot${recent ? ' recent' : ''}${unread ? ' unread' : ''}`} />
+    {Icon && <Icon size={12} aria-hidden="true" className={connecting && !attention && !ended ? 'runtime-connecting' : undefined} />}
+    {(recent || unread) && <span aria-hidden="true" className={`runtime-output-dot${recent ? ' recent' : ''}${unread ? ' unread' : ''}`} />}
   </span>;
 }

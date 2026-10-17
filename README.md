@@ -52,6 +52,7 @@ npm run tauri -- build
 | [Terminal 工作列邊界回歸](docs/terminal-layout-regression.md) | xterm 尺寸契約、合成 browser 截圖與原生驗收限制 |
 | [Terminal Shift＋Enter](docs/terminal-keyboard.md) | 統一 CSI-u 原位輸入、查核版本與相容性限制 |
 | [批次整合驗證](docs/batch-integration-validation.md) | 修訂後來源、自動化證據與原生待驗項目 |
+| [Agent 活動 hook 基礎](docs/agent-activity.md) | 純 observation adapters、尚未接通的 transport 與 opt-in 驗收界線 |
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
 | [Antigravity CLI 歷史相容性](docs/antigravity-cli-history.md) | 持久化格式依據、唯讀安全、接續限制與 1.3.5 待驗條件 |
 | [Agent 用量與分析規格](docs/usage-spec.md) | MVP 後的帳號額度總覽、Project／Agent／Session 用量與費用語意 |

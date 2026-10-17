@@ -201,3 +201,12 @@
 已補跨批 catalog revision 協定、刪除／插入／排序／索引中變更及空尾頁回歸，並新增真實 SQLite 一萬筆 COUNT + OFFSET 量測。原生各平台視覺、總 heap 與大量訊息索引寫入成本仍屬後續驗收，不以 DOM 列數或讀取 benchmark 代替。
 
 歷史與資源回收筒使用每批 40 筆查詢及固定列高虛擬捲動；畫面只掛載可見列、上下各 3 列與鍵盤焦點列。接近底部自動追加，並提供載入更多與重試操作。搜尋、篩選及排序切換隔離過期回應；最近 8 個查詢脈絡在元件存活期間保留載入資料，切換專案可返回原捲動位置。索引、刪除、還原導致資料更新時分批重讀已載範圍並保留畫面高度；不自動讀完整個資料庫。鍵盤方向鍵、Home／End（已載範圍）及雙向 Tab 支援跨虛擬列。驗證命令：`npx playwright test --config playwright.session-feed.config.ts`；合成 10,000 筆，不存取原始歷史。
+
+## Agent 活動 hooks 基礎（2026-10-17）
+
+- [x] 五工具共享 registry 的純 observation adapters、synthetic replay／binding／turn／TTL 契約測試；transport 明確 `notImplemented`。
+- [x] 工作分頁已知狀態移到名稱左側，未知不顯示問號，沒有輸出不顯示暗點；保留專案分頁與無障礙生命週期。
+- [ ] 認證 hook transport、launch-local opt-in registration、有序／遺失事件與 broker reconnect。
+- [ ] 真實 busy／idle／人類等待狀態與三平台各 CLI 驗收。
+
+本輪不自動安裝 hook，不把 parser 基礎當 live 功能完成。退出條件與格式範圍見[活動 hook 基礎](agent-activity.md)。

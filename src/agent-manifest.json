@@ -34,6 +34,10 @@
           "--cd",
           "{cwd}"
         ]
+      },
+      "activity": {
+        "adapter": "codexHooks",
+        "transport": "notImplemented"
       }
     },
     {
@@ -66,6 +70,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "claudeHooks",
+        "transport": "notImplemented"
       }
     },
     {
@@ -98,6 +106,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "grokHooks",
+        "transport": "notImplemented"
       }
     },
     {
@@ -130,6 +142,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "antigravityHooks",
+        "transport": "notImplemented"
       }
     },
     {
@@ -162,6 +178,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "openCodeV1Events",
+        "transport": "notImplemented"
       }
     }
   ]

@@ -1,4 +1,5 @@
 pub mod adapters;
+pub mod agent_activity;
 pub mod antigravity;
 pub mod antigravity_metadata;
 pub mod broker;
