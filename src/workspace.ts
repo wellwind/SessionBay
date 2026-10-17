@@ -158,9 +158,9 @@ export function closeConfirmedPane(workspace: Workspace, target: Pane): Workspac
   return closePane(workspace, target.id);
 }
 
-/** Only successful Shell or explicitly resumed Agent launches auto-close. */
+/** A successful managed process exit closes its pane, never a nested Shell command. */
 export function isSuccessfulAutoCloseExit(pane: Pane): boolean {
-  return (pane.kind === 'shell' || pane.resumedLaunch === true) && pane.state === 'exited' && pane.exitCode === 0 &&
+  return pane.state === 'exited' && pane.exitCode === 0 &&
     !!pane.runtimeId && !pane.error;
 }
 
@@ -188,7 +188,6 @@ export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]
       title: existing?.title || (record.kind === 'shell' ? '已保留的 Shell' : `已保留的 ${record.kind}`),
       sessionId: record.sessionId ?? undefined, resumeId: record.resumeId ?? undefined,
       profileId: record.profileId ?? undefined,
-      resumedLaunch: record.kind !== 'shell' && record.resumedLaunch === true,
       homeDirectory: record.kind === 'shell' && projectId === null && !record.sessionId && !record.resumeId &&
         (record.homeDirectory === true || (record.homeDirectory === undefined &&
           existing?.kind === 'shell' && existing.projectId === null && existing.homeDirectory === true &&

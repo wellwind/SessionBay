@@ -472,7 +472,7 @@ describe('completed Shell cleanup identity', () => {
   it.each([
     { runtimeId: 'replacement' }, { startToken: 2 }, { state: 'running' },
     { state: 'disconnected' }, { state: 'failed' }, { error: 'PTY error' },
-    { exitCode: null }, { kind: 'codex' },
+    { exitCode: null },
   ] satisfies Partial<Pane>[])('ignores stale cleanup after $state $runtimeId $startToken', patch => {
     const value = workspace();
     value.panes.a = { ...exited(), ...patch };
@@ -509,22 +509,19 @@ it('preserves legacy home policy only for the same broker-confirmed runtime iden
 });
 
 
-it('uses only current broker launch provenance and does not persist auto-close authority', () => {
-  const record: RuntimeRecord = { id: 'resume-runtime', paneId: 'resume-pane', kind: 'codex',
-    projectId: null, profileId: null, sessionId: 'indexed-id', resumeId: null, cwd: '/synthetic',
-    state: 'exited', exitCode: 0, resumedLaunch: true };
+it('closes legacy and fresh Agent runtimes without restoring runtime authority from saved layouts', () => {
+  const record: RuntimeRecord = { id: 'agent-runtime', paneId: 'agent-pane', kind: 'codex',
+    projectId: null, profileId: null, sessionId: null, resumeId: null, cwd: '/synthetic',
+    state: 'exited', exitCode: 0 };
   const next = reconcileRuntimes(emptyWorkspace(), [record]);
-  expect(isSuccessfulAutoCloseExit(next.panes['resume-pane'])).toBe(true);
+  expect(isSuccessfulAutoCloseExit(next.panes['agent-pane'])).toBe(true);
   const saved = restoreWorkspace(serializeWorkspace(next));
-  expect(saved.panes['resume-pane'].resumedLaunch).toBeUndefined();
-  expect(isSuccessfulAutoCloseExit(saved.panes['resume-pane'])).toBe(false);
-  const legacy = reconcileRuntimes(next, [{ ...record, resumedLaunch: undefined }]);
-  expect(isSuccessfulAutoCloseExit(legacy.panes['resume-pane'])).toBe(false);
+  expect(isSuccessfulAutoCloseExit(saved.panes['agent-pane'])).toBe(false);
 });
 
-it.each([{ runtimeId: 'replacement' }, { startToken: 2 }, { resumedLaunch: false }])('does not close a replaced resumed launch: %j', patch => {
+it.each([{ runtimeId: 'replacement' }, { startToken: 2 }])('does not close a replaced resumed launch: %j', patch => {
   const value = workspace();
-  const exited: Pane = { ...value.panes.a, kind: 'codex', resumedLaunch: true, runtimeId: 'old', state: 'exited', exitCode: 0 };
+  const exited: Pane = { ...value.panes.a, kind: 'codex', runtimeId: 'old', state: 'exited', exitCode: 0 };
   value.panes.a = { ...exited, ...patch };
   expect(closeSuccessfulExit(value, exited)).toBe(value);
 });

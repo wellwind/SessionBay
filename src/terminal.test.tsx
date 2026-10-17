@@ -1361,17 +1361,3 @@ describe('guarded terminal output activity', () => {
     act(() => current({ type: 'output', runtimeId: 'runtime', sequence: 2, data: [68] }));
   });
 });
-
-
-it.each([
-  { kind: 'codex', sessionId: 'indexed-id', expected: true },
-  { kind: 'claude', resumeId: 'manual-id', expected: true },
-  { kind: 'antigravity', sessionId: 'indexed-id', expected: true },
-  { kind: 'codex', expected: false },
-  { kind: 'shell', expected: false },
-] as const)('captures launch provenance before exit events: %j', async ({ expected, ...launch }) => {
-  const p = props(makePane({ ...launch, startToken: 1 }));
-  render(<TerminalPane {...p} />);
-  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
-  expect(p.onPatch).toHaveBeenCalledWith('pane', expect.objectContaining({ state: 'starting', resumedLaunch: expected }));
-});
