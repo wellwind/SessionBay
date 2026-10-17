@@ -538,6 +538,17 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。
 
+## 2026-10-17：Agent 入口擴充為一般檔案參照（候選實作，待驗收）
+
+- 取代僅接受 PNG／JPEG 的 UI 入口：使用者拖放或貼上實際 File 時接受所有類型，包括空檔、文字、PDF、SVG、壓縮檔與二進位。內容只按 bytes 保存，不執行、渲染或套用影像解碼；Agent 能否讀取／理解另外取決於該 CLI 與模型。
+- 一次最多 4 個、單檔 10 MiB、合計 20 MiB；一般檔案持久暫存另有 512 MiB／2048 個上傳目錄上限。每個檔案在獨立私有唯一目錄保留可用 basename 與副檔名，同批同名不覆蓋。跨平台不安全字元、控制與方向控制字元、Windows 保留名、尾點／空白及過長檔名需要安全清理，介面顯示原名與存入名稱。
+- 保留直接本機 Codex／Claude／Grok／OpenCode 路由守衛、create_new、owner-only 權限、跨程序 quota lock、retain-before-paste、lease／generation／輸入目標檢查及手動 Enter 取消；不自動送出，不自動停止 Agent。資料夾整批明確拒絕，不遞迴讀取。
+- 新 broker record 用有值的布林 capability 區分不支援路由與缺少能力資訊。PR27 broker 已記錄的本機路由可繼續提供一般路徑參照；更舊 broker 缺資訊時操作失敗並提示保留工作，不能靠可變設定／檔名繞過。錯誤只有已嘗試終端插入時才提示檢查重複。
+- 詳見[一般檔案輸入](file-input.md)。舊圖片 staging 與已保留路徑維持有效；本次不刪除歷史保留檔。
+
+## 2026-10-17：檔案附帶文字與拖放焦點
+
+實際 File 拖放／系統貼上以檔案為準，忽略 Finder／檔案管理員附帶的名稱或 URL 文字，不雙重插入、不自動 Enter。工具列剪貼簿有二進位檔案表示時採相同規則；純文字仍走原有路徑。拖放是明確選擇該面板的操作，先同步完成焦點更新，再重新擷取目標並核對 pane、runtime、kind、terminal、attachment lease 與 launch/start token；不移除原 generation 或輸入守衛。目標不可接受時游標顯示拒絕，聚焦未成立時明確拒絕，不把檔案偷偷送到其他面板。
 ## 專案目錄內的工作區與活動狀態（2026-10-17）
 
 - 專案父列保留歷史筆數，另列已開分頁與 Agent 數；展開顯示既有 tabs 的生命週期摘要，切換重用既有 focus 路徑，不重掛 Terminal。
@@ -577,6 +588,10 @@ Session 列新增同層刪除按鈕，hover／focus-within 顯示，無 hover �
 
 專案頁標題旁以小鉛筆開啟重新命名；資源回收筒與移出／加入專案改圖示按鈕。保留 Terminal／新增工作文字按鈕及既有確認流程；移出採資料夾減號，並明示不刪對話、檔案或關閉程序。長名稱可換行，圖示固定尺寸不被壓縮。
 
+
+## 2026-10-17：新 Agent 的可信啟動證明與背景程序共存
+
+真正新開、無 session/resume 身分的 Agent 由 backend 產生 pane UUID、凍結 LaunchSpec，再透過既有 broker Launch/List 驗證 generation 與 runtime 身分。已確認的 runtime 即使快速退出仍顯示診斷；只有仍存活且通過既有直接路由檢查者，可用私有最小證明補上舊 broker 缺少的能力資訊。明確拒絕不覆蓋，舊 runtime 不從可變設定推導權限；不重啟 broker 或停止既有 Agent。這補充上面的缺能力失敗規則，詳細 idempotency、quota、retention 與 native 驗收限制見[一般檔案輸入](file-input.md)。
 ## 2026-10-17：工具設定改為可搜尋下拉選擇
 
 來源與工具以單一 editable combobox 取代常駐 Agent 按鈕。只顯示所選工具的「啟用與安裝狀態」、「啟動設定」、「歷史資料來源」；歷史區不再重複 CLI 狀態，保持安裝與索引診斷分離。選擇不保存、不偵測、不啟動，跨工具草稿保留至儲存或取消。清單限制高度並支援鍵盤、組字與無結果提示。
@@ -612,6 +627,19 @@ Agent 搜尋欄與下拉選單共用 surface／control-border／radius／spacing
 ## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
 
 正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。
+
+## 2026-10-17：檔案輸入區分原生辨識與工具讀取，接收仍以真 Agent 證據為準
+
+PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一一次 Agent 回覆為「no image received」，不能標記通過。Codex 0.163 官方原始碼本身支援 file URL，所以在取得輸入區圖片標記、有效影像內容與完整 paste frame 證據前，不把 URI 格式斷言為根因。
+
+保留各 CLI 已知圖片辨識的單一路徑貼上。Codex／OpenCode 的一般檔案改用引用的本機絕對路徑，避免要求工具把 URL 當 filesystem path。Claude 維持官方文件的路徑參照，Grok 維持其 dropped-path parser 的 file URL。介面分別提示圖片／PDF 辨識、SVG 文字與一般參照；這是預期模式，不是確認已附上或模型已收到。仍不自動 Enter，不新增 clipboard 改寫、不讀私人歷史。
+
+以[合成原生驗收流程](file-input-validation.md)區分 staging、CLI composer 與模型內容三層證據；任何一層未證實都不能替代完整驗收。
+
+
+## 2026-10-17：使用者豁免 PR31 Mac 驗收等待
+
+使用者明確允許 #31 不再等 Mac 驗收並進入合併流程（#46 仍排除）。保留既有 PNG「no image received」失敗與缺少 composer／PTY 實測證據；不把豁免寫成通過。隔離 parser／xterm queue 檢查未重現 URI 尾空白或 percent-decode 問題，圖片 transport 不盲改。詳細限制見[檔案輸入驗收](file-input-validation.md)。
 
 ## 2026-10-17：Caps Lock 改採上游穩定版與公開 hook
 

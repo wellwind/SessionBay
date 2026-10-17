@@ -191,3 +191,7 @@ Codex 官方 structured event 的 `TurnStartedEvent`／`TurnCompleteEvent` 可�
 ## 圖片輸入
 
 本機已知 Agent 的圖片路徑 adapter、版本來源與保留生命週期見 [圖片輸入](image-input.md)。不宣稱所有 CLI／平台均已原生驗收。
+
+## 一般檔案參照
+
+Agent 入口接受所有檔案類型而不解碼或執行；直接本機路由守衛與保留生命週期不變。一般路徑參照不保證 CLI／模型能解析內容；詳見[一般檔案輸入](file-input.md)。

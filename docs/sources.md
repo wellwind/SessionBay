@@ -250,6 +250,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [NSIS command line](https://nsis.sourceforge.io/Docs/Chapter3.html)：正式 installer／uninstaller silent 參數及安裝路徑語法。
 - [Tauri Windows installer](https://v2.tauri.app/distribute/windows-installer/)：currentUser NSIS 與 WebView2 封裝行為。適用範圍與限制見 [測試說明](windows-installer-smoke.md)。
 
+### 檔案輸入真實接收核對（2026-10-17）
+
+[檔案輸入驗收](file-input-validation.md)列出固定 Codex 0.163、OpenCode 1.19.3 與 Grok source、Claude 官方路徑工作流程及適用限制。staging 與 PTY bytes 不能替代 CLI composer 辨識與模型接收證據；尚未宣稱 Mac 驗收通過。
+
 ## Caps Lock 上游對齊（2026-10-17）
 
 前述 xterm 5.5 為歷史調查，本候選已鎖定 6.0.0。

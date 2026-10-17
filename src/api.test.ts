@@ -44,6 +44,29 @@ describe('launch preview IPC contract', () => {
   });
 });
 
+describe('fresh Agent launch IPC contract', () => {
+  it('returns the backend pane identity without creating an output channel or legacy launch', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const request: LaunchRequest = { paneId: 'launch-intent', kind: 'codex',
+      projectId: 'synthetic-project', cwd: '/synthetic/project', cols: 80, rows: 24 };
+    const info = { id: 'backend-runtime', paneId: 'backend-pane', sessionId: null,
+      state: 'running', cwd: '/canonical/project', exitCode: null };
+    vi.mocked(invoke).mockResolvedValue(info);
+    await expect(api.launchFresh(request)).resolves.toEqual(info);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('launch_fresh_runtime', { request });
+    expect(native.channels).not.toHaveBeenCalled();
+  });
+
+  it('does not retry an uncertain fresh launch response', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('response lost'));
+    await expect(api.launchFresh({ paneId: 'intent', kind: 'claude', cols: 80, rows: 24 }))
+      .rejects.toThrow('response lost');
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(native.channels).not.toHaveBeenCalled();
+  });
+});
+
 
 describe('shell discovery IPC contract', () => {
   it('reads shell candidates without creating a PTY or supplying configuration changes', async () => {

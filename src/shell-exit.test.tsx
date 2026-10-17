@@ -6,7 +6,7 @@ import type { Bootstrap, Settings, TerminalEvent, RuntimeRecord, Workspace } fro
 
 const bridge = vi.hoisted(() => ({
   bootstrap: vi.fn(), scan: vi.fn(), index: vi.fn(), projects: vi.fn(), saveWorkspace: vi.fn(), runtimes: vi.fn(),
-  preview: vi.fn(), launch: vi.fn(), attach: vi.fn(), detach: vi.fn(), write: vi.fn(), resize: vi.fn(), ack: vi.fn(),
+  preview: vi.fn(), launch: vi.fn(), launchFresh: vi.fn(), attach: vi.fn(), detach: vi.fn(), write: vi.fn(), resize: vi.fn(), ack: vi.fn(),
   stop: vi.fn(), forget: vi.fn(), settleLaunches: vi.fn(), close: vi.fn(), detect: vi.fn(),
   saveSettings: vi.fn(), setWorkspaceZoom: vi.fn(), reset: vi.fn(), dispose: vi.fn(),
 }));
@@ -352,7 +352,9 @@ it('closes a resumed launch that exits before its launch response arrives', asyn
 it.each((['codex', 'claude', 'antigravity'] as const).flatMap(kind => [true, false].map(split => ({ kind, split }))))('closes a newly launched $kind pane (right split=$split) while retaining the original resumed Agent', async ({ kind, split }) => {
   setup([{ ...record, sessionId: 'original-resume' }]);
   bridge.preview.mockResolvedValue({ executable: kind, args: [], cwd: '/synthetic/project' });
-  bridge.launch.mockImplementation(async request => ({ ...record, id: 'fresh-runtime', paneId: request.paneId, kind }));
+  const fresh = { ...record, id: 'fresh-runtime', paneId: 'backend-fresh-pane', kind };
+  bridge.launchFresh.mockResolvedValue(fresh);
+  bridge.attach.mockImplementation(async (id: string) => id === fresh.id ? fresh : { ...record, sessionId: 'original-resume' });
   await mountProject();
   fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project pane-a' }));
   fireEvent.click(screen.getByRole('button', { name: split ? '左右分割' : 'Terminal' }));
@@ -363,16 +365,20 @@ it.each((['codex', 'claude', 'antigravity'] as const).flatMap(kind => [true, fal
   const start = within(dialog).getByRole('button', { name: '開始工作' });
   await waitFor(() => expect(start).toBeEnabled());
   fireEvent.click(start);
-  await waitFor(() => expect(bridge.launch).toHaveBeenCalledOnce());
-  expect(bridge.launch.mock.calls[0][0]).toMatchObject({ kind, sessionId: undefined, resumeId: undefined });
-  const callback = bridge.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+  await waitFor(() => expect(bridge.launchFresh).toHaveBeenCalledOnce());
+  expect(bridge.launchFresh.mock.calls[0][0]).toMatchObject({ kind });
+  expect(bridge.launchFresh.mock.calls[0][0]).not.toHaveProperty('sessionId');
+  expect(bridge.launchFresh.mock.calls[0][0]).not.toHaveProperty('resumeId');
+  expect(bridge.launch).not.toHaveBeenCalled();
+  await waitFor(() => expect(bridge.attach).toHaveBeenCalledWith('fresh-runtime', expect.any(Function), expect.any(String)));
+  const callback = bridge.attach.mock.calls.find(call => call[0] === 'fresh-runtime')![1] as (event: TerminalEvent) => void;
   act(() => callback({ type: 'exit', runtimeId: 'fresh-runtime', exitCode: 0 }));
   await waitFor(() => expect(bridge.forget).toHaveBeenCalledExactlyOnceWith('fresh-runtime'));
   await waitFor(() => expect(bridge.saveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({
     tabs: [expect.objectContaining({ layout: { kind: 'pane', paneId: 'pane-a' } })],
     panes: { 'pane-a': expect.anything() },
   })));
-  expect(bridge.launch).toHaveBeenCalledOnce();
+  expect(bridge.launchFresh).toHaveBeenCalledOnce();
   expect(bridge.stop).not.toHaveBeenCalled();
 });
 

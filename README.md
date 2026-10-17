@@ -106,10 +106,13 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 - [Terminal Shift＋Enter](docs/terminal-keyboard.md)：統一 CSI-u 原位輸入、查核版本與平台限制。
 
+- [Agent 一般檔案拖放與貼上：範圍、限制及驗證狀態](docs/file-input.md)
 - [Agent 圖片拖放與貼上：範圍、限制及驗證狀態](docs/image-input.md)
 
 側欄瀏覽器回歸測試：`npm run test:sidebar`（需 Playwright Chromium；可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安裝執行檔）。測試使用合成 bridge，不啟動原生 Shell 或讀取使用者資料；不等同原生 WebView 驗收。
 
 - [Windows 安裝／解除安裝 CI](docs/windows-installer-smoke.md)：獨立 opt-in、固定 source SHA 的 x64 disposable runner 驗收。
+
+- [Agent 檔案輸入合成驗收](docs/file-input-validation.md)：區分暫存、CLI 辨識與模型真實接收。
 
 - [Caps Lock 中文組字候選修正](docs/capslock-ime.md)：交易隔離、合成回歸與尚待原生驗收的範圍。
