@@ -445,3 +445,7 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 使用者明確拖放／貼上 PNG、JPEG 才讀取 File bytes；以受限分塊 IPC 驗證並保存，再將單一圖片路徑經 xterm bracketed paste 插入，絕不自動送出。Codex、OpenCode、Grok 依固定版本來源提供 file URL adapter；Claude 使用官方文件的路徑參照；Antigravity 尚無已驗證路徑 adapter，暫停支援。保留舊 broker runtime record 相容性；無新增通用相容性 banner，也不重啟使用中的 Agent。
 
 保留檔不因 detach、resume 或逾時刪除；總額 512 MiB 與檔案數上限採跨程序獨占鎖，鎖失敗停止新增圖片。滿額訊息指出實際目錄與手動清理前提，管理 UI 留待後續。安全界線、官方來源與未驗收平台見 [圖片輸入](image-input.md)。
+
+## 2026-10-17：圖片準備期間保留手動 Enter，取消過期 prompt 目標
+
+拖放／貼上本身不自動送出，但使用者按 Enter 仍立即交給終端。準備期間顯示進度；一般文字及完整 bracketed multiline paste 可繼續，標準 CR/LF 送出與 Ctrl+C/D/Z/反斜線中斷會取消尚未插入的圖片，避免晚到下一則訊息。自己的 image paste frame 不觸發取消，不緩衝或補送 Enter。此 guard 不宣稱辨識所有 CLI 自訂鍵位／自主 prompt 切換。

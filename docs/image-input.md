@@ -43,3 +43,9 @@ basename 白名單只能確認設定的直接啟動路由，無法證明同名�
 npm run test:images 使用實際 xterm 與合成 DOM File／DataTransfer，後端 IPC 為測試替身；不讀真實剪貼簿、不啟動 Agent。正常 Ubuntu CI 的 sandboxed Chrome 執行；本機沒有 Chrome，尚未執行通過。此測試不能代替三平台原生 webview、實際 CLI 版本與模型端的驗收。Linux 已使用隔離的官方 Debian SDK 通過 default-feature cargo check --locked --all-targets，涵蓋 Tauri IPC；尚未完成連結執行或互動 GUI 驗收。
 
 本次本機檢查：typecheck／lint／build 通過，Vitest 32 檔 854 測試通過；Rust 圖片與 additive capability 子集 13 測試通過，core clippy 通過。完整 core library 測試 129 通過，既有 Unix socket 測試因本機沙箱 EPERM 失敗，後續整合測試未因此宣稱全數通過。browser fixture 獨立 TypeScript 檢查與 Playwright --list 通過；需 CI 執行實際瀏覽器案例。
+
+## 準備期間按 Enter
+
+「不自動送出」只限制 drop／paste 動作本身。Enter 仍照常立即傳到 Agent；不攔截、緩衝或在稍後重送。準備期間顯示提示，一般文字及完整 bracketed multiline paste 可繼續輸入；完整貼上 frame 的換行是文字，不視為手動送出。frame 不完整或巢狀而含送出／中斷控制碼時保守取消，並顯示通知。標準 CR/LF 或 Ctrl+C/D/Z/反斜線送出／中斷輸入會取消尚未插入的圖片；已插入或 retain 結果不明的檔案仍保留。自己的 image paste 不會取消同批其餘圖片。
+
+PTY 無法完整知道 Agent 的 prompt 語意；自訂非標準送出鍵、Agent 自主切換 prompt 等不能由此 guard 保證辨識。使用者應等待完成提示並確認輸入區圖片後再送出。新增合成測試分別驗證手動 Enter 正常傳送、取消後無晚到圖片、一般文字不中斷 staging，以及多張圖片自己的 paste 不互相取消。

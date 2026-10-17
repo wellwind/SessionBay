@@ -10,6 +10,16 @@ export function imageUnsupportedReason(kind: string): string {
     ? 'Antigravity 的圖片路徑附件尚未驗證，請在原生 CLI 使用圖片貼上。'
     : '圖片輸入僅支援本機 Codex、Claude Code、Grok Build 與 OpenCode；Shell、SSH／WSL 包裝程式尚未支援。';
 }
+/** xterm emits an intact bracketed paste as one event; its newlines are prompt text.
+ * Split/nested frames and nonstandard key bindings cannot be inferred reliably. */
+export function imageInputChangesPrompt(data: string): boolean {
+  const start = '\x1b[200~', end = '\x1b[201~';
+  const body = data.slice(start.length, -end.length);
+  if (data.startsWith(start) && data.endsWith(end) && !body.includes(start) && !body.includes(end)) return false;
+  // eslint-disable-next-line no-control-regex -- Standard Enter and prompt interruption bytes.
+  return /[\r\n\x03\x04\x1a\x1c]/.test(data);
+}
+
 export interface ImageInputApi {
   beginImage: (runtimeId: string, mime: string, size: number) => Promise<string>;
   appendImage: (runtimeId: string, id: string, offset: number, bytes: number[]) => Promise<void>;
@@ -64,7 +74,7 @@ export async function insertImageFiles(options: {
   let pending: string | undefined;
   let failure: unknown;
   let inserted = 0;
-  const check = () => { if (!options.isCurrent()) throw new Error('圖片輸入已取消：目標面板或連線已變更。'); };
+  const check = () => { if (!options.isCurrent()) throw new Error('圖片輸入已取消：目標面板、連線或目前輸入已變更。'); };
   try {
     // Verify the whole batch before inserting any image. Each read/IPC is bounded and ordered.
     for (const file of options.files) {

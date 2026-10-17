@@ -21,7 +21,7 @@ import { api, errorMessage } from '../api';
 import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { workspaceZoomEvent } from '../workspace-zoom';
-import { imageLimits, imageProvider, imageUnsupportedReason, insertImageFiles } from '../image-input';
+import { imageInputChangesPrompt, imageLimits, imageProvider, imageUnsupportedReason, insertImageFiles } from '../image-input';
 import { handleTerminalKey } from '../terminal-keyboard';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
@@ -92,6 +92,8 @@ export function TerminalPane({
   const [needle, setNeedle] = useState('');
   const [notice, setNotice] = useState('');
   const actionPending = useRef(false);
+  const imageStaging = useRef(false);
+  const imagePasting = useRef(false);
   const imageInput = useRef<(files: File[], mixedText?: string) => void>(() => {});
   const [confirming, setConfirming] = useState(false);
   const actionGeneration = useRef(0);
@@ -204,6 +206,13 @@ export function TerminalPane({
       if (mounted.current) setNotice(errorMessage(error));
     });
     const input = terminal.onData((data) => {
+      // Input/Enter remains live while staging. Cancel its old prompt target first.
+      // Standard Enter, unframed multiline input, Ctrl+C/D/Z/\ interrupt the prompt.
+      // Printable typing remains in the same prompt; do not buffer or replay input.
+      if (actionPending.current && !imagePasting.current && imageInputChangesPrompt(data)) {
+        actionGeneration.current += 1;
+        if (imageStaging.current) setNotice('圖片準備已取消：已送出或中斷目前輸入，尚未插入的圖片不會加入下一則訊息。');
+      }
       if (runtime.current) inputQueue.current?.enqueue(runtime.current, data);
     });
     let frame = 0;
@@ -467,17 +476,22 @@ export function TerminalPane({
   };
   const insertImages = async (files: File[], target: NonNullable<ReturnType<typeof captureActionTarget>>) => {
     if (!target.terminal.modes.bracketedPasteMode) throw new Error('Agent 尚未啟用安全貼上模式，未插入圖片。');
-    const count = await insertImageFiles({ files, kind: target.kind, runtimeId: target.runtimeId, api,
-      isCurrent: () => targetIsCurrent(target) && target.terminal.modes.bracketedPasteMode, paste: (text) => {
-        if (!targetIsCurrent(target) || !target.terminal.modes.bracketedPasteMode) throw new Error('圖片輸入目標或安全貼上模式已變更。');
-        const queue = inputQueue.current;
-        if (!queue || queue.pending + new TextEncoder().encode(text).length + 12 > queue.limit) throw new Error('終端輸入佇列已滿，圖片路徑尚未全部插入。');
-        target.terminal.paste(text);
-      } });
-    if (targetIsCurrent(target)) {
-      setNotice(`已插入 ${count} 張圖片的本機路徑，未送出。${latest.current.pane.kind === 'claude' ? 'Claude 會在送出後依路徑讀圖。' : '請確認 Agent 輸入區已辨識圖片。'}圖片會保留供接續對話使用。`);
-      target.terminal.focus();
-    }
+    imageStaging.current = true;
+    setNotice('正在準備圖片，尚未送出；可繼續輸入文字，按 Enter 或中斷輸入會取消尚未插入的圖片。');
+    try {
+      const count = await insertImageFiles({ files, kind: target.kind, runtimeId: target.runtimeId, api,
+        isCurrent: () => targetIsCurrent(target) && target.terminal.modes.bracketedPasteMode, paste: (text) => {
+          if (!targetIsCurrent(target) || !target.terminal.modes.bracketedPasteMode) throw new Error('圖片輸入目標或安全貼上模式已變更。');
+          const queue = inputQueue.current;
+          if (!queue || queue.pending + new TextEncoder().encode(text).length + 12 > queue.limit) throw new Error('終端輸入佇列已滿，圖片路徑尚未全部插入。');
+          imagePasting.current = true;
+          try { target.terminal.paste(text); } finally { imagePasting.current = false; }
+        } });
+      if (targetIsCurrent(target)) {
+        setNotice(`已插入 ${count} 張圖片的本機路徑，未送出。${latest.current.pane.kind === 'claude' ? 'Claude 會在送出後依路徑讀圖。' : '請確認 Agent 輸入區已辨識圖片。'}圖片會保留供接續對話使用。`);
+        target.terminal.focus();
+      }
+    } finally { imageStaging.current = false; }
   };
   imageInput.current = (files, mixedText) => {
     if (mixedText?.trim()) { setNotice('這次包含圖片與文字，尚未插入；請分別貼上，避免遺漏內容。'); return; }

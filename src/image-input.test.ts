@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { imageLimits, imagePasteText, imageProvider, imageUnsupportedReason, insertImageFiles, validateImageFiles, type ImageInputApi } from './image-input';
+import { imageInputChangesPrompt, imageLimits, imagePasteText, imageProvider, imageUnsupportedReason, insertImageFiles, validateImageFiles, type ImageInputApi } from './image-input';
 const file = (size = 20, name = 'synthetic.png', type = 'image/png') => ({ name, type, size, slice: (start: number, end: number) => ({ arrayBuffer: async () => new Uint8Array(Math.min(end, size) - start).buffer }) }) as File;
 function fixture() {
   const api: ImageInputApi = {
@@ -10,6 +10,12 @@ function fixture() {
   return { files: [file()], kind: 'codex' as const, runtimeId: 'runtime', api, isCurrent: vi.fn(() => true), paste: vi.fn() };
 }
 describe('image input adapters and bounded staging', () => {
+  it('distinguishes manual submit/interrupt from printable and intact multiline paste input', () => {
+    for (const data of ['\r', '\n', '\x03', '\x04', '\x1a', '\x1c']) expect(imageInputChangesPrompt(data)).toBe(true);
+    for (const data of ['caption', '\x1b[A', '\x1b[200~line one\rline two\x1b[201~']) expect(imageInputChangesPrompt(data)).toBe(false);
+    expect(imageInputChangesPrompt('\x1b[200~partial\r')).toBe(true);
+    expect(imageInputChangesPrompt('\x1b[200~nested\x1b[200~\r\x1b[201~')).toBe(true);
+  });
   it.each(['codex', 'grok', 'opencode'] as const)('%s uses percent-encoded file URL without Enter', (provider) => {
     expect(imagePasteText(provider, '/private/專案 alpha/image-a.png')).toBe('file:///private/%E5%B0%88%E6%A1%88%20alpha/image-a.png');
     expect(imagePasteText(provider, 'C:\\Users\\Name Surname\\image.png')).toBe('file:///C:/Users/Name%20Surname/image.png');

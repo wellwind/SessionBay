@@ -1168,6 +1168,54 @@ describe('image drop and paste events', () => {
     expect(mocks.termPaste).not.toHaveBeenCalled();
     expect(screen.getByRole('textbox', { name: '終端搜尋' })).toHaveFocus();
   });
+  it.each(['\r', '\x03'])('keeps user input %j working and cancels pending images before a later prompt', async (data) => {
+    const { input } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    expect(screen.getByRole('alert')).toHaveTextContent('正在準備圖片');
+    act(() => mocks.input?.(data));
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', data));
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(mocks.discardImage).toHaveBeenCalledWith('runtime', 'image-id');
+    expect(mocks.retainImage).not.toHaveBeenCalled();
+  });
+  it.each(['describe this image', '\x1b[200~line one\rline two\x1b[201~'])('ordinary typing or intact multiline paste %j stays in the same prompt', async (data) => {
+    const { input } = await ready();
+    let finish!: (value: { id: string; path: string }) => void;
+    mocks.finishImage.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    pasteEvent(input);
+    await waitFor(() => expect(mocks.finishImage).toHaveBeenCalled());
+    act(() => mocks.input?.(data));
+    await act(async () => finish({ id: 'image-id', path: '/private/image-a.png' }));
+    expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('file:///private/image-a.png');
+    expect(mocks.discardImage).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', data));
+  });
+  it('Enter during second retain keeps earlier image and never inserts the late one', async () => {
+    const { input } = await ready();
+    let retain!: () => void;
+    mocks.retainImage.mockResolvedValueOnce(undefined).mockImplementationOnce(() => new Promise<void>(resolve => { retain = resolve; }));
+    pasteEvent(input, '', [synthetic(), synthetic()]);
+    await waitFor(() => expect(mocks.retainImage).toHaveBeenCalledTimes(2));
+    expect(mocks.termPaste).toHaveBeenCalledTimes(1);
+    act(() => mocks.input?.('\r'));
+    await act(async () => retain());
+    expect(mocks.termPaste).toHaveBeenCalledTimes(1);
+    expect(mocks.discardImage).not.toHaveBeenCalled();
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledWith('runtime', '\r'));
+    expect(screen.getByRole('alert')).toHaveTextContent('已取消');
+  });
+  it('own image paste frames do not cancel the remaining batch', async () => {
+    const { input } = await ready();
+    mocks.termPaste.mockImplementation((text: string) => mocks.input?.(`\x1b[200~${text}\x1b[201~`));
+    pasteEvent(input, '', [synthetic(), synthetic()]);
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledTimes(2));
+    expect(mocks.retainImage).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('alert')).toHaveTextContent('已插入 2 張');
+  });
   it('toolbar reads explicit image clipboard data and refuses same-item mixed text', async () => {
     await ready();
     const read = vi.fn().mockResolvedValue([{ types: ['image/png', 'text/plain'], getType: async (type: string) => type === 'text/plain' ? { text: async () => 'caption' } : new Blob([new Uint8Array([1, 2, 3])], { type }) }]);

@@ -22,7 +22,12 @@ api.attach = async (id, callback) => {
   return { id, paneId: 'pane', sessionId: null, state: 'running', cwd: '/synthetic/project', exitCode: null };
 };
 api.beginImage = async () => `image-${++trace.begins}`;
-api.appendImage = async (_runtime, _id, _offset, bytes) => { trace.chunks.push(bytes.length); };
+api.appendImage = async (_runtime, _id, _offset, bytes) => {
+  trace.chunks.push(bytes.length);
+  if (new URLSearchParams(location.search).has('pauseImage')) {
+    await new Promise<void>(resolve => Object.assign(window, { releaseImage: resolve }));
+  }
+};
 api.finishImage = async (_runtime, id) => ({ id, path: `/private/synthetic/${id}.png` });
 api.retainImage = async (_runtime, id) => { trace.retained.push(id); };
 api.discardImage = async (_runtime, id) => { trace.discarded.push(id); };
