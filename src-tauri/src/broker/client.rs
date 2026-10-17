@@ -165,6 +165,11 @@ impl BrokerClient {
             _ => Err("Incompatible runtime broker response".into()),
         }
     }
+    #[cfg(test)]
+    pub(crate) fn existing_for_test(parent: &Path) -> Result<Self, String> {
+        let directory = transport::private_directory(parent).map_err(|error| error.to_string())?;
+        Self::existing(&directory)
+    }
     fn generation(&self) -> String {
         self.inner.generation.clone()
     }

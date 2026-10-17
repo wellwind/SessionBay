@@ -1253,6 +1253,18 @@ impl Catalog {
         cancel: &AtomicBool,
         progress: impl Fn(IndexStatus),
     ) -> Result<IndexStatus, String> {
+        self.sync_with_paused_providers(sources, &HashSet::new(), cancel, progress)
+    }
+
+    /// Pausing a provider does not disable/remove its sources or invalidate cached history.
+    /// Keep the full configured source list so unrelated scans cannot delete paused rows.
+    pub fn sync_with_paused_providers(
+        &self,
+        sources: &[HistorySource],
+        paused_providers: &HashSet<AgentKind>,
+        cancel: &AtomicBool,
+        progress: impl Fn(IndexStatus),
+    ) -> Result<IndexStatus, String> {
         let mut conn = self.connect()?;
         // Deduplication work contains only digests and row identities, never a
         // second transcript copy. Set a page-cache target and allow disk spill.
@@ -1292,6 +1304,15 @@ impl Catalog {
         }
         let mut discoveries = Vec::new();
         for source in sources {
+            if paused_providers.contains(&source.kind) {
+                status.sources.push(SourceHealth {
+                    source_id: source.id.clone(),
+                    status: "paused".into(),
+                    message: Some("Agent disabled; cached history is retained.".into()),
+                    files: 0,
+                });
+                continue;
+            }
             // Publish new source provenance only with invalidation of old rows.
             // Readers see either the previous identity or the new empty source.
             let tx = conn

@@ -1903,3 +1903,177 @@ fn review_cancelled_repoint_scan_must_not_resurrect_trashed_history() {
     assert!(status.cancelled);
     assert_eq!(h.total("hidden original"), 0, "old tombstone must not be bypassed by updating the source root before reconciling its rows");
 }
+
+#[test]
+fn provider_pause_retains_cached_history_and_resumes_discovery_and_reconciliation() {
+    let h = Harness::new();
+    let codex_source = h.source("paused-codex", AgentKind::Codex);
+    let claude_source = h.source("active-claude", AgentKind::Claude);
+    let old = h.write(
+        &codex_source,
+        "sessions/old.jsonl",
+        &codex("paused-old", "cachedneedle"),
+    );
+    let active = h.write(&claude_source, "projects/test/active.jsonl", CLAUDE);
+    let sources = vec![codex_source.clone(), claude_source];
+    h.sync(&sources);
+    assert_eq!(h.total("cachedneedle"), 1);
+    assert_eq!(h.total("中文"), 1);
+    let cached = h
+        .catalog
+        .query(&SessionQuery {
+            query: Some("cachedneedle".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .remove(0);
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    let cached_message_count = || {
+        conn.query_row(
+            "SELECT COUNT(*) FROM messages JOIN files ON files.id=messages.file_id WHERE files.session_id=?1",
+            [&cached.id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+    };
+    let original_messages = cached_message_count();
+    assert_eq!(original_messages, 1);
+    fs::remove_file(old).unwrap();
+    fs::remove_file(active).unwrap();
+    h.write(
+        &codex_source,
+        "sessions/new.jsonl",
+        &codex("paused-new", "newneedle"),
+    );
+    let paused = std::collections::HashSet::from([AgentKind::Codex]);
+    let status = h
+        .catalog
+        .sync_with_paused_providers(&sources, &paused, &AtomicBool::new(false), |_| {})
+        .unwrap();
+    assert!(status.errors.is_empty());
+    assert_eq!(
+        status
+            .sources
+            .iter()
+            .find(|health| health.source_id == codex_source.id)
+            .unwrap()
+            .status,
+        "paused"
+    );
+    assert_eq!(
+        h.total("cachedneedle"),
+        1,
+        "paused history is not reconciled away"
+    );
+    assert_eq!(h.total("newneedle"), 0, "paused history is not discovered");
+    assert_eq!(h.total("中文"), 0, "other providers still reconcile");
+    assert!(h.catalog.history_source(&codex_source.id).unwrap().enabled);
+    assert_eq!(cached_message_count(), original_messages);
+    // Raw transcript preview still reports missing source files, even when its
+    // searchable cache is intentionally retained by a provider pause.
+    assert!(h.catalog.transcript(&cached.id, None, 100).unwrap().stale);
+    h.sync(&sources);
+    assert_eq!(h.total("cachedneedle"), 0);
+    assert_eq!(h.total("newneedle"), 1);
+}
+
+#[test]
+fn paused_source_configuration_changes_do_not_delete_cache_until_reenabled() {
+    let h = Harness::new();
+    let mut source = h.source("paused-codex", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/old.jsonl",
+        &codex("paused-old", "cachedneedle"),
+    );
+    h.sync(&[source.clone()]);
+    let original_root = source.root.clone();
+    source.root = h
+        .root
+        .join("replacement-root")
+        .to_string_lossy()
+        .into_owned();
+    source.enabled = false;
+    h.catalog
+        .sync_with_paused_providers(
+            &[source.clone()],
+            &std::collections::HashSet::from([AgentKind::Codex]),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    assert_eq!(h.total("cachedneedle"), 1);
+    let cached_source = h.catalog.history_source(&source.id).unwrap();
+    assert_eq!(cached_source.root, original_root);
+    assert!(cached_source.enabled);
+    h.sync(&[source]);
+    assert_eq!(h.total("cachedneedle"), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn paused_provider_preserves_trash_provenance_until_reenabled() {
+    use std::os::unix::fs::symlink;
+    let h = Harness::new();
+    let original = h.source("original", AgentKind::Codex);
+    let replacement = h.source("replacement", AgentKind::Codex);
+    h.write(
+        &original,
+        "sessions/a.jsonl",
+        &codex("same-id", "hidden original"),
+    );
+    h.write(
+        &replacement,
+        "sessions/a.jsonl",
+        &codex("same-id", "visible replacement"),
+    );
+    let alias = h.root.join("paused-alias");
+    symlink(&original.root, &alias).unwrap();
+    let source = HistorySource {
+        root: alias.to_string_lossy().into_owned(),
+        ..original.clone()
+    };
+    h.sync(std::slice::from_ref(&source));
+    let selected = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    h.catalog
+        .trash_session(&selected.id, selected.trash_identity.as_deref().unwrap())
+        .unwrap();
+    fs::remove_file(&alias).unwrap();
+    symlink(&replacement.root, &alias).unwrap();
+    h.catalog
+        .sync_with_paused_providers(
+            std::slice::from_ref(&source),
+            &std::collections::HashSet::from([AgentKind::Codex]),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    let stored: String = conn
+        .query_row(
+            "SELECT storage_root FROM sources WHERE id=?1",
+            [&source.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        stored,
+        fs::canonicalize(&original.root).unwrap().to_string_lossy()
+    );
+    assert_eq!(h.total("hidden original"), 0);
+    assert_eq!(h.total("visible replacement"), 0);
+    assert_eq!(h.catalog.trashed_sessions(0, 40).unwrap().total, 1);
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("visible replacement"), 1);
+    fs::remove_file(&alias).unwrap();
+    symlink(&original.root, &alias).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("hidden original"), 0);
+    assert_eq!(h.catalog.trashed_sessions(0, 40).unwrap().total, 1);
+}

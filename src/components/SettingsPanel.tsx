@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Settings, ShellCandidate, ShellProfile } from '../types';
 import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
-import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions } from '../agents';
+import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions, isAgentEnabled } from '../agents';
 import type { HistoryAgentKind } from '../agents';
 import { isAbsoluteFilesystemPath } from '../paths';
 import { Select } from './controls';
@@ -72,6 +72,7 @@ const sections = [
 function cloneSettings(settings: Settings): Settings {
   return {
     ...settings,
+    ...(settings.agentEnabled ? { agentEnabled: { ...settings.agentEnabled } } : {}),
     profiles: settings.profiles.map((profile) => ({
       ...profile,
       args: [...profile.args],
@@ -192,6 +193,8 @@ export function validateSettings(settings: Settings): ValidationErrors {
   if (settings.sources.length > 32) errors.sources = '最多可以加入 32 個資料來源。';
   if (!settings.profiles.some((profile) => profile.id === settings.defaultProfileId))
     errors.defaultProfileId = '請選擇有效的預設 Shell Profile。';
+  if (settings.agentEnabled && Object.values(settings.agentEnabled).some((enabled) => typeof enabled !== 'boolean'))
+    errors.agentEnabled = 'Agent 啟用設定必須為開關值。';
   const profileIds = new Set<string>();
   settings.profiles.forEach((profile, i) => {
     if (!validText(profile.id, 128) || profileIds.has(profile.id))
@@ -297,7 +300,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
 }
 
 function sectionForError(key: string): Section {
-  if (key.startsWith('sources') || key.startsWith('executables.') || key.startsWith('agentOptions.')) return 'sources';
+  if (key.startsWith('sources') || key.startsWith('executables.') || key.startsWith('agentOptions.') || key.startsWith('agentEnabled')) return 'sources';
   if (key.startsWith('profiles')) return 'profiles';
   if (key.startsWith('shortcuts')) return 'shortcuts';
   return 'appearance';
@@ -333,7 +336,8 @@ export function SettingsPanel({
   const [agentJson, setAgentJson] = useState(() => Object.fromEntries(agentKinds.map((kind) =>
     [kind, JSON.stringify(normalizedAgentOptions(settings)[kind].extraArgs)])));
   const [section, setSection] = useState<Section>('sources');
-  const [newSourceKind, setNewSourceKind] = useState<HistoryAgentKind>('codex');
+  const [selectedAgent, setSelectedAgent] = useState<AgentKind>(settings.defaultAgent);
+  const [agentSearch, setAgentSearch] = useState('');
   const [focusSourceId, setFocusSourceId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [shellCandidates, setShellCandidates] = useState<ShellCandidate[] | null>(null);
@@ -456,6 +460,10 @@ export function SettingsPanel({
     const firstError = Object.keys(prepared.errors)[0];
     if (firstError) {
       setSection(sectionForError(firstError));
+      const kind = firstError.startsWith('sources.')
+        ? prepared.settings.sources[Number(firstError.split('.')[1])]?.kind
+        : firstError.split('.')[1] as AgentKind;
+      if (agentKinds.includes(kind)) { setSelectedAgent(kind); setAgentSearch(''); }
       return;
     }
     void run(async () => {
@@ -530,7 +538,7 @@ export function SettingsPanel({
       return { text: `部分可讀取 · ${health.files} 個檔案`, className: 'warning', detail: health.message || '部分歷史未能完整讀取，請查看掃描提醒。' };
     if (state === 'cancelled')
       return { text: '掃描已取消', className: 'neutral', detail: health.message || '結果可能不完整，請重新掃描。' };
-    if (state === 'disabled')
+    if (state === 'disabled' || state === 'paused')
       return { text: '等待重新掃描', className: 'neutral', detail: '已啟用來源，但尚未取得新的掃描結果。' };
     return { text: '來源狀態待確認', className: 'neutral', detail: health.message || `尚未確認的掃描狀態：${health.status}` };
   };
@@ -604,12 +612,39 @@ export function SettingsPanel({
               <fieldset className="settings-fieldset" disabled={locked}>
                 {section === 'sources' && (
                   <>
-                    <div className="settings-source-wayfinding" aria-label="來源與工具區段">
-                      <a href="#settings-agent-tools">Agent 工具</a><a href="#settings-history-sources">歷史資料來源</a><span>啟動能力與歷史能力分別確認</span>
+                    <div className="settings-agent-picker">
+                      <label className="settings-field">
+                        <span>搜尋 Agent</span>
+                        <input type="search" aria-label="搜尋 Agent" placeholder="依名稱搜尋…"
+                          value={agentSearch} onChange={(event) => setAgentSearch(event.target.value)} />
+                      </label>
+                      <div className="settings-agent-choices" role="group" aria-label="選擇要設定的 Agent">
+                        {agentKinds.filter((kind) => `${agentNames[kind]} ${kind}`.toLowerCase().includes(agentSearch.trim().toLowerCase())).map((kind) => {
+                          const binary = installationState(installations.find((item) => item.kind === kind));
+                          return <button type="button" key={kind} className="settings-agent-choice" data-agent-kind={kind}
+                            aria-pressed={selectedAgent === kind} onClick={() => setSelectedAgent(kind)}>
+                            <AgentIcon kind={kind} /><strong>{agentNames[kind]}</strong>
+                            <small>{isAgentEnabled(draft, kind) ? '已啟用' : '已停用'}</small>
+                            <span className={`settings-status ${binary.className}`}>{binary.text}</span>
+                          </button>;
+                        })}
+                        {!agentKinds.some((kind) => `${agentNames[kind]} ${kind}`.toLowerCase().includes(agentSearch.trim().toLowerCase())) &&
+                          <p className="settings-help" role="status">沒有符合的 Agent。請試試其他名稱。</p>}
+                      </div>
+                    </div>
+                    <div className="settings-agent-enabled">
+                      <label className="settings-toggle-label">
+                        <input className="checkbox" type="checkbox" aria-label={`啟用 ${agentNames[selectedAgent]}`}
+                          checked={isAgentEnabled(draft, selectedAgent)}
+                          onChange={(event) => update('agentEnabled', { ...draft.agentEnabled, [selectedAgent]: event.target.checked })} />
+                        <strong>啟用 {agentNames[selectedAgent]}</strong>
+                      </label>
+                      <p className="settings-help">儲存後套用。停用會暫停新啟動、接續與歷史掃描；保留既有歷史、來源與工具設定，執行中的工作不受影響。</p>
+                      {!isAgentEnabled(draft, selectedAgent) && <p className="settings-subtle-warning">此 Agent 已停用，仍可調整設定；重新啟用後恢復使用。</p>}
                     </div>
                     <div className="settings-section-heading" id="settings-agent-tools">
                       <div>
-                        <h3>Agent 工具</h3>
+                        <h3>{agentNames[selectedAgent]} 工具</h3>
                         <p>工具可啟動與歷史可讀取，會分別確認。</p>
                       </div>
                       <button
@@ -623,7 +658,7 @@ export function SettingsPanel({
                       </button>
                     </div>
                     <div className="settings-installations">
-                      {agentKinds.map((kind) => {
+                      {[selectedAgent].map((kind) => {
                         const installation = installations.find((item) => item.kind === kind);
                         const parsedArgs = parseAgentArgs(agentJson[kind]);
                         const argumentSummary = parsedArgs.error ? '參數待修正' : parsedArgs.value?.length ? '已有自訂參數' : '使用安全預設';
@@ -710,25 +745,13 @@ export function SettingsPanel({
                     )}
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
-                        <h3>歷史資料來源 <span className="settings-count">{draft.sources.length}</span></h3>
-                        <p>四個 Agent 的能力固定顯示；歷史讀取不以 CLI 安裝或啟動為前提。</p>
+                        <h3>歷史資料來源 <span className="settings-count">{draft.sources.filter((source) => source.kind === selectedAgent).length}</span></h3>
+                        <p>管理目前 Agent 的資料目錄；歷史讀取不以 CLI 安裝為前提。</p>
                       </div>
-                    </div>
-                    <div className="settings-add-source">
-                      <label className="settings-field">
-                        <span>新增來源的 Agent</span>
-                        <Select aria-label="新增來源的 Agent" value={newSourceKind} disabled={locked}
-                          onChange={(value) => setNewSourceKind(value as HistoryAgentKind)}
-                          options={historyAgentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} /> }))} />
-                      </label>
-                      <button type="button" className="settings-button secondary compact"
-                        disabled={draft.sources.length >= 32} onClick={() => addSource(newSourceKind)}>
-                        <Plus size={14} />新增來源
-                      </button>
                     </div>
                     <FieldError id="sources-error" message={errors.sources} />
                     <div className="settings-history-providers">
-                      {agentKinds.map((kind) => {
+                      {[selectedAgent].map((kind) => {
                         const capability = agentCapabilities[kind];
                         const installation = installations.find((item) => item.kind === kind);
                         const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
@@ -779,7 +802,7 @@ export function SettingsPanel({
                               <div className="settings-source-list">
                                 {sources.map(({ source, i }) => {
                                   const saved = settings.sources.find((item) => item.id === source.id);
-                                  const status = sourceStatus(source.id, source.enabled, !saved || saved.root !== source.root || saved.kind !== source.kind || saved.enabled !== source.enabled);
+                                  const status = !isAgentEnabled(draft, kind) ? { className: 'neutral', text: 'Agent 已停用 · 暫停掃描', detail: '此來源的個別開關與已索引歷史保留。' } : sourceStatus(source.id, source.enabled, !saved || saved.root !== source.root || saved.kind !== source.kind || saved.enabled !== source.enabled);
                                   return (
                                     <div className={`settings-source${source.enabled ? '' : ' is-disabled'}`} key={source.id}>
                                       <div className="settings-source-top">
@@ -798,7 +821,7 @@ export function SettingsPanel({
                                         <label className="settings-field">
                                           <span>Agent 類型</span>
                                           <Select aria-label="Agent 類型" value={source.kind} disabled={locked}
-                                            onChange={(value) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, kind: value as AgentKind } : item))}
+                                            onChange={(value) => { update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, kind: value as AgentKind } : item)); setSelectedAgent(value as AgentKind); setAgentSearch(''); }}
                                             options={historyAgentKinds.map((option) => ({ value: option, label: agentNames[option], icon: <AgentIcon kind={option} /> }))} />
                                         </label>
                                         <DirectoryPathField key={`${source.id}:${source.kind}`} className="settings-field"
@@ -1176,7 +1199,7 @@ export function SettingsPanel({
                         <span>預設 Agent</span>
                         <Select aria-label="預設 Agent" value={draft.defaultAgent} disabled={locked}
                           onChange={(value) => update('defaultAgent', value as AgentKind)}
-                          options={agentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} /> }))} />
+                          options={agentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} />, description: isAgentEnabled(draft, kind) ? undefined : '已停用，啟動時改用其他已啟用 Agent' }))} />
                         <FieldError id="default-agent-error" message={errors.defaultAgent} />
                       </label>
                       <label className="settings-field">

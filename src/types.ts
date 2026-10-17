@@ -124,6 +124,8 @@ export interface Settings {
   fontSize: number;
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
+  /** Missing providers remain enabled; unknown keys survive settings round trips. */
+  agentEnabled?: Record<string, boolean>;
   defaultAgent: AgentKind;
   defaultProfileId: string;
   profiles: ShellProfile[];

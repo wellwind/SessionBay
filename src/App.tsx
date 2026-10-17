@@ -33,7 +33,7 @@ import type { SidebarPreferences } from './sidebar-preferences';
 import { startup } from './startup';
 import { resumedTabName } from './display-name';
 import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
-import { agentCapabilities, agentKinds, bypassFlags, installationState } from './agents';
+import { agentCapabilities, agentKinds, bypassFlags, installationState, isAgentEnabled, preferredEnabledAgent } from './agents';
 import { AgentIcon } from './components/AgentIcon';
 import { Select } from './components/controls';
 import type {
@@ -629,6 +629,11 @@ export default function App() {
   };
   const openLauncher = (kind: Launcher['kind'], split?: Launcher['split']) => {
     if (!settings) return;
+    if (kind !== 'shell' && !isAgentEnabled(settings, kind)) {
+      const fallback = preferredEnabledAgent(settings);
+      if (!fallback) { notify('所有 Agent 都已停用，請先在設定 → 來源與工具啟用 Agent。'); return; }
+      kind = fallback;
+    }
     if (!current) {
       if (kind === 'shell') { openTemporaryTerminal(split); return; }
       setProjectDialog({ launchKind: kind });
@@ -1564,7 +1569,7 @@ export default function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false)) {
+              if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || (isAgentEnabled(settings, launcher.kind) && boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false))) {
                 addPane(
                   current,
                   launcher.kind,
@@ -1587,7 +1592,8 @@ export default function App() {
                 <TerminalSquare size={19} />Shell<span>命令列工作</span>
               </button>
               <button type="button" aria-pressed={launcher.kind !== 'shell'}
-                onClick={() => setLauncher({ ...launcher, kind: settings.defaultAgent, resumeId: undefined })}>
+                disabled={!preferredEnabledAgent(settings)}
+                onClick={() => setLauncher({ ...launcher, kind: preferredEnabledAgent(settings) ?? settings.defaultAgent, resumeId: undefined })}>
                 <CommandIcon size={19} />Agent<span>AI 協作</span>
               </button>
             </div>
@@ -1598,9 +1604,10 @@ export default function App() {
                 options={agentKinds.map((kind) => {
                   const installation = boot?.installations.find((item) => item.kind === kind);
                   return { value: kind, label: agentName(kind), icon: <AgentIcon kind={kind} />,
-                    disabled: installation?.available === false,
-                    description: installationState(installation).text };
+                    disabled: !isAgentEnabled(settings, kind) || installation?.available === false,
+                    description: !isAgentEnabled(settings, kind) ? '已停用，請至設定啟用' : installationState(installation).text };
                 })} />
+              {!isAgentEnabled(settings, launcher.kind) && <span className="inline-warning">此 Agent 已停用，請先在設定中啟用。</span>}
               {boot?.installations.find((item) => item.kind === launcher.kind)?.available === false &&
                 <span className="inline-warning">未偵測到這個 Agent，請先在設定中指定執行檔並重新偵測。</span>}
             </label>}
@@ -1638,7 +1645,7 @@ export default function App() {
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
                 取消
               </button>
-              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && boot?.installations.find((item) => item.kind === launcher.kind)?.available === false)}>
+              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && (!isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
                 開始工作
                 <ArrowRight size={14} />
               </button>

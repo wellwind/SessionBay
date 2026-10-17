@@ -21,6 +21,15 @@ export async function runSmokeInteraction(): Promise<void> {
     button.focus({ preventScroll: true });
     button.click();
   };
+  const selectAgent = async (kind: (typeof agentKinds)[number]) => {
+    const name = agentNames[kind];
+    click(dialog()?.querySelector<HTMLButtonElement>(`button[data-agent-kind="${kind}"]`) ?? null);
+    await waitFor(() => dialog()?.querySelector(`button[data-agent-kind="${kind}"]`)?.getAttribute('aria-pressed') === 'true' &&
+      !!dialog()?.querySelector(`[aria-label="${name} 歷史來源"]`), `${name} settings did not open`);
+    if (dialog()!.querySelectorAll('.settings-history-provider').length !== 1 ||
+      dialog()!.querySelectorAll('.settings-installation').length !== 1)
+      throw new Error(`UI smoke: expected only selected ${name} configuration`);
+  };
   const close = () =>
     click(dialog()?.querySelector<HTMLButtonElement>(
       'button[aria-label="稍後設定"], button[aria-label="關閉設定"]',
@@ -45,7 +54,9 @@ export async function runSmokeInteraction(): Promise<void> {
     !fixtureSource.endsWith('/sessionbay-smoke-fixture/codex')))
     throw new Error('UI smoke: invalid synthetic fixture source');
   const fixtureRoot = fixtureSource?.slice(0, -'/codex'.length);
-  for (const name of agentKinds.map((kind) => agentNames[kind])) {
+  for (const kind of agentKinds) {
+    const name = agentNames[kind];
+    await selectAgent(kind);
     const checkbox = dialog()?.querySelector<HTMLInputElement>(`input[aria-label="${name} 略過權限確認"]`);
     if (!checkbox || checkbox.checked) throw new Error(`UI smoke: missing/default-unsafe ${name} options`);
   }
@@ -113,15 +124,27 @@ export async function runSmokeInteraction(): Promise<void> {
     await smokeSnapshot(`directories-${theme}`);
     open();
     await waitFor(() => !!dialog(), 'provider settings did not open');
-    if (dialog()!.querySelectorAll('.settings-history-provider').length !== agentKinds.length)
-      throw new Error('UI smoke: expected all permanent history provider sections');
-    dialog()!.querySelector('.settings-history-providers')?.scrollIntoView({ block: 'start' });
+    if (dialog()!.querySelectorAll('button[data-agent-kind]').length !== agentKinds.length)
+      throw new Error('UI smoke: expected all providers in the settings picker');
+    for (const kind of agentKinds) await selectAgent(kind);
+    await selectAgent('codex');
+    dialog()!.querySelector('.settings-agent-picker')?.scrollIntoView({ block: 'start' });
     await smokeSnapshot(`providers-${theme}`);
     // Exercise the native read-only discovery IPC against CI's isolated, empty GROK_HOME.
     // Merely finding a candidate must not add a draft source or launch a runtime.
-    const sourceRoots = () => Array.from(dialog()!.querySelectorAll<HTMLInputElement>('input[id^="source-root-"]'))
-      .map((input) => input.value);
-    const rootsBeforeDetection = sourceRoots();
+    const sourceRoots = async () => {
+      const selected = dialog()!.querySelector<HTMLButtonElement>('button[data-agent-kind][aria-pressed="true"]')!
+        .dataset.agentKind as (typeof agentKinds)[number];
+      const roots: string[] = [];
+      for (const kind of agentKinds) {
+        await selectAgent(kind);
+        roots.push(...Array.from(dialog()!.querySelectorAll<HTMLInputElement>('input[id^="source-root-"]')).map((input) => input.value));
+      }
+      await selectAgent(selected);
+      return roots;
+    };
+    await selectAgent('grok');
+    const rootsBeforeDetection = await sourceRoots();
     click(dialog()!.querySelector<HTMLButtonElement>('button[aria-label="偵測 Grok Build 歷史來源"]'));
     const grokHistory = () => dialog()?.querySelector<HTMLElement>('[aria-label="Grok Build 歷史來源"]');
     await waitFor(() => !!grokHistory()?.querySelector('.settings-source-candidate') &&
@@ -131,7 +154,7 @@ export async function runSmokeInteraction(): Promise<void> {
       .find((candidate) => candidate.querySelector('.settings-status')?.textContent === '找到可讀目錄');
     if (!readableGrokCandidate?.querySelector<HTMLButtonElement>('button[aria-label^="加入 Grok Build 偵測來源 "]') ||
       readableGrokCandidate.querySelector<HTMLButtonElement>('button')?.disabled ||
-      JSON.stringify(sourceRoots()) !== JSON.stringify(rootsBeforeDetection) ||
+      JSON.stringify(await sourceRoots()) !== JSON.stringify(rootsBeforeDetection) ||
       grokHistory()!.querySelector('.settings-source') || document.querySelector('.workspace-tab, .xterm-host'))
       throw new Error('UI smoke: history discovery must offer the empty Grok root without adding a source or launching work');
     close();
@@ -184,7 +207,8 @@ export async function runSmokeInteraction(): Promise<void> {
     // the real UI and IPC only after the final snapshot has been captured.
     open();
     await waitFor(() => !!dialog(), 'settings did not reopen for CLI history discovery');
-    const antigravityRootsBefore = sourceRoots();
+    await selectAgent('antigravity');
+    const antigravityRootsBefore = await sourceRoots();
     click(dialog()!.querySelector<HTMLButtonElement>('button[aria-label="偵測 Antigravity CLI 歷史來源"]'));
     const antigravityHistory = () => dialog()?.querySelector<HTMLElement>('[aria-label="Antigravity CLI 歷史來源"]');
     await waitFor(() => !!antigravityHistory()?.querySelector('.settings-source-candidate') &&
@@ -194,7 +218,7 @@ export async function runSmokeInteraction(): Promise<void> {
       .find((candidate) => candidate.querySelector('code')?.textContent?.endsWith('/.gemini/antigravity-cli'));
     if (nativeCandidate?.querySelector('.settings-status')?.textContent !== '找到可讀目錄' ||
       !nativeCandidate.querySelector<HTMLButtonElement>('button[aria-label^="加入 Antigravity CLI 偵測來源 "]')?.disabled ||
-      JSON.stringify(sourceRoots()) !== JSON.stringify(antigravityRootsBefore))
+      JSON.stringify(await sourceRoots()) !== JSON.stringify(antigravityRootsBefore))
       throw new Error('UI smoke: native CLI discovery must recognize its configured synthetic root without mutating sources');
     close();
     await waitFor(() => !dialog(), 'CLI discovery settings did not close without saving');
