@@ -890,7 +890,7 @@ export default function App() {
       disabled: !settings || settingsOpen || quickThemeOpen || themeSaving,
       run: () => { if (!palette) paletteOpener.current = document.activeElement as HTMLElement | null; paletteGeneration.current++; setThemeSaveError(''); setPalette(true); setPaletteTheme(target); },
     })),
-    { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式' : '進入專注模式',
+    { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式（Zen Mode）' : '進入專注模式（Zen Mode）',
       disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
       if (focusMode) setFocusControlsOpen((value) => !value);
@@ -908,8 +908,11 @@ export default function App() {
           c.shortcut && !c.disabled && !conflicts.has(c.id) && matchesShortcut(event, c.shortcut),
       );
       if (command) {
+        if (command.id === 'toggle-focus-mode' && event.target instanceof Element &&
+          event.target.closest('input, textarea, select, [contenteditable="true"]') &&
+          !event.target.matches('.xterm-helper-textarea')) return;
         event.preventDefault();
-        command.run();
+        if (command.id !== 'toggle-focus-mode' || !event.repeat) command.run();
       }
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
