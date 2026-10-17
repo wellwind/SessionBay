@@ -131,6 +131,7 @@
 
 保留既有十個色系，新增 Code Modern／Code 2026 深／淺色 UI 與 Terminal；命令面板可搜尋、鍵盤預覽、Enter 保存及 Escape 還原。全工作台 page zoom 使用獨立 appZoom，與主題共用序列化保存，不乘改 Terminal 基準字級。修訂後整合樹的自動化與原生待驗項目見[批次整合驗證](batch-integration-validation.md)。
 
+- Agent 個別設定：可搜尋選擇器與啟用偏好、保留停用 provider 快取與現有 Runtime；前端 835 項自動化回歸通過，三平台原生操作及瀏覽器截圖驗收尚未完成。
 ### 臨時 Terminal 混版相容
 
 - [x] 固定舊 protocol 1 schema 的未知欄位重現、雙向 Hello 相容、scope／generation 與 workspace 身分比對回歸。

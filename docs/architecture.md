@@ -205,3 +205,7 @@ Agent、provider、模型與帳號分開保存。事件以可靠來源 ID、requ
 
 先驗證 PTY → Channel → xterm 的往返路徑，再加入兩個可見面板與背景索引。效能量測應涵蓋 WebView 子程序，並將 Agent 子程序另外列出；完整計畫見[開發路線圖](roadmap.md)。
 
+
+### Agent enablement
+
+`Settings.agentEnabled` 是以 provider ID 為鍵的可選 boolean map，缺省鍵視為 true，與 `sources[].enabled` 分離。Service 啟動計畫檢查 provider 開關，既有 source-qualified Runtime 重用與附接先於新啟動守衛。Service 索引快照將停用 provider 集合傳入 Catalog；同步保留全體已設定來源 ID，但跳過停用 provider 的 discovery／reconciliation，不能以移除來源或來源停用實作暫停，避免連帶刪除索引。原始來源始終唯讀。

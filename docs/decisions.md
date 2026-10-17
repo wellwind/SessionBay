@@ -420,6 +420,13 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 
 從歷史／對話預覽接續工作時，新建分頁預設使用同一筆 Session.title；空白標題沿用原有 Agent 名稱。標題僅為顯示文字，去除首尾空白、將換行／控制字元換成空格，最多保留 200 個 Unicode 字元，與手動重新命名的限制一致。既有分頁接續、重新附接或後端判定同一 Runtime 時保留原名稱（包含手動命名）；分割面板不重新命名整個分頁。標題不參與路徑、命令參數或 Runtime 身分判斷。
 
+## 2026-10-17：依 Agent 選擇設定
+
+來源與工具改用可搜尋的 Agent 選擇器，只顯示選中 Agent 的執行檔、參數與歷史來源。切換選擇不執行偵測、不儲存，也不遺失其他 Agent 尚未儲存的修改。每個 Agent 保留個別歷史來源開關與多來源配置。
+
+新增獨立 `agentEnabled` map，缺少欄位或 provider key 視為啟用，保留未知 provider key 以利版本往返。僅儲存設定後生效，停用不覆寫個別來源開關／執行檔／參數。停用阻止新啟動及新的接續程序、暫停該 provider 索引與背景 reconciliation；既有索引仍可瀏覽搜尋，現有 Runtime 可附接與繼續操作。重新啟用後恢復原有設定。明確清除／重建索引仍依使用者選擇執行，不因 provider 停用偷偷保留遭明確要求清除的索引。
+
+預設 Agent 若停用，新的 Agent 工作改用 registry 中第一個已啟用 Agent；全部停用時顯示設定提示，Shell 仍可使用。Launcher 顯示停用狀態，不以 CLI 安裝狀態代替啟用偏好。原生三平台 UI／PTY 驗收與瀏覽器合成測試分開記錄。
 ## 2026-10-17：臨時 Terminal 與既有背景服務相容
 
 更新 UI 不會替換仍擁有 PTY 的背景 broker。早期 protocol 1 的 Launch schema 會拒絕未知欄位，因此新 UI 傳入 `homeDirectory: true` 時，舊 broker 在解碼階段回覆 `Invalid runtime request`；不能用停止既有 Agent 或清除設定解決。

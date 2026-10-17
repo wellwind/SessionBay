@@ -75,3 +75,11 @@ export function installationState(installation?: Installation, changed = false):
     return { text: '未偵測到', className: 'neutral' };
   return { text: installation.version ? '可啟動' : '已找到執行檔', className: 'success' };
 }
+
+/** Provider preference is independent of executable discovery and source-level toggles. */
+export function isAgentEnabled(settings: Pick<Settings, 'agentEnabled'>, kind: AgentKind): boolean {
+  return settings.agentEnabled?.[kind] !== false;
+}
+export function preferredEnabledAgent(settings: Pick<Settings, 'agentEnabled' | 'defaultAgent'>): AgentKind | undefined {
+  return isAgentEnabled(settings, settings.defaultAgent) ? settings.defaultAgent : agentKinds.find((kind) => isAgentEnabled(settings, kind));
+}

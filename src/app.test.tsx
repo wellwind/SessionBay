@@ -2695,3 +2695,35 @@ it.each(['running', 'exited'] as const)('closes only the newly titled resumed ta
   const saved = vi.mocked(api.saveWorkspace).mock.calls.at(-1)?.[0] as Workspace;
   expect(saved.tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);
 });
+
+describe('disabled agent launch preferences', () => {
+  it('falls back from a disabled default and marks it unavailable in the launcher', async () => {
+    const data = bootstrap();
+    data.settings.agentEnabled = { codex: false };
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    const dialog = await openLauncher();
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Agent/ }));
+    const selector = within(dialog).getByRole('combobox', { name: 'Agent' });
+    expect(selector).toHaveTextContent('Claude Code');
+    fireEvent.click(selector);
+    const disabled = screen.getByRole('option', { name: /^Codex/ });
+    expect(disabled).toHaveAttribute('aria-disabled', 'true');
+    expect(disabled).toHaveTextContent('已停用');
+    fireEvent.click(disabled);
+    expect(selector).toHaveTextContent('Claude Code');
+    await tick(150);
+    expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'claude' }));
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+  it('keeps Shell available when every provider is disabled', async () => {
+    const data = bootstrap();
+    data.settings.agentEnabled = Object.fromEntries(Object.keys(agentNames).map((kind) => [kind, false]));
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    const dialog = await openLauncher();
+    expect(within(dialog).getByRole('button', { name: /^Agent/ })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: /^Shell/ })).toBeEnabled();
+    await tick(150);
+    expect(api.preview).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'shell' }));
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+});
