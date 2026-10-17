@@ -22,7 +22,7 @@ for (const [name, width, height, zoom] of [
   ['zoom-50', 1000, 600, 50],
   ['zoom-200', 500, 320, 200],
 ] as const) {
-  test(`${name}: renderer stays inside terminal body`, async ({ page }, testInfo) => {
+  test(`${name}: renderer stays inside terminal body`, async ({ page, browser }, testInfo) => {
     // The defect is sensitive to row rounding. Find a nearby real pane height
     // where the last row crosses the footer, then compare identical dimensions.
     let url = '';
@@ -49,7 +49,7 @@ for (const [name, width, height, zoom] of [
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
     await page.screenshot({ path: testInfo.outputPath(`${name}-after.png`), fullPage: true });
     const geometryPath = testInfo.outputPath('geometry.json');
-    await writeFile(geometryPath, JSON.stringify({ before, after }, null, 2));
+    await writeFile(geometryPath, JSON.stringify({ browser: browser.version(), channel: 'chrome', before, after }, null, 2));
     await testInfo.attach('geometry', { path: geometryPath, contentType: 'application/json' });
     await page.getByRole('button', { name: '搜尋終端文字', exact: true }).click();
     await expect(page.getByRole('textbox', { name: '終端搜尋', exact: true })).toBeFocused();

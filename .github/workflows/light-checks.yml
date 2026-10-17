@@ -29,9 +29,13 @@ jobs:
       - run: npm ci
       - name: Frontend checks
         run: npm run typecheck && npm run lint && npm test && npm run build
-      - name: Install browser for terminal layout regression
+      - name: Verify sandbox-supported Chrome and install browser dependencies
         run: |
-          npx playwright install --with-deps chromium
+          command -v google-chrome
+          readlink -f "$(command -v google-chrome)"
+          google-chrome --version
+          test -x /opt/google/chrome/chrome
+          npx playwright install-deps chromium
           sudo apt-get install --no-install-recommends -y fonts-noto-cjk fontconfig
       - name: Terminal layout screenshots and bounds
         run: npm run test:layout

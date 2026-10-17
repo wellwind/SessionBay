@@ -41,7 +41,7 @@ const noop = () => {};
 createRoot(document.getElementById('root')!).render(
   <div style={{ width, height, zoom: zoom / 100, display: 'flex', flexDirection: 'column', margin: 12 }}>
     <div style={{ fontSize: 12, padding: 8 }}>
-      {baseline ? 'BEFORE (old CSS)' : 'AFTER'} · Chromium · actual TerminalPane + xterm · synthetic runtime ·
+      {baseline ? 'BEFORE (old CSS)' : 'AFTER'} · Google Chrome · actual TerminalPane + xterm · synthetic runtime ·
       {' '}{width}×{height} · CSS zoom {zoom}% (not native WebView)
     </div>
     <div className="workspace-tabs">
