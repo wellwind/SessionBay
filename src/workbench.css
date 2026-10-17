@@ -137,7 +137,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .session-time, .session-card-meta { font-size: 11px; line-height: 1.6; }
 .agent-badge { font-size: 11px; border-radius: 5px; padding: 4px 7px; }
 .transcript-column { background: var(--panel); }
-.transcript-header { padding: 22px 24px 16px; align-items: flex-start; }
+.transcript-header { padding: 22px 24px 16px; align-items: center; }
 .transcript-header h3 { font-size: 16px; font-weight: 600; line-height: 1.6; }
 .transcript-header .primary { font-size: 12px; min-height: 36px; padding: 8px 12px; }
 .transcript-header .eyebrow, .transcript-meta, .transcript-source, .history-project-action { font-size: 12px; line-height: 1.7; }

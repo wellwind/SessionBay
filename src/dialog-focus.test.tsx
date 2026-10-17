@@ -3,9 +3,59 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Dialog } from './components/Dialog';
 import { RenameDialog } from './components/RenameDialog';
+import userEvent from '@testing-library/user-event';
 import { hasBlockingDialog } from './dialog-focus';
 
 describe('modal focus and composition arbitration', () => {
+  it('focuses confirmation without reusing the opener Enter and respects explicit cancel focus', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.fn();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return <><button onClick={() => setOpen(true)}>Open</button>{open && <Dialog title="Confirm" onClose={() => setOpen(false)}>
+        <button onClick={() => setOpen(false)}>Cancel</button>
+        <button data-dialog-confirm onClick={() => { confirm(); setOpen(false); }}>Confirm</button>
+      </Dialog>}</>;
+    }
+    render(<Harness />);
+    const opener = screen.getByRole('button', { name: 'Open' });
+    opener.focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('button', { name: 'Confirm' })).toHaveFocus();
+    expect(confirm).not.toHaveBeenCalled();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(opener).toHaveFocus();
+    await user.keyboard('{Enter}');
+    await user.keyboard('{Enter}');
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(opener).toHaveFocus();
+  });
+
+  it('suppresses composing and repeated Enter only in confirmation dialogs', () => {
+    render(<Dialog title="Confirm" onClose={vi.fn()}><button data-dialog-confirm>Confirm</button></Dialog>);
+    const confirm = screen.getByRole('button', { name: 'Confirm' });
+    for (const guard of [{ isComposing: true }, { keyCode: 229 }, { repeat: true }])
+      expect(fireEvent.keyDown(confirm, { key: 'Enter', ...guard })).toBe(false);
+    fireEvent.compositionStart(confirm);
+    expect(fireEvent.keyDown(confirm, { key: 'Enter' })).toBe(false);
+    fireEvent.compositionEnd(confirm);
+    expect(fireEvent.keyDown(confirm, { key: 'Enter' })).toBe(true);
+  });
+
+  it('keeps required text entry ahead of confirmation and never bypasses disabled actions', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.fn();
+    render(<Dialog title="Future typed confirmation" onClose={vi.fn()}>
+      <input aria-label="Required text" required />
+      <button data-dialog-confirm disabled onClick={confirm}>Confirm</button>
+    </Dialog>);
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(confirm).not.toHaveBeenCalled();
+  });
   it('captures the opener before descendant autofocus and restores it after keyboard dismissal', () => {
     function Harness() {
       const [open, setOpen] = useState(false);
