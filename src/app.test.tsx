@@ -1480,6 +1480,27 @@ describe('directory navigation interruptions and direct management', () => {
 
 
 describe('shared launcher and scoped search controls', () => {
+  it('focuses the close confirmation and prevents duplicate pending runtime stops', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    let resolve!: () => void;
+    vi.mocked(api.stop).mockImplementationOnce(() => new Promise<void>(done => { resolve = done; }));
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord()]);
+    fireEvent.click(screen.getByRole('button', { name: 'Close synthetic pane' }));
+    const confirm = screen.getByRole('button', { name: '結束並關閉' });
+    expect(confirm).toHaveFocus();
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await tick();
+    expect(api.stop).toHaveBeenCalledOnce();
+    expect(confirm).toBeDisabled();
+    await act(async () => resolve());
+    await tick();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
   it('keeps the project search shortcut scoped and focuses its complete search field', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />);

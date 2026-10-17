@@ -14,7 +14,7 @@ export function ProjectRuntimeTabs({ tabs, panes, activeId, onFocus, id, project
     {tabs.map((tab, index) => <li key={tab.id}>
       <button className={activeId === tab.id ? 'active' : ''} aria-current={activeId === tab.id ? 'page' : undefined}
         aria-label={`開啟工作區 ${projectName} ${tab.name}`} aria-describedby={`${descriptionId}-${index}`}
-        title={`${tab.name} · ${tabRuntimeSummary(tab, panes)}`}
+        title={tab.name}
         onClick={() => {
           const ids = paneIds(tab.layout).filter(paneId => !!panes[paneId]);
           const target = ids.includes(tab.focusedPaneId) ? tab.focusedPaneId : ids[0];

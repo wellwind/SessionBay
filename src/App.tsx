@@ -73,7 +73,7 @@ import {
   splitNode,
   uid,
 } from './workspace';
-import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex, workspaceTabShortcutHelp } from './commands';
+import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex } from './commands';
 import type { Command } from './commands';
 import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
@@ -190,6 +190,7 @@ export default function App() {
   const projectReadGeneration = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [busy, setBusy] = useState(false);
+  const confirmationLock = useRef(false);
   const [toast, setToast] = useState('');
   const [palette, setPalette] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
@@ -1357,7 +1358,7 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs" title={workspaceTabShortcutHelp}>
+              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs">
                 {focusMode && focusAvailable && <button className="focus-project-control" aria-label={focusControlsOpen ? '收起完整控制列' : '展開完整控制列'}
                   aria-expanded={focusControlsOpen} title="顯示專案、設定與完整操作"
                   onClick={() => { setFocusControlsOpen((value) => !value); if (focusControlsOpen) restoreWorkspaceFocus(); }}>
@@ -1759,14 +1760,17 @@ export default function App() {
             </button>
             <button
               className="danger"
+              data-dialog-confirm
               disabled={busy}
               onClick={() => {
+                if (confirmationLock.current) return;
+                confirmationLock.current = true;
                 setBusy(true);
                 void confirmation
                   .action()
                   .then(() => setConfirmation(null))
                   .catch(notify)
-                  .finally(() => setBusy(false));
+                  .finally(() => { confirmationLock.current = false; setBusy(false); });
               }}
             >
               {busy ? '處理中…' : '結束並關閉'}

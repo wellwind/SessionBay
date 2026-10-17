@@ -342,7 +342,7 @@ export function HistoryView({
         {trashError && <p className="inline-error" role="alert">{trashError}</p>}
         <div className="dialog-actions">
           <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>取消</button>
-          <button className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
+          <button data-dialog-confirm className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
         </div>
       </Dialog>}
       <div className="history-controls">

@@ -37,6 +37,10 @@ const bootstrap: Bootstrap = {
   },
 };
 const edgeFixture = new URLSearchParams(location.search).has('edge');
+const fixtureParams = new URLSearchParams(location.search);
+if (fixtureParams.get('theme') === 'light') bootstrap.settings.theme = 'light';
+if (['bay', 'code-modern', 'code-2026'].includes(fixtureParams.get('palette') ?? ''))
+  bootstrap.settings.themePalette = fixtureParams.get('palette')!;
 const runtimes = [runtime];
 if (edgeFixture) {
   const workspace = bootstrap.workspace as Workspace;
