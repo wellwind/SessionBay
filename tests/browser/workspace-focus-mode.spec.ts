@@ -118,29 +118,36 @@ test('history, settings, theme and project navigation remain reachable without r
   await expect(page.locator('.app-topbar')).toBeVisible();
 });
 
-test('preview tabstrip control preserves full-height pane and focus lifecycle', async ({ page }) => {
-  const toggle = page.getByRole('button', { name: '檔案預覽', exact: true });
-  await expect(page.locator('.workspace-tabs').getByRole('button', { name: '檔案預覽', exact: true })).toBeVisible();
-  const verticalBounds = () => page.locator('.terminal-pane:visible').evaluate(element => {
-    const pane = element.getBoundingClientRect();
-    const work = document.querySelector('.main-work-area')!.getBoundingClientRect();
-    return { top: pane.top - work.top, bottom: work.bottom - pane.bottom };
-  });
-  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
-  await toggle.click();
-  await page.getByRole('button', { name: 'synthetic.txt', exact: true }).click();
+test('Files sidebar, project tabs and Zen preserve terminal lifecycle', async ({ page }, testInfo) => {
+  const toggle = page.locator('.project-files-toggle');
+  await expect(toggle).toHaveAttribute('aria-label', '隱藏 Files 側欄');
+  await page.getByRole('button', { name: 'synthetic.txt', exact: true }).dblclick();
   const preview = page.getByLabel('唯讀內容：synthetic.txt');
   await expect(preview).toContainText('synthetic preview only');
-  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
-  await preview.focus();
-  await page.keyboard.press('Escape');
-  await expect(toggle).toBeFocused();
-  await page.getByRole('button', { name: '歷史 Session', exact: true }).click();
-  await expect(toggle).toHaveCount(0);
-  await page.locator('.workspace-tab-select').click();
+  await expect(page.locator('.xterm-screen')).toBeHidden();
+  await sameTerminal(page);
+  await toggle.click();
+  await expect(page.getByRole('tree')).toBeHidden();
+  await expect(preview).toBeVisible();
+  await toggle.click();
   await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+  await expect(preview).toBeVisible();
   await expect(toggle).toBeVisible();
-  expect(await verticalBounds()).toEqual({ top: 0, bottom: 0 });
+  await sameTerminal(page);
+  await page.screenshot({ path: testInfo.outputPath('files-zen.png'), fullPage: true });
+  await page.getByRole('button', { name: '歷史 Session', exact: true }).click();
+  await expect(toggle).toBeVisible();
+  await expect(page.locator('.history-mount')).toBeVisible();
+  await page.locator('.project-file-tabs-host').getByRole('tab', { name: /synthetic.txt/ }).click();
+  await expect(preview).toBeVisible();
+  await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
+  await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
+  await expect(page.locator('.project-file-tabs-host').getByRole('tab')).toHaveCount(0);
+  await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic focus' }).click();
+  await page.locator('.project-file-tabs-host').getByRole('tab', { name: /synthetic.txt/ }).click();
+  await expect(preview).toBeVisible();
+  await page.locator('.workspace-tab-select').click();
+  await expect(page.locator('.xterm-screen')).toBeVisible();
   await sameTerminal(page);
 });
 
@@ -217,7 +224,7 @@ for (const [size, width, height, zoom] of [
         };
         const body = pane.querySelector('.terminal-body')!;
         const style = getComputedStyle(pane);
-        return { work: box(document.querySelector('.main-work-area')!),
+        return { work: box(document.querySelector('.project-work-content')!),
           canvas: box(document.querySelector('.workspace-canvas')!), pane: box(pane),
           body: box(body), screen: box(pane.querySelector('.xterm-screen')!),
           border: style.borderTopWidth, radius: style.borderTopLeftRadius,
@@ -274,7 +281,8 @@ for (const [size, width, height, zoom] of [
       await expect(page.locator('.workspace-canvas')).not.toHaveClass(/single-pane/);
       const second = page.getByRole('region', { name: 'Synthetic shell 終端面板', exact: true });
       await expect(second.locator('.pane-meta')).toContainText('執行中');
-      await expect.poll(() => second.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
+      // The project sidebar reduces split width; xterm may wrap even inside words.
+      await expect.poll(async () => (await second.locator('.xterm-rows').innerText()).replace(/\s/g, '')).toContain('Syntheticfocusoutput');
       await expect(page.getByRole('separator', { name: '左右面板比例' })).toBeVisible();
       await expect.poll(async () => (await originalSize())?.cols ?? 0).toBeLessThan(initialSize!.cols!);
       const splitSize = await originalSize();
@@ -295,7 +303,7 @@ for (const [size, width, height, zoom] of [
       await page.getByRole('button', { name: '結束並關閉', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.locator('.terminal-pane:visible')).toHaveCount(1);
-      await expect(page.getByRole('separator')).toHaveCount(0);
+      await expect(page.locator('.workspace-canvas').getByRole('separator')).toHaveCount(0);
       const after = await assertSingle();
       await expect.poll(async () => {
         const current = await originalSize();

@@ -52,18 +52,31 @@ if (edgeFixture) {
   workspace.panes[hidden.paneId] = { ...workspace.panes['pane-focus'], id: hidden.paneId,
     title: 'Hidden shell', runtimeId: hidden.id };
 }
-const calls: { command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number }[] = [];
+const calls: { command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean }[] = [];
 Object.assign(window, { isTauri: true, focusFixture: { calls } });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
-  calls.push({ command, ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
+  calls.push({ command, ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
   switch (command) {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
     case 'list_projects': return bootstrap.projects;
-    case 'list_workspace_files': return { entries: [{ name: 'synthetic.txt', path: 'synthetic.txt', kind: 'file' }], nextOffset: null };
-    case 'read_workspace_file': return { path: 'synthetic.txt', text: 'synthetic preview only', sizeBytes: 22 };
+    case 'list_workspace_files': return { entries: args.path ? [
+      { name: 'index.ts', path: 'src/index.ts', kind: 'file' },
+    ] : [
+      { name: 'src', path: 'src', kind: 'directory' },
+      ...['synthetic.txt', 'README.md', 'large.ts', '.config'].map(name => ({ name, path: name, kind: 'file' })),
+      { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
+    ], nextOffset: null };
+    case 'read_workspace_file': {
+      const path = args.path as string;
+      const text = path === 'large.ts'
+        ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(2000) + 'END_SENTINEL\n'
+        : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
+        : path === 'src/index.ts' ? 'export const greeting = "Synthetic";\n' : 'synthetic preview only';
+      return { path, text, sizeBytes: new TextEncoder().encode(text).length };
+    }
     case 'update_project': {
       const project = bootstrap.projects.find(item => item.id === args.projectId)!;
       for (const field of ['name', 'curated', 'launchPath'] as const)

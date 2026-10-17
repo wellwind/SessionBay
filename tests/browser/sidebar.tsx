@@ -27,6 +27,8 @@ if (new URLSearchParams(location.search).has('large-count')) {
   data.projects[0].exists = false;
 }
 api.bootstrap = async () => data;
+api.listWorkspaceFiles = async () => ({ entries: [], nextOffset: null });
+api.readWorkspaceFile = async () => { throw new Error('No file fixture is configured for this scenario'); };
 api.projects = async () => data.projects;
 api.scan = api.index = async () => data.index;
 api.runtimes = async () => [];

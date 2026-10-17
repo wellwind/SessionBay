@@ -1,0 +1,14 @@
+/* Files belongs to the project, alongside history and runtime content. */
+.project-work-area { display: flex; min-width: 0; overflow: hidden; }
+.project-work-content { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.project-files-sidebar-host { display: flex; flex: 0 0 auto; min-height: 0; max-width: 45%; }
+.project-files-sidebar-host[hidden], .project-file-document-host[hidden] { display: none; }
+.project-file-document-host { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; }
+.project-file-tabs-host { display: contents; }
+.project-files-toggle { flex: 0 0 auto; gap: 5px; padding-inline: 10px; min-height: 39px; border-left: 1px solid var(--border); border-radius: 0; }
+.project-files-toggle[aria-expanded='true'] { color: var(--accent); background: var(--accent-bg); }
+.project-work-content .workspace-canvas, .project-work-content .workspace-canvas-body { border-radius: 0; }
+@media (max-width: 650px) {
+  .project-files-sidebar-host { max-width: 48%; }
+  .project-files-toggle span { display: none; }
+}
