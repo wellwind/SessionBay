@@ -517,7 +517,7 @@ kbd {
 }
 .workspace-tabs {
   display: flex;
-  gap: 7px;
+  gap: 0;
   padding: 0 30px;
   min-height: 39px;
   border-bottom: 1px solid var(--border);
