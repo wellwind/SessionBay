@@ -68,6 +68,7 @@ button {
   color: inherit;
   cursor: pointer;
   border: 0;
+  border-radius: var(--interaction-radius, 7px);
   background: none;
   display: inline-flex;
   align-items: center;
@@ -81,8 +82,8 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
 }
-button:not(:disabled):hover {
-  background: var(--surface-hover);
+button:not(:disabled):not([aria-disabled="true"]):hover {
+  background: var(--interaction-hover, var(--surface-hover));
 }
 input,
 select,

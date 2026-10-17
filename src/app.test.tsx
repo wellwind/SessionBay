@@ -2282,7 +2282,7 @@ describe('command palette theme transactions', () => {
   });
   it('Terminal selection preserves UI mode, font and unrelated settings', async () => {
     await start();
-    const input = open('切換 Terminal 主題');
+    const input = open('切換 Terminal theme');
     fireEvent.change(input, { target: { value: '淺色 · Rose' } });
     expect(document.documentElement.dataset.theme).toBe('dark');
     await act(async () => fireEvent.keyDown(input, { key: 'Enter' }));
@@ -2389,7 +2389,7 @@ describe('command themes and whole-workspace zoom integration', () => {
     expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ theme: 'light', themePalette: 'code-modern', appZoom: 120, fontSize: 14 }));
     expect(document.documentElement.dataset.themePalette).toBe('code-modern');
     const zoomCalls = vi.mocked(api.setWorkspaceZoom).mock.calls.length;
-    const again = picker('切換 Terminal 主題');
+    const again = picker('切換 Terminal theme');
     fireEvent.change(again, { target: { value: '淺色 · Code 2026' } });
     await act(async () => fireEvent.keyDown(again, { key: 'Enter' }));
     expect(api.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ terminalTheme: 'code-2026-light', appZoom: 120, themePalette: 'code-modern' }));
@@ -2530,10 +2530,20 @@ describe('workspace display organization', () => {
     const project = bootstrap().projects[0];
     vi.mocked(api.updateProject).mockResolvedValue({ ...project, name: 'Friendly project' });
     render(<App />); await tick(); selectGroup();
-    fireEvent.click(screen.getByRole('button', { name: '重新命名專案' }));
+    expect(screen.getByRole('button', { name: '資源回收筒' })).toHaveClass('icon-button');
+    const membership = screen.getByRole('button', { name: project.curated ? '移出專案' : '加入專案' });
+    expect(membership).toHaveClass('icon-button');
+    expect(membership).toHaveAttribute('title');
+    const rename = screen.getByRole('button', { name: '重新命名專案' });
+    expect(rename).toHaveAttribute('title', '重新命名專案');
+    expect(rename).toHaveClass('icon-button');
+    expect(rename.parentElement).toContainElement(screen.getByRole('heading', { level: 1 }));
+    expect(rename.closest('.header-buttons')).toBeNull();
+    fireEvent.click(rename);
     fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Cancelled' } });
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(api.updateProject).not.toHaveBeenCalled();
+    expect(rename).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: '重新命名專案' }));
     expect(screen.getByLabelText('顯示名稱')).toHaveValue(project.name);
     fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: '  Friendly project  ' } });

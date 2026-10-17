@@ -224,3 +224,17 @@ hover／focus 色彩轉換約 120ms，popover 約 160ms。不要動畫化終端�
 - [React：Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
 
 新增本文件後，交付整合者應同步 README 文件導覽與來源索引；本文件沒有自行改寫其他文件的驗收狀態。
+
+## 互動狀態補充（2026-10-17）
+
+`src/interaction-states.css` 集中互動規則，元件原有 CSS 負責尺寸。主要選取面與次要動作為同層 button，避免巢狀互動。選取透過持續 accent 底色／邊線及 aria-current 表達；hover 使用獨立狀態色，不改幾何。focus-visible 使用內縮 2px outline，避免被列表／tabs overflow 裁切。disabled／aria-disabled 不產生一般 hover 回饋。
+
+Session 列右側保留 32px 圖示動作；桌面 hover 或列內鍵盤焦點顯示，觸控常駐。確認、失敗重試與回收筒語意沿用現有流程。按刪除不會選取另一個 Session 或接續工作。
+
+驗證：`npm run test:interactions` 在正常 sandbox-supported Chrome 執行深淺主題的實際 hover、focus、取消／完成刪除與觸控／reduced-motion，輸出 `test-results/interactions` 截圖。此雲端 shell 因 Unix socket 限制無法啟動 Chromium，提權執行亦因環境唯讀 mount 失敗；沒有關閉 Chromium sandbox。瀏覽器視覺結果待 Linux CI，不以靜態 JSX 或 mock 圖片代替實測。
+
+追加專案 header：標題旁 pencil，工具列 trash／folder-minus 圖示與 Terminal／新增工作文字操作。Playwright 另包含 1000px 長名稱版的深淺色 bounds／鍵盤取消測試與兩張截圖，總計預期 14 張；仍待 CI 真實瀏覽器執行。
+
+刪除後的 Undo 焦點屬於當次刪除流程：父層 refresh 尚未完成時，任何新 focus、pointer 或 keyboard 操作會撤銷待執行的焦點回復；已有另一個 modal 時亦不接管焦點。僅在沒有新操作且焦點仍在原 trigger／body 時聚焦 Undo。
+
+Code Modern／Code2026 保留原 tab active／inactive／hover 配色，但高 specificity 的 tab hover 僅由主選取按鈕命中，rename／close 只亮自身並保留父 tab 選取底色與頂端邊線。Code palette 的列表／tab 鍵盤焦點保留 code-focus 色，改為 inset，避免被捲動容器裁切。新增兩套 Code palette × 深淺色的 computed-style 瀏覽器回歸（含未選取／已選取、三個 hover 命中區及鍵盤焦點），追加 12 張預期截圖，共 26 張、9 個 browser tests；結果仍待 Linux CI，不以 token 對比檢查代替瀏覽器驗證。

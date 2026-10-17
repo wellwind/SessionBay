@@ -527,3 +527,11 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 下一步優先評估身分從建立時就是 endpoint 的新 API 型來源，或受管且能證明來源與 runtime 身分的 provider control transport。兩者都尚未實作；不得擅自改變既有 Agent 啟動架構、啟動 server 或建立憑證。本階段不引入大型自製 SQLite VFS。普通設定／受管程序競態與外部 namespace ABA 必須分別處理；不能把負面探針解讀成所有 SQLite adapter 都不可能。
 
 永久執行仍須逐次明確確認、原子 idle／children 範圍保護、完整 cleanup、local-only routing、部分失敗及重掃防回流驗收。詳見[契約調查與路線](permanent-deletion-investigation.md)、[獨立安全分析](permanent-deletion-safety-review.md)與[合成探針](permanent-deletion-probes.md)。
+
+## 2026-10-17：一致互動狀態與列表快速移入回收筒
+
+將主操作高亮限制在單一完整點擊面；列表內次要操作只亮自己的範圍。選取狀態保持 accent 標記，hover 不覆蓋成一般列；鍵盤焦點在可捲動容器內採 inset outline，不增減 padding。繼續採緊湊桌面密度及既有 reduced-motion 規則，不變更工作區或 runtime。
+
+Session 列新增同層刪除按鈕，hover／focus-within 顯示，無 hover 裝置常駐並預留寬度。動作沿用確認與可復原的資源回收筒，不刪來源、不終止執行；取消回原按鈕，完成後聚焦復原。Terminal 主題切換命令文案改為「切換 Terminal theme」。
+
+專案頁標題旁以小鉛筆開啟重新命名；資源回收筒與移出／加入專案改圖示按鈕。保留 Terminal／新增工作文字按鈕及既有確認流程；移出採資料夾減號，並明示不刪對話、檔案或關閉程序。長名稱可換行，圖示固定尺寸不被壓縮。
