@@ -1,4 +1,50 @@
 import { expect, test } from '@playwright/test';
+test('large counts and missing-directory warnings do not overlap', async ({ page }, info) => {
+  await page.setViewportSize({ width: 800, height: 850 });
+  await page.goto('/tests/browser/sidebar.html?large-count=1');
+  const main = page.locator('.project-main').filter({ has: page.getByText('123456', { exact: true }) });
+  await expect(main).toBeVisible();
+  const count = main.locator('.project-count');
+  expect(await count.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const name = (await main.locator('strong').boundingBox())!;
+  const number = (await count.boundingBox())!;
+  const warning = (await main.locator('.warning-icon').boundingBox())!;
+  expect(name.x + name.width).toBeLessThanOrEqual(number.x);
+  expect(number.x + number.width).toBeLessThanOrEqual(warning.x);
+  await page.screenshot({ path: info.outputPath('large-count-warning.png') });
+});
+for (const width of [800, 1200]) {
+  test(`project parent columns stay aligned at ${width}`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto('/tests/browser/sidebar.html');
+    const rows = page.locator('.project-row');
+    await expect(rows).toHaveCount(3);
+    const geometry = () => rows.evaluateAll(elements => elements.map(row => {
+      const rect = row.getBoundingClientRect();
+      const folder = row.querySelector('.project-main > svg')!.getBoundingClientRect();
+      const name = row.querySelector('strong')!.getBoundingClientRect();
+      return { folderX: folder.x, folderY: folder.y - rect.y, nameX: name.x, nameY: name.y - rect.y, height: rect.height };
+    }));
+    const before = await geometry();
+    await page.screenshot({ path: info.outputPath('columns-expanded.png') });
+    expect(new Set(before.map(item => item.folderX)).size).toBe(1);
+    expect(new Set(before.map(item => item.nameX)).size).toBe(1);
+    expect(new Set(before.map(item => item.folderY)).size).toBe(1);
+    expect(new Set(before.map(item => item.height)).size).toBe(1);
+    await page.getByRole('button', { name: '收合 工作台介面 的分頁' }).click();
+    expect(await geometry()).toEqual(before);
+    await page.getByRole('button', { name: '展開 工作台介面 的分頁' }).click();
+    expect(await geometry()).toEqual(before);
+    await rows.first().locator('strong').evaluate(element => { element.textContent = 'Synthetic long project title '.repeat(8); });
+    expect(await geometry()).toEqual(before);
+    // Vary the status line's content independently of disclosure and title length.
+    await rows.first().locator('.project-runtime-summary').evaluate(element => { element.textContent = '2 個執行中 · 1 個新輸出'; });
+    expect(await geometry()).toEqual(before);
+    await rows.first().locator('.project-runtime-summary').evaluate(element => { element.textContent = ''; });
+    expect(await geometry()).toEqual(before);
+    await page.screenshot({ path: info.outputPath('columns-long-title.png') });
+  });
+}
 for (const viewport of [{ width: 1200, height: 850 }, { width: 1000, height: 650 }]) {
 test(`sidebar drag, collapse, navigation and reload at ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
   await page.setViewportSize(viewport);

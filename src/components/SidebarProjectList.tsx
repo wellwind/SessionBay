@@ -46,7 +46,7 @@ export function SidebarProjectList({ projects, selectedId, label, reorderable, o
           const next = new Set(previous); if (expanded) next.add(project.id); else next.delete(project.id); return next;
         })}>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</button>}
       <button className="project-main" aria-current={selectedId === project.id ? 'true' : undefined} onClick={() => onSelect(project)} title={project.path ?? '未分類'}>
-        <Folder size={17} /><span><strong>{project.name}</strong><small>{project.workspaceOnly ? `僅工作區 · ${project.path || '目錄待確認'}` : project.path || '工作目錄未知'}</small>{!!tabs.length && workspace && <span className="project-runtime-summary">{projectRuntimeSummary(tabs, workspace.panes)}</span>}</span>
+        <Folder size={17} /><span><strong>{project.name}</strong><small>{project.workspaceOnly ? `僅工作區 · ${project.path || '目錄待確認'}` : project.path || '工作目錄未知'}</small><span className="project-runtime-summary" aria-hidden={!tabs.length}>{tabs.length && workspace ? projectRuntimeSummary(tabs, workspace.panes) : ''}</span></span>
         <span className="project-count">{project.sessionCount}</span>{!project.exists && <AlertTriangle className="warning-icon" size={13} />}
       </button>
 
