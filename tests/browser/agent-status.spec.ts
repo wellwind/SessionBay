@@ -109,9 +109,9 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
       await search.fill('no matching synthetic project');
       await expect(page.locator('.project-runtime-tabs')).toHaveCount(0);
       await expect(page.locator('.open-workspaces')).toBeVisible();
-      await footer.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
-      await expect(footer).toBeInViewport({ ratio: 1 });
-      expect(await footer.evaluate(element => {
+      await addProject.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+      await expect(addProject).toBeInViewport({ ratio: 1 });
+      expect(await addProject.evaluate(element => {
         const rect = element.getBoundingClientRect();
         return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
       })).toBe(true);
@@ -120,7 +120,7 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
       // Tab navigation must bring the search back after scrolling elsewhere.
       await search.focus();
       await page.keyboard.press('Shift+Tab');
-      await footer.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
+      await addProject.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
       await page.keyboard.press('Tab');
       await expect(search).toBeFocused();
       await expect(search).toBeInViewport();
