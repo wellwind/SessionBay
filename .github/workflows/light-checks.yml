@@ -54,6 +54,8 @@ jobs:
         run: node node_modules/@playwright/test/cli.js test --config playwright.preview-header.config.ts
       - name: Workspace tab geometry
         run: node node_modules/@playwright/test/cli.js test --config playwright.tab-geometry.config.ts
+      - name: Project membership star layout and keyboard behavior
+        run: node node_modules/@playwright/test/cli.js test --config playwright.project-membership.config.ts
       - name: Confirmation dialog native Enter behavior
         run: node node_modules/@playwright/test/cli.js test --config playwright.confirmation.config.ts
       - name: Upload terminal layout evidence

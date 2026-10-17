@@ -62,6 +62,12 @@ mockIPC((command, payload = {}) => {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
     case 'list_projects': return bootstrap.projects;
+    case 'update_project': {
+      const project = bootstrap.projects.find(item => item.id === args.projectId)!;
+      for (const field of ['name', 'curated', 'launchPath'] as const)
+        if (args[field] !== undefined) Object.assign(project, { [field]: args[field] });
+      return project;
+    }
     case 'list_runtimes': return runtimes;
     case 'query_sessions': return { items: [], total: 0 };
     case 'detect_installations': case 'detect_shells': return [];

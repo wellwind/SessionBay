@@ -1480,6 +1480,35 @@ describe('directory navigation interruptions and direct management', () => {
 
 
 describe('shared launcher and scoped search controls', () => {
+  it('shows real project membership as a star left of the title without changing ordering', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    vi.mocked(api.updateProject).mockResolvedValueOnce({ ...data.projects[0], curated: false })
+      .mockResolvedValueOnce(data.projects[0]);
+    render(<App />);
+    await tick();
+    selectGroup();
+    const order = localStorage.getItem('sessionbay.sidebar.v1');
+    const star = screen.getByRole('button', { name: '移出專案' });
+    expect(star.nextElementSibling).toBe(screen.getByRole('heading', { name: 'Synthetic project', level: 1 }));
+    expect(star).toHaveAttribute('aria-pressed', 'true');
+    expect(star.querySelector('svg')).toHaveAttribute('fill', 'currentColor');
+    expect(star).toHaveAttribute('title', '移出專案清單；不刪除對話、檔案或關閉程序');
+    fireEvent.click(star);
+    await tick();
+    const empty = within(document.querySelector<HTMLElement>('.project-title-row')!).getByRole('button', { name: '加入專案' });
+    expect(empty).toHaveAttribute('aria-pressed', 'false');
+    expect(empty.querySelector('svg')).toHaveAttribute('fill', 'none');
+    fireEvent.click(empty);
+    await tick();
+    expect(screen.getByRole('button', { name: '移出專案' })).toHaveAttribute('aria-pressed', 'true');
+    expect(api.updateProject).toHaveBeenNthCalledWith(1, 'project-a', { curated: false });
+    expect(api.updateProject).toHaveBeenNthCalledWith(2, 'project-a', { curated: true });
+    expect(localStorage.getItem('sessionbay.sidebar.v1')).toBe(order);
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(document.querySelector('.sidebar .project-membership')).toBeNull();
+  });
+
   it('focuses the close confirmation and prevents duplicate pending runtime stops', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     let resolve!: () => void;
