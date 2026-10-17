@@ -36,7 +36,8 @@ describe('truthful project runtime projection', () => {
     ws.tabs[0].focusedPaneId = 'stale'; ws.panes.a.state = 'exited';
     view.rerender(<ProjectRuntimeTabs tabs={ws.tabs} panes={ws.panes} onFocus={onFocus} projectName="Project" />);
     expect(button).not.toHaveAttribute('aria-current');
-    expect(button).toHaveAttribute('title', 'Work · 已結束；已開啟');
+    expect(button).toHaveAttribute('title', 'Work');
+    expect(button).toHaveAccessibleDescription('已結束；已開啟');
     fireEvent.click(button); expect(onFocus).toHaveBeenLastCalledWith('a');
   });
   it('expands independently of selection and preserves counts, keyboard access and active tab', () => {

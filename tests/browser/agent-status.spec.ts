@@ -22,7 +22,8 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
       fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
       fixture.emit({ type: 'exit', runtimeId: 'runtime-a', exitCode: 0 });
     });
-    await expect(tab).toHaveAttribute('title', /已結束/);
+    await expect(tab).toHaveAttribute('title', '已保留的 codex');
+    await expect(tab).toHaveAccessibleDescription(/已結束/);
     await tab.scrollIntoViewIfNeeded();
     expect(await tab.evaluate(element => {
       const rect = element.getBoundingClientRect();

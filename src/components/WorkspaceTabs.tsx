@@ -36,7 +36,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
       style={reorder.style(tab.id)} ref={element => reorder.ref(tab.id, element)}>
       <button className="workspace-tab-select" aria-current={tab.id === activeId ? 'true' : undefined} aria-label={`${tab.name} ${paneIds(tab.layout).length}`} aria-describedby={`${helpId}${panes ? ` ${helpId}-activity-${index}` : ''}`}
         aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
-        title={`${tab.name} · 第 ${index + 1} 個分頁；拖曳或 Alt+←／→ 排序`}
+        title={tab.name}
         {...reorder.handlers(tab.id)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229 || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
