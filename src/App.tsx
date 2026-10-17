@@ -1,9 +1,11 @@
+import { AgentStatusOverview } from './components/AgentStatusOverview';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
   Anchor,
   ArrowRight,
   ChevronRight,
+  ChevronDown,
   CircleHelp,
   Command as CommandIcon,
   Folder,
@@ -12,7 +14,6 @@ import {
   Layers3,
   LoaderCircle,
   PanelLeftClose,
-  Pin,
   Pencil,
   Plus,
   RefreshCw,
@@ -26,6 +27,9 @@ import {
   Palette,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
+import { SidebarProjectList } from './components/SidebarProjectList';
+import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
+import type { SidebarPreferences } from './sidebar-preferences';
 import { startup } from './startup';
 import { resumedTabName } from './display-name';
 import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
@@ -72,10 +76,12 @@ import { RenameDialog } from './components/RenameDialog';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
+import { SessionTrash } from './components/SessionTrash';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
 import { AppearanceSaveQueue } from './appearance-save-queue';
+import { CommandPalette } from './components/CommandPalette';
 import { CommandThemePicker } from './components/CommandThemePicker';
 import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
 import type { Appearance } from './themes';
@@ -113,6 +119,7 @@ export default function App() {
   const desktop = isDesktop();
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
+  const [trashOpen, setTrashOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
@@ -132,6 +139,27 @@ export default function App() {
   quickThemeOpenRef.current = quickThemeOpen;
   const detectionGeneration = useRef(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebar, setSidebar] = useState(readSidebarPreferences);
+  const sidebarRef = useRef(sidebar);
+  sidebarRef.current = sidebar;
+  const updateSidebar = (patch: Partial<SidebarPreferences>) => {
+    const next = { ...sidebarRef.current, ...patch };
+    sidebarRef.current = next;
+    setSidebar(next);
+    try { saveSidebarPreferences(next); }
+    catch { setToast('側欄偏好無法儲存；本次變更仍有效，重新開啟後可能還原。'); }
+  };
+  useEffect(() => {
+    if (!boot) return;
+    const current = sidebarRef.current;
+    const projectOrder = reconcileProjectOrder(current.projectOrder, projects);
+    if (projectOrder === current.projectOrder) return;
+    const next = { ...current, projectOrder };
+    sidebarRef.current = next;
+    setSidebar(next);
+    try { saveSidebarPreferences(next); }
+    catch { setToast('專案順序無法儲存；重新開啟後可能還原。'); }
+  }, [boot, projects]);
   const [projectSearch, setProjectSearch] = useState('');
   const [refreshToken, setRefreshToken] = useState(0);
   const [maximizedId, setMaximizedId] = useState<string | null>(null);
@@ -936,31 +964,20 @@ export default function App() {
     } catch (error) { notify(error); }
     finally { projectMutation.current = false; setProjectBusy(false); }
   };
-  const setPinned = async (project: Project) => {
-    if (projectMutation.current) return;
-    projectMutation.current = true;
-    setProjectBusy(true);
-    try {
-      const result = await api.updateProject(project.id, { pinned: !project.pinned });
-      projectReadGeneration.current++;
-      setProjects((previous) => previous.map((p) => p.id === result.id ? result : p));
-    } catch (error) { notify(error); }
-    finally { projectMutation.current = false; setProjectBusy(false); }
-  };
   const curateSession = (session: Session) => {
     const project = projects.find((p) => p.id === session.projectId);
     if (project) void saveMembership(project, true);
     else notify('找不到工作目錄，請先重新整理索引。');
   };
+  const projectOrder = reconcileProjectOrder(sidebar.projectOrder, projects);
+  const orderIndex = new Map(projectOrder.map((id, index) => [id, index]));
   const sortedProjects = [...projects]
     .filter((p) => navigation === 'projects' ? p.curated : p.sessionCount > 0)
     .filter((p) => `${p.name} ${p.path ?? ''}`.toLowerCase().includes(projectSearch.toLowerCase()))
-    .sort(
-      (a, b) =>
-        Number(b.pinned) - Number(a.pinned) ||
-        (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') ||
-        a.name.localeCompare(b.name),
-    );
+    .sort((a, b) => navigation === 'projects'
+      ? (orderIndex.get(a.id) ?? Infinity) - (orderIndex.get(b.id) ?? Infinity) || legacyProjectOrder(a, b)
+      : legacyProjectOrder(a, b));
+  const listCollapsed = navigation === 'projects' ? sidebar.projectsCollapsed : sidebar.directoriesCollapsed;
   const selectNavigation = (page: 'projects' | 'directories') => {
     setNavigation(page);
     setSelectedId(undefined);
@@ -1063,7 +1080,10 @@ export default function App() {
               {navigation === 'projects' ? '專案總覽' : '目錄總覽'}<span>{navigation === 'projects' ? projectCount : directoryCount}</span>
             </button>
             <div className="sidebar-section">
-              <span>{navigationName}</span>
+              <button className="sidebar-section-toggle" aria-expanded={!listCollapsed} aria-controls="sidebar-project-content"
+                onClick={() => updateSidebar(navigation === 'projects' ? { projectsCollapsed: !listCollapsed } : { directoriesCollapsed: !listCollapsed })}>
+                {listCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>{navigationName}</span>
+              </button>
               <button
                 className="icon-button"
                 title="加入專案"
@@ -1074,6 +1094,7 @@ export default function App() {
                 <Plus size={16} />
               </button>
             </div>
+            <div id="sidebar-project-content" className="sidebar-project-content" hidden={listCollapsed}>
             <div className="project-search search-field">
               <Search size={13} />
               <input
@@ -1083,49 +1104,13 @@ export default function App() {
                 onChange={(event) => setProjectSearch(event.target.value)}
               />
             </div>
-            <nav className="project-list" aria-label={navigationName}>
-              {sortedProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className={`project-row ${selectedId === project.id ? 'active' : ''}`}
-                >
-                  <button
-                    className="project-main"
-                    onClick={() => selectProject(project)}
-                    title={project.path ?? '未分類'}
-                  >
-                    <Folder size={17} />
-                    <span>
-                      <strong>{project.name}</strong>
-                      <small>
-                        {project.workspaceOnly
-                          ? `僅工作區 · ${project.path || '目錄待確認'}`
-                          : project.path || '工作目錄未知'}
-                      </small>
-                    </span>
-                    <span className="project-count">{project.sessionCount}</span>
-                    {!project.exists && <AlertTriangle className="warning-icon" size={13} />}
-                  </button>
-                  {project.curated && <button
-                    className={`project-pin ${project.pinned ? 'pinned' : ''}`}
-                    aria-label={
-                      project.pinned ? `取消置頂 ${project.name}` : `置頂 ${project.name}`
-                    }
-                    disabled={projectBusy}
-                    onClick={() => void setPinned(project)}
-                  >
-                    <Pin size={12} />
-                  </button>}
-                </div>
-              ))}
-              {!sortedProjects.length && (
-                <p className="sidebar-empty">
-                  {projectSearch ? `沒有符合的${navigationName}` : navigation === 'projects'
-                    ? '尚未加入專案。可從所有目錄挑選，或加入／建立專案。'
-                    : '尚未找到包含工作階段的目錄。請確認資料來源並更新索引。'}
-                </p>
-              )}
-            </nav>
+            <SidebarProjectList projects={sortedProjects} selectedId={selectedId} label={navigationName}
+              reorderable={navigation === 'projects'} onSelect={selectProject}
+              onReorder={(id, target, after) => updateSidebar({ projectOrder: reorderProject(reconcileProjectOrder(sidebarRef.current.projectOrder, projects), id, target, after) })}
+              empty={projectSearch ? `沒有符合的${navigationName}` : navigation === 'projects'
+                ? '尚未加入專案。可從所有目錄挑選，或加入／建立專案。'
+                : '尚未找到包含工作階段的目錄。請確認資料來源並更新索引。'} />
+            </div>
             <button
               className="add-project"
               disabled={!boot}
@@ -1136,8 +1121,10 @@ export default function App() {
             </button>
             {workspace.tabs.length > 0 && (
               <section className="open-workspaces" aria-label="開啟中的工作區">
-                <div className="sidebar-section"><span>開啟中的工作區</span><span>{workspace.tabs.length}</span></div>
-                <nav>
+                <div className="sidebar-section"><button className="sidebar-section-toggle" aria-expanded={!sidebar.workspacesCollapsed} aria-controls="sidebar-open-workspaces"
+                  onClick={() => updateSidebar({ workspacesCollapsed: !sidebar.workspacesCollapsed })}>
+                  {sidebar.workspacesCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>開啟中的工作區</span></button><span>{workspace.tabs.length}</span></div>
+                <nav id="sidebar-open-workspaces" hidden={sidebar.workspacesCollapsed}>
                   {workspace.tabs.map((tab) => {
                     const project = visibleProjects.find((p) => p.id === tab.projectId);
                     return <button key={tab.id} className={view === 'workspace' && activeTabId === tab.id ? 'active' : ''}
@@ -1150,6 +1137,7 @@ export default function App() {
                 </nav>
               </section>
             )}
+            {boot && <AgentStatusOverview workspace={workspace} projects={visibleProjects} onFocus={focus} />}
             <div className="sidebar-bottom">
               <span className="eyebrow">你的工作，留在本機</span>
               <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
@@ -1183,7 +1171,6 @@ export default function App() {
               </nav>
               <h1>
                 {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
-                {current?.pinned && <Pin size={16} />}
               </h1>
               <div className="project-path">
                 {current ? (
@@ -1211,6 +1198,7 @@ export default function App() {
               </div>
             </div>
             <div className="header-buttons">
+              <button className="secondary" disabled={!boot} onClick={() => setTrashOpen(true)}>資源回收筒</button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
@@ -1343,6 +1331,7 @@ export default function App() {
                     projectId={selectedId ?? undefined}
                     projects={projects}
                     refreshToken={refreshToken}
+                    onHistoryChanged={refresh}
                     onResume={resume}
                     onCurate={curateSession}
                     curating={projectBusy}
@@ -1482,6 +1471,7 @@ export default function App() {
           </div>
         </Dialog>
       )}
+      {trashOpen && <SessionTrash onClose={() => setTrashOpen(false)} onChanged={refresh} refreshToken={refreshToken} />}
       {settingsOpen && settings && boot && (
         <SettingsPanel
           settings={settings}
@@ -1710,66 +1700,21 @@ export default function App() {
           {paletteTheme && settings ? <CommandThemePicker key={paletteTheme} target={paletteTheme}
             value={appearanceOf(settings)} saving={themeSaving} error={themeSaveError}
             onPreview={setCommandThemePreview} onCommit={patch => void commitCommandTheme(patch)}
-            onBack={closePaletteTheme} /> : <>
-          <div className="palette-input search-field">
-            <Search size={18} />
-            <input
-              autoFocus
-              aria-label="搜尋命令或專案"
-              placeholder="輸入命令或專案名稱…"
-              value={paletteQuery}
-              onChange={(event) => setPaletteQuery(event.target.value)}
-              onKeyDown={event => {
-                if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
-                const first = event.currentTarget.closest('[role="dialog"]')?.querySelector<HTMLButtonElement>('.palette-results button:not(:disabled)');
-                if (event.key === 'Enter') { event.preventDefault(); first?.click(); }
-                if (event.key === 'ArrowDown') { event.preventDefault(); first?.focus(); }
-              }}
-            />
-          </div>
-          <div className="palette-results">
-            {commands
-              .filter(
-                (c) =>
-                  c.id !== 'command-palette' &&
-                  c.label.toLowerCase().includes(paletteQuery.toLowerCase()),
-              )
-              .map((command) => (
-                <button
-                  disabled={command.disabled}
-                  key={command.id}
-                  onClick={() => {
-                    if (!command.id.startsWith('theme-')) closePalette();
-                    command.run();
-                  }}
-                >
-                  <span>{command.label}</span>
-                  <kbd>{command.shortcut}</kbd>
-                </button>
-              ))}
-            {projects.filter((p) => p.curated)
-              .filter((p) =>
-                `${p.name} ${p.path}`.toLowerCase().includes(paletteQuery.toLowerCase()),
-              )
-              .slice(0, 20)
-              .map((project) => (
-                <button
-                  key={project.id}
-                  onClick={() => {
-                    setSelectedId(project.id);
-                    setView('history');
-                    setPalette(false);
-                  }}
-                >
-                  <span>
-                    <Folder size={14} />
-                    {project.name}
-                  </span>
-                  <small>{project.path || '未分類'}</small>
-                </button>
-              ))}
-          </div>
-          </>}
+            onBack={closePaletteTheme} /> : <CommandPalette query={paletteQuery} onQueryChange={setPaletteQuery}
+            options={[
+              ...commands.filter(command => command.id !== 'command-palette').map(command => ({
+                id: `command-${command.id}`, label: command.label, search: command.label,
+                detail: <kbd>{command.shortcut}</kbd>, disabled: command.disabled,
+                run: () => { if (!command.id.startsWith('theme-')) closePalette(); command.run(); },
+              })),
+              ...projects.filter(project => project.curated)
+                .filter(project => `${project.name} ${project.path}`.toLowerCase().includes(paletteQuery.toLowerCase()))
+                .slice(0, 20).map(project => ({
+                  id: `project-${project.id}`, label: <><Folder size={14} />{project.name}</>,
+                  search: `${project.name} ${project.path}`, detail: <small>{project.path || '未分類'}</small>,
+                  run: () => { setSelectedId(project.id); setView('history'); closePalette(); },
+                })),
+            ]} />}
         </Dialog>
       )}
     </div>

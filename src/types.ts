@@ -54,6 +54,7 @@ export interface Project {
 }
 export interface Session {
   id: string;
+  trashIdentity?: string | null;
   sourceId: string;
   kind: AgentKind;
   externalId: string;
@@ -219,4 +220,16 @@ export interface Workspace {
   panes: Record<string, Pane>;
   activeTabByProject: Record<string, string>;
   activeTemporaryTabId?: string;
+}
+
+export interface TrashedSession {
+  id: string;
+  session: Session;
+  sourceRoot: string;
+  deletedAt: string;
+  unavailableReason: string | null;
+}
+export interface TrashPage {
+  items: TrashedSession[];
+  total: number;
 }

@@ -18,8 +18,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const SCHEMA_VERSION: i64 = 3;
-const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial,(SELECT root FROM sources WHERE id=s.source_id),(SELECT identity FROM files WHERE session_id=s.id LIMIT 1)";
+const SCHEMA_VERSION: i64 = 4;
+const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial,(SELECT root FROM sources WHERE id=s.source_id),(SELECT identity FROM files WHERE session_id=s.id LIMIT 1),(SELECT storage_root FROM sources WHERE id=s.source_id)";
 const MAX_ERRORS: usize = 100;
 const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_PREVIEW_PAGE_BYTES: usize = 1024 * 1024;
@@ -306,6 +306,37 @@ impl Catalog {
             }
             tx.commit().map_err(error)?;
         }
+        if version < 4 {
+            // User choices survive catalog rebuilds and source cascade deletion.
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(error)?;
+            tx.execute_batch(
+                "ALTER TABLE sources ADD COLUMN storage_root TEXT NOT NULL DEFAULT '';
+                CREATE TABLE session_trash(
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL, snapshot TEXT NOT NULL,
+                source_root TEXT NOT NULL, deleted_at TEXT NOT NULL,
+                UNIQUE(session_id,source_root));
+                CREATE INDEX session_trash_lookup ON session_trash(session_id,source_root);
+                PRAGMA user_version=4;",
+            )
+            .map_err(error)?;
+            let roots = tx
+                .prepare("SELECT id,root FROM sources")
+                .map_err(error)?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .map_err(error)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(error)?;
+            for (id, root) in roots {
+                tx.execute(
+                    "UPDATE sources SET storage_root=?1 WHERE id=?2",
+                    params![directory_key(&root), id],
+                )
+                .map_err(error)?;
+            }
+            tx.commit().map_err(error)?;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -502,10 +533,143 @@ impl Catalog {
         .ok_or_else(|| "Session not found. Refresh the history index.".into())
     }
 
+    /// This changes only catalog visibility. It never touches a runtime or transcript file.
+    pub fn trash_session(&self, id: &str, expected_identity: &str) -> Result<String, String> {
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(error)?;
+        let session = tx
+            .query_row(
+                &format!("SELECT {SESSION_COLUMNS} FROM sessions s WHERE s.id=?1"),
+                [id],
+                session_row,
+            )
+            .optional()
+            .map_err(error)?
+            .ok_or("Session not found. Refresh the history index.")?;
+        if session.trash_identity.as_deref() != Some(expected_identity) {
+            return Err("這筆 Session 的來源已變更。請重新整理歷史並再次確認。".into());
+        }
+        let root: String = tx
+            .query_row(
+                "SELECT storage_root FROM sources WHERE id=?1",
+                [&session.source_id],
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        tx.execute("INSERT INTO session_trash(id,session_id,snapshot,source_root,deleted_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(session_id,source_root) DO NOTHING",
+            params![uuid::Uuid::new_v4().to_string(), id, serde_json::to_string(&session).map_err(error)?, root, Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)]).map_err(error)?;
+        let trash_id = tx
+            .query_row(
+                "SELECT id FROM session_trash WHERE session_id=?1 AND source_root=?2",
+                params![id, root],
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        tx.commit().map_err(error)?;
+        Ok(trash_id)
+    }
+
+    fn restore_unavailable_reason(
+        &self,
+        session: &Session,
+        root: &str,
+    ) -> Result<Option<String>, String> {
+        let conn = self.connect()?;
+        let matched: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sessions s JOIN sources src ON src.id=s.source_id WHERE s.id=?1 AND s.source_id=?2 AND s.kind=?3 AND s.external_id=?4 AND src.storage_root=?5 AND src.enabled=1)",
+            params![session.id, session.source_id, session.kind.as_str(), session.external_id, root], |r| r.get(0)).map_err(error)?;
+        let current_source = self.history_source(&session.source_id).ok();
+        let same_root = current_source.as_ref().is_some_and(|source| {
+            fs::canonicalize(&source.root).is_ok_and(|path| path.to_string_lossy() == root)
+        });
+        // Metadata-only Antigravity entries have no transcript file by design.
+        // Restoring visibility does not grant resume capability or invent text.
+        let metadata_only: bool = session.kind == AgentKind::Antigravity
+            && conn.query_row("SELECT EXISTS(SELECT 1 FROM files WHERE session_id=?1 AND identity='antigravity-metadata-only')", [&session.id], |r| r.get(0)).map_err(error)?;
+        let storage_available = if metadata_only {
+            Path::new(root).join("conversation_summaries.db").is_file()
+        } else {
+            self.indexed_files_still_match(&session.id).unwrap_or(false)
+        };
+        if !matched || !same_root || !storage_available {
+            return Ok(Some(
+                "原始來源目前無法確認。請重新連接原來源並更新索引後再還原。".into(),
+            ));
+        }
+        Ok(None)
+    }
+
+    pub fn trashed_sessions(&self, offset: usize, limit: usize) -> Result<TrashPage, String> {
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction().map_err(error)?;
+        let total: u64 = tx
+            .query_row("SELECT COUNT(*) FROM session_trash", [], |r| r.get(0))
+            .map_err(error)?;
+        let mut stmt = tx.prepare("SELECT id,snapshot,source_root,deleted_at FROM session_trash ORDER BY deleted_at DESC,id LIMIT ?1 OFFSET ?2").map_err(error)?;
+        let rows = stmt
+            .query_map(
+                params![
+                    limit.clamp(1, 200) as i64,
+                    offset.min(i64::MAX as usize) as i64
+                ],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .map_err(error)?;
+        let mut items = Vec::new();
+        for row in rows {
+            let (id, snapshot, source_root, deleted_at) = row.map_err(error)?;
+            let session: Session = serde_json::from_str(&snapshot).map_err(error)?;
+            let unavailable_reason = self.restore_unavailable_reason(&session, &source_root)?;
+            items.push(TrashedSession {
+                id,
+                session,
+                source_root,
+                deleted_at,
+                unavailable_reason,
+            });
+        }
+        Ok(TrashPage { items, total })
+    }
+
+    pub fn restore_session(&self, id: &str) -> Result<(), String> {
+        let mut conn = self.connect()?;
+        // Serialize with scanners/source edits so the checked provenance cannot
+        // be replaced between validation and removal of the tombstone.
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(error)?;
+        let row: Option<(String, String)> = tx
+            .query_row(
+                "SELECT snapshot,source_root FROM session_trash WHERE id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(error)?;
+        let Some((snapshot, root)) = row else {
+            return Ok(());
+        };
+        let session: Session = serde_json::from_str(&snapshot).map_err(error)?;
+        if let Some(reason) = self.restore_unavailable_reason(&session, &root)? {
+            return Err(reason);
+        }
+        tx.execute("DELETE FROM session_trash WHERE id=?1", [id])
+            .map_err(error)?;
+        tx.commit().map_err(error)
+    }
+
     pub fn query(&self, query: &SessionQuery) -> Result<SessionPage, String> {
         let conn = self.connect()?;
         let conn = conn.unchecked_transaction().map_err(error)?;
-        let mut clauses = vec!["1=1".to_owned()];
+        let mut clauses = vec!["NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id AND t.source_root=(SELECT storage_root FROM sources WHERE id=s.source_id))".to_owned()];
         let mut values: Vec<SqlValue> = Vec::new();
         if let Some(ref id) = query.project_id {
             clauses.push("s.project_id=?".into());
@@ -1149,21 +1313,40 @@ impl Catalog {
                 });
                 continue;
             }
-            let old: Option<(String, String)> = conn
+            // Publish new source provenance only with invalidation of old rows.
+            // Readers see either the previous identity or the new empty source.
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(error)?;
+            let old: Option<(String, String, String)> = tx
                 .query_row(
-                    "SELECT kind,root FROM sources WHERE id=?1",
+                    "SELECT kind,root,storage_root FROM sources WHERE id=?1",
                     [&source.id],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
                 )
                 .optional()
                 .map_err(error)?;
-            if old.is_some_and(|(kind, root)| kind != source.kind.as_str() || root != source.root)
-                || !source.enabled
+            // A temporarily unavailable symlink/mount must not replace its
+            // remembered canonical identity with the unresolved spelling.
+            let storage_root = fs::canonicalize(&source.root)
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| {
+                    old.as_ref()
+                        .filter(|(kind, root, _)| {
+                            kind == source.kind.as_str() && root == &source.root
+                        })
+                        .map(|(_, _, storage)| storage.clone())
+                        .unwrap_or_else(|| directory_key(&source.root))
+                });
+            if old.is_some_and(|(kind, root, storage)| {
+                kind != source.kind.as_str() || root != source.root || storage != storage_root
+            }) || !source.enabled
             {
-                conn.execute("DELETE FROM sources WHERE id=?1", [&source.id])
+                tx.execute("DELETE FROM sources WHERE id=?1", [&source.id])
                     .map_err(error)?;
             }
-            conn.execute("INSERT INTO sources(id,kind,root,enabled) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,root=excluded.root,enabled=excluded.enabled",params![source.id,source.kind.as_str(),source.root,source.enabled]).map_err(error)?;
+            tx.execute("INSERT INTO sources(id,kind,root,enabled,storage_root) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,root=excluded.root,enabled=excluded.enabled,storage_root=excluded.storage_root",params![source.id,source.kind.as_str(),source.root,source.enabled,storage_root]).map_err(error)?;
+            tx.commit().map_err(error)?;
             let (files, health, complete) = discover(source, cancel);
             status.total += files.len();
             status.sources.push(health);
@@ -1406,7 +1589,7 @@ fn load_project(conn: &Connection, id: &str) -> Result<Project, String> {
 
 fn load_projects(conn: &Connection, id: Option<&str>) -> Result<Vec<Project>, String> {
     let mut stmt = conn.prepare("SELECT p.id,p.name,p.path,p.launch_path,p.pinned,p.manual,COUNT(s.id),MAX(s.updated_at)
-        FROM projects p LEFT JOIN sessions s ON s.project_id=p.id
+        FROM projects p LEFT JOIN sessions s ON s.project_id=p.id AND NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id AND t.source_root=(SELECT storage_root FROM sources WHERE id=s.source_id))
         WHERE (?1 IS NULL OR p.id=?1)
         GROUP BY p.id ORDER BY p.pinned DESC,MAX(s.updated_at) DESC,p.name,p.id").map_err(error)?;
     let rows = stmt
@@ -1433,7 +1616,7 @@ fn load_projects(conn: &Connection, id: Option<&str>) -> Result<Vec<Project>, St
             .or(project.path.as_ref())
             .is_some_and(|path| Path::new(path).is_absolute() && Path::new(path).is_dir());
         let mut agents = conn
-            .prepare("SELECT DISTINCT kind FROM sessions WHERE project_id=?1 ORDER BY kind")
+            .prepare("SELECT DISTINCT kind FROM sessions s WHERE project_id=?1 AND NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id AND t.source_root=(SELECT storage_root FROM sources WHERE id=s.source_id)) ORDER BY kind")
             .map_err(error)?;
         let values = agents
             .query_map([&project.id], |r| r.get::<_, String>(0))
@@ -1490,6 +1673,10 @@ fn session_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         parent_id: row.get(10)?,
         partial: row.get(11)?,
         snippet: None,
+        trash_identity: Some(hash_id(&[
+            &row.get::<_, String>(0)?,
+            &row.get::<_, String>(14)?,
+        ])),
         resume_disabled_reason,
     })
 }

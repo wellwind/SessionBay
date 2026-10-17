@@ -1055,7 +1055,7 @@ fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
         .unwrap();
     let path = h.root.join("app/index.sqlite");
     let conn = rusqlite::Connection::open(&path).unwrap();
-    conn.execute_batch("UPDATE sessions SET title='Neutral title'; DROP TRIGGER messages_fts_insert; DROP TRIGGER messages_fts_delete; DROP TRIGGER messages_fts_update; DROP TABLE messages_fts; DROP TABLE project_directories; PRAGMA user_version=1;").unwrap();
+    conn.execute_batch("UPDATE sessions SET title='Neutral title'; DROP TRIGGER messages_fts_insert; DROP TRIGGER messages_fts_delete; DROP TRIGGER messages_fts_update; DROP TABLE messages_fts; DROP TABLE project_directories; DROP TABLE session_trash; ALTER TABLE sources DROP COLUMN storage_root; PRAGMA user_version=1;").unwrap();
     drop(conn);
     let migrated = Catalog::open(&path).unwrap();
     assert_eq!(
@@ -1073,7 +1073,7 @@ fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
     drop(conn);
     fts_integrity(&path);
 }
@@ -1555,6 +1555,356 @@ fn fallback_digest_work_does_not_cross_source_or_file_boundaries() {
 }
 
 #[test]
+fn recycle_bin_hides_search_counts_and_pagination_without_changing_originals() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let original = codex("trash-one", "recycle_unique_body");
+    let path = h.write(&source, "sessions/a.jsonl", &original);
+    let original_bytes = fs::read(&path).unwrap();
+    h.write(
+        &source,
+        "sessions/b.jsonl",
+        &codex("keep-two", "keep_unique_body"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery {
+            query: Some("recycle_unique_body".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .remove(0);
+    let trash_id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    assert_eq!(
+        h.catalog
+            .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+            .unwrap(),
+        trash_id
+    );
+    assert_eq!(h.total("recycle_unique_body"), 0);
+    assert_eq!(h.total(""), 1);
+    assert_eq!(h.catalog.projects().unwrap()[0].session_count, 1);
+    let page = h
+        .catalog
+        .query(&SessionQuery {
+            offset: Some(1),
+            limit: Some(1),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(page.total, 1);
+    assert!(page.items.is_empty());
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("recycle_unique_body"), 0);
+    let trash = h.catalog.trashed_sessions(0, 40).unwrap();
+    assert_eq!(trash.total, 1);
+    assert!(trash.items[0].unavailable_reason.is_none());
+    assert!(trash.items[0].session.snippet.is_none());
+    // Runtime lookup retains real source/session metadata, independent of UI hiding.
+    assert_eq!(
+        h.catalog.session(&session.id).unwrap().external_id,
+        session.external_id
+    );
+    h.catalog.restore_session(&trash_id).unwrap();
+    h.catalog.restore_session(&trash_id).unwrap();
+    assert_eq!(h.total("recycle_unique_body"), 1);
+    assert_eq!(h.catalog.projects().unwrap()[0].session_count, 2);
+    assert_eq!(fs::read(&path).unwrap(), original_bytes);
+}
+
+#[test]
+fn recycle_bin_survives_clear_restart_source_disable_and_rebuild() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("s", "retained tombstone"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    h.catalog.clear().unwrap();
+    let reopened = Catalog::open(&h.root.join("app/index.sqlite")).unwrap();
+    assert_eq!(reopened.trashed_sessions(0, 40).unwrap().total, 1);
+    assert!(reopened.trashed_sessions(0, 40).unwrap().items[0]
+        .unavailable_reason
+        .is_some());
+    assert!(reopened.restore_session(&id).is_err());
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total(""), 0);
+    let mut disabled = source.clone();
+    disabled.enabled = false;
+    h.sync(&[disabled]);
+    assert!(h.catalog.restore_session(&id).is_err());
+    assert_eq!(h.catalog.trashed_sessions(0, 40).unwrap().total, 1);
+    h.sync(std::slice::from_ref(&source));
+    h.catalog.restore_session(&id).unwrap();
+    assert_eq!(h.total(""), 1);
+}
+
+#[test]
+fn recycled_identity_does_not_hide_reused_source_id_at_another_root() {
+    let h = Harness::new();
+    let original = h.source("original", AgentKind::Codex);
+    let mut replacement = h.source("replacement", AgentKind::Codex);
+    h.write(&original, "sessions/a.jsonl", &codex("same-id", "original"));
+    h.write(
+        &replacement,
+        "sessions/a.jsonl",
+        &codex("same-id", "replacement"),
+    );
+    replacement.id = original.id.clone();
+    h.sync(std::slice::from_ref(&original));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let old_trash = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    h.sync(std::slice::from_ref(&replacement));
+    assert_eq!(h.total("replacement"), 1);
+    assert!(h.catalog.restore_session(&old_trash).is_err());
+    let replacement_session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let new_trash = h
+        .catalog
+        .trash_session(
+            &replacement_session.id,
+            replacement_session.trash_identity.as_deref().unwrap(),
+        )
+        .unwrap();
+    assert_ne!(new_trash, old_trash);
+    assert_eq!(h.catalog.trashed_sessions(0, 1).unwrap().items.len(), 1);
+    assert_eq!(h.catalog.trashed_sessions(1, 1).unwrap().total, 2);
+    h.catalog.restore_session(&new_trash).unwrap();
+    h.sync(std::slice::from_ref(&original));
+    assert_eq!(h.total(""), 0);
+    h.catalog.restore_session(&old_trash).unwrap();
+    assert_eq!(h.total("original"), 1);
+}
+
+#[test]
+fn recycle_bin_missing_original_is_unavailable_and_does_not_modify_it() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    let path = h.write(&source, "sessions/a.jsonl", &codex("s", "missing"));
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let moved = path.with_extension("backup");
+    fs::rename(&path, &moved).unwrap();
+    assert!(h.catalog.restore_session(&id).is_err());
+    assert_eq!(h.catalog.trashed_sessions(0, 40).unwrap().total, 1);
+    fs::rename(&moved, &path).unwrap();
+    h.catalog.restore_session(&id).unwrap();
+    assert_eq!(h.total(""), 1);
+}
+
+#[test]
+fn version_three_migration_keeps_sessions_and_adds_empty_recycle_bin() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(&source, "sessions/a.jsonl", &codex("s", "migration"));
+    h.sync(std::slice::from_ref(&source));
+    let path = h.root.join("app/index.sqlite");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch("DROP TABLE session_trash; ALTER TABLE sources DROP COLUMN storage_root; PRAGMA user_version=3;").unwrap();
+    drop(conn);
+    let migrated = Catalog::open(&path).unwrap();
+    assert_eq!(migrated.trashed_sessions(0, 40).unwrap().total, 0);
+    let session = migrated
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = migrated
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    assert_eq!(migrated.query(&SessionQuery::default()).unwrap().total, 0);
+    migrated.restore_session(&id).unwrap();
+    assert_eq!(migrated.query(&SessionQuery::default()).unwrap().total, 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn recycle_bin_canonical_source_survives_alias_and_missing_mount_scan() {
+    let h = Harness::new();
+    let actual = h.source("real", AgentKind::Codex);
+    h.write(&actual, "sessions/a.jsonl", &codex("s", "alias source"));
+    let link = h.root.join("alias");
+    std::os::unix::fs::symlink(&actual.root, &link).unwrap();
+    let mut source = actual.clone();
+    source.root = link.to_string_lossy().into_owned();
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    fs::remove_file(&link).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total(""), 0);
+    assert!(h.catalog.restore_session(&id).is_err());
+    std::os::unix::fs::symlink(&actual.root, &link).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total(""), 0);
+    // Changing source spelling to the same canonical root preserves the choice.
+    source.root = actual.root;
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total(""), 0);
+    h.catalog.restore_session(&id).unwrap();
+    assert_eq!(h.total(""), 1);
+}
+
+#[test]
+fn stale_undo_cannot_restore_a_later_trash_operation() {
+    let h = Harness::new();
+    let source = h.source("a", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("s", "same conversation"),
+    );
+    h.sync(&[source]);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let first = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    h.catalog.restore_session(&first).unwrap();
+    let second = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    assert_ne!(first, second);
+    h.catalog.restore_session(&first).unwrap();
+    assert_eq!(h.total(""), 0);
+    assert_eq!(
+        h.catalog.trashed_sessions(0, 40).unwrap().items[0].id,
+        second
+    );
+}
+
+#[test]
+fn review_stale_confirmation_must_not_hide_replacement_source() {
+    let h = Harness::new();
+    let original = h.source("original", AgentKind::Codex);
+    let mut replacement = h.source("replacement", AgentKind::Codex);
+    h.write(
+        &original,
+        "sessions/a.jsonl",
+        &codex("same-id", "original reviewed title"),
+    );
+    h.write(
+        &replacement,
+        "sessions/a.jsonl",
+        &codex("same-id", "replacement never confirmed"),
+    );
+    replacement.id = original.id.clone();
+    h.sync(std::slice::from_ref(&original));
+    // The UI keeps this Session in trashTarget while the confirmation is open.
+    let selected = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    // A background scan finishes after the dialog opened.
+    h.sync(std::slice::from_ref(&replacement));
+    assert!(h
+        .catalog
+        .trash_session(&selected.id, selected.trash_identity.as_deref().unwrap())
+        .is_err());
+    assert_eq!(
+        h.total("replacement never confirmed"),
+        1,
+        "confirming the old source must not hide the newly indexed source"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn review_cancelled_repoint_scan_must_not_resurrect_trashed_history() {
+    use std::os::unix::fs::symlink;
+    let h = Harness::new();
+    let original = h.source("original", AgentKind::Codex);
+    let replacement = h.source("replacement", AgentKind::Codex);
+    h.write(
+        &original,
+        "sessions/a.jsonl",
+        &codex("same-id", "hidden original"),
+    );
+    fs::create_dir_all(&replacement.root).unwrap();
+    let alias = h.root.join("alias");
+    symlink(&original.root, &alias).unwrap();
+    let source = HistorySource {
+        root: alias.to_string_lossy().into_owned(),
+        ..original
+    };
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    h.catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    fs::remove_file(&alias).unwrap();
+    symlink(&replacement.root, &alias).unwrap();
+    let cancel = AtomicBool::new(false);
+    let status = h
+        .catalog
+        .sync(std::slice::from_ref(&source), &cancel, |_| {
+            cancel.store(true, Ordering::Relaxed);
+        })
+        .unwrap();
+    assert!(status.cancelled);
+    assert_eq!(h.total("hidden original"), 0, "old tombstone must not be bypassed by updating the source root before reconciling its rows");
+}
+
+#[test]
 fn provider_pause_retains_cached_history_and_resumes_discovery_and_reconciliation() {
     let h = Harness::new();
     let codex_source = h.source("paused-codex", AgentKind::Codex);
@@ -1659,4 +2009,71 @@ fn paused_source_configuration_changes_do_not_delete_cache_until_reenabled() {
     assert!(cached_source.enabled);
     h.sync(&[source]);
     assert_eq!(h.total("cachedneedle"), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn paused_provider_preserves_trash_provenance_until_reenabled() {
+    use std::os::unix::fs::symlink;
+    let h = Harness::new();
+    let original = h.source("original", AgentKind::Codex);
+    let replacement = h.source("replacement", AgentKind::Codex);
+    h.write(
+        &original,
+        "sessions/a.jsonl",
+        &codex("same-id", "hidden original"),
+    );
+    h.write(
+        &replacement,
+        "sessions/a.jsonl",
+        &codex("same-id", "visible replacement"),
+    );
+    let alias = h.root.join("paused-alias");
+    symlink(&original.root, &alias).unwrap();
+    let source = HistorySource {
+        root: alias.to_string_lossy().into_owned(),
+        ..original.clone()
+    };
+    h.sync(std::slice::from_ref(&source));
+    let selected = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    h.catalog
+        .trash_session(&selected.id, selected.trash_identity.as_deref().unwrap())
+        .unwrap();
+    fs::remove_file(&alias).unwrap();
+    symlink(&replacement.root, &alias).unwrap();
+    h.catalog
+        .sync_with_paused_providers(
+            std::slice::from_ref(&source),
+            &std::collections::HashSet::from([AgentKind::Codex]),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    let stored: String = conn
+        .query_row(
+            "SELECT storage_root FROM sources WHERE id=?1",
+            [&source.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        stored,
+        fs::canonicalize(&original.root).unwrap().to_string_lossy()
+    );
+    assert_eq!(h.total("hidden original"), 0);
+    assert_eq!(h.total("visible replacement"), 0);
+    assert_eq!(h.catalog.trashed_sessions(0, 40).unwrap().total, 1);
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("visible replacement"), 1);
+    fs::remove_file(&alias).unwrap();
+    symlink(&original.root, &alias).unwrap();
+    h.sync(std::slice::from_ref(&source));
+    assert_eq!(h.total("hidden original"), 0);
+    assert_eq!(h.catalog.trashed_sessions(0, 40).unwrap().total, 1);
 }

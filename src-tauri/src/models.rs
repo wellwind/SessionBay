@@ -100,6 +100,8 @@ pub struct Project {
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub id: String,
+    #[serde(default)]
+    pub trash_identity: Option<String>,
     pub source_id: String,
     pub kind: AgentKind,
     pub external_id: String,
@@ -134,6 +136,23 @@ pub struct SessionQuery {
 #[serde(rename_all = "camelCase")]
 pub struct SessionPage {
     pub items: Vec<Session>,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashedSession {
+    pub id: String,
+    pub session: Session,
+    pub source_root: String,
+    pub deleted_at: String,
+    pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashPage {
+    pub items: Vec<TrashedSession>,
     pub total: u64,
 }
 

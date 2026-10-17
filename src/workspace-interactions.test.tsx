@@ -89,7 +89,7 @@ async function ready() {
 }
 function openThemePicker() {
   fireEvent.click(screen.getByRole('button', { name: /搜尋專案或執行命令/ }));
-  const search = screen.getByRole('textbox', { name: '搜尋命令或專案' });
+  const search = screen.getByRole('combobox', { name: '搜尋命令或專案' });
   fireEvent.change(search, { target: { value: '切換介面主題' } });
   fireEvent.keyDown(search, { key: 'Enter' });
   return screen.getByRole('combobox', { name: '搜尋主題' });
@@ -121,7 +121,7 @@ describe('real workspace input with theme and whole-page zoom', () => {
     fireEvent.compositionEnd(picker); fireEvent.keyDown(picker, { key: 'Escape' });
     expect(document.documentElement.dataset.themePalette).toBe('bay');
     expect(bridge.saveSettings).toHaveBeenCalledTimes(saved);
-    fireEvent.keyDown(screen.getByRole('textbox', { name: '搜尋命令或專案' }), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('combobox', { name: '搜尋命令或專案' }), { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(bridge.setWorkspaceZoom).toHaveBeenLastCalledWith(110);
     expect(bridge.write).toHaveBeenCalledTimes(2);

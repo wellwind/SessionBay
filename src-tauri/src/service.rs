@@ -123,13 +123,6 @@ impl Service {
         if let Some(w) = warning {
             warnings.push(w);
         }
-        if let Some(warning) = self
-            .broker
-            .as_ref()
-            .and_then(BrokerClient::compatibility_warning)
-        {
-            warnings.push(warning.into());
-        }
         Ok(Bootstrap {
             projects: self.catalog.projects()?,
             installations: config::detect_paths(&settings),
@@ -935,6 +928,23 @@ mod tests {
         assert!(s
             .plan_launch(&request(Some(d.path().to_string_lossy().into())))
             .is_ok());
+    }
+    #[test]
+    fn bootstrap_has_no_routine_notice_and_preserves_real_workspace_warnings() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = Service::open(directory.path().join("app")).unwrap();
+        let mut settings = service.settings().unwrap();
+        settings.sources.clear();
+        service.save_settings(settings).unwrap();
+        assert!(service.bootstrap().unwrap().warnings.is_empty());
+        std::fs::write(
+            service.config.directory.join("workspace.json"),
+            b"invalid-json",
+        )
+        .unwrap();
+        let bootstrap = service.bootstrap().unwrap();
+        assert_eq!(bootstrap.warnings.len(), 1);
+        assert!(bootstrap.warnings[0].contains("布局已還原預設值；原檔保留"));
     }
     #[test]
     fn temporary_home_fails_closed_without_a_real_absolute_directory() {
