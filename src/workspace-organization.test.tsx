@@ -103,7 +103,11 @@ function TabsHarness({ changed = vi.fn() }: { changed?: (id: string, targetId: s
     onSelect={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} onReorder={(id, target, after) => { changed(id, target, after); setWorkspace((w) => reorderWorkspaceTab(w, id, target, after)); }} /></div>;
 }
 const tabButton = (name: string) => screen.getByRole('button', { name: `${name} 1` });
-const transfer = () => ({ effectAllowed: '', dropEffect: '', setData: vi.fn() });
+function pointer(target: HTMLElement, type: string, x = 180, y = 10) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, { clientX: { value: x }, clientY: { value: y }, button: { value: 0 }, pointerId: { value: 1 }, isPrimary: { value: true } });
+  fireEvent(target, event);
+}
 
 describe('tab reordering controls', () => {
   it('supports keyboard moves, keeps focus and announces position without moving across a boundary', () => {
@@ -115,29 +119,53 @@ describe('tab reordering controls', () => {
     fireEvent.keyDown(button, { key: 'ArrowLeft', altKey: true });
     fireEvent.keyDown(button, { key: 'ArrowRight', altKey: true, isComposing: true });
     expect(changed).toHaveBeenCalledOnce();
-    expect(within(screen.getByTestId('tabs')).getAllByRole('button').filter((el) => el.draggable).map((el) => el.textContent)).toEqual(['b1', 'a1', 'c1']);
+    expect(within(screen.getByTestId('tabs')).getAllByRole('button').filter((el) => el.classList.contains('workspace-tab-select')).map((el) => el.textContent)).toEqual(['b1', 'a1', 'c1']);
   });
-  it('commits drag only on drop, ignores outside payloads, and cancels on Escape or dragend', () => {
+  it('does not select after dragging, but preserves the next click and action buttons', () => {
+    const selected = vi.fn(); const renamed = vi.fn(); const closed = vi.fn(); const reordered = vi.fn();
+    render(<WorkspaceTabs tabs={fixture().tabs.filter(tab => tab.projectId === 'project')} activeId="b"
+      onSelect={selected} onRename={renamed} onClose={closed} onReorder={reordered} />);
+    const source = tabButton('a');
+    source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+    vi.spyOn(tabButton('c').parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 200, top: 0, bottom: 30, width: 100 } as DOMRect);
+    pointer(source, 'pointerdown', 0); pointer(source, 'pointermove'); pointer(source, 'pointerup');
+    fireEvent.click(source, { detail: 1 });
+    expect(selected).not.toHaveBeenCalled(); expect(closed).not.toHaveBeenCalled(); expect(renamed).not.toHaveBeenCalled();
+    expect(reordered).toHaveBeenCalledExactlyOnceWith('a', 'c', true);
+    pointer(source, 'pointerdown', 0); pointer(source, 'pointerup', 0); fireEvent.click(source, { detail: 1 });
+    expect(selected).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'a' }));
+    fireEvent.click(screen.getByRole('button', { name: '重新命名分頁 c' }));
+    expect(renamed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'c' }));
+    fireEvent.click(screen.getByRole('button', { name: '關閉分頁 c' }));
+    expect(closed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'c' }));
+    expect(reordered).toHaveBeenCalledOnce();
+  });
+  it('commits pointer drag only on release and cancels Escape, lost capture, or outside drops', () => {
     const changed = vi.fn(); render(<TabsHarness changed={changed} />);
-    const dataTransfer = transfer();
+    const source = tabButton('a');
+    source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
     const target = tabButton('c').parentElement!;
-    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ left: 100, width: 100 } as DOMRect);
-    fireEvent.drop(target, { dataTransfer, clientX: 180 });
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 200, top: 0, bottom: 30, width: 100 } as DOMRect);
+    pointer(source, 'pointerup');
     expect(changed).not.toHaveBeenCalled();
-    fireEvent.dragStart(tabButton('a'), { dataTransfer });
-    fireEvent.dragOver(target, { dataTransfer, clientX: 180 });
+    for (const interrupt of ['escape', 'pointercancel', 'lostpointercapture', 'blur', 'outside']) {
+      pointer(source, 'pointerdown', 0);
+      pointer(source, 'pointermove');
+      expect(changed).not.toHaveBeenCalled();
+      if (interrupt === 'escape') fireEvent.keyDown(window, { key: 'Escape' });
+      else if (interrupt === 'blur') fireEvent.blur(window);
+      else if (interrupt !== 'outside') pointer(source, interrupt);
+      pointer(source, 'pointerup', interrupt === 'outside' ? 900 : 180);
+      expect(changed).not.toHaveBeenCalled();
+    }
+    pointer(source, 'pointerdown', 0);
+    pointer(source, 'pointermove', 3);
+    pointer(source, 'pointerup', 3);
     expect(changed).not.toHaveBeenCalled();
-    fireEvent.keyDown(window, { key: 'Escape' });
-    fireEvent.drop(target, { dataTransfer, clientX: 180 });
-    expect(changed).not.toHaveBeenCalled();
-    fireEvent.dragStart(tabButton('a'), { dataTransfer });
-    fireEvent.dragEnd(tabButton('a'), { dataTransfer });
-    fireEvent.drop(target, { dataTransfer, clientX: 180 });
-    expect(changed).not.toHaveBeenCalled();
-    fireEvent.dragStart(tabButton('a'), { dataTransfer });
-    const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
-    Object.defineProperties(dropEvent, { clientX: { value: 180 }, dataTransfer: { value: dataTransfer } });
-    fireEvent(target, dropEvent);
+    pointer(source, 'pointerdown', 0);
+    pointer(source, 'pointermove');
+    expect(target).toHaveClass('drop-after');
+    pointer(source, 'pointerup');
     expect(changed).toHaveBeenCalledExactlyOnceWith('a', 'c', true);
     expect(screen.getByRole('status')).toHaveTextContent('第 3 個');
   });
@@ -165,4 +193,20 @@ it('regression: Escape while composing a display name should not close rename', 
   fireEvent.compositionStart(input);
   fireEvent.keyDown(input, { key: 'Escape', isComposing: true, keyCode: 229 });
   expect(close).not.toHaveBeenCalled();
+});
+
+it('regression: rejects offscreen tab geometry outside the visible scrolled strip', () => {
+  const changed = vi.fn(); render(<TabsHarness changed={changed} />);
+  const strip = screen.getByTestId('tabs');
+  strip.classList.add('workspace-tabs');
+  vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 300, top: 0, bottom: 30, width: 200 } as DOMRect);
+  const source = tabButton('a');
+  source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
+  vi.spyOn(source.parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 150, right: 250, top: 0, bottom: 30, width: 100 } as DOMRect);
+  // A scrolled-off tab still has layout geometry extending into the sidebar.
+  vi.spyOn(tabButton('c').parentElement!, 'getBoundingClientRect').mockReturnValue({ left: 0, right: 100, top: 0, bottom: 30, width: 100 } as DOMRect);
+  for (const [x, y] of [[50, 10], [180, -10], [180, 40]]) {
+    pointer(source, 'pointerdown', 180); pointer(source, 'pointermove', x, y); pointer(source, 'pointerup', x, y);
+    expect(changed).not.toHaveBeenCalled();
+  }
 });
