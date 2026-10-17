@@ -92,12 +92,21 @@ BIN=src-tauri/target/release/examples/search_benchmark
 
 B1 的 load 記錄從查詢開始後才採樣，觀測 1-minute load 約 2.34–8.26；後三輪保留逐次系統快照。CPU load 不是查詢 CPU usage，也不能證明沒有背景干擾。任何加速比例都只描述這些已保存樣本。
 
-## 驗證狀態與剩餘限制
+## 原始 benchmark 分支的驗證狀態與剩餘限制
 
 - `cargo fmt --check`、`git diff --check` 通過。
 - `cargo clippy --locked --offline --no-default-features --features search-profile --all-targets -- -D warnings` 通過。
 - 核心／integration 測試共 **299 passed**。catalog 44 項全部通過，包含本次 dense differential 與 probe 邊界測試；Antigravity、OpenCode、Grok、來源設定、重寫、snapshot、provenance、PTY 等可執行測試通過。
 - **完整 suite 沒有通過**：Unix socket／broker 在此 sandbox 回報 `Operation not permitted`。第一次 lib run 的 owner-only listener 測試被阻擋；後續明確排除此一測試以跑其餘 target。persistence target 另有 6 項因相同 broker 連線權限失敗，temporary_terminal 另 1 項失敗，合計 8 項仍需在允許本機 socket 的環境重跑。2 個 subprocess-only helper 在一般 run 顯示 ignored，沒有當作 passed；parent 測試會明確呼叫它們。
-- 完整桌面 build、原生 WebView、macOS／Windows、真正冷磁碟與私人來源沒有驗證。核心查詢使用的持久 schema 仍為 3；與其他功能分支整合後須重新驗證 Trash 排除與 paused provider 保留的既有語意。
+- 完整桌面 build、原生 WebView、macOS／Windows、真正冷磁碟與私人來源沒有驗證。原始 benchmark 基線使用持久 schema 3；以下另記錄 schema 4 整合驗證，歷史量測結果不代表已重新量測整合版。
 
 測試與 build 不與 A1／B2／A2 量測並行；環境限制不會被隱藏成綠色測試。此 PR 不修改 broker、權限設定、來源 parser 或 provenance 規則。
+
+
+## 2026-10-17：與 schema 4／Agent 設定整合
+
+整合 main `ed891a1f` 後，`query_observed` 的共同條件保留依來源 root 識別的 Trash 排除，先排除 tombstone 再計算總數與分頁；paused provider 仍在 provenance transaction／來源 canonicalization 之前略過，保留快取歷史。既有來源身分與還原驗證不變。
+
+- 56 項 catalog 測試（含 `search-profile`）通過。擴充獨立 literal oracle，將 title、dense body 與 sparse body 命中的 Session 放入 Trash，保留 FTS postings，比對 filters、總數、排序與分頁；既有 paused-provider／來源 root 替換回歸仍通過。
+- Rust formatting、含 `search-profile` 的核心 all-target Clippy，以及 Linux desktop default-feature all-target `cargo check`／Clippy 通過。這是編譯檢查，不是原生 GUI 執行驗收。
+- 保留上述原始 benchmark raw samples、hash 與環境資料；本次沒有重建大型合成資料或重新宣稱效能數字。完整未跳過的 Linux CI 仍是整合合併門檻；原生 WebView、macOS／Windows、真正冷磁碟與私人來源仍未驗證。

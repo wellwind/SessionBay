@@ -205,3 +205,17 @@ Agent、provider、模型與帳號分開保存。事件以可靠來源 ID、requ
 
 先驗證 PTY → Channel → xterm 的往返路徑，再加入兩個可見面板與背景索引。效能量測應涵蓋 WebView 子程序，並將 Agent 子程序另外列出；完整計畫見[開發路線圖](roadmap.md)。
 
+
+### Agent enablement
+
+`Settings.agentEnabled` 是以 provider ID 為鍵的可選 boolean map，缺省鍵視為 true，與 `sources[].enabled` 分離。Service 啟動計畫檢查 provider 開關，既有 source-qualified Runtime 重用與附接先於新啟動守衛。Service 索引快照將停用 provider 集合傳入 Catalog；同步保留全體已設定來源 ID，但跳過停用 provider 的 discovery／reconciliation，不能以移除來源或來源停用實作暫停，避免連帶刪除索引。原始來源始終唯讀。
+
+## Session 資源回收筒（schema v4）
+
+`session_trash` 是使用者選擇，不是可丟棄的搜尋快取，不參與 sources／sessions 的外鍵 cascade。每筆包含獨立 trash ID、既有 session ID、來源 canonical root、刪除時間與 Session metadata 快照（不複製對話正文）。`sources.storage_root` 在 migration 與掃描時保存 canonical root；一般查詢以 session ID 與 storage root 一起排除 tombstone，避免重用來源 ID、指向別處時隱藏不同對話。provider 與 external ID 已包含於既有 session identity。
+
+Clear／Rebuild 僅重建索引，保留回收筒。還原前確認已索引的 provider、來源、external ID、canonical root 與目前檔案／資料庫可用性；來源消失時保留 metadata 並提示無法還原，不重啟或啟用 Agent。metadata-only Antigravity 仍可還原原本的 metadata，維持既有不可 resume 狀態。回收筒與一般歷史皆使用有界分頁；runtime metadata 查詢保持不變，刪除歷史不終止執行中的程序。
+
+升級至 v4 後，舊版本的 schema 防護會拒絕讀取，不可降版覆寫資料庫。回收筒不保存原始歷史副本；若原始來源已由其他程式刪除，Session Bay 無法復原其內容。直接移除整個應用資料庫也會遺失回收筒與其他本機設定資料，並非 Clear Index 操作。
+
+刪除確認使用讀取該筆 Session 時產生的 `trashIdentity`（session ID 與 canonical source root 的 opaque token），不能只傳可被重用的 session ID。後端在同一寫入交易內核對 token，若確認期間來源已替換則拒絕操作並要求重新整理。來源的 canonical root 即使 raw symlink 路徑不變仍視為來源替換；新 provenance 與舊衍生索引的失效在同一交易發布，避免取消掃描或讀取併發時把舊資料配給新 root。暫時離線仍沿用已知 canonical root，不清除 tombstone。

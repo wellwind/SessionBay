@@ -165,14 +165,16 @@ impl BrokerClient {
             _ => Err("Incompatible runtime broker response".into()),
         }
     }
+    #[cfg(test)]
+    pub(crate) fn existing_for_test(parent: &Path) -> Result<Self, String> {
+        let directory = transport::private_directory(parent).map_err(|error| error.to_string())?;
+        Self::existing(&directory)
+    }
     fn generation(&self) -> String {
         self.inner.generation.clone()
     }
     fn request(&self, request: Request) -> Result<Response, String> {
         exchange(&self.inner.directory, &request)
-    }
-    pub fn compatibility_warning(&self) -> Option<&'static str> {
-        (!self.inner.home_directory_supported).then_some("背景 Terminal 服務使用相容模式：臨時 Terminal 仍會從家目錄啟動，家目錄政策由已儲存的工作區保留。現有程序不會重啟；若工作區尚未儲存或遺失，舊服務只能提供原始啟動路徑。")
     }
     pub fn list(&self) -> Result<Vec<RuntimeRecord>, String> {
         match self.request(Request::List {

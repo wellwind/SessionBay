@@ -437,11 +437,47 @@ fn manual_and_indexed_resume_share_atomic_provider_identity_without_fake_catalog
     );
     let first = service.launch(&manual, Arc::new(|_| Ok(()))).unwrap();
     assert!(first.session_id.is_none());
+    settings.agent_enabled.insert("grok".into(), false);
+    service.save_settings(settings.clone()).unwrap();
     manual.pane_id = "second-manual-pane".into();
     assert_eq!(
         service.launch(&manual, Arc::new(|_| Ok(()))).unwrap().id,
         first.id
     );
+    for malformed in [
+        LaunchRequest {
+            pane_id: String::new(),
+            ..manual.clone()
+        },
+        LaunchRequest {
+            cols: 0,
+            ..manual.clone()
+        },
+        LaunchRequest {
+            project_id: Some("missing-project".into()),
+            ..manual.clone()
+        },
+        LaunchRequest {
+            cwd: Some("relative".into()),
+            ..manual.clone()
+        },
+        LaunchRequest {
+            session_id: catalog.session_id.clone(),
+            ..manual.clone()
+        },
+    ] {
+        assert!(service.launch(&malformed, Arc::new(|_| Ok(()))).is_err());
+    }
+    let other = LaunchRequest {
+        resume_id: Some("different-conversation".into()),
+        ..manual.clone()
+    };
+    assert!(service
+        .launch(&other, Arc::new(|_| Ok(())))
+        .unwrap_err()
+        .contains("is disabled"));
+    settings.agent_enabled.insert("grok".into(), true);
+    service.save_settings(settings.clone()).unwrap();
     assert_eq!(
         service.launch(&catalog, Arc::new(|_| Ok(()))).unwrap().id,
         first.id

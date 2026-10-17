@@ -54,6 +54,7 @@ export interface Project {
 }
 export interface Session {
   id: string;
+  trashIdentity?: string | null;
   sourceId: string;
   kind: AgentKind;
   externalId: string;
@@ -123,6 +124,8 @@ export interface Settings {
   fontSize: number;
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
+  /** Missing providers remain enabled; unknown keys survive settings round trips. */
+  agentEnabled?: Record<string, boolean>;
   defaultAgent: AgentKind;
   defaultProfileId: string;
   profiles: ShellProfile[];
@@ -217,4 +220,16 @@ export interface Workspace {
   panes: Record<string, Pane>;
   activeTabByProject: Record<string, string>;
   activeTemporaryTabId?: string;
+}
+
+export interface TrashedSession {
+  id: string;
+  session: Session;
+  sourceRoot: string;
+  deletedAt: string;
+  unavailableReason: string | null;
+}
+export interface TrashPage {
+  items: TrashedSession[];
+  total: number;
 }
