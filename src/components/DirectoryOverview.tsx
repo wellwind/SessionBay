@@ -19,9 +19,7 @@ export function DirectoryOverview({ page, projects, searching, busy, onSelect, o
   const curated = page === 'projects';
   return <section className={`directory-overview ${curated ? 'projects-overview' : 'all-directories-overview'}`} aria-label={curated ? '專案管理總覽' : '所有目錄總覽'}>
     <div className="directory-overview-heading">
-      <div><h2>{curated ? '我的專案' : '工作階段所在目錄'}</h2>
-        <p>{curated ? '只有你加入的目錄會出現在這裡。移出專案不會刪除任何檔案或對話。'
-          : '依原工作目錄分組，包含尚未加入專案、已失效或未分類的歷史。'}</p></div>
+      <h2>{curated ? '我的專案' : '工作階段所在目錄'}</h2>
       <span className="overview-total">{projects.length} {curated ? '個專案' : '個目錄'}</span>
     </div>
     {projects.length ? <ul className={curated ? "directory-cards" : "directory-rows"}>{projects.map((project) => <li key={project.id}>

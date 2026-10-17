@@ -292,4 +292,4 @@ Service 整合測試涵蓋：同專案 Codex＋Claude 合成歷史 → 中文搜
 
 ### Caps Lock 上游對齊候選
 
-舊候選 e750ad1／d116ae3 已在 macOS 真注音與真 PTY 驗收失敗。新候選升級 xterm 6.0 與相容 addons，移除私有 finalizer，採公開 composing-key hook；詳見 [Caps Lock IME 說明](capslock-ime.md)。合成來源與 bundle 回歸不代表原生通過；須以新 exact SHA 另行驗收，禁止沿用舊 PASS 或合併。
+舊候選 e750ad1／d116ae3 已在 macOS 真注音與真 PTY 驗收失敗。新候選升級 xterm 6.0 與相容 addons，移除私有 finalizer，採公開 composing-key hook；詳見 [Caps Lock IME 說明](capslock-ime.md)。合成來源與 bundle 回歸不代表原生通過。使用者後續明確要求 #49 不用 Mac 驗證直接合併，因此新版原生狀態保留 NOTRUN／使用者豁免；最新 exact-commit CI 仍須通過，不可沿用舊 PASS。

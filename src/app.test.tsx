@@ -1366,6 +1366,19 @@ describe('directory navigation interruptions and direct management', () => {
     expect(api.stop).not.toHaveBeenCalled();
   });
 
+  it('omits overview helper copy and its empty subtitle rows', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.bootstrap).mockResolvedValue(directoryOverviewBootstrap());
+    render(<App />);
+    await tick();
+    for (const page of ['專案', '所有目錄'] as const) {
+      changePage(page);
+      expect(document.querySelector('.project-path')).toBeNull();
+      expect(document.querySelector('.directory-overview-heading p')).toBeNull();
+      expect(screen.getByRole('heading', { name: page === '專案' ? '我的專案' : '工作階段所在目錄' })).toBeInTheDocument();
+    }
+  });
+
   it('opens a group directly from its overview card and returns to management without a mixed query', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     vi.mocked(api.bootstrap).mockResolvedValue(directoryOverviewBootstrap());
@@ -1993,6 +2006,30 @@ describe('App live theme integration', () => {
     render(<App />);
     await tick();
   };
+  it('omits idle helper and success rows while preserving accessible settings controls', async () => {
+    await start();
+    fireEvent.click(screen.getByRole('button', { name: '快速切換主題' }));
+    expect(document.querySelector('.theme-quick-help')).toBeNull();
+    expect(document.querySelector('.theme-quick-status')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '關閉對話框' }));
+    fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
+    const dialog = screen.getByRole('dialog', { name: '工作台設定' });
+    expect(dialog).not.toHaveAttribute('aria-describedby');
+    expect(dialog.querySelector('#settings-description')).toBeNull();
+    expect(dialog.querySelector('.settings-privacy')).toBeNull();
+    expect(dialog.querySelector('.settings-footer-status')).toBeNull();
+    for (const name of ['Shell Profiles', '外觀與預設值']) {
+      fireEvent.click(within(dialog).getByRole('button', { name }));
+      expect(dialog).not.toHaveTextContent('執行檔與參數分開傳入');
+      expect(dialog).not.toHaveTextContent('設定會以明文保存在本機');
+      expect(dialog).not.toHaveTextContent('選一個適合專注工作的環境');
+      expect(dialog).not.toHaveTextContent('立即預覽整個工作台');
+      expect(dialog).not.toHaveTextContent('終端的基準字級');
+      expect(dialog).not.toHaveTextContent('既有面板不會因變更');
+    }
+    expect(within(dialog).getByRole('button', { name: '儲存設定' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '取消' })).toBeInTheDocument();
+  });
   it('quick switching previews before persistence resolves and keeps the committed theme after closing', async () => {
     await start();
     let finish!: (value: Bootstrap['settings']) => void;
@@ -2101,7 +2138,7 @@ describe('Whole-workspace zoom integration', () => {
     expect(zoom('=')).toBe(true);
     fireEvent.compositionEnd(window.document);
     expect(zoom('c')).toBe(true);
-    expect(zoom('Enter', { shiftKey: true })).toBe(true);
+    expect(zoom('Enter', { shiftKey: true, ctrlKey: false })).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
     expect(zoom('=')).toBe(true);
     expect(api.saveSettings).not.toHaveBeenCalled();
@@ -2738,16 +2775,16 @@ it.each(['running', 'exited'] as const)('closes only the newly titled resumed ta
   const resumed = Object.values(workspaceSnapshot().panes).find((pane) => pane.sessionId === 'synthetic-session')!;
   act(() => native.patch?.(resumed.id, { runtimeId: 'resumed-runtime', state, exitCode: state === 'exited' ? 0 : null }));
   await tick();
-  expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell', 'Resume preview title']);
-  // Agent success remains inspectable even though successful Shells auto-close.
-  expect(api.forget).not.toHaveBeenCalled();
-  vi.mocked(api.runtimes).mockResolvedValue([
-    brokerRecord(),
-    brokerRecord({ id: 'resumed-runtime', paneId: resumed.id, kind: 'codex', state, exitCode: state === 'exited' ? 0 : null }),
-  ]);
-  expect(fireEvent.keyDown(window, { key: 'w', code: 'KeyW', metaKey: true })).toBe(false);
-  if (state === 'running')
+  if (state === 'running') {
+    expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell', 'Resume preview title']);
+    expect(api.forget).not.toHaveBeenCalled();
+    vi.mocked(api.runtimes).mockResolvedValue([
+      brokerRecord(),
+      brokerRecord({ id: 'resumed-runtime', paneId: resumed.id, kind: 'codex', state, exitCode: null }),
+    ]);
+    expect(fireEvent.keyDown(window, { key: 'w', code: 'KeyW', metaKey: true })).toBe(false);
     fireEvent.click(within(screen.getByRole('dialog', { name: '關閉 1 個面板？' })).getByRole('button', { name: '結束並關閉' }));
+  }
   await tick();
   await tick(500);
   expect(workspaceSnapshot().tabs.map((tab) => tab.name)).toEqual(['Keep original Shell']);

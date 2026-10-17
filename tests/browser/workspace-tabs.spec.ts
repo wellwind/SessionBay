@@ -141,3 +141,41 @@ test('lifted source cannot hide the real Focus Exit control from drop validation
   await exit.focus(); await page.keyboard.press('Enter');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
 });
+
+for (const width of [800, 1200]) test(`tab strip edge spacing and overflow at ${width}`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 850 });
+  await page.goto('/tests/browser/workspace-tabs.html');
+  await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab b', exact: true }).click();
+  const strip = page.locator('.workspace-tabs');
+  for (const focused of [false, true]) {
+    if (focused) await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+    await strip.evaluate(element => { element.scrollLeft = 0; });
+    const edges = await strip.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      const first = element.firstElementChild!.getBoundingClientRect();
+      return { left: first.left - rect.left, padding: getComputedStyle(element).paddingInline };
+    });
+    expect(edges).toEqual({ left: 0, padding: '0px' });
+    const toggle = page.getByRole('button', { name: focused ? '退出專注模式' : '進入專注模式', exact: true });
+    await page.keyboard.press('Tab');
+    await toggle.focus();
+    expect(await toggle.evaluate(element => {
+      const css = getComputedStyle(element);
+      return css.outlineStyle !== 'none' && Number.parseFloat(css.outlineOffset) <= -Number.parseFloat(css.outlineWidth);
+    })).toBe(true);
+    expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: info.outputPath(`tab-edges-${focused}.png`), fullPage: true });
+    await strip.evaluate(element => { (element as HTMLElement).style.maxWidth = '320px'; });
+    expect(await strip.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+    for (const end of [false, true]) {
+      await strip.evaluate((element, end) => { element.scrollLeft = end ? element.scrollWidth : 0; }, end);
+      const box = (await strip.boundingBox())!;
+      const button = (await toggle.boundingBox())!;
+      expect(Math.abs(button.x + button.width - box.x - box.width)).toBeLessThanOrEqual(1);
+      await expect(toggle).toBeInViewport();
+    }
+    await strip.evaluate(element => { (element as HTMLElement).style.maxWidth = ''; });
+  }
+  await page.getByRole('button', { name: '退出專注模式', exact: true }).press('Enter');
+  await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
+});

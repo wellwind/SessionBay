@@ -1,6 +1,6 @@
 # Caps Lock 中文組字候選修正
 
-狀態：**舊候選原生驗收失敗；本版改採上游穩定版與公開鍵盤 hook，尚待 macOS 原生驗收。不可標記已修好或合併。**
+狀態：**舊候選原生驗收失敗；本版改採上游穩定版與公開鍵盤 hook。新版 macOS 原生驗收為 NOTRUN，使用者於 2026-10-17 明確要求「#49 不用 mac 驗證了，直接合併」，接受不做此驗收。合併仍須通過最新 exact-commit CI；不得將豁免標為原生 PASS 或宣稱實機已修好。**
 
 ## 已取得的原生證據
 
@@ -30,7 +30,7 @@ trusted 事件順序為 CapsLock keydown（isComposing=true）、Unidentified ke
 
 typecheck、ESLint、46 檔 1015 項 Vitest 與 production build 通過；其中 IME／keyboard focused 58 項。13 項 bundle 測試（含 Fit／Search 相容）與 4 項 layout 在 [CI 39045111951](https://github.com/wellwind/SessionBay/actions/runs/39045111951) 通過。該 run 後續因舊 5.5 repaint 測試預期 blank>0 而失敗：6.0 的同步分幀實際 blank=0。已更新為 6.0 驗證並加入未同步負對照；整套最終 CI 仍待確認。此數字不代表原生輸入法通過；本輪未改 Rust，未重跑 Rust／三平台 desktop matrix。
 
-## Mac 驗收
+## 可選 Mac 驗收（使用者已豁免）
 
 只在隔離的空白測試 terminal 使用非私密樣本文字，固定候選 exact SHA：
 

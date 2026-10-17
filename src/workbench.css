@@ -83,12 +83,19 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .workspace-tabs > button, .workspace-tab > button { min-height: 40px; font-size: 12px; }
 .directory-overview { padding: 24px 28px 32px; }
 .directory-overview-heading { align-items: center; margin-bottom: 20px; gap: 16px; }
-.directory-overview-heading h2 { font-size: 16px; margin-bottom: 6px; }
+.directory-overview-heading h2 { font-size: 16px; margin-bottom: 0; }
 .directory-overview-heading p { font-size: 12px; max-width: 70ch; line-height: 1.7; }
 .overview-total { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; padding: 6px 10px; border: 1px solid var(--border); border-radius: 16px; }
 .directory-cards { grid-template-columns: repeat(auto-fill, minmax(min(300px,100%),1fr)); gap: 16px; }
 .directory-cards > li { background: var(--panel); border-radius: 12px; box-shadow: 0 2px 4px #0000000a; }
 .directory-card-main { padding: 20px; }
+/* The outer card owns the silhouette; keep the main action flush with its footer. */
+.directory-cards > li > .directory-card-main {
+  border-radius: inherit;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.directory-cards > li > .directory-card-main:focus-visible { outline-offset: var(--interaction-focus-offset, -3px); }
 .directory-card-title { gap: 12px; }
 .directory-folder-mark { width: 40px; height: 40px; display: inline-flex; justify-content: center; align-items: center; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); flex-shrink: 0; }
 .directory-card-title h3 { font-size: 16px; font-weight: 600; }
@@ -283,4 +290,4 @@ input.checkbox::before { border-color: var(--on-accent); }
 .sidebar-project-content[hidden], .open-workspaces nav[hidden] { display: none; }
 .project-drag { flex-shrink: 0; width: 24px; cursor: grab; color: var(--muted); }
 .project-drag:active { cursor: grabbing; }
-.project-row .project-main { min-width: 0; padding-left: 5px; }
+.project-row .project-main { min-width: 0; padding-left: var(--space-3); }

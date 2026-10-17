@@ -37,3 +37,43 @@ for (const mode of ['dark', 'light']) {
     });
   }
 }
+
+for (const palette of ['bay', 'code-modern', 'code-2026']) for (const theme of ['dark', 'light']) {
+  test(`consistent dropdown ${palette} ${theme}`, async ({ page }, info) => {
+    await page.setViewportSize({ width: 800, height: 850 });
+    await page.goto(`/tests/browser/agent-settings.html?theme=${theme}&palette=${palette}`);
+    const picker = page.getByRole('combobox', { name: '搜尋 Agent' });
+    await picker.focus();
+    await picker.press('ArrowDown');
+    await picker.press('ArrowUp');
+    await expect(picker).toBeFocused();
+    const styles = await picker.evaluate(input => {
+      const field = input.parentElement!;
+      const popup = document.querySelector('.searchable-select-options')!;
+      const read = (element: Element) => {
+        const css = getComputedStyle(element);
+        return { background: css.backgroundColor, border: css.borderColor, outline: css.outlineStyle, shadow: css.boxShadow };
+      };
+      return { input: read(input), field: read(field), popup: read(popup) };
+    });
+    await info.attach('styles', { body: JSON.stringify(styles), contentType: 'application/json' });
+    await page.screenshot({ path: info.outputPath('dropdown-focus.png'), fullPage: true });
+    expect(styles.input.outline).toBe('none');
+    expect(styles.input.shadow).toBe('none');
+    expect(styles.field.outline).toBe('solid');
+    expect(styles.popup.background).toBe(styles.field.background);
+    expect(styles.popup.border).toBe(styles.field.border);
+    await picker.press('Enter');
+    await expect(picker).toHaveValue('Codex');
+    await picker.press('ArrowDown');
+    await picker.press('ArrowDown');
+    await picker.press('Enter');
+    await expect(picker).toHaveValue('Claude Code');
+    await picker.press('ArrowDown');
+    await picker.press('ArrowUp');
+    await picker.press('Escape');
+    await expect(picker).toHaveValue('Claude Code');
+    await expect(picker).toBeFocused();
+    await expect(picker).toHaveAttribute('aria-expanded', 'false');
+  });
+}

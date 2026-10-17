@@ -2,6 +2,13 @@
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
 
+## 2026-10-17 Agent 正常退出（含新建分割面板）
+
+- Session Bay 直接啟動的 Agent（新建、歷史接續、手動 resume）正常退出（結束碼 0）後，關閉該面板；tab 尚有其他面板時保留 tab。右側新增的 Agent 分割面板亦適用。
+- 普通 Terminal 內自行啟動的 Agent 退出後，回到原本 Shell；Shell 仍執行時不關閉，不另開、不重啟 Shell，也不重新 resume。
+- 清理依受管程序的確認退出狀態判斷，不再區分新建／接續或依後續關聯的 Session 推測；不新增 Broker 協定或持久化欄位，舊 Runtime 亦適用。
+- 非零／未知結束碼、失敗及中斷保留供檢查。非同步清理必須核對 runtime 與啟動世代，不能關掉後來重啟的工作。
+
 ## 2026-10-17 Terminal 內容重繪與有界輸出批次
 
 - 問題範圍為 Agent 執行時 Terminal 內容閃爍；既有 xterm 實例生命週期、React UI 與主題切換不因此重寫。
@@ -512,7 +519,7 @@ Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 termi
 
 - 專注模式為獨立、可逆的 UI 狀態，不切換作業系統全螢幕，不修改分割比例、面板最大化、側欄偏好或持久化 workspace。
 - 專案／臨時 Terminal 可從分頁列進入；保留歷史、工作分頁、新增、面板工具列與明確退出入口。專案名稱按鈕暫時展開原有完整控制列與側欄，提供所有原有操作；總覽自動顯示完整導覽。
-- 命令面板可進入／退出；快捷鍵預設空白，可於設定自行配置並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
+- 命令面板可進入／退出；快捷鍵預設 Mod+Shift+Enter，可於設定自行配置或留空停用並套用衝突檢查。不攔截裸 Escape；系統全螢幕操作獨立。
 - 相同 WorkspaceCanvas 與 TerminalPane 持續掛載，依 ResizeObserver 更新終端尺寸。索引進行／失敗、縮放失敗、目錄警告與面板錯誤保留可見。原生桌面驗收仍待完成。
 
 ## 2026-10-17 單面板滿版布局
@@ -594,10 +601,22 @@ ConPTY 測試將 libtest 的 terminfo 搜尋限制在合成 cwd，保留正常 T
 
 父列左側直接顯示資料夾與名稱；展開箭頭及拖曳把手依序放在右側，沒有分頁時仍在右側保留箭頭槽位。DOM 與鍵盤順序同為專案、展開箭頭、排序把手，資料夾前不保留操作空槽。資料夾對齊名稱第一行，活動摘要放在名稱與路徑之下並保留行高，避免活動文字或收合狀態讓名稱與圖示跳動。拖曳仍只以父列作為落點，不改排序或展開功能語意。
 
+
+## 2026-10-17 控制項留白與焦點一致性
+
+Agent 搜尋欄與下拉選單共用 surface／control-border／radius／spacing tokens，輸入本身透明且不另畫 focus ring，由外層保留單一清楚外框；維持 combobox／listbox 與鍵盤操作語意。專案列資料夾前固定保留 space-3（12px）內距，一般、hover、selected、focus 不改幾何位置。工作分頁列容器左右 padding 歸零，保留歷史與專注按鈕內距、44px 專注操作高度及內縮焦點框。
+
+## 2026-10-17 專注模式英文搜尋名稱
+
+命令面板的進入／退出專注模式名稱加入「（Zen Mode）」，設定快捷鍵名稱同步，讓英文 Zen Mode 可找到對應命令。維持 toggle-focus-mode ID 及使用者綁定；分頁工具列不改名。新增預設 Mod+Shift+Enter（macOS Cmd+Shift+Enter，Windows／Linux Ctrl+Shift+Enter），只填補缺少的設定鍵；明確空字串仍停用，既有自訂值不覆蓋，同組合衝突沿用停用與提示。避免 Ctrl+K chord 吞掉 shell 輸入，不加入前綴緩衝或補送；重複 keydown 不反覆切換，對話框、一般輸入欄與 IME 不搶鍵。此組合未與目前 app 預設／保留鍵衝突，不保證所有外部終端程式都沒有自訂用途。
 ## 2026-10-17：Windows installer 驗收使用隔離 hosted runner
 
 正式產品 ID 的卸載可能清除共享 Jump List，不在已有產品資料的 FB16 帳號測試。新增獨立手動 Windows x64 workflow，固定來源 SHA 建包並測試 currentUser install、installed binary smoke 與正常 uninstall；預設不執行。保留 app-data sentinel 與 NSIS preferences 的行為明列證據，不手動補刪殘留假造通過。GitHub runner 管理員／UAC 預設與 ARM64 限制見 [驗收說明](windows-installer-smoke.md)。尚未 dispatch 的流程不算實測通過。
 
 ## 2026-10-17：Caps Lock 改採上游穩定版與公開 hook
 
-可取消 private finalizer 候選 e750ad1 原生驗收失敗：真實事件沒有 insertText，不能延續該假設。依使用者要求參照 VS Code／xterm，升級精確 6.0.0 與相容 addons，移除 private helper 改寫。既有公開 custom handler 依尚未合併的上游 #6191 原則保留 browser-marked composing key；原生 input/composition 決定提交。不做時間窗或文字去重。原生 trace 缺少 legacy keyCode，因此 0／229 分支皆測，不能推定實機數值。詳見 [證據、差異與驗收限制](capslock-ime.md)。新候選仍待原生驗收，不可合併。
+可取消 private finalizer 候選 e750ad1 原生驗收失敗：真實事件沒有 insertText，不能延續該假設。依使用者要求參照 VS Code／xterm，升級精確 6.0.0 與相容 addons，移除 private helper 改寫。既有公開 custom handler 依尚未合併的上游 #6191 原則保留 browser-marked composing key；原生 input/composition 決定提交。不做時間窗或文字去重。原生 trace 缺少 legacy keyCode，因此 0／229 分支皆測，不能推定實機數值。詳見 [證據、差異與驗收限制](capslock-ime.md)。新版原生驗收為 NOTRUN；使用者後續明確要求 #49 不用 Mac 驗證直接合併，已豁免該門檻。仍須通過最新 exact-commit CI，不能把豁免記為原生 PASS。
+
+## 2026-10-17：移除重複的介面輔助文案
+
+專案／目錄總覽、設定、快速主題及歷史搜尋移除重複 subtitle、操作說明和本機儲存成功文案，連同不再需要的容器一起移除，不保留空白列。保留欄位標籤、載入／儲存中狀態、未儲存提醒、錯誤、必要確認與無障礙名稱；預覽、取消、儲存及原始歷史唯讀等實際行為不變。
