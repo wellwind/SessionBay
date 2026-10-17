@@ -1,3 +1,4 @@
+import { AgentStatusOverview } from './components/AgentStatusOverview';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -35,7 +36,7 @@ import { startup } from './startup';
 import './workspace-focus.css';
 import { resumedTabName } from './display-name';
 import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
-import { agentCapabilities, agentKinds, bypassFlags, installationState } from './agents';
+import { agentCapabilities, agentKinds, bypassFlags, installationState, isAgentEnabled, preferredEnabledAgent } from './agents';
 import { AgentIcon } from './components/AgentIcon';
 import { Select } from './components/controls';
 import type {
@@ -78,6 +79,7 @@ import { RenameDialog } from './components/RenameDialog';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
+import { SessionTrash } from './components/SessionTrash';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
@@ -120,6 +122,7 @@ export default function App() {
   const desktop = isDesktop();
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
+  const [trashOpen, setTrashOpen] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
@@ -672,6 +675,11 @@ export default function App() {
   };
   const openLauncher = (kind: Launcher['kind'], split?: Launcher['split']) => {
     if (!settings) return;
+    if (kind !== 'shell' && !isAgentEnabled(settings, kind)) {
+      const fallback = preferredEnabledAgent(settings);
+      if (!fallback) { notify('所有 Agent 都已停用，請先在設定 → 來源與工具啟用 Agent。'); return; }
+      kind = fallback;
+    }
     if (!current) {
       if (kind === 'shell') { openTemporaryTerminal(split); return; }
       setProjectDialog({ launchKind: kind });
@@ -1190,6 +1198,7 @@ export default function App() {
                 </nav>
               </section>
             )}
+            {boot && <AgentStatusOverview workspace={workspace} projects={visibleProjects} onFocus={focus} />}
             <div className="sidebar-bottom">
               <span className="eyebrow">你的工作，留在本機</span>
               <p>搜尋與預覽不會啟動 Agent，也不會上傳對話。</p>
@@ -1250,6 +1259,7 @@ export default function App() {
               </div>
             </div>
             <div className="header-buttons">
+              <button className="secondary" disabled={!boot} onClick={() => setTrashOpen(true)}>資源回收筒</button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
@@ -1393,6 +1403,7 @@ export default function App() {
                     projectId={selectedId ?? undefined}
                     projects={projects}
                     refreshToken={refreshToken}
+                    onHistoryChanged={refresh}
                     onResume={resume}
                     onCurate={curateSession}
                     curating={projectBusy}
@@ -1532,6 +1543,7 @@ export default function App() {
           </div>
         </Dialog>
       )}
+      {trashOpen && <SessionTrash onClose={() => setTrashOpen(false)} onChanged={refresh} refreshToken={refreshToken} />}
       {settingsOpen && settings && boot && (
         <SettingsPanel
           settings={settings}
@@ -1629,7 +1641,7 @@ export default function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false)) {
+              if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || (isAgentEnabled(settings, launcher.kind) && boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false))) {
                 addPane(
                   current,
                   launcher.kind,
@@ -1652,7 +1664,8 @@ export default function App() {
                 <TerminalSquare size={19} />Shell<span>命令列工作</span>
               </button>
               <button type="button" aria-pressed={launcher.kind !== 'shell'}
-                onClick={() => setLauncher({ ...launcher, kind: settings.defaultAgent, resumeId: undefined })}>
+                disabled={!preferredEnabledAgent(settings)}
+                onClick={() => setLauncher({ ...launcher, kind: preferredEnabledAgent(settings) ?? settings.defaultAgent, resumeId: undefined })}>
                 <CommandIcon size={19} />Agent<span>AI 協作</span>
               </button>
             </div>
@@ -1663,9 +1676,10 @@ export default function App() {
                 options={agentKinds.map((kind) => {
                   const installation = boot?.installations.find((item) => item.kind === kind);
                   return { value: kind, label: agentName(kind), icon: <AgentIcon kind={kind} />,
-                    disabled: installation?.available === false,
-                    description: installationState(installation).text };
+                    disabled: !isAgentEnabled(settings, kind) || installation?.available === false,
+                    description: !isAgentEnabled(settings, kind) ? '已停用，請至設定啟用' : installationState(installation).text };
                 })} />
+              {!isAgentEnabled(settings, launcher.kind) && <span className="inline-warning">此 Agent 已停用，請先在設定中啟用。</span>}
               {boot?.installations.find((item) => item.kind === launcher.kind)?.available === false &&
                 <span className="inline-warning">未偵測到這個 Agent，請先在設定中指定執行檔並重新偵測。</span>}
             </label>}
@@ -1703,7 +1717,7 @@ export default function App() {
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
                 取消
               </button>
-              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && boot?.installations.find((item) => item.kind === launcher.kind)?.available === false)}>
+              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && (!isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
                 開始工作
                 <ArrowRight size={14} />
               </button>

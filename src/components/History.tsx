@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowRight,
   ChevronLeft,
@@ -12,9 +12,11 @@ import {
   RefreshCw,
   Search,
   X,
+  Trash2,
 } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { agentNames, historyAgentKinds } from '../agents';
+import { Dialog } from './Dialog';
 import { AgentIcon } from './AgentIcon';
 import { DatePicker, Select } from './controls';
 import { localDayBound } from '../workspace';
@@ -63,6 +65,7 @@ export function HistoryView({
   onResume,
   onNew,
   onCurate,
+  onHistoryChanged,
   curating = false,
   disabled = false,
 }: {
@@ -72,17 +75,24 @@ export function HistoryView({
   onResume: (session: Session) => void;
   onNew: () => void;
   onCurate?: (session: Session) => void;
+  onHistoryChanged?: () => Promise<void> | void;
   curating?: boolean;
   disabled?: boolean;
 }) {
+  const [trashTarget, setTrashTarget] = useState<Session | null>(null);
+  const [trashBusy, setTrashBusy] = useState(false);
+  const trashLock = useRef(false);
+  const [trashError, setTrashError] = useState('');
+  const [undoId, setUndoId] = useState<string | null>(null);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [saved, setSaved] = useState<Record<string, Filters>>({});
   const key = projectId ?? '__all';
   const filters = saved[key] ?? initialFilters;
-  const change = (patch: Partial<Filters>) =>
+  const change = useCallback((patch: Partial<Filters>) =>
     setSaved((previous) => ({
       ...previous,
       [key]: { ...(previous[key] ?? initialFilters), offset: 0, ...patch },
-    }));
+    })), [key]);
   const [storedPage, setPage] = useState<SessionPage>({ items: [], total: 0 });
   const [resultKey, setResultKey] = useState<string | null>(null);
   const page = resultKey === key ? storedPage : { items: [], total: 0 };
@@ -123,6 +133,10 @@ export function HistoryView({
           })
           .then((result) => {
             if (!cancelled) {
+              if (filters.offset && filters.offset >= result.total) {
+                change({ offset: Math.max(0, Math.floor((result.total - 1) / 40) * 40) });
+                return;
+              }
               setPage(result);
               setResultKey(projectId ?? '__all');
               setSelected(
@@ -158,6 +172,8 @@ export function HistoryView({
     filters.children,
     filters.offset,
     refreshToken,
+    historyRevision,
+    change,
     disabled,
   ]);
   useEffect(() => {
@@ -237,6 +253,37 @@ export function HistoryView({
       if (generation === previewGeneration.current) setPreviewLoading(false);
     }
   };
+  const moveToTrash = async () => {
+    if (!trashTarget?.trashIdentity || trashLock.current) return;
+    trashLock.current = true;
+    setTrashBusy(true);
+    setTrashError('');
+    try {
+      const id = await api.trashSession(trashTarget.id, trashTarget.trashIdentity);
+      setUndoId(id);
+      setTrashTarget(null);
+      setSelected(null);
+      setHistoryRevision((value) => value + 1);
+      await onHistoryChanged?.();
+    } catch (reason) {
+      setTrashError(errorMessage(reason));
+      setHistoryRevision((value) => value + 1);
+    }
+    finally { trashLock.current = false; setTrashBusy(false); }
+  };
+  const undoTrash = async () => {
+    if (!undoId || trashLock.current) return;
+    trashLock.current = true;
+    setTrashBusy(true);
+    setTrashError('');
+    try {
+      await api.restoreSession(undoId);
+      setUndoId(null);
+      setHistoryRevision((value) => value + 1);
+      await onHistoryChanged?.();
+    } catch (reason) { setTrashError(errorMessage(reason)); }
+    finally { trashLock.current = false; setTrashBusy(false); }
+  };
   const filtered =
     !!filters.query ||
     !!filters.kind ||
@@ -247,6 +294,20 @@ export function HistoryView({
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
   return (
     <div className="history-view">
+      {undoId && <div className="inline-warning" role="status">已移入資源回收筒。
+        <button disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>
+        <button aria-label="關閉復原提示" disabled={trashBusy} onClick={() => setUndoId(null)}>×</button>
+      </div>}
+      {trashError && !trashTarget && <p className="inline-error" role="alert">{trashError}</p>}
+      {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
+        <p>「{trashTarget.title || trashTarget.externalId}」將從 Session Bay 歷史與搜尋隱藏，之後可從資源回收筒還原。</p>
+        <p>原始 Agent 歷史會保留，執行中的工作會繼續。</p>
+        {trashError && <p className="inline-error" role="alert">{trashError}</p>}
+        <div className="dialog-actions">
+          <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>取消</button>
+          <button className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
+        </div>
+      </Dialog>}
       <div className="history-controls">
         <div className="search-field">
           <Search size={17} />
@@ -417,6 +478,8 @@ export function HistoryView({
                     <span className="eyebrow">對話預覽</span>
                     <h3>{selected.title || selected.externalId}</h3>
                   </div>
+                  <button className="icon-button" aria-label="刪除 Session" title="移入資源回收筒，可還原"
+                    disabled={disabled || trashBusy || !selected.trashIdentity} onClick={() => { setTrashError(''); setTrashTarget(selected); }}><Trash2 size={17} /></button>
                   <button
                     className="primary"
                     disabled={disabled || !!selected.resumeDisabledReason}

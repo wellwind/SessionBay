@@ -1,3 +1,5 @@
+import { agentLifecycleText, isAgentPane } from '../agent-status';
+import './agent-status.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -487,6 +489,7 @@ export function TerminalPane({
           {/* Reserve the badge slot so pointerdown focus cannot move toolbar actions before click. */}
           <span className="focus-label" style={{ visibility: focused ? undefined : 'hidden' }} aria-hidden={!focused}>焦點</span>
           <span className={`runtime-dot ${pane.state}`} />
+          {isAgentPane(pane) && <span className={`agent-lifecycle ${pane.state}`} title={agentLifecycleText(pane.state)}>{agentLifecycleText(pane.state)}</span>}
         </div>
         <div className="pane-actions">
           <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
@@ -598,7 +601,7 @@ export function TerminalPane({
           </button>
         </div>
       )}
-      <div className="terminal-body">
+      <div className="terminal-body" style={{ backgroundColor: terminalTheme(settings.terminalTheme).background }}>
         <div className="xterm-host" ref={host} />
         {pane.state === 'placeholder' && (
           <div className="terminal-placeholder">

@@ -1,0 +1,17 @@
+.sidebar:has(> .agent-status-overview) { overflow-y: auto; }
+/* Keep project drag targets usable when the additional status panel consumes height. */
+.sidebar:has(> .agent-status-overview) .sidebar-project-content { flex-shrink: 0; max-height: min(320px, 40vh); }
+.agent-status-overview { flex: 0 0 auto; min-height: 32px; margin: 8px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; overflow: hidden; }
+.agent-status-overview > summary { padding: 8px; cursor: pointer; font-weight: 600; }
+.agent-status-overview > summary > span { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.agent-status-content { max-height: 220px; overflow: auto; padding: 0 8px 8px; }
+.agent-status-help { color: var(--muted); line-height: 1.5; margin: 4px 0 8px; }
+.agent-status-project { border-top: 1px solid var(--border); padding: 6px 0; }
+.agent-status-project > summary { cursor: pointer; overflow-wrap: anywhere; }
+.agent-status-project > summary > span { display: block; margin-top: 4px; color: var(--muted); line-height: 1.5; }
+.agent-status-project ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.agent-status-project button { width: 100%; text-align: left; padding: 6px; border: 0; background: transparent; border-radius: 4px; }
+.agent-status-project button:hover { background: var(--surface-hover); }
+.agent-status-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-lifecycle { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.pane-title .agent-lifecycle { overflow: hidden; text-overflow: ellipsis; }

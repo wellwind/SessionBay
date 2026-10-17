@@ -2,6 +2,15 @@
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
 
+## 2026-10-17 Terminal 內容重繪與有界輸出批次
+
+- 問題範圍為 Agent 執行時 Terminal 內容閃爍；既有 xterm 實例生命週期、React UI 與主題切換不因此重寫。
+- Broker client 僅合併同一 Poll 回應內、同 runtime 且 sequence 連續的 Output。保留所有位元組及順序，使用末端 sequence；Snapshot／Exit／Error／Disconnected 及 sequence 缺口均為批次邊界。每批維持 64 KiB 上限，不增加 Poll、等待計時器、重放保留量或 ANSI 緩衝。
+- 原本逐事件的 lease／取消／30 秒 ACK 等待不變；前端必須等整批 xterm.write callback 完成才 ACK。1 MiB／128 frame 的 replay 上限、過期後 snapshot 重建、OSC 52 與查詢過濾均維持。
+- 合成延遲模型每個 write／ACK 往返期間產生四個小 chunk，30 次 Poll：原逐 chunk 模型為 513 次 write 與 9 次 snapshot；批次模型為 30 次 write、0 次 snapshot。這是固定條件的單元模型，不是實際使用者效能或 macOS 視覺驗收。
+- 真實 TerminalPane／xterm 的 Chrome fixture 分開觀察跨 write 的同步清除／重繪與同一批次 write；只記錄 reset、write、ACK、resize、render 與空白 render 計數，不擷取使用者輸入。CI 證據與原生桌面驗收需分別確認。
+- xterm 5.5 尚未支援 DEC 2026；跨 Poll 的同步 repaint 仍可能閃爍。6.0 升級需獨立審查 Fit／Search addon、鍵盤與 IME 相容性，本次不升級、不加入私有 renderer hook。
+
 ## 2026-10-17 啟動時最大化
 
 - 主視窗建立時預設最大化（`maximized: true`），不是全螢幕；保留一般視窗的還原／調整大小操作。原有 1440×940 還原尺寸與最小尺寸不變。
@@ -433,6 +442,19 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 
 從歷史／對話預覽接續工作時，新建分頁預設使用同一筆 Session.title；空白標題沿用原有 Agent 名稱。標題僅為顯示文字，去除首尾空白、將換行／控制字元換成空格，最多保留 200 個 Unicode 字元，與手動重新命名的限制一致。既有分頁接續、重新附接或後端判定同一 Runtime 時保留原名稱（包含手動命名）；分割面板不重新命名整個分頁。標題不參與路徑、命令參數或 Runtime 身分判斷。
 
+## 2026-10-17：依 Agent 選擇設定
+
+來源與工具改用可搜尋的 Agent 選擇器，只顯示選中 Agent 的執行檔、參數與歷史來源。切換選擇不執行偵測、不儲存，也不遺失其他 Agent 尚未儲存的修改。每個 Agent 保留個別歷史來源開關與多來源配置。
+
+新增獨立 `agentEnabled` map，缺少欄位或 provider key 視為啟用，保留未知 provider key 以利版本往返。僅儲存設定後生效，停用不覆寫個別來源開關／執行檔／參數。停用阻止新啟動及新的接續程序、暫停該 provider 索引與背景 reconciliation；既有索引仍可瀏覽搜尋，現有 Runtime 可附接與繼續操作。重新啟用後恢復原有設定。明確清除／重建索引仍依使用者選擇執行，不因 provider 停用偷偷保留遭明確要求清除的索引。
+
+預設 Agent 若停用，新的 Agent 工作改用 registry 中第一個已啟用 Agent；全部停用時顯示設定提示，Shell 仍可使用。Launcher 顯示停用狀態，不以 CLI 安裝狀態代替啟用偏好。原生三平台 UI／PTY 驗收與瀏覽器合成測試分開記錄。
+
+## 2026-10-17：可復原的 Session 資源回收筒
+
+第一階段僅管理 Session Bay 的歷史可見性。移入資源回收筒會隱藏一般歷史、搜尋與專案計數，保留原始 Agent 歷史與執行中的工作。獨立 tombstone 以既有 provider／source ID／external session ID 識別，保存來源與標題快照；重掃、重建索引與來源移除不會清除此使用者選擇。回收筒可逐筆還原；來源缺失或身分不符時保留項目並說明無法還原，不自動啟用來源。
+
+原始歷史永久刪除列為後續獨立設計：須逐 provider 確認檔案與共用資料庫的刪除邊界、執行中 Agent 競爭、安全備份與不可復原影響，操作前必須再次明確確認。本階段不提供永久刪除 API 或按鈕。
 ## 2026-10-17：臨時 Terminal 與既有背景服務相容
 
 更新 UI 不會替換仍擁有 PTY 的背景 broker。早期 protocol 1 的 Launch schema 會拒絕未知欄位，因此新 UI 傳入 `homeDirectory: true` 時，舊 broker 在解碼階段回覆 `Invalid runtime request`；不能用停止既有 Agent 或清除設定解決。
@@ -442,6 +464,18 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 相容模式由 workspace 保留已知 home 政策，附上僅供比對的 `homePolicyRuntimeId`；只有 broker 回傳同一 runtime／pane、仍為無 session／resume 的全域 Shell 且未提供 home 政策時才沿用。此值不復原 runtimeId、不自動啟動或授予附接權限。現代 broker 明確 true／false 優先；未宣告 capability 的中間版本之 false 視為未知，因為新 client 為相容而省略了欄位。任何正向 true 仍保留。
 
 限制：舊 broker 無法保存新政策；工作區尚未儲存、遺失或沒有對應身分時，只能恢復 broker 提供的明確 cwd，不猜測為家目錄政策。啟動時顯示相容模式說明。背景服務升級仍需使用者安排，不能為升級中斷工作。本批以固定舊 schema 的雙向相容回歸和合成 PTY 驗證；真實 macOS 混版執行仍待驗收。
+
+## 2026-10-17：Agent 生命週期總覽
+
+Agent 狀態以共享 provider registry 辨識，不把 Shell 或歷史 Session 數當成 Agent 數。側欄按專案彙總已開啟、存活、已結束、中斷等數量；全域工作階段獨立一組。同一 runtime ID 只計一次，尚無 runtime 的面板按 pane ID 計數。已開啟包含尚未啟動及保留的結束面板，關閉後不再計數；存活只包含已有 runtime 的 starting／running，不代表忙碌或等待輸入。停用 provider 不排除既有程序。
+
+狀態來源限於 bootstrap 的 broker RuntimeRecord，以及現有 TerminalPane 的 launch／attach 回覆、exit／disconnected 事件。所有專案面板既有訂閱在背景保留，總覽只讀 workspace，不增加輪詢、程序探測或輸出分析。斷線不表示已結束，也不能聲稱仍存活；broker 復原的 interrupted 與斷線分開。重複 runtime 視圖使用保守狀態優先順序，終止狀態不被另一個舊的 running 視圖覆蓋。
+
+目前介面沒有可靠的 Agent 工作活動結構化事件，所以執行中顯示「活動未知」，不從靜默、CPU、輸出文字推測忙碌／等待輸入。總覽不跨應用程式猜測或掃描其他程序。前端合成測試可驗證狀態與 UI；原生跨平台實機驗收另行記錄。
+
+## 2026-10-17：Terminal 留白沿用終端背景
+
+Terminal body 保留 FitAddon 外層 padding，背景直接取自同一個 terminalTheme resolver；明暗色與即時預覽／取消皆隨設定更新，未知色票沿用既有 fallback。工具列與 footer 仍用介面色系，不改其分隔線。這是純樣式更新，不重建 PTY、不 reset、不因顏色變更重新 fit。
 
 ## 2026-10-17：命令面板鍵盤選取
 
@@ -465,3 +499,13 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 作用中分頁的布局只有一個面板時，移除 canvas 外距、面板包裝內距與卡片邊框／圓角；一般與專注模式一致。判斷以該分頁布局為準，其他分頁仍掛載的面板不影響。分割布局（含暫時最大化）維持既有間距與分隔拖曳區，回到單面板自動滿版。保留終端文字內距、工具列、焦點標記與錯誤；不重建終端或更動 FitAddon／PTY 管線。
 
 分割工具列的焦點標記保留固定布局空間，非焦點時隱藏視覺與輔助技術內容，避免 pointerdown 切換焦點造成按鈕換行、原點擊位置失效。合成 Chrome 200% CSS zoom 的真實滑鼠關閉操作發現此問題；不宣稱已重現於原生 WebView。
+
+## 2026-10-17 搜尋效能第二階段：按候選密度選擇查詢
+
+先以獨立 10k 合成搜尋量測確認 COUNT／分頁各自重跑 broad FTS 與全文驗證的成本；snippet 並非主瓶頸。對至少 1,025 筆 FTS 候選的查詢，改用 session-first EXISTS，透過既有 files／messages 索引走訪，在每個 Session 第一筆完整字串命中後停止。較少候選仍走原 candidate-first 策略，避免稀疏／不存在詞遍歷全部訊息。最多 1,025 筆的 FTS rowid probe 只決定執行策略，不截斷結果、不讀正文，也不改 exact predicate。
+
+不新增持久 schema、不共用跨 query cache、不修改索引或來源驗證；所有 filters、排序、總數與 snippet 語意保持原樣。一般 query 沒有 profiling clock 或 log；量測入口僅由 search-profile feature 開啟。Before／After 共用同一既有合成 catalog，保留 raw samples、p50／p95、RSS 與共享環境噪音，詳見[搜尋效能第二階段](search-performance.md)。合成 backend 結果不代替真實來源、原生 UI 或跨平台驗收。
+
+## 2026-10-17：不顯示例行版本相容提示
+
+使用者明確要求不提示新舊版問題。移除啟動時的相容模式橫幅與其唯一用途的字串／helper；底層 Hello capability 協商、舊版 Launch 欄位省略及 home 政策恢復邏輯不變。真正的 broker 連線／請求失敗、設定與 workspace 讀取錯誤仍照原路徑回報。本決策取代上節「啟動時顯示相容模式說明」，不推定使用者實際執行的版本。

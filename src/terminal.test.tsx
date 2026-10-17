@@ -1,3 +1,4 @@
+import { AgentStatusOverview } from './components/AgentStatusOverview';
 import { useState } from 'react';
 import { emptyWorkspace, reconcileRuntimes, restoreWorkspace, serializeWorkspace } from './workspace';
 
@@ -191,6 +192,28 @@ describe('terminal lifetime and flow control', () => {
     expect(mocks.ack).not.toHaveBeenCalled();
     act(() => mocks.termWrite.mock.calls[0][1]());
     expect(mocks.ack).toHaveBeenCalledWith('runtime', 41, mocks.launch.mock.calls[0][2]);
+  });
+  it('ACKs a coalesced response at its final sequence only after the complete write', async () => {
+    render(<TerminalPane {...props(makePane({ startToken: 1 }))} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalled());
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(channel);
+    mocks.termWrite.mockClear(); mocks.ack.mockClear(); mocks.termReset.mockClear();
+    const data = Array.from(new TextEncoder().encode('\x1b[?2026h\x1b[2J\x1b[H合成 frame\x1b[?2026l'));
+    act(() => channel({ type: 'output', runtimeId: 'runtime', sequence: 64, data }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(1);
+    expect(mocks.termWrite.mock.calls[0][0]).toEqual(new Uint8Array(data));
+    expect(mocks.ack).not.toHaveBeenCalled();
+    expect(mocks.termReset).not.toHaveBeenCalled();
+    act(() => mocks.termWrite.mock.calls[0][1]());
+    expect(mocks.ack).toHaveBeenCalledExactlyOnceWith('runtime', 64, mocks.launch.mock.calls[0][2]);
+    act(() => channel({ type: 'output', runtimeId: 'runtime', sequence: 65, data: [65] }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(2);
+    expect(mocks.ack).toHaveBeenCalledTimes(1);
+    act(() => mocks.termWrite.mock.calls[1][1]());
+    expect(mocks.ack).toHaveBeenLastCalledWith('runtime', 65, mocks.launch.mock.calls[0][2]);
+    expect(mocks.launch).toHaveBeenCalledTimes(1);
+    expect(mocks.attach).not.toHaveBeenCalled();
   });
   it('preserves a quick exit that arrives before launch response', async () => {
     let resolve!: (value: RuntimeInfo) => void;
@@ -595,8 +618,8 @@ it('restarts a recovered legacy projectless shell in its broker-confirmed direct
 
 describe('live terminal palette updates', () => {
   it('updates every open pane, including hidden panes, without resetting, fitting, focusing or restarting', async () => {
-    const first = props(makePane({ startToken: 1 }));
-    const second = props(makePane({ id: 'second', startToken: 1 }));
+    const first = props(makePane({ state: 'running', startToken: 1 }));
+    const second = props(makePane({ id: 'second', state: 'running', startToken: 1 }));
     mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
     const panes = (terminalTheme: string) => <>
       <TerminalPane {...first} settings={{ ...settings, terminalTheme }} />
@@ -606,10 +629,19 @@ describe('live terminal palette updates', () => {
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
     const snapshots = { reset: mocks.reset.mock.calls.length, fit: mocks.fit.mock.calls.length, focus: mocks.focus.mock.calls.length };
-    for (const id of ['rose-light', 'ocean-dark', 'classic']) {
+    for (const id of ['rose-light', 'ocean-dark', 'unknown-future-theme', 'classic']) {
       view.rerender(panes(id));
-      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : '#0d1929';
+      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : id === 'ocean-dark' ? '#0d1929' : '#11151a';
       for (const options of mocks.options) expect(options.theme).toMatchObject({ background: expected });
+      expect(view.container.querySelectorAll('.terminal-body')).toHaveLength(2);
+      for (const body of view.container.querySelectorAll('.terminal-body')) {
+        expect(body).toHaveStyle({ backgroundColor: expected });
+      }
+      expect(view.container.querySelectorAll('.pane-toolbar')).toHaveLength(2);
+      expect(view.container.querySelectorAll('.pane-footer')).toHaveLength(2);
+      for (const chrome of view.container.querySelectorAll('.pane-toolbar, .pane-footer')) {
+        expect((chrome as HTMLElement).style.backgroundColor).toBe('');
+      }
     }
     expect(mocks.options).toHaveLength(2);
     expect(mocks.launch).toHaveBeenCalledTimes(2);
@@ -1095,4 +1127,51 @@ it('reserves the focus badge slot without exposing an inactive focus label', () 
   expect(badge).not.toHaveStyle({ visibility: 'hidden' });
   expect(badge).toHaveAttribute('aria-hidden', 'false');
   expect(screen.getByRole('button', { name: '關閉面板' })).toBe(close);
+});
+
+// The status overview observes the same guarded lifecycle patches as every hidden pane.
+describe('Agent overview lifecycle signal integration', () => {
+  function AgentHarness({ initial, visible = false }: { initial: Pane; visible?: boolean }) {
+    const [pane, setPane] = useState(initial);
+    return <>
+      <TerminalPane {...props(pane)} visible={visible} settings={{ ...settings, sources: [] }}
+        onPatch={(_id, patch) => setPane((current) => ({ ...current, ...patch }))} />
+      <AgentStatusOverview workspace={{ ...emptyWorkspace(), panes: { [pane.id]: pane } }} projects={[]} onFocus={() => undefined} />
+    </>;
+  }
+  it('updates inactive Agent counts from duplicate exit events and ignores a late running launch response', async () => {
+    let resolve!: (info: RuntimeInfo) => void;
+    mocks.launch.mockReturnValue(new Promise<RuntimeInfo>((done) => { resolve = done; }));
+    render(<AgentHarness initial={makePane({ kind: 'codex', title: 'Agent', startToken: 1 })} />);
+    await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(1));
+    const channel = mocks.launch.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => {
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+    });
+    await act(async () => resolve(info));
+    expect(screen.getByText('0 存活 / 1 已開啟')).toBeInTheDocument();
+    expect(screen.getByText('已開啟 1 · 存活 0 · 已結束 1 · 中斷 0')).toBeInTheDocument();
+    expect(screen.queryByText('程序存活 · 活動未知')).not.toBeInTheDocument();
+    expect(mocks.launch).toHaveBeenCalledTimes(1);
+  });
+  it('distinguishes disconnect from exit, restores live counts after explicit reconnect, and ignores old stream events', async () => {
+    render(<AgentHarness visible initial={makePane({ kind: 'codex', title: 'Agent', runtimeId: 'runtime', state: 'running' })} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(1));
+    const old = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(old);
+    expect(screen.getByText('1 存活 / 1 已開啟')).toBeInTheDocument();
+    act(() => old({ type: 'disconnected', runtimeId: 'runtime', message: 'Offline' }));
+    expect(screen.getByText('已開啟 1 · 存活 0 · 已結束 0 · 中斷 0 · 斷線 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    completeSnapshot(mocks.attach.mock.calls[1][1]);
+    act(() => {
+      old({ type: 'exit', runtimeId: 'runtime', exitCode: 0 });
+      old({ type: 'disconnected', runtimeId: 'runtime', message: 'Stale' });
+    });
+    expect(screen.getByText('1 存活 / 1 已開啟')).toBeInTheDocument();
+    expect(screen.getByText('已開啟 1 · 存活 1 · 已結束 0 · 中斷 0')).toBeInTheDocument();
+    expect(mocks.launch).not.toHaveBeenCalled();
+  });
 });

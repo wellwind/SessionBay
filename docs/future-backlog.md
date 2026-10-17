@@ -78,6 +78,7 @@
 - 類型：效能問題／研究
 - 需求與驗收重點：使用者回報索引時間過長，需用實際資料量與平台量測冷啟動、首次全量、增量及不變資料重掃；記錄耗時、CPU、記憶體與 UI 可用性。找出瓶頸再設定改善目標，不能以合成搜尋延遲代替索引耗時。
 - 2026-10-16 第一階段：SQL statement 重用與 Codex fallback 去重熱路徑已有實作及合成 1k／10k／長對話 before／after，詳見[索引效能量測](index-performance.md)。尚缺真實來源、原生 UI／CPU 分析及其他平台驗收；10k 高命中率字串搜尋仍有瓶頸，本項維持未完成。
+- 2026-10-17 第二階段：獨立[搜尋 profiling 與候選密度策略](search-performance.md)在兩組合成 10k 觀測達到 backend warm p95 1 秒內，保留完整 raw 結果、RSS 增加與 filter-only 成本回歸。原生 UI、真實來源／其他 provider 與跨平台驗收仍未完成；不覆寫第一階段波動紀錄。
 
 ## 11 參考 Herdr／Orca 等 ADE
 

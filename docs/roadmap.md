@@ -131,10 +131,23 @@
 
 保留既有十個色系，新增 Code Modern／Code 2026 深／淺色 UI 與 Terminal；命令面板可搜尋、鍵盤預覽、Enter 保存及 Escape 還原。全工作台 page zoom 使用獨立 appZoom，與主題共用序列化保存，不乘改 Terminal 基準字級。修訂後整合樹的自動化與原生待驗項目見[批次整合驗證](batch-integration-validation.md)。
 
+- Agent 個別設定：可搜尋選擇器與啟用偏好、保留停用 provider 快取與現有 Runtime；前端 835 項自動化回歸通過，三平台原生操作及瀏覽器截圖驗收尚未完成。
+
+### 2026-10-17：Session 可復原刪除
+
+第一階段：Session Bay metadata tombstone、回收筒與還原；原始 Agent 歷史唯讀。第二階段仍待設計：依 provider 安全刪除原始歷史、共用資料庫與執行中 Agent 的競爭保護、刪除前逐次確認與不可復原影響。不得將第二階段列為已支援。
 ### 臨時 Terminal 混版相容
 
 - [x] 固定舊 protocol 1 schema 的未知欄位重現、雙向 Hello 相容、scope／generation 與 workspace 身分比對回歸。
 - [ ] macOS 真實舊 broker 持續執行時更新 UI，驗證新臨時 Terminal、既有 Agent 重附接與重開工作區；不得停止原有程序。
+
+### Agent 生命週期總覽
+
+- [x] 共用 registry 辨識、Runtime 去重、專案／全域分組、停用不漏計及背景面板事件更新的實作與合成回歸。
+- [ ] 原生三平台狀態顯示與重連實機驗收。
+- [ ] 忙碌／等待輸入：等待可靠結構化 Agent 活動訊號；目前明確顯示活動未知。
+- [x] 此候選的 826 項前端測試、typecheck、lint、production build；另含 actual-App Chrome 接受測試與截圖輸出，接入 CI。
+- [ ] Chrome 接受測試實際執行與截圖檢視：雲端未安裝 Google Chrome；系統 Chromium 在 sandbox 因 socket 權限中止。未繞過 sandbox，需在 CI 完成。
 
 命令面板主清單新增 ↑／↓ 循環選取、搜尋重設、停用跳過與 Enter 執行；沿用主題子清單預覽／取消。前端回歸涵蓋 IME、焦點、空結果與專案選取；原生 macOS 輸入法實機驗收仍待執行。
 

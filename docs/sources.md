@@ -202,3 +202,13 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [MIT license](https://github.com/microsoft/vscode/blob/3588843f05a21bfdeada83a9799d87f19de0fadd/LICENSE.txt) 隨 public/third-party/VSCode-LICENSE.txt 保留。適用範圍、可及性調整與非官方合作聲明見 [主題說明](theme-preview.md)。
 
 - Tauri 2.12.4 Menu 預設原始碼與 PredefinedMenuItem（查閱 2026-10-17）：https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/menu.rs 、https://github.com/tauri-apps/tauri/blob/tauri-v2.12.4/crates/tauri/src/menu/predefined.rs 。macOS 預設 File／Window 含 CloseWindow，單靠 WebView keydown 不能取代原生 accelerator；本次使用自訂 Close Tab 選單事件。文件／原始碼查核不代表原生 macOS 驗收。
+
+## Terminal 同步重繪（2026-10-17）
+
+- [xterm 6.0.0 release](https://github.com/xtermjs/xterm.js/releases/tag/6.0.0)：DEC 2026 synchronized output 為 6.0 新增功能；目前 5.5 安裝來源沒有此 mode 分支。
+- [6.0 InputHandler](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/common/InputHandler.ts) 與 [RenderService](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/services/RenderService.ts)：同步模式由 parser 與 renderer 協作，不宜以任意延遲或無上限 ANSI 字串緩衝代替。此次只調整既有 Poll 回應的傳輸批次，未升級依賴；來源查核不代表使用者問題已在原生 WebView 解決。
+
+## 搜尋候選密度與查詢計畫（2026-10-17）
+
+- [SQLite optimizer overview](https://www.sqlite.org/optoverview.html#manual_control_of_query_plans_using_cross_join)：CROSS JOIN 固定左側迴圈在前；本次配合既有 messages_file index，避免 dense candidate-aware EXISTS 對每個 Session 重掃全體候選。實際 bundled SQLite query plan 另存於搜尋報告，不把 planner 選擇視為所有 SQLite 版本的效能保證。
+- [SQLite FTS5 trigram tokenizer](https://www.sqlite.org/fts5.html#the_trigram_tokenizer)：FTS trigram 用來縮小候選，本產品仍以原 literal predicate 驗證正文，保留 ASCII 大小寫、標點與多語語意。候選密度 probe 不修改 FTS 資料，也不縮小完整結果集。
