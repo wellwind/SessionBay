@@ -66,6 +66,9 @@
   margin: 3px 0 5px;
   font-weight: 600;
 }
+.settings-header h2:last-child {
+  margin-bottom: 0;
+}
 .settings-header p {
   margin: 0;
   color: var(--settings-muted);
@@ -164,6 +167,9 @@
   margin: 0 0 7px;
   font-size: 15px;
   font-weight: 600;
+}
+.settings-section-heading h3:only-child {
+  margin-bottom: 0;
 }
 .settings-section-heading p {
   margin: 0;
@@ -672,6 +678,7 @@
 }
 .settings-footer {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
   gap: 9px;
   border-top: 1px solid var(--settings-border);

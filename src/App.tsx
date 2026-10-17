@@ -1256,7 +1256,7 @@ export default function App() {
                   <Pencil size={16} />
                 </button>}
               </div>
-              <div className="project-path">
+              {(current || temporaryWorkspace) && <div className="project-path">
                 {current ? (
                   <>
                     <span title={current.path ?? ''}>
@@ -1275,11 +1275,9 @@ export default function App() {
                     </button>
                   </>
                 ) : (
-                  temporaryWorkspace ? '新 Terminal 從家目錄開始，使用預設 Shell Profile；不會加入任何專案。'
-                    : navigation === 'projects' ? '管理你選入的專案，專注在真正有意義的工作。'
-                    : '保留所有工作階段的目錄分組。選擇目錄瀏覽對話，或加入專案。'
+                  '新 Terminal 從家目錄開始，使用預設 Shell Profile；不會加入任何專案。'
                 )}
-              </div>
+              </div>}
             </div>
             <div className="header-buttons">
               <button className="icon-button" title="資源回收筒" aria-label="資源回收筒" disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
@@ -1550,11 +1548,10 @@ export default function App() {
       {quickThemeOpen && visibleSettings && (
         <Dialog title="快速切換主題" onClose={() => setQuickThemeOpen(false)}>
           <div className="theme-quick-content">
-            <p className="theme-quick-help">每次選擇立即套用並儲存，關閉選單會保留。介面與終端可以各自搭配。</p>
             <ThemeControls value={appearanceOf(visibleSettings)} disabled={themeSaving}
               onChange={(patch) => void quickSaveTheme(patch)} />
             <TerminalPreview value={appearanceOf(visibleSettings)} />
-            <div className="theme-quick-status" role="status">{themeSaving ? '正在儲存主題…' : themeSaveError ? '目前顯示上次儲存的主題' : '主題已儲存在本機'}</div>
+            {(themeSaving || themeSaveError) && <div className="theme-quick-status" role="status">{themeSaving ? '正在儲存主題…' : '目前顯示上次儲存的主題'}</div>}
             {themeSaveError && <p className="theme-quick-error" role="alert">{themeSaveError}</p>}
           </div>
         </Dialog>
