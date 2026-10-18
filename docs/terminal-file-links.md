@@ -1,34 +1,33 @@
-# Terminal 檔案路徑連結（待實作）
+# Terminal 檔案路徑連結
 
-使用者希望點選 Agent 終端輸出的檔名，直接以中央檔案 tab 開啟。此為需求紀錄，尚未實作／驗收；排在目前工作台／broker 修復與 Snap 測試包之後，不插入當前開發。
+首版已實作，待獨立 review 與 Linux CI。使用者於 2026-10-18 將本項調整為優先交付；broker 後續與 Snap 保留暫停。沿用中央唯讀檔案 tab，不新增編輯或執行能力。
 
-## 預期功能與建議互動
+## 已實作互動
 
-- [ ] 在終端輸出辨識檔案路徑，點選後重用現有 tab 或開啟新 tab。
-- [ ] 支援 `file:line:col` 等位置資訊，檔案已載入後移至對應行／欄；不存在的位置需有界處理，不改檔案內容。
-- [ ] 建議 macOS 使用 Cmd-click、其他平台 Ctrl-click，避免一般點選／拖曳與文字選取衝突；實作前核對 xterm、平台和無障礙操作。此組合鍵是介面提案，不是已驗證行為。
-- [ ] 相對路徑僅依該 terminal 可確認的 cwd 解析，不用目前選取專案或另一個 pane 的 cwd 代替。啟動 cwd 不一定是互動 shell 當前 cwd；來源不可靠時說明限制並要求使用者選擇，不自行猜測。
-- [ ] 裸檔名若對應多個候選，提供明確選擇；不默默開啟第一個，也不因此掃描整台檔案系統。
-- [ ] 檔案已開啟時 focus 同一個 tab；使用者導航／換專案後，晚到解析結果不得偷取焦點。
+- macOS Cmd-click、其他平台 Ctrl-click 開啟；普通點選／拖曳保持選取。工具列「開啟終端檔案路徑」可鍵盤操作並帶入選取文字。
+- 專案內明確絕對路徑可直接開啟；邊界不明的未加引號路徑先確認。相對路徑與裸檔名一律顯示候選，即使只有一筆也須選擇。
+- 來源 pane／runtime／project 由後端 broker List 驗證。啟動 cwd 只標示候選提示，不能代表互動 shell 目前 cwd；未知或 root 外 cwd 不作解析授權。
+- 支援引號、空白、Unicode、括號、常見診斷標點及 `file:line:column`。已開啟的檔案重用 tab；完整文字載入後有界定位，超出行欄範圍顯示調整提示。
+- 正常／Zen 共用流程。取消、編輯輸入、導航、換專案、pane／runtime 改變及卸載會失效舊請求，晚到結果不得重開檔案或偷取焦點。
 
-## 安全界線
+## 安全界線與首版限制
 
-- 終端內容一律不可信，路徑辨識不能執行 shell、命令替換、URL scheme 或 Agent 提供的指令。
-- 辨識在本機完成，不把輸出、路徑或檔案內容傳到外部服務；不新增 terminal 輸出長期保存。
-- Backend 沿用既有 workspace root、相對路徑、symlink／hardlink／reparse 與檔案身分／版本檢查。前端顯示可點選不等於獲得檔案權限。
-- workspace 外的路徑不能直接讀取。若要支援，需使用者明確選取／開啟並沿既有授權流程建立範圍；此需求不授權放寬既有 root 保護。
-- OSC8、一般網址與檔案路徑分開處理。可見文字與實際目標不一致時不能隱藏真實目標；不自動跟隨 `file://` 或任意協定。
-- 相對路徑、Windows drive／UNC、行欄分隔與冒號等解析需明確且有界；無法無歧義解析就不猜。
-- 檔案改名、刪除、權限拒絕、目錄或不支援格式以可理解的錯誤處理，不自動寫入／建立檔案。
+終端輸出一律不可信，解析不執行 shell、命令替換、檔案或 URL，不傳送至外部服務，也不新增長期輸出保存。既有 workspace root、descriptor-based inspect／chunk、symlink／hardlink／reparse、檔案身分與版本檢查繼續生效。解析後檔案版本改變會拒絕原讀取，須明確重新讀取；不寫入或建立檔案。
 
-## 驗收清單
+只支援有專案授權範圍的 Terminal。root 外、上層 `..`、home 展開、UNC／device、URL scheme、控制字元與命令字元拒絕。Windows drive 僅由原生 Windows 路徑語意處理；字串測試不代表 Windows 原生驗收。相對／裸檔名搜尋限單一專案，沿用既有最多 50 結果、20,000 entries、32 層與合作式時間預算；結果會重新 inspect，不掃描整台主機。
 
-- [ ] 絕對／相對路徑、裸檔名、重複檔名、帶空白／Unicode／引號／括號及標點的名稱。
-- [ ] 行／欄定位、超出範圍、Windows drive／UNC、冒號與 URL 誤判。
-- [ ] 不同 pane／專案 cwd，shell 已 cd、cwd 未知／過期、專案切換與晚到結果。
-- [ ] 既有 tab 重用、新 tab、選取／拖曳、修飾鍵點選與鍵盤可達性。
-- [ ] traversal、symlink／hardlink／reparse、root 外檔案、OSC8 偽裝目標、惡意控制字元。
-- [ ] 路徑變更／檔案消失／權限拒絕、不支援格式與資源上限。
-- [ ] Linux 真實瀏覽器與必要原生驗證；macOS／Windows 未驗狀態另列，不以字串單元測試冒充原生互動。
+自動連結限不超過 320 cells 的完整未折行實體行，保守跳過底線／隱藏屬性區段，避免部分 OSC8 目標偽裝路徑；彩色文字仍支援。折行、底線文字或不確定格式可選取／手動輸入。OSC8 由內建高優先 provider 接管，僅顯示經控制字元清理且有界的真實目標，不開啟任何 scheme。一般 HTTP URL 不視為檔案。
 
-相關現有基礎：[分級文字閱讀](large-file-reading.md)、[圖片閱讀](file-image-preview.md)。這份需求不新增編輯、執行檔案或全磁碟搜尋能力。
+大型檔保留既有確認／分段限制；分段閱讀不支援全檔行欄定位，圖片不套用行欄。找不到、目錄、非支援格式、權限錯誤與版本變更以可理解訊息處理。
+
+## 驗證紀錄
+
+- Mac：Rust core 596、desktop 600 通過，各 3 項 ignored；兩組 Clippy `-D warnings` 通過。
+- Mac：前端全套、39 項 embedded hook contract、typecheck、lint、production build；Chrome 合成資料驗證正常深色／Zen 淺色、行欄、候選、重用、選取、鍵盤、OSC8 偽裝、導航失效與窄視窗。
+- 額外 Mac 回歸：布局 4 項通過；既有 Files／focus-mode 測試的 Ctrl+F／Ctrl+P 快捷鍵情境失敗，在未修改 main 的同機對照亦重現。保留失敗紀錄，不將整組列為通過；Linux CI 另驗平台快捷鍵。
+- Linux：由本 PR exact-head CI 驗證，結果見 PR。macOS 原生 WebView 與 Windows 原生互動尚未驗證；不以 Chrome 或字串測試替代。
+- 所有本機後端測試使用隔離資料與假 Shell，未讀取真實對話或執行付費模型。
+
+截圖：[正常模式](validation/terminal-file-links-normal.png)、[候選選擇](validation/terminal-file-links-candidates.png)、[Zen 模式](validation/terminal-file-links-zen.png)。
+
+相關基礎：[分級文字閱讀](large-file-reading.md)、[圖片閱讀](file-image-preview.md)。

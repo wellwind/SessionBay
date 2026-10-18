@@ -27,6 +27,7 @@ vi.mock('@xterm/xterm', () => ({ Terminal: class {
   constructor(options: Record<string, unknown>) { this.options = options; }
   attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { this.handler = handler; }
   loadAddon() {}
+  registerLinkProvider() { return { dispose() {} }; }
   open(host: HTMLElement) {
     this.textarea = document.createElement('textarea');
     this.textarea.className = 'xterm-helper-textarea';

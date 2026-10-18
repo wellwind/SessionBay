@@ -62,6 +62,16 @@ jobs:
           if-no-files-found: warn
       - name: Workspace file preview screenshots and bounds
         run: npm run test:files -- --output=test-results/files
+      - name: Terminal file links browser acceptance
+        run: npx playwright test --config playwright.terminal-file-links.config.ts
+      - name: Preserve terminal file link evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: terminal-file-links-evidence
+          path: test-results/terminal-file-links/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Agent lifecycle overview browser acceptance
         run: npm run test:agent-status
       - name: Workspace tab mouse drag and persistence

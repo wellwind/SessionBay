@@ -289,3 +289,8 @@ input.checkbox::before { border-color: var(--on-accent); }
 .project-drag { flex-shrink: 0; width: 24px; cursor: grab; color: var(--muted); }
 .project-drag:active { cursor: grabbing; }
 .project-row .project-main { min-width: 0; padding-left: var(--space-3); }
+
+.terminal-file-candidates { display: flex; flex-direction: column; gap: 4px; max-height: 45vh; overflow: auto; margin-top: 12px; }
+.terminal-file-candidates button { display: flex; align-items: center; gap: 8px; text-align: left; min-height: 34px; }
+.terminal-file-candidates button span { flex: 1; overflow-wrap: anywhere; }
+.terminal-file-candidates small { color: var(--muted); }

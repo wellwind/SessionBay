@@ -11,6 +11,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import {
   Copy,
+  FileText,
   Pencil,
   Maximize2,
   Minimize2,
@@ -29,6 +30,7 @@ import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { workspaceZoomEvent } from '../workspace-zoom';
 import { fileInputChangesPrompt, fileLimits, fileProvider, fileUnsupportedReason, fileInputGuidance, insertFiles, hasDirectory, FileInputError, clipboardFileName, displayFileName } from '../file-input';
+import { embeddedLinkLabel, fileLinkModifier, terminalFileLinkProvider, type TerminalFileOpen } from '../terminal-file-links';
 import { handleTerminalKey } from '../terminal-keyboard';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
@@ -62,6 +64,7 @@ export function TerminalPane({
   onMaximize,
   onSplit,
   onAlreadyOpen,
+  onOpenFileLink,
 }: {
   pane: Pane;
   projectAvailable?: boolean;
@@ -77,6 +80,7 @@ export function TerminalPane({
   onMaximize: () => void;
   onSplit: (axis: 'horizontal' | 'vertical') => void;
   onAlreadyOpen: (runtime: RuntimeInfo) => void;
+  onOpenFileLink?: (request: TerminalFileOpen) => void;
 }) {
   const activity = useRuntimeActivity();
   useEffect(() => { activity?.visible(pane.id, activityVisible); }, [activity, pane.id, activityVisible]);
@@ -93,8 +97,8 @@ export function TerminalPane({
   const [connected, setConnected] = useState(false);
   const launched = useRef(0);
   const mounted = useRef(false);
-  const latest = useRef({ pane, onPatch, onAlreadyOpen, visible, focused, activityVisible });
-  latest.current = { pane, onPatch, onAlreadyOpen, visible, focused, activityVisible };
+  const latest = useRef({ pane, onPatch, onAlreadyOpen, visible, focused, activityVisible, onOpenFileLink, projectAvailable });
+  latest.current = { pane, onPatch, onAlreadyOpen, visible, focused, activityVisible, onOpenFileLink, projectAvailable };
   const inputQueue = useRef<TerminalInputQueue | null>(null);
   const resizePending = useRef<{ id: string; cols: number; rows: number } | null>(null);
   const resizing = useRef(false);
@@ -156,6 +160,14 @@ export function TerminalPane({
     const queuedFrames = renderQueue.current;
     const terminal = new Terminal({
       scrollback: 5000,
+      // Claim every OSC8 range in the built-in priority provider, including
+      // hostile schemes. Activation only reveals its real target; never navigate.
+      linkHandler: {
+        allowNonHttpProtocols: true,
+        activate: (event, target) => { if (fileLinkModifier(event)) setNotice(`終端嵌入連結未開啟。真實目標：${embeddedLinkLabel(target)}`); },
+        hover: (_event, target) => { if (host.current) host.current.title = `嵌入連結（不會開啟）：${embeddedLinkLabel(target)}`; },
+        leave: () => { if (host.current) host.current.title = ''; },
+      },
       fontSize: settings.fontSize,
       fontFamily: settings.fontFamily,
       theme: terminalTheme(settings.terminalTheme),
@@ -214,6 +226,14 @@ export function TerminalPane({
       });
     });
     terminal.open(element);
+    const links = terminal.registerLinkProvider(terminalFileLinkProvider(terminal,
+      () => JSON.stringify([latest.current.pane.id, latest.current.pane.runtimeId, latest.current.pane.startToken, attachment.current?.lease]),
+      request => {
+        if (!latest.current.projectAvailable) { setNotice('此終端沒有可用的專案目錄，無法開啟輸出中的檔案。'); return; }
+        latest.current.onOpenFileLink?.(request);
+      },
+      text => { element.title = text; },
+      () => mounted.current && latest.current.visible && !!latest.current.pane.runtimeId && !hasBlockingDialog()));
     term.current = terminal;
     fit.current = fitAddon;
     search.current = searchAddon;
@@ -262,6 +282,7 @@ export function TerminalPane({
       element.removeEventListener('dragover', dragFiles, true);
       element.removeEventListener('drop', dropFiles, true);
       clipboardBlock.dispose();
+      links.dispose();
       terminal.dispose();
       term.current = null;
     };
@@ -689,6 +710,9 @@ export function TerminalPane({
           >
             <Copy size={14} />
           </button>
+          <button className="icon-button" title="開啟選取的檔案路徑，或輸入路徑" aria-label="開啟終端檔案路徑"
+            disabled={!onOpenFileLink || !pane.runtimeId || !projectAvailable}
+            onClick={() => { if (!hasBlockingDialog()) onOpenFileLink?.({ text: term.current?.getSelection() ?? '', autoResolve: false }); }}><FileText size={14} /></button>
           <button
             className="icon-button"
             title="貼上"

@@ -47,6 +47,7 @@ vi.mock('@xterm/xterm', () => ({
     modes = { get bracketedPasteMode() { return mocks.bracketedPaste; } };
     parser = { registerOscHandler: () => ({ dispose() {} }) };
     loadAddon() {}
+    registerLinkProvider() { return { dispose() {} }; }
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { mocks.keyHandler(handler); }
     textarea?: HTMLTextAreaElement;
     open(host: HTMLElement) {

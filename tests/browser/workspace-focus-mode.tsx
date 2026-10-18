@@ -70,6 +70,9 @@ const fileBytes = new Map(['synthetic.txt', 'README.md', 'large.ts', '.config', 
     : path === 'src/index.ts' ? 'export const greeting = () => {\n  const message = "Synthetic";\n  return message;\n};\n' : 'synthetic preview only';
   return [path, new TextEncoder().encode(text)];
 }));
+const terminalFileFixture = fixtureParams.has('file-links');
+if (terminalFileFixture) for (const path of ['src/中文 file(test).ts', 'src/same.ts', 'other/same.ts', 'slow.ts'])
+  fileBytes.set(path, new TextEncoder().encode('first line\nsecond line\nthird line\n'));
 const generatedFileSizes = new Map<string, number>(fixtureParams.get('large-files') === '1' ? [
   ['medium.txt', 1024 * 1024], ['big.txt', 21 * 1024 * 1024],
   ['huge.txt', 65 * 1024 * 1024], ['slow.txt', 2 * 1024 * 1024],
@@ -85,12 +88,12 @@ const imagePacket = (svg: boolean): ArrayBuffer => {
 };
 const generatedLine = 'synthetic row '.padEnd(127, '.') + '\n';
 const fileVersion = (projectId: unknown, path: unknown) => `fixture:${projectId}:${path}:1`;
-const calls: { query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean; path?: string; version?: string; offset?: number; maxBytes?: number }[] = [];
+const calls: { projectId?: string; query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean; path?: string; version?: string; offset?: number; maxBytes?: number }[] = [];
 Object.assign(window, { isTauri: true, focusFixture: { calls } });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
-  calls.push({ command, ...(['inspect_workspace_file', 'read_workspace_file_chunk'].includes(command) ? { path: args.path as string, version: args.version as string | undefined, offset: args.offset as number | undefined, maxBytes: args.maxBytes as number | undefined } : {}), ...(command === 'query_sessions' ? { query: args.query as SessionQuery } : {}), ...(command === 'read_transcript' ? { sessionId: args.sessionId as string } : {}), ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
+  calls.push({ command, ...(command === 'resolve_terminal_file' ? { projectId: args.projectId as string, paneId: args.paneId as string, runtimeId: args.runtimeId as string, path: args.path as string } : {}), ...(['inspect_workspace_file', 'read_workspace_file_chunk'].includes(command) ? { path: args.path as string, version: args.version as string | undefined, offset: args.offset as number | undefined, maxBytes: args.maxBytes as number | undefined } : {}), ...(command === 'query_sessions' ? { query: args.query as SessionQuery } : {}), ...(command === 'read_transcript' ? { sessionId: args.sessionId as string } : {}), ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
   switch (command) {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
@@ -103,6 +106,20 @@ mockIPC((command, payload = {}) => {
       { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
     ], nextOffset: null };
     case 'search_workspace_files': return { paths: ['src/index.ts', 'deep/unvisited.ts', 'README.md'].filter(path => String(args.query).trim() && path.toLowerCase().includes(String(args.query).toLowerCase())), truncated: false };
+    case 'resolve_terminal_file': {
+      if (!terminalFileFixture) throw new Error('Terminal file links disabled in this fixture');
+      const source = runtimes.find(runtime => runtime.id === args.runtimeId && runtime.paneId === args.paneId && runtime.projectId === args.projectId);
+      if (!source) throw new Error('終端身分已變更');
+      const root = bootstrap.projects.find(project => project.id === args.projectId)!.path!;
+      const raw = String(args.path);
+      const absolute = raw.startsWith('/');
+      if (absolute && !raw.startsWith(root + '/')) throw new Error('路徑不在此終端所屬專案內，未開啟檔案');
+      const relative = absolute ? raw.slice(root.length + 1) : raw.replace(/^\.\//, '');
+      const candidates = [...fileBytes.keys()].filter(path => path === relative || !absolute && path.endsWith('/' + relative))
+        .map(path => ({ path, version: fileVersion(args.projectId, path), fromLaunchDirectory: path === relative }));
+      const result = { absolute, candidates, launchDirectory: absolute ? null : '', truncated: false };
+      return relative === 'slow.ts' ? new Promise(resolve => setTimeout(() => resolve(result), 700)) : result;
+    }
     case 'inspect_workspace_file': {
       const path = args.path as string;
       if (imageFiles.includes(path)) return { path, sizeBytes: 100, version: fileVersion(args.projectId, path), kind: 'image' };
@@ -181,7 +198,19 @@ mockIPC((command, payload = {}) => {
       }
       const target = command === 'launch_runtime' ? runtimes.at(-1)!
         : runtimes.find(item => item.id === args.runtimeId)!;
-      const data = Array.from(new TextEncoder().encode(Array.from({ length: 100 }, (_, i) => `Synthetic focus output ${i + 1}\r\n`).join('') + '$ '));
+      const data = Array.from(new TextEncoder().encode(terminalFileFixture ? [
+        'ABS /synthetic/focus/src/index.ts:2:3',
+        'REL src/index.ts:3:4',
+        'SPACE \"/synthetic/focus/src/中文 file(test).ts\":2:2',
+        'BARE same.ts:1',
+        'OSC \x1b]8;;file:///outside/secret.ts\x1b\\/synthetic/focus/src/index.ts:4:1\x1b]8;;\x1b\\',
+        'OSC-PART /synthetic/\x1b]8;;javascript:evil\x1b\\focus\x1b]8;;\x1b\\/src/index.ts:4:1',
+        'OSC-TAIL /synthetic/focus/src/index.ts:4:\x1b]8;;file:///outside/secret.ts\x1b\\1\x1b]8;;\x1b\\',
+        'COLOR \x1b[36m/synthetic/focus/src/index.ts:2:3\x1b[0m',
+        'HTTP https://example.invalid/src/index.ts',
+        'BLOCK /outside/secret.ts:1',
+        '$ ',
+      ].join('\r\n') : Array.from({ length: 100 }, (_, i) => `Synthetic focus output ${i + 1}\r\n`).join('') + '$ '));
       (args.onEvent as Channel<TerminalEvent>).onmessage({ type: 'snapshot', runtimeId: target.id, sequence: 1, data, cols: 100, rows: 30, truncated: false });
       return target;
     }

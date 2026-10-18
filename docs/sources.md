@@ -320,3 +320,7 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 ## 發行與 Snap 更新政策（2026-10-18 查閱）
 
 - [Snap Manage updates](https://snapcraft.io/docs/how-to-guides/manage-snaps/manage-updates/)：Store 預設自動更新；snapd 2.58+ 單套件無期限 hold 與 targeted refresh；本機測試安裝與 Store 行為不同。應用不能以自己的確認框保證阻止 snapd；產品規劃與未完成驗收見[發行與更新](release-update-plan.md)。
+
+## Terminal 檔案連結（2026-10-18）
+
+- 已鎖定的 `@xterm/xterm` 6.0.0 官方套件：`typings/xterm.d.ts` 的 `ILinkProvider`、`IBufferCell.isUnderline/isInvisible` 與 `ILinkHandler`；`src/common/buffer/AttributeData.ts` 核對 URL 屬性也回報底線，`src/browser/Linkifier.ts` 核對內建 OSC8 provider 優先。來源：[xterm.js 6.0.0](https://github.com/xtermjs/xterm.js/tree/6.0.0)。實作僅呼叫公開 API；底線文字保守回退手動路徑輸入。

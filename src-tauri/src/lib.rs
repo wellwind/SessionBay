@@ -22,6 +22,7 @@ pub mod removal;
 pub mod runtime;
 pub mod service;
 pub mod shells;
+mod terminal_file_links;
 mod workspace_files;
 mod workspace_images;
 
