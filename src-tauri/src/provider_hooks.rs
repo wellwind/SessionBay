@@ -50,7 +50,11 @@ pub fn supported(kind: AgentKind) -> bool {
     cfg!(unix)
         && matches!(
             kind,
-            AgentKind::Codex | AgentKind::Claude | AgentKind::OpenCode
+            AgentKind::Codex
+                | AgentKind::Claude
+                | AgentKind::OpenCode
+                | AgentKind::Grok
+                | AgentKind::Antigravity
         )
 }
 
@@ -64,6 +68,12 @@ pub fn configure(spec: &mut LaunchSpec, kind: AgentKind, helper: &Path) -> Resul
     if kind == AgentKind::OpenCode {
         return Err(
             "OpenCode requires launch-local live state; legacy command hooks are unsupported"
+                .into(),
+        );
+    }
+    if matches!(kind, AgentKind::Grok | AgentKind::Antigravity) {
+        return Err(
+            "This provider requires native terminal status; legacy command hooks are unsupported"
                 .into(),
         );
     }

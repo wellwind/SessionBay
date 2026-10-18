@@ -189,8 +189,39 @@ test('ordered observations propagate without PTY activity and expire conservativ
   await expect(sidebarStatus).toHaveCount(0);
   await emit({ generation: 'next-generation', revision: 1, validForMs: 3000 });
   await expect(sidebarStatus).toHaveAttribute('aria-label', /Agent 最近回報/);
-  await emit({ type: 'disconnected', message: 'Synthetic connection loss' });
+  await emit({ type: 'disconnected', runtimeId: 'runtime-a', message: 'Synthetic connection loss' });
   await emit({ generation: 'next-generation', revision: 2, validForMs: 30000 });
   await expect(sidebarStatus).not.toHaveAttribute('aria-label', /Agent 最近回報/);
   expect(await page.evaluate(() => (window as unknown as { agentStatusFixture: { operations: string[] } }).agentStatusFixture.operations)).toEqual([]);
+});
+
+// Synthetic wire events exercise the real App; these are not model-turn evidence.
+test('native terminal states stay distinct and visibly disclose their source', async ({ page }, info) => {
+  await page.goto('/tests/browser/agent-status.html');
+  const tab = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
+  await tab.click();
+  await expect(page.locator('.runtime-connecting')).toHaveCount(0);
+  const indicator = tab.locator('.runtime-activity');
+  let revision = 0;
+  const emit = async (status: string) => page.evaluate(event => {
+    (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit(event);
+  }, { type: 'terminalStatus', runtimeId: 'runtime-a', generation: 'native-terminal', revision: ++revision, status });
+  for (const [status, label] of [
+    ['working', '工作中'], ['permission', '等待權限'], ['question', '等待輸入'],
+    ['authentication', '等待登入'], ['idle', '閒置'], ['done', '已完成'],
+  ]) {
+    await emit(status);
+    await expect(indicator).toHaveAttribute('aria-label', new RegExp(`${label}（終端回報）`));
+    await expect(indicator.locator('.runtime-output-dot')).toHaveCount(0);
+    if (status === 'idle') await expect(indicator).not.toHaveAttribute('aria-label', /已完成/);
+    if (status === 'working' || status === 'done') {
+      await page.screenshot({ path: info.outputPath(`native-terminal-${status}.png`), fullPage: true });
+    }
+  }
+  await page.evaluate(() => {
+    (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
+      type: 'disconnected', runtimeId: 'runtime-a', message: 'Synthetic connection loss',
+    });
+  });
+  await expect(indicator).not.toHaveAttribute('aria-label', /終端回報/);
 });

@@ -127,6 +127,10 @@ where
 struct ThreadMetadata {
     id: String,
     session_id: String,
+    // A parentless thread may be an internal/background task. An explicit user
+    // classification is necessary; ancestry alone is not a foreground signal.
+    #[serde(deserialize_with = "required_nullable")]
+    thread_source: Option<String>,
     #[serde(deserialize_with = "required_nullable")]
     parent_thread_id: Option<String>,
     #[serde(deserialize_with = "required_nullable")]
@@ -200,14 +204,15 @@ struct ThreadRead {
     thread: ThreadMetadata,
 }
 
-/// Reject ambiguous roots, forks and missing identity. A session tree identifier
-/// is deliberately never substituted for the actual thread/read thread ID.
+/// Reject ambiguous/non-user roots, forks and missing identity. A session tree
+/// identifier is never substituted for the actual thread/read thread ID.
 fn select_root(threads: Vec<ThreadMetadata>) -> Option<ThreadMetadata> {
     let mut roots = threads
         .into_iter()
         .filter(|thread| thread.parent_thread_id.is_none());
     let root = roots.next()?;
     if roots.next().is_some()
+        || root.thread_source.as_deref() != Some("user")
         || root.forked_from_id.is_some()
         || !identifier(&root.id)
         || !identifier(&root.session_id)

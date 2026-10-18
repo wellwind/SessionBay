@@ -254,3 +254,61 @@ describe('structured agent observations are independent from terminal output', (
     store!.dispose();
   });
 });
+
+describe('native terminal-reported status has explicit trust and event lifetime', () => {
+  it('retains working without a heartbeat and clears on disconnect', () => {
+    const store = setup();
+    store.observeTerminal('p', 'lease', { type: 'terminalStatus', runtimeId: 'r', generation: 'terminal-g', revision: 1, status: 'working' });
+    vi.advanceTimersByTime(120_000);
+    expect(store.agentSnapshot(['p'])).toBe('工作中（終端回報）');
+    expect(store.snapshot(['p'])).toBe('000');
+    store.end('p', 'lease');
+    expect(store.agentSnapshot(['p'])).toBe('');
+  });
+  it('keeps completed result after process exit but rejects old generation and lease', () => {
+    const store = setup();
+    const done = { type: 'terminalStatus' as const, runtimeId: 'r', generation: 'terminal-g', revision: 2, status: 'done' as const };
+    store.observeTerminal('p', 'lease', done);
+    store.observeTerminal('p', 'lease', { ...done, revision: 1, status: 'working' });
+    store.end('p', 'lease', true);
+    expect(store.agentSnapshot(['p'])).toBe('已完成（終端回報）');
+    store.observeTerminal('p', 'lease', { ...done, revision: 3, status: 'working' });
+    expect(store.agentSnapshot(['p'])).toBe('已完成（終端回報）');
+    store.begin('p', 'new-lease', 'new-runtime', true, false);
+    store.observeTerminal('p', 'lease', done);
+    expect(store.agentSnapshot(['p'])).toBe('');
+  });
+  it('distinguishes idle from done and validates unknown status', () => {
+    const store = setup();
+    const report = { type: 'terminalStatus' as const, runtimeId: 'r', generation: 'terminal-g', revision: 1, status: 'idle' as const };
+    store.observeTerminal('p', 'lease', report);
+    expect(store.agentSnapshot(['p'])).toBe('閒置（終端回報）');
+    store.observeTerminal('p', 'lease', { ...report, revision: 2, status: 'constructor' } as never);
+    expect(store.agentSnapshot(['p'])).toBe('');
+  });
+});
+
+describe('reporting revocation', () => {
+  it('clears a retained result after completion and refuses any later status', () => {
+    const store = setup();
+    const done = { type: 'terminalStatus' as const, runtimeId: 'r', generation: 'g', revision: 1, status: 'done' as const };
+    store.observeTerminal('p', 'lease', done);
+    store.end('p', 'lease', true);
+    store.revokeAgent('p');
+    store.observeTerminal('p', 'lease', { ...done, revision: 2 });
+    expect(store.agentSnapshot(['p'])).toBe('');
+  });
+});
+
+
+describe('completed terminal disconnect', () => {
+  it('clears a retained result and blocks late reports after disconnect', () => {
+    const store = setup();
+    const done = { type: 'terminalStatus' as const, runtimeId: 'r', generation: 'g', revision: 1, status: 'done' as const };
+    store.observeTerminal('p', 'lease', done);
+    store.end('p', 'lease', true);
+    store.end('p', 'lease');
+    store.observeTerminal('p', 'lease', { ...done, revision: 2 });
+    expect(store.agentSnapshot(['p'])).toBe('');
+  });
+});

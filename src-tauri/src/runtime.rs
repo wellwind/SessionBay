@@ -216,10 +216,31 @@ impl RuntimeManager {
 
     pub fn launch(
         &self,
+        spec: LaunchSpec,
+        cols: u16,
+        rows: u16,
+        emit: Emitter,
+    ) -> Result<RuntimeInfo, String> {
+        self.launch_environment(spec, cols, rows, emit, false)
+    }
+    /// App-owned probes only. Ordinary agent launches retain their environment.
+    #[cfg(unix)]
+    pub(crate) fn launch_isolated(
+        &self,
+        spec: LaunchSpec,
+        cols: u16,
+        rows: u16,
+        emit: Emitter,
+    ) -> Result<RuntimeInfo, String> {
+        self.launch_environment(spec, cols, rows, emit, true)
+    }
+    fn launch_environment(
+        &self,
         mut spec: LaunchSpec,
         cols: u16,
         rows: u16,
         emit: Emitter,
+        isolated: bool,
     ) -> Result<RuntimeInfo, String> {
         // Hold this lock through registration to make duplicate-session launches
         // atomic, including concurrent double clicks and shutdown races.
@@ -272,6 +293,9 @@ impl RuntimeManager {
             return Err("The working directory is not a directory".into());
         }
         let mut command = CommandBuilder::new(&spec.executable);
+        if isolated {
+            command.env_clear();
+        }
         command.args(&spec.args);
         command.cwd(&spec.cwd);
         command.env("TERM", "xterm-256color");

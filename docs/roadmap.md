@@ -260,6 +260,9 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 
 Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字內容 diff 不在範圍內。既有 worktree 的正確 Git 探測與非文字變更／衝突處置仍在基礎範圍。
 
+## 真實活動訊號整合進度（2026-10-18）
+
+Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 opt-in broker／UI；後三者明示終端來源信任。五工具全部串接與 Linux 驗證為整合門檻，不能用畫面推測替代。真實無登入啟動、合成回歸、模型回合與平台驗收分開追蹤，見 [原生終端活動訊號](native-terminal-status.md)。Windows 原生 hooks／OSC 的驗收仍未完成。
 
 ### Monaco 唯讀預覽
 

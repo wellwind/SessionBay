@@ -734,6 +734,9 @@ broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn ide
 
 完整規劃與八個實作 PR 的相依／驗收見 [Git 工作台](git-workbench-plan.md)。本次只新增文件，所有 Git 功能均未完成／未驗收；Monaco 等文字引擎仍是候選，沒有選定或安裝。本文件不授權對使用者 repo 執行破壞操作或自動配置憑證。
 
+## 2026-10-18：採用官方 OSC7501，明示終端來源信任
+
+Codex 新版、Grok、Antigravity 使用官方原生終端狀態，補足透明 interactive CLI 與 resume/fork 的限制；不採用競品 screen detection 或 gateable Stop→done。採用獨立 broker capability、無 heartbeat 的 event-maintained 記錄、明確「終端回報」UI 與 opt-in/revoke。Claude/OpenCode 保留既有 lifecycle/plugin 路徑。真實模型回合、Windows 與完整 GUI 未驗事項仍保留。詳見 [原生終端活動訊號](native-terminal-status.md)。
 
 ## 2026-10-18：Monaco 唯讀預覽
 

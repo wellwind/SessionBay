@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 pub const PROTOCOL: u32 = 1;
 const ACTIVITY_CAPABILITY: &str = "orderedAgentActivity";
+const TERMINAL_STATUS_CAPABILITY: &str = "nativeTerminalStatusV1";
 const HOME_DIRECTORY_CAPABILITY: &str = "homeDirectory";
 fn is_false(value: &bool) -> bool {
     !*value
@@ -56,6 +57,12 @@ pub struct RuntimeRecord {
     rename_all_fields = "camelCase"
 )]
 pub enum UiEvent {
+    TerminalStatus {
+        runtime_id: String,
+        generation: String,
+        revision: u64,
+        status: Option<crate::terminal_status::Status>,
+    },
     AgentActivity {
         runtime_id: String,
         generation: String,
@@ -134,6 +141,8 @@ enum Request {
         after: Option<u64>,
         #[serde(default, skip_serializing_if = "is_false")]
         agent_activity: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        terminal_status: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         activity_after: Option<activity::Cursor>,
     },
@@ -402,6 +411,7 @@ impl Host {
                     capabilities: vec![
                         HOME_DIRECTORY_CAPABILITY.into(),
                         ACTIVITY_CAPABILITY.into(),
+                        TERMINAL_STATUS_CAPABILITY.into(),
                         crate::provider_hooks::CAPABILITY.into(),
                     ],
                 })
@@ -464,6 +474,7 @@ impl Host {
                 let image_input = crate::image_input::supports_launch(&kind, &spec);
                 let hook_mode = spec.env.remove(crate::provider_hooks::OPT_IN);
                 let mut hook_expected_session = resume_id.clone();
+                let mut terminal_status_enabled = false;
                 let hook_launch = if matches!(hook_mode.as_deref(), Some("1" | "live")) {
                     let provider = crate::models::AgentKind::parse(&kind)?;
                     let helper = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -481,7 +492,19 @@ impl Host {
                     if hook_mode.as_deref() == Some("live") {
                         match provider {
                             crate::models::AgentKind::Codex => {
-                                crate::codex_state::prepare(&mut spec, &helper)?
+                                terminal_status_enabled =
+                                    crate::terminal_status_launch::prepare(provider, &mut spec)?;
+                                if !terminal_status_enabled {
+                                    crate::codex_state::prepare(&mut spec, &helper)?;
+                                }
+                            }
+                            crate::models::AgentKind::Grok
+                            | crate::models::AgentKind::Antigravity => {
+                                terminal_status_enabled =
+                                    crate::terminal_status_launch::prepare(provider, &mut spec)?;
+                                if !terminal_status_enabled {
+                                    return Err("This provider version does not support reviewed native terminal status".into());
+                                }
                             }
                             crate::models::AgentKind::Claude => {
                                 crate::claude_state::prepare(&mut spec, &helper)?
@@ -497,7 +520,6 @@ impl Host {
                                 hook_expected_session = native;
                                 crate::opencode_state::prepare(&mut spec, &helper)?
                             }
-                            _ => return Err("Live state provider unsupported".into()),
                         }
                     } else {
                         crate::provider_hooks::configure(&mut spec, provider, &helper)?;
@@ -508,6 +530,17 @@ impl Host {
                 };
                 let mut hook_guard = hook_launch.as_ref().map(|_| lock(&self.provider_hooks));
                 let screen = Arc::new(Mutex::new(screen::TerminalScreen::new(cols, rows)));
+                if terminal_status_enabled {
+                    lock(&screen).enable_terminal_status();
+                }
+                let terminal_status = Arc::new(Mutex::new((
+                    crate::terminal_status::Decoder::default(),
+                    crate::terminal_status::Records::default(),
+                )));
+                let status_launch = hook_launch
+                    .as_ref()
+                    .filter(|_| terminal_status_enabled)
+                    .map(|(launch, _)| launch.clone());
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
                 let host = Arc::downgrade(self);
@@ -520,7 +553,38 @@ impl Host {
                         Arc::new(move |event| {
                             if let TerminalEvent::Exit { runtime_id, .. } = &event {
                                 if let Some(host) = host.upgrade() {
-                                    host.revoke_runtime_hooks(runtime_id);
+                                    if let Some(launch) = &status_launch {
+                                        let mut state = lock(&terminal_status);
+                                        state.1.process_exit();
+                                        host.receive_terminal_status(
+                                            launch,
+                                            runtime_id,
+                                            state.1.status(),
+                                        );
+                                    }
+                                    host.finish_runtime_hooks(runtime_id);
+                                }
+                            }
+                            if let (
+                                Some(launch),
+                                TerminalEvent::Output {
+                                    runtime_id, data, ..
+                                },
+                            ) = (&status_launch, &event)
+                            {
+                                let mut state = lock(&terminal_status);
+                                let changes = state.0.feed(data);
+                                if !changes.is_empty() {
+                                    for change in changes {
+                                        state.1.apply(change);
+                                    }
+                                    if let Some(host) = host.upgrade() {
+                                        host.receive_terminal_status(
+                                            launch,
+                                            runtime_id,
+                                            state.1.status(),
+                                        );
+                                    }
                                 }
                             }
                             let ack = match &event {
@@ -586,6 +650,7 @@ impl Host {
                             ended: false,
                             source_sequence: 0,
                             live: hook_mode.as_deref() == Some("live"),
+                            terminal: terminal_status_enabled,
                             retired_sessions: Default::default(),
                         },
                     );
@@ -624,6 +689,7 @@ impl Host {
                 runtime_id,
                 after,
                 agent_activity,
+                terminal_status,
                 activity_after,
                 ..
             } => {
@@ -648,7 +714,9 @@ impl Host {
                         self.poll_activity(&runtime_id, activity_after.as_ref(), Instant::now())
                     {
                         // Invalidation precedes the exit that ends the subscription.
-                        events.insert(0, event);
+                        if terminal_status || !matches!(event, UiEvent::TerminalStatus { .. }) {
+                            events.insert(0, event);
+                        }
                     }
                 }
                 Ok(Response::Events { events })
@@ -932,6 +1000,7 @@ mod tests {
                     runtime_id: info.id.clone(),
                     after: None,
                     agent_activity: false,
+                    terminal_status: false,
                     activity_after: None,
                 })
                 .unwrap();
@@ -1079,3 +1148,6 @@ mod tests {
         host.runtime.shutdown().unwrap();
     }
 }
+
+#[cfg(all(test, unix))]
+mod terminal_status_tests;

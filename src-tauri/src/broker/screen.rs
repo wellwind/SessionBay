@@ -92,10 +92,15 @@ fn relative_cursor(bytes: &[u8], top: u16) -> Vec<u8> {
 #[derive(Default)]
 struct Queries {
     replies: Vec<u8>,
+    terminal_status: bool,
 }
 impl vt100::Callbacks for Queries {
     fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
         if self.replies.len() >= 4096 || params.get(1) != Some(&b"?".as_slice()) {
+            return;
+        }
+        if self.terminal_status && params.first() == Some(&b"7501".as_slice()) {
+            self.replies.extend(b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\");
             return;
         }
         // A detached terminal still has a deterministic default palette. This
@@ -173,6 +178,9 @@ impl TerminalScreen {
             exit: None,
             error: None,
         }
+    }
+    pub fn enable_terminal_status(&mut self) {
+        self.parser.callbacks_mut().terminal_status = true;
     }
     pub fn event(&mut self, event: TerminalEvent) {
         match event {
@@ -580,5 +588,14 @@ mod tests {
         assert_eq!(screen.replies(), b"\x1b]11;rgb:1111/1515/1a1a\x1b\\");
         assert_eq!(screen.sequence, 0);
         assert!(screen.replay.is_empty());
+    }
+    #[test]
+    fn program_status_negotiation_is_opt_in_and_precedes_device_attributes() {
+        let mut screen = TerminalScreen::new(80, 24);
+        output(&mut screen, b"\x1b]7501;?\x07");
+        assert!(screen.replies().is_empty());
+        screen.enable_terminal_status();
+        output(&mut screen, b"\x1b]7501;?\x07\x1b[c");
+        assert_eq!(screen.replies(), b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\\x1b[?1;2c");
     }
 }

@@ -1,4 +1,4 @@
-import { AGENT_OBSERVATION_LABELS, isAgentObservation, MAX_OBSERVATION_TTL_MS, type AgentActivityEvent, type AgentObservation } from './agent-observation';
+import { AGENT_OBSERVATION_LABELS, isAgentObservation, MAX_OBSERVATION_TTL_MS, type AgentActivityEvent, type AgentObservation, type TerminalStatusEvent, TERMINAL_STATUS_OBSERVATIONS } from './agent-observation';
 /** Ephemeral metadata only. Never stores terminal bytes or infers agent busy/idle. */
 interface Activity {
   agent?: { generation: string; revision: number; observation: AgentObservation | null; until: number };
@@ -6,6 +6,7 @@ interface Activity {
   agentBlocked: boolean;
   lease: string;
   active: boolean;
+  allowTerminalResult: boolean;
   runtimeId?: string;
   sequence: number;
   visible: boolean;
@@ -42,14 +43,31 @@ export class RuntimeActivityStore {
     const labels = new Set<AgentObservation>(), runtimes = new Set<string>();
     for (const id of ids) {
       const item = this.entries.get(id);
-      if (!item?.active || !item.runtimeId || runtimes.has(item.runtimeId)) continue;
+      if (!item || (!item.active && !['terminalDone', 'terminalError'].includes(item.agent?.observation ?? '')) || !item.runtimeId || runtimes.has(item.runtimeId)) continue;
       runtimes.add(item.runtimeId);
       if (item.agent?.observation && item.agent.until > performance.now()) labels.add(item.agent.observation);
     }
     return [...labels].join('|');
   }
-  observe(id: string, lease: string, event: AgentActivityEvent) {
-    const item = this.current(id, lease);
+  observeTerminal(id: string, lease: string, event: TerminalStatusEvent) {
+    const retained = this.entries.get(id);
+    const settled = event.status === 'done' || event.status === 'error';
+    const item = this.current(id, lease) ?? (settled && retained?.lease === lease && retained.allowTerminalResult ? retained : undefined);
+    if (!item || item.runtimeId !== event.runtimeId || item.agentBlocked) return;
+    if (event.status !== null && !Object.hasOwn(TERMINAL_STATUS_OBSERVATIONS, event.status)) {
+      if (item.agent) item.agent.observation = null;
+      this.changed(); return;
+    }
+    const observation = event.status === null ? null : TERMINAL_STATUS_OBSERVATIONS[event.status];
+    this.observe(id, lease, { type: 'agentActivity', runtimeId: event.runtimeId, generation: event.generation,
+      revision: event.revision, observation, validForMs: observation === null ? 0 : MAX_OBSERVATION_TTL_MS }, settled);
+    // The OSC protocol has no heartbeat. Lifetime is native replacement/reset/
+    // process events; a lost UI/broker connection still ends this local lease.
+    if (item.agent?.generation === event.generation && item.agent.revision === event.revision) item.agent.until = Infinity;
+  }
+  observe(id: string, lease: string, event: AgentActivityEvent, terminalResult = false) {
+    const retained = this.entries.get(id);
+    const item = this.current(id, lease) ?? (terminalResult && retained?.lease === lease && retained.allowTerminalResult ? retained : undefined);
     if (!item || item.runtimeId !== event.runtimeId || item.agentBlocked) return;
     if (typeof event.generation !== 'string' || !event.generation.length || event.generation.length > 128
       || Array.from(event.generation).some(char => char.charCodeAt(0) < 32 || (char.charCodeAt(0) >= 127 && char.charCodeAt(0) <= 159))
@@ -71,7 +89,7 @@ export class RuntimeActivityStore {
   begin(id: string, lease: string, runtimeId: string | undefined, visible: boolean, connecting = true) {
     if (this.disposed) return;
     const previous = this.entries.get(id);
-    this.entries.set(id, { lease, generations: new Set(), agentBlocked: false, active: true, runtimeId, sequence: -1, visible, recent: false,
+    this.entries.set(id, { lease, generations: new Set(), agentBlocked: false, active: true, allowTerminalResult: false, runtimeId, sequence: -1, visible, recent: false,
       unread: !!runtimeId && runtimeId === previous?.runtimeId && !!previous.unread && !(visible && this.foreground),
       connecting, recentUntil: 0, connectingUntil: connecting ? Date.now() + CONNECTING_RECENCY_MS : 0 });
     this.changed(); this.scheduleExpiry();
@@ -111,11 +129,19 @@ export class RuntimeActivityStore {
     for (const item of this.entries.values()) if (item.visible && item.unread) { item.unread = false; changed = true; }
     if (changed) this.changed();
   }
-  end(id: string, lease: string) {
-    const item = this.current(id, lease); if (!item) return;
+  revokeAgent(id: string) {
+    const item = this.entries.get(id); if (!item) return;
+    item.agent = undefined; item.agentBlocked = true; item.allowTerminalResult = false;
+    this.changed();
+  }
+  end(id: string, lease: string, preserveTerminalResult = false) {
+    const item = this.entries.get(id); if (!item || item.lease !== lease) return;
+    // A later disconnect must also invalidate a result retained after exit.
+    if (!item.active && preserveTerminalResult) return;
     item.recent = false; item.connecting = false;
     // Revoke the lease immediately: later queued output cannot revive activity.
-    item.active = false; item.agent = undefined;
+    item.active = false; item.allowTerminalResult = preserveTerminalResult;
+    if (!preserveTerminalResult || !['terminalDone', 'terminalError'].includes(item.agent?.observation ?? '')) item.agent = undefined;
     this.changed();
   }
   remove(id: string, lease: string) {

@@ -282,6 +282,7 @@ fn activity_poll_negotiation_omits_every_new_field_for_legacy_hosts() {
             runtime_id: "r".into(),
             after: Some(0),
             agent_activity: client.inner.activity_supported,
+            terminal_status: client.inner.terminal_status_supported,
             activity_after: None,
         };
         assert!(
@@ -302,8 +303,37 @@ fn activity_poll_negotiation_omits_every_new_field_for_legacy_hosts() {
         runtime_id: "r".into(),
         after: Some(0),
         agent_activity: true,
+        terminal_status: false,
         activity_after: None,
     })
     .unwrap();
     assert!(serde_json::from_value::<LegacyRequest>(wire).is_err());
+}
+
+#[test]
+fn terminal_status_has_an_independent_negotiated_capability() {
+    for (capabilities, expected) in [
+        (serde_json::json!(["orderedAgentActivity"]), false),
+        (
+            serde_json::json!(["orderedAgentActivity", "nativeTerminalStatusV1"]),
+            true,
+        ),
+    ] {
+        let client =
+            BrokerClient::from_hello(Path::new("/unused"), hello(Some(capabilities))).unwrap();
+        assert_eq!(client.inner.terminal_status_supported, expected);
+        let wire = serde_json::to_value(Request::Poll {
+            generation: client.generation(),
+            runtime_id: "r".into(),
+            after: None,
+            agent_activity: true,
+            terminal_status: client.inner.terminal_status_supported,
+            activity_after: None,
+        })
+        .unwrap();
+        assert_eq!(
+            wire.get("terminalStatus"),
+            expected.then_some(&serde_json::Value::Bool(true))
+        );
+    }
 }

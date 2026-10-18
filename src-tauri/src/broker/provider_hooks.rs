@@ -18,6 +18,7 @@ pub(super) struct Lease {
     pub ended: bool,
     pub source_sequence: u64,
     pub live: bool,
+    pub terminal: bool,
     pub retired_sessions: std::collections::HashSet<String>,
 }
 impl Drop for Lease {
@@ -29,6 +30,37 @@ impl Drop for Lease {
     }
 }
 impl Host {
+    pub(super) fn receive_terminal_status(
+        &self,
+        launch: &str,
+        runtime_id: &str,
+        status: Option<crate::terminal_status::Status>,
+    ) {
+        let mut leases = lock(&self.provider_hooks);
+        let Some(lease) = leases
+            .get_mut(launch)
+            .filter(|lease| lease.terminal && lease.runtime_id == runtime_id && !lease.ended)
+        else {
+            return;
+        };
+        let mut states = lock(&self.activity);
+        if lease.activity_generation.is_none() {
+            // This identity is the owned terminal launch, never a claim about a
+            // native provider session or about who wrote bytes into the PTY.
+            let Ok(state) = activity::State::new(runtime_id, lease.provider, launch) else {
+                return;
+            };
+            lease.activity_generation = Some(state.hook_generation().to_owned());
+            states.insert(runtime_id.into(), state);
+        }
+        if let Some(state) = states
+            .get_mut(runtime_id)
+            .filter(|state| lease.activity_generation.as_deref() == Some(state.hook_generation()))
+        {
+            state.publish_terminal(status);
+        }
+    }
+
     pub(super) fn receive_provider_hook(
         &self,
         launch: &str,
@@ -138,7 +170,7 @@ impl Host {
         {
             return Err("State runtime is no longer running".into());
         }
-        if !lease.live {
+        if !lease.live || lease.terminal {
             return Err("State source is not registered for this launch".into());
         }
         if lease.source_sequence.checked_add(1) != Some(report.sequence) {
@@ -178,15 +210,13 @@ impl Host {
         }
     }
     pub(super) fn revoke_provider_hooks(&self, provider: AgentKind) {
-        let mut leases = lock(&self.provider_hooks);
-        let ids: Vec<_> = leases
-            .values()
-            .filter(|lease| lease.provider == provider)
-            .map(|lease| lease.runtime_id.clone())
-            .collect();
-        leases.retain(|_, lease| lease.provider != provider);
-        for id in ids {
-            self.close_runtime_activity(&id);
+        lock(&self.provider_hooks).retain(|_, lease| lease.provider != provider);
+        self.revoke_provider_activity(provider);
+    }
+    pub(super) fn finish_runtime_hooks(&self, runtime_id: &str) {
+        lock(&self.provider_hooks).retain(|_, lease| lease.runtime_id != runtime_id);
+        if let Some(state) = lock(&self.activity).get_mut(runtime_id) {
+            state.process_exit();
         }
     }
     pub(super) fn revoke_runtime_hooks(&self, runtime_id: &str) {
