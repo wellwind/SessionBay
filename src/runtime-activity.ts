@@ -135,7 +135,9 @@ export class RuntimeActivityStore {
     this.changed();
   }
   end(id: string, lease: string, preserveTerminalResult = false) {
-    const item = this.current(id, lease); if (!item) return;
+    const item = this.entries.get(id); if (!item || item.lease !== lease) return;
+    // A later disconnect must also invalidate a result retained after exit.
+    if (!item.active && preserveTerminalResult) return;
     item.recent = false; item.connecting = false;
     // Revoke the lease immediately: later queued output cannot revive activity.
     item.active = false; item.allowTerminalResult = preserveTerminalResult;

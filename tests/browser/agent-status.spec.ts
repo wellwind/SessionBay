@@ -189,7 +189,7 @@ test('ordered observations propagate without PTY activity and expire conservativ
   await expect(sidebarStatus).toHaveCount(0);
   await emit({ generation: 'next-generation', revision: 1, validForMs: 3000 });
   await expect(sidebarStatus).toHaveAttribute('aria-label', /Agent 最近回報/);
-  await emit({ type: 'disconnected', message: 'Synthetic connection loss' });
+  await emit({ type: 'disconnected', runtimeId: 'runtime-a', message: 'Synthetic connection loss' });
   await emit({ generation: 'next-generation', revision: 2, validForMs: 30000 });
   await expect(sidebarStatus).not.toHaveAttribute('aria-label', /Agent 最近回報/);
   expect(await page.evaluate(() => (window as unknown as { agentStatusFixture: { operations: string[] } }).agentStatusFixture.operations)).toEqual([]);
@@ -220,7 +220,7 @@ test('native terminal states stay distinct and visibly disclose their source', a
   }
   await page.evaluate(() => {
     (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
-      type: 'disconnected', message: 'Synthetic connection loss',
+      type: 'disconnected', runtimeId: 'runtime-a', message: 'Synthetic connection loss',
     });
   });
   await expect(indicator).not.toHaveAttribute('aria-label', /終端回報/);

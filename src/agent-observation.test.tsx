@@ -299,3 +299,16 @@ describe('reporting revocation', () => {
     expect(store.agentSnapshot(['p'])).toBe('');
   });
 });
+
+
+describe('completed terminal disconnect', () => {
+  it('clears a retained result and blocks late reports after disconnect', () => {
+    const store = setup();
+    const done = { type: 'terminalStatus' as const, runtimeId: 'r', generation: 'g', revision: 1, status: 'done' as const };
+    store.observeTerminal('p', 'lease', done);
+    store.end('p', 'lease', true);
+    store.end('p', 'lease');
+    store.observeTerminal('p', 'lease', { ...done, revision: 2 });
+    expect(store.agentSnapshot(['p'])).toBe('');
+  });
+});
