@@ -36,6 +36,10 @@ export class RuntimeActivityStore {
     }
     return `${Number(recent)}${Number(unread)}${Number(connecting)}`;
   }
+  paneAgentState(id: string, runtimeId: string | undefined): string {
+    if (!runtimeId || this.entries.get(id)?.runtimeId !== runtimeId) return '';
+    return this.agentStates([id]);
+  }
   agentSnapshot(ids: readonly string[]): string {
     return this.agentStates(ids).split('|').filter(isAgentObservation).map(value => AGENT_OBSERVATION_LABELS[value]).join('、');
   }

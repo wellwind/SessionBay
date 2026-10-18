@@ -820,6 +820,10 @@ Fresh Agent 僅在 typed 本地能力 preflight 明確零 Launch 拒絕後，顯
 
 新增確定性 barrier 測試：外部持有 catalog write transaction，確認取得 fresh 後取消，再釋放 writer，驗證零 Launch；另驗證等待 fresh、consume 後取消及 UI 延遲確認／回覆。保留原 fresh→catalog→settings 鎖序，沒有為取消反轉鎖序。
 
+## 2026-10-18：Agent 面板右側只顯示可靠活動與必要生命週期
+
+正常存活的 Agent 不再顯示「執行中」、「已啟動，待確認 Session」或重複的「程序存活」徽章。右側只投影既有 store 的明確 busy／idle／retry、等待輸入／權限及原生終端狀態；事件型 observation、未知與過期資料留白，不由 PTY 輸出推測。終端來源保留「（終端回報）」；閒置不等於成功。啟動、重新附接、斷線、中斷、失敗、退出與還原布局提示優先，普通 Shell 維持原生命週期文字。訂閱隔離在小型文字元件，沿用既有 TTL、lease 與 runtime 隔離，不新增輪詢或 provider parsing。合成元件與瀏覽器測試不代替真實 Agent／原生跨平台驗收。
+
 ## 2026-10-18：精簡 Zen 分頁列控制
 
 移除分頁列 ＋ 左側的專案名稱／完整控制列按鈕。正常與專注模式各只保留一個純圖示 Zen 切換，提供 hover／focus tooltip、可存取名稱與按下狀態；總覽的退出入口亦同。既有 Zen 與顯示／隱藏側欄快捷鍵、命令面板及 Runtime 生命週期保持不變。
