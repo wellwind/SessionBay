@@ -29,6 +29,15 @@ jobs:
       - run: npm ci
       - name: Frontend checks
         run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: Official Claude offline plugin runtime (synthetic events, no model)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sessionbay-claude-runtime" --ignore-scripts --no-audit --no-fund --save-exact --registry https://registry.npmjs.org @anthropic-ai/claude-code@2.1.302
+          CLAUDE_BINARY="$RUNNER_TEMP/sessionbay-claude-runtime/node_modules/@anthropic-ai/claude-code-linux-x64/claude" node scripts/test-claude-plugin-runtime.mjs
+      - name: Official OpenCode plugin loader (no model)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sessionbay-opencode-binary" --ignore-scripts --no-audit --no-fund --save-exact --registry https://registry.npmjs.org opencode-linux-x64@1.19.3
+          npm install --prefix "$RUNNER_TEMP/sessionbay-opencode-plugin" --ignore-scripts --no-audit --no-fund --save-exact --registry https://registry.npmjs.org @opencode-ai/plugin@1.19.3
+          OPENCODE_BINARY="$RUNNER_TEMP/sessionbay-opencode-binary/node_modules/opencode-linux-x64/bin/opencode" OPENCODE_PLUGIN_DEPENDENCIES="$RUNNER_TEMP/sessionbay-opencode-plugin" node scripts/test-opencode-plugin-runtime.mjs
       - name: Verify sandbox-supported Chrome and install browser dependencies
         run: |
           command -v google-chrome
@@ -118,5 +127,24 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - name: Rust core tests (no desktop)
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked --no-default-features
+      - name: Official Antigravity native status through production broker (no model)
+        run: |
+          set -eu
+          prefix="$RUNNER_TEMP/sessionbay-agy-status"
+          mkdir -p "$prefix/home"
+          curl --fail --location --proto '=https' --tlsv1.2 --max-time 120 'https://storage.googleapis.com/antigravity-public/antigravity-cli/1.4.2-4835981233356800/linux-x64/cli_linux_x64.tar.gz' --output "$prefix/agy.tar.gz"
+          echo '4a393afc1369cee94e817c1b430c9128d02b12ebd4d5703ace5cd47b2333e216d673fb0097cbf7195f757b110163ba9850e9eea3fdbbaddd4b25668b82c03f05  '"$prefix/agy.tar.gz" | sha512sum --check --status
+          python3 - "$prefix" <<'PY'
+          import pathlib, sys, tarfile
+          root = pathlib.Path(sys.argv[1])
+          with tarfile.open(root / 'agy.tar.gz', 'r:gz') as archive:
+              entry = archive.getmember('antigravity')
+              assert entry.isfile() and entry.size < 512 * 1024 * 1024
+              with archive.extractfile(entry) as source, (root / 'agy').open('xb') as target:
+                  while chunk := source.read(1024 * 1024):
+                      target.write(chunk)
+          (root / 'agy').chmod(0o700)
+          PY
+          env -i PATH="$PATH" HOME="$prefix/home" CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" SESSIONBAY_AGY_TEST_BINARY="$prefix/agy" cargo test --manifest-path src-tauri/Cargo.toml --locked --offline --no-default-features --lib actual_antigravity_auth_state_reaches_production_broker -- --ignored
       - name: Rust core lint (no desktop)
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --no-default-features --all-targets -- -D warnings

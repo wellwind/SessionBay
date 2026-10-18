@@ -411,3 +411,39 @@ fn replaced_reindexed_database_does_not_focus_old_runtime() {
         "Replacement DB incorrectly reused previous DB runtime"
     );
 }
+
+#[test]
+fn live_state_opt_in_preserves_indexed_and_manual_source_launch_plans() {
+    let (_tmp, service, _source, indexed) = setup();
+    let ordinary = service.plan_launch(&indexed).unwrap();
+    assert!(!ordinary
+        .env
+        .contains_key(sessionbay_lib::provider_hooks::OPT_IN));
+    let mut settings = service.settings().unwrap();
+    settings.agent_hooks.insert("opencode".into(), true);
+    service.save_settings(settings.clone()).unwrap();
+    for request in [
+        indexed.clone(),
+        LaunchRequest {
+            session_id: None,
+            resume_id: Some(ID.into()),
+            pane_id: "manual-live".into(),
+            ..indexed.clone()
+        },
+    ] {
+        let live = service.plan_launch(&request).unwrap();
+        assert_eq!(live.env[sessionbay_lib::provider_hooks::OPT_IN], "live");
+        assert_eq!(live.args, ordinary.args);
+        assert_eq!(live.executable, ordinary.executable);
+        assert_eq!(live.cwd, ordinary.cwd);
+        assert_eq!(live.resume_key, ordinary.resume_key);
+        assert_eq!(live.env["OPENCODE_DB"], ordinary.env["OPENCODE_DB"]);
+    }
+    settings.agent_hooks.insert("opencode".into(), false);
+    service.save_settings(settings).unwrap();
+    assert!(!service
+        .plan_launch(&indexed)
+        .unwrap()
+        .env
+        .contains_key(sessionbay_lib::provider_hooks::OPT_IN));
+}

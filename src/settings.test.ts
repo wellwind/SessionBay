@@ -1310,3 +1310,30 @@ describe('history root directory selection', () => {
     expect(providerHistory('codex').getByLabelText('CODEX_HOME 資料目錄')).toHaveValue('/home/test/.codex');
   });
 });
+
+describe('launch-local activity hook opt-in', () => {
+  it.each(['codex', 'claude', 'opencode', 'grok', 'antigravity'] as const)('%s defaults off, saves explicitly, and keeps cancellation local to the draft', async (kind) => {
+    const config = props();
+    const view = render(createElement(SettingsPanel, config));
+    selectAgent(kind);
+    const toggle = screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(config.onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].agentHooks).toEqual({ [kind]: true });
+    view.unmount();
+    render(createElement(SettingsPanel, props()));
+    selectAgent(kind);
+    expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).not.toBeChecked();
+  });
+  it('explains terminal writer trust for native terminal status', () => {
+    render(createElement(SettingsPanel, props()));
+    for (const kind of ['grok', 'antigravity'] as const) {
+      selectAgent(kind);
+      expect(screen.getByRole('checkbox', { name: /真實活動 hooks/ })).not.toBeChecked();
+      expect(screen.getByText(/任意終端寫入者/)).toBeInTheDocument();
+    }
+  });
+});

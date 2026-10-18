@@ -48,3 +48,5 @@
 .sidebar { overflow-y: auto; }
 .sidebar .sidebar-project-content { flex-shrink: 0; max-height: min(480px, 55vh); }
 .sidebar .project-search { flex-shrink: 0; }
+
+.runtime-activity.agent-working { color: var(--accent); }

@@ -124,6 +124,8 @@ pub struct Settings {
     pub agent_options: AgentOptions,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub agent_enabled: HashMap<String, bool>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub agent_hooks: HashMap<String, bool>,
     pub shortcuts: HashMap<String, String>,
     pub onboarding_complete: bool,
 }
@@ -177,6 +179,7 @@ impl Default for Settings {
             executables: Executables::default(),
             agent_options: AgentOptions::default(),
             agent_enabled: HashMap::new(),
+            agent_hooks: HashMap::new(),
             shortcuts,
             onboarding_complete: false,
         }
@@ -296,6 +299,14 @@ impl Settings {
                 return Err("Agent 執行檔設定不可空白".into());
             }
             crate::launch_options::validate(kind, self.agent_options.for_kind(kind))?;
+        }
+        if self.agent_hooks.keys().any(|kind| {
+            !matches!(
+                kind.as_str(),
+                "codex" | "claude" | "opencode" | "grok" | "antigravity"
+            )
+        }) {
+            return Err("此 Agent 尚未支援真實 hooks".into());
         }
         if self.shortcuts.len() > 32 {
             return Err("快捷鍵設定過多".into());

@@ -693,6 +693,21 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 - 沿用 owner-authenticated broker IPC，以記憶體內 capability／runtime generation 綁定單一 ordered publisher；不新增 listener、永久憑證或修改 Agent 設定。
 - 獨立 activity cursor／revision／剩餘 TTL 傳到 App，不使用 PTY output ACK；未知、過期、失聯立即保守隱藏。
 - 真實 CLI callbacks 尚無可靠因果 bridge，預設全部關閉。合成 socket 與 actual-App seams 詳見 [傳輸設計](agent-activity-transport.md)，不等於真實 CLI／三平台 native 驗收。
+
+## 2026-10-18：真實 Agent launch-local hook bridge
+
+Codex／Claude 的明確 opt-in 由 SessionBay 每次啟動參數註冊同步 command hooks，callback 使用應用程式本身，不要求 Node／Python 額外常駐程式。Codex 使用 `--no-daemon` 保持 routing environment 與目前 runtime 同生命週期。既有全域／專案設定不修改，hook trust 不略過；尚未信任的 Codex hooks 需使用者在 `/hooks` 核准，再由 SessionBay 重新啟動／恢復完成 SessionStart 綁定。
+
+broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn identity、generation 與撤銷。只把小型識別與事件欄位送入 owner-authenticated IPC；不轉傳或保存 prompt、tool input、transcript path／內容。callback 永遠回傳中立 `{}`，不能替使用者核准工具或影響模型決策。
+
+不把 Stop 當完成、不把 PermissionRequest 當使用者正在等待。Claude Notification 可提供延遲的等待輸入／權限回報。工具平行事件未註冊，不能將 callback 到達順序聲稱為 provider 的完整因果序。SessionEnd 後只有新的 parent SessionStart 可重綁；已退役 Session ID 不可復活，同 ID 重新進入須重開 pane。這些是有限期 observation，不以 PTY 靜默或輸出猜測活動。
+
+真實 CLI 與 native WebView 的端到端驗證需另列實際版本、通過情境與受阻原因；合成 driver 測試不能代稱實機驗收。
+
+## 2026-10-18：原生狀態來源取代 gateable hooks 作為正式 launch 路徑
+
+前述 command-hook bridge 保留低階測試；正式設定啟用後，Claude >=2.1.287 改以 launch-local mod 的主回合 start/complete，Codex 改以 app-owned private app-server + 原生 remote TUI + metadata-only observer。既有 hooks/notify 不覆寫，不增加模型請求。由單一來源序號與30秒快照期限傳送 current state；舊 gateable callback 不能覆寫。Claude 只宣稱 active main turn／完成，尚不辨識回合內等待。詳細版本限制、未知／撤銷、隔離原生驗收步驟見 [provider-hooks](provider-hooks.md)。
+
 ## 2026-10-18：專案內右側 Activity Bar
 
 原先全域三功能方案經畫面回饋撤回：切換全域 Sessions 卻保留目錄總覽造成脈絡混淆，並有額外留白。依確認後的新方案，左側恢復專案／所有目錄，工具限於選定專案，位於最右側，歷史 Sessions 第一、Files 第二；Projects 不再是工具 contribution。
@@ -700,6 +715,16 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 工具面板向左展開，一次一個，收合不保留寬度；總覽不顯示工具。中央檢視與工具選取按專案保留，正常／專注工具狀態分開；專注預設收合右工具並隱藏左導航。圖示與專注切換不替換中央內容或重啟 Runtime。首次進入無工作專案開歷史，有工作專案恢復工作分頁。
 
 保留內部 typed contribution contract：功能提供 ID、圖示、名稱、renderer、availability、badge 與啟用 callback，shell 負責順序、選取／收合、鍵盤、首次延遲掛載、狀態保留與 overflow。功能 renderer 從專案 context 取得資料；不建立第三方插件平台或尚未實作的 Git 按鈕。
+
+## 2026-10-18：OpenCode 使用 launch-local plugin 回報原生活動
+
+下一個正式來源採 OpenCode 1.19.2 以上、2.0.0 以下的 stable CLI；這是已審閱 1.19.2／1.19.3 原始碼後選定的支援基線，不是宣稱 hooks 最早版本。Unix 每次啟動在 owner-only 暫存目錄建立固定、無套件依賴的 `.mjs`，只在子程序 `OPENCODE_CONFIG_CONTENT` 加入 file URI，保留既有 JSONC、plugin 與 argv。`--pure`／`OPENCODE_PURE` 仍禁止 plugin；啟用活動時明確拒絕不相容設定，不偷偷移除旗標。Windows 尚不啟用此來源。
+
+新 root 只能由 `chat.message` 加上該 provider client 回傳的相符 Session／directory／無 parentID 建立；恢復以原生 `ses_` ID 驗證，不使用 catalog ID 或 resume deduplication hash。任意第一個 status、歷史最近 Session、child 及未驗證 ancestry 不能綁定。每個 launch 只有單一 ordered reporter；多次 plugin 初始化不重設序號，dispose／通訊中斷後不復活舊來源。
+
+`session.status` 的 busy／retry／idle 是活動依據；permission／question 的 asked/replied/rejected 維護有界 pending ID 集合，不讀內容。`session.error` 也可能是可恢復的準備錯誤，故降為 unknown，不武斷宣稱 terminal failure；後續 idle 不把不確定結果升級為成功。只有新 busy/retry 恢復連續來源。idle 只表示 provider 閒置，不保證工作成功。5 秒刷新只重送事件維護的狀態；broker 原有30秒 TTL、世代與撤銷仍生效。
+
+合成 plugin／helper／broker contracts 可以在無登入、無模型呼叫的 Linux 環境驗證；正式 CLI 載入與真實回合另列證據，不能以 fixture 代替。macOS／Windows 原生 QA 繼續標示尚未執行，不作目前 Linux 交付的假性通過。
 
 ## 2026-10-18：Git 工作台規劃定案，功能尚未實作
 
@@ -709,6 +734,9 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 
 完整規劃與八個實作 PR 的相依／驗收見 [Git 工作台](git-workbench-plan.md)。本次只新增文件，所有 Git 功能均未完成／未驗收；Monaco 等文字引擎仍是候選，沒有選定或安裝。本文件不授權對使用者 repo 執行破壞操作或自動配置憑證。
 
+## 2026-10-18：採用官方 OSC7501，明示終端來源信任
+
+Codex 新版、Grok、Antigravity 使用官方原生終端狀態，補足透明 interactive CLI 與 resume/fork 的限制；不採用競品 screen detection 或 gateable Stop→done。採用獨立 broker capability、無 heartbeat 的 event-maintained 記錄、明確「終端回報」UI 與 opt-in/revoke。Claude/OpenCode 保留既有 lifecycle/plugin 路徑。真實模型回合、Windows 與完整 GUI 未驗事項仍保留。詳見 [原生終端活動訊號](native-terminal-status.md)。
 
 ## 2026-10-18：Monaco 唯讀預覽
 
