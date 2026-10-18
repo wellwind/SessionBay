@@ -629,7 +629,6 @@ export function SettingsPanel({
                           onChange={(event) => update('agentEnabled', { ...draft.agentEnabled, [selectedAgent]: event.target.checked })} />
                         <strong>啟用 {agentNames[selectedAgent]}</strong>
                       </label>
-                      <p className="settings-help">儲存後套用。停用會暫停新啟動、接續與歷史掃描；保留既有歷史、來源與工具設定，執行中的工作不受影響。</p>
                       {[selectedAgent].map((kind) => {
                         const installation = installations.find((item) => item.kind === kind);
                         const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
@@ -654,7 +653,6 @@ export function SettingsPanel({
                     <div className="settings-section-heading" id="settings-agent-tools">
                       <div>
                         <h3>啟動設定</h3>
-                        <p>工具可啟動與歷史可讀取，會分別確認。</p>
                       </div>
                       <button
                         type="button"
@@ -702,9 +700,7 @@ export function SettingsPanel({
                             {installation?.error && (
                               <p className="settings-subtle-warning">{installation.error}</p>
                             )}
-                            <p className="settings-help">{agentCapabilities[kind].history.supported
-                              ? '支援唯讀歷史索引、搜尋及接續。'
-                              : '支援啟動／指定對話 ID 恢復，尚不索引歷史。'}</p>
+                            {!agentCapabilities[kind].history.supported && <p className="settings-help">支援啟動／指定對話 ID 恢復，尚不索引歷史。</p>}
                             <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>
                               <summary aria-label={`${agentNames[kind]} 參數與權限設定`}>
                                 <span>參數與權限</span><span>{draft.agentOptions[kind].bypassPermissions ? '高風險模式已開啟' : argumentSummary}</span>
@@ -755,7 +751,7 @@ export function SettingsPanel({
                               <AgentIcon kind={kind} />
                               <h4>{capability.name}</h4>
                             </div>
-                            <p className="settings-help">{capability.history.description}</p>
+                            {kind !== 'codex' && <p className="settings-help">{capability.history.description}</p>}
                             <button type="button" className="settings-button secondary compact"
                               disabled={!capability.history.supported || !onDetectHistorySources}
                               aria-label={`偵測 ${capability.name} 歷史來源`}
@@ -1127,7 +1123,7 @@ export function SettingsPanel({
                         onChange={(event) => update('appZoom', event.target.value === '' ? Number.NaN : Number(event.target.value))}
                         aria-invalid={Boolean(errors.appZoom)} aria-describedby="app-zoom-error app-zoom-help" />
                       <FieldError id="app-zoom-error" message={errors.appZoom} />
-                      <p className="settings-help" id="app-zoom-help">{workspaceZoomShortcutHelp} 儲存保留、取消捨棄還原；終端基準字級不變。</p>
+                      <p className="settings-help" id="app-zoom-help">{workspaceZoomShortcutHelp}</p>
                       <button className="secondary" type="button" onClick={() => update('appZoom', 100)}>還原工作台縮放 100%</button>
                     </div>
                     <ThemeControls value={appearanceOf(draft)} disabled={locked}

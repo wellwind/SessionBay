@@ -321,6 +321,8 @@ describe('App browser preview', () => {
     await tick();
     expect(container.querySelector('.sidebar-bottom')).toBeNull();
     expect(screen.queryByText('你的工作，留在本機')).not.toBeInTheDocument();
+    expect(screen.queryByText('本機優先')).not.toBeInTheDocument();
+    expect(container.querySelector('.local-badge')).toBeNull();
     expect(screen.queryByText('搜尋與預覽不會啟動 Agent，也不會上傳對話。')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '資料來源與支援範圍' })).not.toBeInTheDocument();
     const settings = screen.getByRole('button', { name: '設定與資料來源' });
