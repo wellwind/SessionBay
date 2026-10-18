@@ -4,7 +4,8 @@
 .app-shell.workspace-focus > .statusbar:not(.statusbar-important) {
   display: none;
 }
-.focus-mode-toggle {
+.focus-mode-toggle,
+.workspace-tabs > .focus-mode-toggle {
   min-width: 44px;
   min-height: 44px;
   color: var(--text);
