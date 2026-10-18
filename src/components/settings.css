@@ -924,8 +924,9 @@
 .searchable-select { min-width: 0; width: 100%; }
 .searchable-select-field { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); min-height: 44px; border: 1px solid var(--control-border); border-radius: var(--radius); background: var(--settings-surface); }
 .searchable-select-field:focus-within { outline: 2px solid var(--settings-accent); outline-offset: 2px; }
-.settings-panel .settings-field .searchable-select-field > input,
-.settings-panel .settings-field .searchable-select-field > input:focus-visible {
+/* Keep the embedded input transparent even under Code palette input rules. */
+:root .settings-panel .settings-field .searchable-select-field > input,
+:root .settings-panel .settings-field .searchable-select-field > input:focus-visible {
   min-width: 0; width: 100%; height: auto; padding: var(--space-2) 0;
   border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none;
 }
@@ -945,3 +946,15 @@
 .searchable-select-field:has(input:disabled) { opacity: .5; cursor: not-allowed; }
 
 .searchable-select-options .select-option-copy > small { font-size: 12px; }
+
+/* The picker shows one agent: avoid nesting a second card around its fields. */
+.settings-panel .settings-installation,
+.settings-panel .settings-history-provider {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.settings-detected-path { display: flex; align-items: baseline; gap: .5ch; }
+.settings-detected-label { flex-shrink: 0; white-space: nowrap; }
+.settings-detected-value { min-width: 0; overflow-wrap: anywhere; }
