@@ -2277,6 +2277,8 @@ describe('global temporary terminals', () => {
     expect(state.activeTemporaryTabId).toBe(state.tabs[0].id);
     expect(state.activeTabByProject).toEqual({});
     expect(screen.getByRole('heading', { level: 1, name: '臨時 Terminal' })).toBeInTheDocument();
+    expect(screen.queryByText('新 Terminal 從家目錄開始，使用預設 Shell Profile；不會加入任何專案。')).not.toBeInTheDocument();
+    expect(document.querySelector('.project-path')).toBeNull();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.addProject).not.toHaveBeenCalled();
     expect(api.createProject).not.toHaveBeenCalled();
@@ -3012,6 +3014,9 @@ describe('workspace display organization', () => {
     const unmounts = native.canvasUnmounted.mock.calls.length;
     const stops = vi.mocked(api.stop).mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: '重新命名分頁 Terminal' }));
+    expect(screen.getByRole('dialog').querySelector('.dialog-description')).toBeNull();
+    expect(screen.queryByText('只修改分頁顯示名稱，保留面板、程序與工作位置。')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('顯示名稱')).toHaveAccessibleDescription(/^最多 200 個字元。\s*$/);
     fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Build console' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存名稱' }));
     await tick(); await tick(450);
@@ -3037,6 +3042,7 @@ describe('workspace display organization', () => {
     expect(rename.parentElement).toContainElement(screen.getByRole('heading', { level: 1 }));
     expect(rename.closest('.header-buttons')).toBeNull();
     fireEvent.click(rename);
+    expect(screen.getByText('只修改顯示名稱，實際資料夾、路徑與對話歷史維持原樣。')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Cancelled' } });
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(api.updateProject).not.toHaveBeenCalled();
