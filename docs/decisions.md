@@ -696,3 +696,7 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 工具面板向左展開，一次一個，收合不保留寬度；總覽不顯示工具。中央檢視與工具選取按專案保留，正常／專注工具狀態分開；專注預設收合右工具並隱藏左導航。圖示與專注切換不替換中央內容或重啟 Runtime。首次進入無工作專案開歷史，有工作專案恢復工作分頁。
 
 保留內部 typed contribution contract：功能提供 ID、圖示、名稱、renderer、availability、badge 與啟用 callback，shell 負責順序、選取／收合、鍵盤、首次延遲掛載、狀態保留與 overflow。功能 renderer 從專案 context 取得資料；不建立第三方插件平台或尚未實作的 Git 按鈕。
+
+## 2026-10-18：Monaco 唯讀預覽
+
+中央 Files tabs 使用 Monaco Editor 0.57.0 取代逐行 regex 高亮；編輯器與語言定義延遲載入，worker 由 Vite 本機打包，CSP 僅新增 worker-src 'self'。保留後端 256 KiB、安全路徑與文字格式檢查，不新增寫檔 API。提供全文選取／搜尋、語法折疊與每檔案 view state；卸載時釋放 model/editor。僅詞法高亮與本機 JSON 支援，不宣稱 VS Code extension host 或完整語意診斷；JSON 遠端 schema 請求關閉。切換 Files 不重建 Terminal。

@@ -16,22 +16,23 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     await expect(terminal).toBeHidden();
     const editor = page.getByLabel('唯讀內容：large.ts');
     await editor.focus(); await page.keyboard.press('Control+f');
-    const find = page.getByRole('textbox', { name: '搜尋文字（區分大小寫）' });
+    const find = page.locator('.monaco-editor .find-widget .find-part textarea, .monaco-editor .find-widget .find-part input').first();
     await find.fill('END_SENTINEL');
-    const mark = page.locator('mark.current-match');
-    await expect(mark).toHaveText('END_SENTINEL');
+    const mark = page.locator('.monaco-editor .currentFindMatch');
+    await expect(mark).toBeVisible();
     await expect.poll(async () => {
       const a = await mark.boundingBox(); const b = await editor.boundingBox();
       return !!a && !!b && a.x >= b.x && a.x + a.width <= b.x + b.width;
     }).toBe(true);
     await editor.focus(); await page.keyboard.press('Control+f'); await expect(find).toBeFocused();
     await page.keyboard.press('Escape');
-    const scroll = await editor.evaluate(node => node.scrollTop);
+    const scroll = await editor.locator('.lines-content').getAttribute('style');
+    expect(scroll).toMatch(/top:\s*-/);
     await tabs.getByRole('tab', { name: /README.md/ }).click();
     await expect(page.getByLabel('唯讀內容：README.md')).toContainText('<script>');
     await tabs.getByRole('tab', { name: /large.ts/ }).click();
-    await expect.poll(() => editor.evaluate(node => node.scrollTop)).toBe(scroll);
-    expect(await page.locator('[data-line]').count()).toBeLessThan(100);
+    await expect.poll(() => editor.locator('.lines-content').getAttribute('style')).toBe(scroll);
+    expect(await page.locator('.monaco-editor .view-line').count()).toBeLessThan(100);
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     await expect(page.getByRole('tree')).toBeHidden();
     await expect(editor).toBeVisible();
@@ -76,3 +77,48 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     expect(await terminal.evaluate(node => node === (window as unknown as { originalTerminal: Element }).originalTerminal)).toBe(true);
   });
 }
+
+test('Monaco local workers, readonly selection, theme and model disposal', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/tests/browser/workspace-focus-mode.html');
+  await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  await page.getByRole('button', { name: 'README.md', exact: true }).dblclick();
+  await expect(page.getByRole('button', { name: '檔案內搜尋', exact: true })).toBeEnabled();
+  // Import the same locally bundled singleton in this synthetic fixture only.
+  const details = await page.evaluate(async () => {
+    const modulePath = '/src/components/monaco-preview.ts';
+    const { monaco, getJsonWorker } = await import(modulePath);
+    const model = monaco.editor.getModels()[0];
+    const widget = monaco.editor.getEditors()[0];
+    const before = model.getValue();
+    widget.focus(); widget.trigger('test', 'type', { text: 'MUST_NOT_INSERT' });
+    widget.setSelection(model.getFullModelRange());
+    const selected = model.getValueInRange(widget.getSelection());
+    // Trigger the real JSON worker while schemas remain disabled.
+    const jsonModel = monaco.editor.createModel('{"answer":42}', 'json', monaco.Uri.parse('sessionbay-preview:/test.json'));
+    const worker = await getJsonWorker();
+    const proxy = await worker(jsonModel.uri);
+    const diagnostics = await proxy.doValidation(jsonModel.uri.toString());
+    jsonModel.dispose();
+    return { unchanged: model.getValue() === before, selected, before, models: monaco.editor.getModels().length,
+      diagnostics, readOnly: widget.getOption(monaco.editor.EditorOption.readOnly) };
+  });
+  expect(details.unchanged).toBe(true);
+  expect(details.selected).toBe(details.before);
+  expect(details.models).toBe(1);
+  expect(details.readOnly).toBe(true);
+  expect(details.diagnostics).toEqual([]);
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+  await expect(page.locator('.monaco-editor.vs')).toBeVisible();
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  await expect(page.locator('.monaco-editor.vs-dark')).toBeVisible();
+  await page.locator('.project-file-tabs-host').getByRole('button', { name: '關閉檔案 README.md', exact: true }).click();
+  expect(await page.evaluate(async () => {
+    const modulePath = '/src/components/monaco-preview.ts';
+    return (await import(modulePath)).monaco.editor.getModels().length;
+  })).toBe(0);
+  expect(errors).toEqual([]);
+});

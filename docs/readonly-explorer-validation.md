@@ -30,3 +30,9 @@ npm run test:files
 ```
 
 Windows 可將 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 設為已安裝 Edge 的執行檔路徑。交付 evidence 包另附單 worker 的跨功能 browser config、原始 logs、合成截圖、設計研究輸出與 Git bundle／patch。
+
+## Monaco 0.57.0 檢查（2026-10-18）
+
+新增真實 browser case：本機 JSON worker、readonly 輸入拒絕、全文選取、深淺色、關閉後 model 釋放；既有大檔搜尋／回復捲動與 Terminal DOM 身分案例改用 Monaco。
+
+本機 Linux Chromium 啟動被執行環境 sandbox 阻擋（socket permission；正式升權也失敗），因此不記錄為通過。完整 Linux CI 瀏覽器結果以 PR 檢查與 artifacts 為準。Vitest contract mock 僅測 React lifecycle，不當作 Monaco 真實驗收。原生 macOS／Windows WebView 未在此次本機驗證。

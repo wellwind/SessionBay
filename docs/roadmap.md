@@ -216,3 +216,9 @@
 - 提供 opt-in ordered publisher、runtime 綁定、短期 capability、重連／expiry 與 App observation 傳遞；詳見 [範圍與驗收邊界](agent-activity-transport.md)。
 - 尚未完成：真實 provider causal bridge、使用者 opt-in 安裝／撤銷流程及三平台 native QA。一般 Agent 啟動仍無自動 hooks。
 - 專案內右側 Activity Bar：左側保留專案／所有目錄，歷史 Sessions／Files 共用右側工具面板，中央內容獨立；typed contribution、延遲掛載與 overflow 為未來功能保留擴充點。Git 等其他功能待實作後才加入。
+
+### Monaco 唯讀預覽
+
+- [x] 實作延遲載入 Monaco、唯讀模型、全文搜尋／選取／折疊、每檔案 view state、本機 workers 與 CSP。
+- [ ] Linux 真實瀏覽器整合驗證與 review 後合併（以 PR 證據更新）。
+- [ ] macOS／Windows 原生 WebView 驗收（非此次 Linux 交付阻礙）。

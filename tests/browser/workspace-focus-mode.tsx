@@ -83,7 +83,7 @@ mockIPC((command, payload = {}) => {
     case 'read_workspace_file': {
       const path = args.path as string;
       const text = path === 'large.ts'
-        ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(2000) + 'END_SENTINEL\n'
+        ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(12000) + 'END_SENTINEL\n'
         : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
         : path === 'src/index.ts' ? 'export const greeting = "Synthetic";\n' : 'synthetic preview only';
       return { path, text, sizeBytes: new TextEncoder().encode(text).length };

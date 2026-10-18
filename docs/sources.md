@@ -278,3 +278,9 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 - [VS Code User Interface](https://code.visualstudio.com/docs/editing/getting-started/userinterface)：Activity Bar 選擇 Primary Side Bar 的功能，中央編輯區獨立。
 - [VS Code Custom Layout](https://code.visualstudio.com/docs/configure/custom-layout)：側欄顯示切換與 Zen Mode。Session Bay 僅採功能／內容分離原則，保留自己的專注模式快捷入口。
+
+## Monaco 唯讀預覽（2026-10-18）
+
+- 官方 ESM / Vite worker 整合：https://github.com/microsoft/monaco-editor/blob/main/docs/integrate-esm.md
+- 官方套件與 API：https://www.npmjs.com/package/monaco-editor 、https://microsoft.github.io/monaco-editor/typedoc/
+- 本次固定 monaco-editor 0.57.0，採 editor API、局部 contributions 與本機 worker；套件的 JSON defaults 明確關閉 schema request。未引入 CDN loader。

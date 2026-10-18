@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FilesTestHost as WorkspaceFiles } from './test/FilesTestHost';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 import { api } from './api';
+import { monaco } from './test/monaco-preview-mock';
+vi.mock('./components/monaco-preview', () => ({ monaco }));
 import type { Settings, Workspace } from './types';
 const mounts = vi.hoisted(() => ({ mount: vi.fn(), unmount: vi.fn() }));
 vi.mock('./components/TerminalPane', () => ({ TerminalPane: ({ pane }: { pane: { id: string } }) => {
