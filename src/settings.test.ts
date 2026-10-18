@@ -830,7 +830,7 @@ describe('fixed provider history capabilities', () => {
     expect([...agentKinds]).toEqual(manifest.providers.map((provider) => provider.id));
     for (const provider of manifest.providers) {
       expect(agentCapabilities[provider.id as AgentKind]).toEqual(provider);
-      expect(provider.activity.transport).toBe('notImplemented');
+      expect(provider.activity.transport).toBe('orderedBridgeOptIn');
       expect(provider.activity.adapter).toBe(provider.id === 'opencode' ? 'openCodeV1Events' : `${provider.id}Hooks`);
       expect(provider.launch.versionArgs).toEqual(provider.id === 'grok' ? ['version'] : ['--version']);
       expect(provider.launch.newArgs).toEqual([]);
@@ -1308,5 +1308,31 @@ describe('history root directory selection', () => {
     await act(async () => resolve('/late'));
     fireEvent.click(screen.getByRole('button', { name: '來源與工具' }));
     expect(providerHistory('codex').getByLabelText('CODEX_HOME 資料目錄')).toHaveValue('/home/test/.codex');
+  });
+});
+
+describe('launch-local activity hook opt-in', () => {
+  it('defaults off, saves explicitly, and keeps cancellation local to the draft', async () => {
+    const config = props();
+    const view = render(createElement(SettingsPanel, config));
+    selectAgent('codex');
+    const toggle = screen.getByRole('checkbox', { name: 'Codex 真實活動 hooks' });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(config.onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].agentHooks).toEqual({ codex: true });
+    view.unmount();
+    render(createElement(SettingsPanel, props()));
+    selectAgent('codex');
+    expect(screen.getByRole('checkbox', { name: 'Codex 真實活動 hooks' })).not.toBeChecked();
+  });
+  it('does not offer unverified providers a hook switch', () => {
+    render(createElement(SettingsPanel, props()));
+    for (const kind of ['grok', 'antigravity', 'opencode'] as const) {
+      selectAgent(kind);
+      expect(screen.queryByRole('checkbox', { name: /真實活動 hooks/ })).not.toBeInTheDocument();
+    }
   });
 });

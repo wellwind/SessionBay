@@ -192,6 +192,14 @@ impl Service {
                     .map_err(|_| "請先取消索引並等待完成，再修改來源設定")?,
             )
         };
+        settings.validate()?;
+        if let Some(broker) = &self.broker {
+            for kind in [AgentKind::Codex, AgentKind::Claude] {
+                if settings.agent_hooks.get(kind.as_str()) != Some(&true) {
+                    broker.revoke_provider_hooks(kind)?;
+                }
+            }
+        }
         self.config.save_settings(&settings)?;
         *current = settings.clone();
         Ok(settings)
@@ -489,6 +497,14 @@ impl Service {
                 env.insert("PATH".into(), path.to_string_lossy().into_owned());
             }
         }
+        if let Some(kind) = agent {
+            if settings.agent_hooks.get(kind.as_str()) == Some(&true) {
+                if !crate::provider_hooks::supported(kind) {
+                    return Err("此工具／平台尚未支援 launch-local hooks".into());
+                }
+                env.insert(crate::provider_hooks::OPT_IN.into(), "1".into());
+            }
+        }
         Ok(LaunchSpec {
             executable: executable.to_string_lossy().into_owned(),
             args,
@@ -518,6 +534,9 @@ impl Service {
             }
         }
         let spec = self.plan_launch(request)?;
+        if spec.env.contains_key(crate::provider_hooks::OPT_IN) {
+            return Err("真實 hooks 需要 persistent broker 啟動".into());
+        }
         self.runtime.launch(spec, request.cols, request.rows, emit)
     }
 

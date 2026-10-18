@@ -37,7 +37,7 @@
       },
       "activity": {
         "adapter": "codexHooks",
-        "transport": "notImplemented"
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -73,7 +73,7 @@
       },
       "activity": {
         "adapter": "claudeHooks",
-        "transport": "notImplemented"
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -109,7 +109,7 @@
       },
       "activity": {
         "adapter": "grokHooks",
-        "transport": "notImplemented"
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -145,7 +145,7 @@
       },
       "activity": {
         "adapter": "antigravityHooks",
-        "transport": "notImplemented"
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -181,7 +181,7 @@
       },
       "activity": {
         "adapter": "openCodeV1Events",
-        "transport": "notImplemented"
+        "transport": "orderedBridgeOptIn"
       }
     }
   ]

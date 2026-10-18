@@ -683,3 +683,19 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 五工具共用 registry 宣告各自已審閱的 observation adapter，transport 一律為 `notImplemented`。本輪只交付純解析與記憶體 reducer，不安裝 hooks、不建立 listener、不修改使用者 Agent 設定，也不把此基礎描述為 live busy／idle 已完成。`Stop` 可被其他 hook 阻止或繼續，不能等同 idle；prompt、tool、permission hooks 只證明事件發生，不保證目前仍工作中或等待人類。
 
 工作分頁的已知狀態圖示移到名稱左側；未知／不支援不顯示問號，也不保留沒有輸出的點。保留專案分頁、已知退出／錯誤／斷線／連線中狀態、輸出提示與無障礙生命週期說明。後續傳輸、驗證與 opt-in 安裝界線見 [活動 hook 基礎](agent-activity.md)。
+
+## 2026-10-17：活動 observation 的 opt-in ordered bridge
+
+- 沿用 owner-authenticated broker IPC，以記憶體內 capability／runtime generation 綁定單一 ordered publisher；不新增 listener、永久憑證或修改 Agent 設定。
+- 獨立 activity cursor／revision／剩餘 TTL 傳到 App，不使用 PTY output ACK；未知、過期、失聯立即保守隱藏。
+- 真實 CLI callbacks 尚無可靠因果 bridge，預設全部關閉。合成 socket 與 actual-App seams 詳見 [傳輸設計](agent-activity-transport.md)，不等於真實 CLI／三平台 native 驗收。
+
+## 2026-10-18：真實 Agent launch-local hook bridge
+
+Codex／Claude 的明確 opt-in 由 SessionBay 每次啟動參數註冊同步 command hooks，callback 使用應用程式本身，不要求 Node／Python 額外常駐程式。Codex 使用 `--no-daemon` 保持 routing environment 與目前 runtime 同生命週期。既有全域／專案設定不修改，hook trust 不略過；尚未信任的 Codex hooks 需使用者在 `/hooks` 核准，再由 SessionBay 重新啟動／恢復完成 SessionStart 綁定。
+
+broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn identity、generation 與撤銷。只把小型識別與事件欄位送入 owner-authenticated IPC；不轉傳或保存 prompt、tool input、transcript path／內容。callback 永遠回傳中立 `{}`，不能替使用者核准工具或影響模型決策。
+
+不把 Stop 當完成、不把 PermissionRequest 當使用者正在等待。Claude Notification 可提供延遲的等待輸入／權限回報。工具平行事件未註冊，不能將 callback 到達順序聲稱為 provider 的完整因果序。SessionEnd 後只有新的 parent SessionStart 可重綁；已退役 Session ID 不可復活，同 ID 重新進入須重開 pane。這些是有限期 observation，不以 PTY 靜默或輸出猜測活動。
+
+真實 CLI 與 native WebView 的端到端驗證需另列實際版本、通過情境與受阻原因；合成 driver 測試不能代稱實機驗收。

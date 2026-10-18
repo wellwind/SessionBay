@@ -274,3 +274,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 | [OpenCode plugin events](https://opencode.ai/docs/plugins#events)、[v1.18.18 schema](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/sdk/js/src/v2/gen/types.gen.ts)、[開發版 schema](https://github.com/anomalyco/opencode/blob/8c173a8f3805d8e749d44311054b07e37a1b2ce1/packages/client/src/promise/generated/types.ts) | 此輪僅 v1 properties envelope 的 session.status；v2 data envelope 明確拒絕，不推導所有安裝版本相容 |
 
 所有來源只驗證解析契約，不代表已安裝或執行真實 hooks。保守 TTL、binding 與失效規則是 SessionBay 設計，不是 provider 保證。
+
+## 2026-10-18 Launch-local hooks
+
+- https://learn.chatgpt.com/docs/hooks ：inline config、同步 lifecycle、turn_id、Stop gate 與 /hooks trust。
+- https://code.claude.com/docs/en/hooks ：--settings、prompt_id、SessionEnd、Notification 的約 6／60 秒延遲。
+
+來源為官方 current docs；版本可用性與 native CLI callback 仍需逐版實測，不能以文檔存在代替驗收。

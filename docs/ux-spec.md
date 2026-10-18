@@ -264,3 +264,7 @@ macOS Cmd+W／File → Close Tab 關閉目前工作區分頁（包含分割面�
 歷史與資源回收筒使用每批 40 筆查詢及固定列高虛擬捲動；畫面只掛載可見列、上下各 3 列與鍵盤焦點列。接近底部自動追加，並提供載入更多與重試操作。搜尋、篩選及排序切換隔離過期回應；最近 8 個查詢脈絡在元件存活期間保留載入資料，切換專案可返回原捲動位置。索引、刪除、還原導致資料更新時分批重讀已載範圍並保留畫面高度；不自動讀完整個資料庫。鍵盤方向鍵、Home／End（已載範圍）及雙向 Tab 支援跨虛擬列。驗證命令：`npx playwright test --config playwright.session-feed.config.ts`；合成 10,000 筆，不存取原始歷史。
 
 載入完成不顯示常駐結果頁尾；對話預覽與側欄底部不顯示通用隱私說明或佔位。載入、錯誤、重試及頂欄「設定與資料來源」仍保留。
+
+## 2026-10-18 真實活動 hooks 設定
+
+來源與工具的 Codex／Claude 詳細設定新增明確 opt-in。切換先保留在 draft，儲存後生效，取消不更改。啟用適用後續 launch；停用儲存即撤銷既有回報，Agent 不停止。旁註說明 launch-local 設定、Codex 首次信任後重啟、unknown／近期事件語意與 Claude Notification 延遲。詳見 [provider-hooks](provider-hooks.md)。

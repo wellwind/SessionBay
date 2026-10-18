@@ -187,6 +187,7 @@ fn global_terminals_reopen_same_broker_ids_and_explicit_close_keeps_the_other_ru
                 UiEvent::Error { message, .. } | UiEvent::Disconnected { message, .. } => {
                     panic!("{message}")
                 }
+                UiEvent::AgentActivity { .. } => {}
                 UiEvent::Exit { .. } => panic!("terminal exited before marker"),
             }
         }

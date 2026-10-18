@@ -1,4 +1,4 @@
-//! Pure hook adapter foundation. Not connected to a listener, broker, or live UI.
+//! Pure provider adapters and short-lived observations used by an explicitly ordered broker bridge.
 //!
 //! A normalized observation is evidence that a hook fired, not proof that a process
 //! is currently working or awaiting human input. In particular Stop is gateable.
@@ -25,13 +25,15 @@ pub enum ActivityAdapter {
     OpenCodeV1Events,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Observation {
     PromptSubmitted,
     ToolPending,
     ToolFinished,
     PermissionRequested,
+    WaitingInput,
+    WaitingPermission,
     TurnStopRequested,
     InvocationStarted,
     InvocationEnded,
@@ -92,6 +94,15 @@ pub fn normalize(
                 "PreToolUse" => Observation::ToolPending,
                 "PostToolUse" => Observation::ToolFinished,
                 "PermissionRequest" => Observation::PermissionRequested,
+                "Notification" if adapter == ActivityAdapter::ClaudeHooks => {
+                    match value.get("notification_type").and_then(Value::as_str) {
+                        Some("idle_prompt" | "elicitation_dialog" | "elicitation_url_dialog") => {
+                            Observation::WaitingInput
+                        }
+                        Some("permission_prompt") => Observation::WaitingPermission,
+                        _ => Observation::Unknown,
+                    }
+                }
                 "Stop" => Observation::TurnStopRequested,
                 "SessionEnd" => Observation::SessionEnded,
                 "Interrupt" if adapter == ActivityAdapter::CodexHooks => Observation::Interrupted,
@@ -267,6 +278,10 @@ impl ActivityTracker {
             self.close();
             return false;
         }
+        if envelope.event.observation == Observation::Unknown {
+            self.invalidate();
+            return true;
+        }
         if envelope.event.observation == Observation::PromptSubmitted {
             if let Some(turn) = &envelope.event.turn_id {
                 if self.seen_turns.contains(turn) {
@@ -305,11 +320,31 @@ impl ActivityTracker {
     }
 
     pub fn observation(&self, now: Instant) -> Option<Observation> {
+        self.snapshot(now).map(|(observation, _)| observation)
+    }
+    /// Remaining validity is anchored to receipt time, never renewed by polling.
+    pub fn snapshot(&self, now: Instant) -> Option<(Observation, Duration)> {
         self.latest.and_then(|(observation, at)| {
             now.checked_duration_since(at)
-                .filter(|elapsed| *elapsed < OBSERVATION_TTL)
-                .map(|_| observation)
+                .and_then(|elapsed| OBSERVATION_TTL.checked_sub(elapsed))
+                .filter(|remaining| !remaining.is_zero())
+                .map(|remaining| (observation, remaining))
         })
+    }
+    /// Consume an authenticated, ordered child event without changing its parent.
+    pub fn skip(&mut self, sequence: u64) -> bool {
+        if self.closed || sequence <= self.sequence {
+            return false;
+        }
+        if self.sequence.checked_add(1) != Some(sequence) {
+            self.close();
+            return false;
+        }
+        self.sequence = sequence;
+        true
+    }
+    pub fn is_closed(&self) -> bool {
+        self.closed
     }
 
     pub fn invalidate(&mut self) {

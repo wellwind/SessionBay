@@ -52,7 +52,7 @@ pub struct LaunchCapability {
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ActivityTransport {
-    NotImplemented,
+    OrderedBridgeOptIn,
 }
 
 #[derive(Debug, Deserialize)]
@@ -367,9 +367,9 @@ mod tests {
             assert!(Manifest::parse(&value.to_string()).is_err());
         }
         for invalid in [
-            serde_json::json!({"adapter":"claudeHooks","transport":"notImplemented"}),
+            serde_json::json!({"adapter":"claudeHooks","transport":"orderedBridgeOptIn"}),
             serde_json::json!({"adapter":"codexHooks","transport":"enabled"}),
-            serde_json::json!({"adapter":"unknown","transport":"notImplemented"}),
+            serde_json::json!({"adapter":"unknown","transport":"orderedBridgeOptIn"}),
         ] {
             let mut value = original.clone();
             value["providers"][0]["activity"] = invalid;

@@ -210,3 +210,12 @@
 - [ ] 真實 busy／idle／人類等待狀態與三平台各 CLI 驗收。
 
 本輪不自動安裝 hook，不把 parser 基礎當 live 功能完成。退出條件與格式範圍見[活動 hook 基礎](agent-activity.md)。
+
+### 活動 hook 傳輸增量
+
+- 提供 opt-in ordered publisher、runtime 綁定、短期 capability、重連／expiry 與 App observation 傳遞；詳見 [範圍與驗收邊界](agent-activity-transport.md)。
+- 尚未完成：真實 provider causal bridge、使用者 opt-in 安裝／撤銷流程及三平台 native QA。一般 Agent 啟動仍無自動 hooks。
+
+## 2026-10-18 真實 hook bridge
+
+Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。其餘三種 provider 不宣稱已接通。

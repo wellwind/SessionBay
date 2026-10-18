@@ -1,3 +1,4 @@
+import type { AgentActivityEvent } from './agent-observation';
 export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 export interface AgentOptions { extraArgs: string[]; bypassPermissions: boolean; }
 export interface HistorySource {
@@ -127,6 +128,7 @@ export interface Settings {
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
   /** Missing providers remain enabled; unknown keys survive settings round trips. */
+  agentHooks?: Partial<Record<AgentKind, boolean>>;
   agentEnabled?: Record<string, boolean>;
   defaultAgent: AgentKind;
   defaultProfileId: string;
@@ -175,6 +177,7 @@ export interface RuntimeRecord extends RuntimeInfo {
   homeDirectory?: boolean;
 }
 export type TerminalEvent =
+  | AgentActivityEvent
   | { type: 'snapshot'; runtimeId: string; sequence: number; data: number[]; cols: number; rows: number; truncated: boolean }
   | { type: 'disconnected'; runtimeId: string; message: string }
   | { type: 'output'; runtimeId: string; sequence: number; data: number[] }
