@@ -252,3 +252,43 @@ it('does not navigate or close file tabs behind a dialog', async () => {
   expect(tab).toHaveAttribute('aria-selected', 'true');
   dialog.remove();
 });
+
+it('updates palette and mode in place, restores preview colors and disconnects on unmount', async () => {
+  const root = document.documentElement;
+  const oldTheme = root.dataset.theme, oldPalette = root.dataset.themePalette;
+  root.dataset.theme = 'dark'; root.dataset.themePalette = 'bay';
+  const view = render(<ExplorerEditor path="a.ts" text="const value = 42;" sizeBytes={17}
+    position={{ top: 80, left: 12 }} onScroll={vi.fn()} searchRequest={0} />);
+  try {
+    await waitFor(() => expect(screen.getByRole('button', { name: '檔案內搜尋' })).toBeEnabled());
+    const widget = vi.mocked(monaco.editor.create).mock.results.at(-1)!.value;
+    const model = models.at(-1)!;
+    const original = monaco.editor.defineTheme.mock.calls.at(-1);
+    // Initial layout is unrelated to appearance and may still have one queued frame.
+    await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+    widget.setScrollPosition({ scrollTop: 120, scrollLeft: 15 });
+    widget.restoreViewState.mockClear(); widget.setScrollPosition.mockClear(); widget.focus.mockClear();
+    const creates = monaco.editor.create.mock.calls.length;
+    await act(async () => { root.dataset.themePalette = 'ocean'; });
+    expect(monaco.editor.defineTheme.mock.calls.at(-1)).not.toEqual(original);
+    expect(monaco.editor.setTheme).toHaveBeenLastCalledWith('sessionbay-preview');
+    await act(async () => { root.dataset.theme = 'light'; root.dataset.themePalette = 'code-2026'; });
+    expect(monaco.editor.defineTheme.mock.calls.at(-1)?.[1]).toEqual(expect.objectContaining({ base: 'vs', colors: expect.objectContaining({ 'editor.background': '#ffffff' }) }));
+    await act(async () => { root.dataset.theme = 'dark'; root.dataset.themePalette = 'bay'; });
+    expect(monaco.editor.defineTheme.mock.calls.at(-1)).toEqual(original);
+    expect(monaco.editor.create).toHaveBeenCalledTimes(creates);
+    expect(widget.restoreViewState).not.toHaveBeenCalled();
+    expect(widget.setScrollPosition).not.toHaveBeenCalled();
+    expect(widget.focus).not.toHaveBeenCalled();
+    expect(widget.getScrollTop()).toBe(120); expect(widget.getScrollLeft()).toBe(15);
+    expect(widget.dispose).not.toHaveBeenCalled(); expect(model.dispose).not.toHaveBeenCalled();
+    view.unmount();
+    const calls = monaco.editor.defineTheme.mock.calls.length;
+    await act(async () => { root.dataset.themePalette = 'rose'; });
+    expect(monaco.editor.defineTheme).toHaveBeenCalledTimes(calls);
+  } finally {
+    view.unmount();
+    if (oldTheme === undefined) delete root.dataset.theme; else root.dataset.theme = oldTheme;
+    if (oldPalette === undefined) delete root.dataset.themePalette; else root.dataset.themePalette = oldPalette;
+  }
+});

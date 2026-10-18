@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Copy, Search } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { fileLanguage, monacoLanguage } from './explorer-model';
+import { previewTheme, previewThemeName } from './monaco-theme';
 
 export interface ScrollPosition { top: number; left: number; viewState?: editor.ICodeEditorViewState | null }
 let nextModel = 0;
@@ -69,7 +70,15 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
         const model = monaco.editor.createModel(text, lightweight ? 'plaintext' : monacoLanguage(path), uri);
         own(() => model.dispose());
         if (failed || disposed) return;
+        const updateTheme = () => {
+          const { theme, themePalette } = document.documentElement.dataset;
+          monaco.editor.defineTheme(previewThemeName, previewTheme(themePalette, theme === 'light' ? 'light' : 'dark'));
+          monaco.editor.setTheme(previewThemeName);
+        };
+        updateTheme();
+        if (failed || disposed) return;
         widget = monaco.editor.create(host, {
+          theme: previewThemeName,
           model, readOnly: true, domReadOnly: true, automaticLayout: true,
           ariaLabel: `程式碼：${path}`, fontSize: 13, lineHeight: 20,
           minimap: { enabled: false }, scrollBeyondLastLine: false,
@@ -102,11 +111,9 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
         own(() => scroll.dispose());
         const selection = ownedWidget.onDidChangeCursorSelection(() => run(() => save?.()));
         own(() => selection.dispose());
-        const updateTheme = () => monaco.editor.setTheme(document.documentElement.dataset.theme === 'light' ? 'vs' : 'vs-dark');
-        updateTheme();
         const observer = new MutationObserver(() => run(updateTheme));
         own(() => observer.disconnect());
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-palette'] });
         if (failed || disposed) return;
         setStatus('ready');
         if (latest.current.searchRequest) run(current => current.getAction('actions.find')?.run());
