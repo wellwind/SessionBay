@@ -43,3 +43,12 @@
 1. 設計與範圍規格。
 2. 目錄／檔案分頁／文字檢視與局部 CSS。
 3. 合成鍵盤、競態、效能上限、深淺色／窄視窗與 Terminal 不重掛載回歸、獨立 review。
+
+## Monaco 預覽（2026-10-18 更新，取代前述自製高亮／選取限制）
+
+- Monaco 0.57.0 唯讀 editor，支援跨可視範圍全文選取、內建搜尋（大小寫／整字／regex）與折疊；保留精確複製全文入口。
+- 語言依副檔名選擇；TypeScript/JavaScript、Rust、Python、JSON、Markdown、CSS、HTML 等由官方 tokenizer 處理。未知格式為純文字；Vue/Svelte 暫用 HTML、TOML 暫用 INI，並非完整框架語言服務。
+- 沿用中央 Files tabs 與可調右側 panel；沒有新工具列或獨立視窗。檔案切換保存選取、捲動和折疊 view state；關閉檔案釋放 model，文字快取上限與安全讀取保持不變。
+- 延遲載入 editor 與語言模組。worker、字型及程式均由應用程式本機提供，不使用 CDN、不讀遠端 schema。Monaco 本體約 3 MB（gzip 約 0.8 MB）延遲 chunk；JSON 模式另延遲載入。
+- 預覽配合全站 dark/light 切換 Monaco vs-dark/vs，檔案本身不執行；不載入專案擴充套件、不新增寫檔、Git 或語意分析伺服器。
+- 驗收：開啟多行 TS/JSON/Markdown、Ctrl/Cmd+F 找檔尾、選取複製、折疊後換檔再回來、切深淺色、嘗試輸入不得改檔、關檔後 Terminal 身分與程序不變。

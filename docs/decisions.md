@@ -705,6 +705,14 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 
 完整規劃與八個實作 PR 的相依／驗收見 [Git 工作台](git-workbench-plan.md)。本次只新增文件，所有 Git 功能均未完成／未驗收；Monaco 等文字引擎仍是候選，沒有選定或安裝。本文件不授權對使用者 repo 執行破壞操作或自動配置憑證。
 
+
+## 2026-10-18：Monaco 唯讀預覽
+
+中央 Files tabs 使用 Monaco Editor 0.57.0 取代逐行 regex 高亮；編輯器與語言定義延遲載入，worker 由 Vite 本機打包，CSP 僅新增 worker-src 'self'。保留後端 256 KiB、安全路徑與文字格式檢查，不新增寫檔 API。提供全文選取／搜尋、語法折疊與每檔案 view state；卸載時釋放 model/editor。僅詞法高亮與本機 JSON 支援，不宣稱 VS Code extension host 或完整語意診斷；JSON 遠端 schema 請求關閉。切換 Files 不重建 Terminal。
+
+### 2026-10-18：Monaco contribution 必須在第一次初始化前完整註冊
+
+Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會引入整套 editor contributions；精簡 API 建立模型後才載入會讓 `StandaloneServices` 的一次性 singleton snapshot 缺少 `ISuggestMemories`，下一個 editor 的 SuggestController 因而失敗。改在 lazy preview 模組內先載入官方 `features/register.all`；仍延後整個 preview 模組直到開檔，不靠停用 suggest 隱藏問題。Vite dev 與 production 都測非 JSON → JSON worker → 多次 TS/JSON 切換。Monaco library 的 delayed error 改送 file-preview 錯誤介面，React file boundary 隔離 render 失敗，不覆蓋全域 window error 監聽。
 ## 2026-10-18：移除重複視覺輔助文案
 
 依使用者指定移除本機優先 badge、啟動說明、來源與工具重複說明、支援能力的成功態文案、主題數量提示與部分縮放說明。移除整個空容器，保留欄位 label、錯誤／不支援狀態、停用行為、權限警告與設定儲存邏輯。程式碼預覽的選取提示由 Monaco 更新移除，這份清理不改 editor 實作。

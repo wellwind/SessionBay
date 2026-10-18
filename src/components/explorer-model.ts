@@ -25,35 +25,24 @@ export function fileTabsReducer(state: FileTabs, action: TabAction): FileTabs {
   return { tabs, active: action.path, notice: '' };
 }
 
+const languageExtensions: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  json: 'json', jsonc: 'json', css: 'css', scss: 'scss', less: 'less',
+  html: 'html', htm: 'html', xml: 'xml', svg: 'xml', md: 'markdown',
+  rs: 'rust', py: 'python', sh: 'shell', bash: 'shell', zsh: 'shell',
+  yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini', sql: 'sql',
+  c: 'cpp', h: 'cpp', cpp: 'cpp', hpp: 'cpp', cs: 'csharp', java: 'java',
+  go: 'go', rb: 'ruby', php: 'php', swift: 'swift', kt: 'kotlin',
+  vue: 'html', svelte: 'html', graphql: 'graphql', gql: 'graphql',
+  ps1: 'powershell', bat: 'bat', cmd: 'bat', diff: 'diff', patch: 'diff',
+};
+export function monacoLanguage(path: string): string {
+  const name = path.replaceAll('\\', '/').split('/').pop()?.toLowerCase() ?? '';
+  if (name === 'dockerfile' || name.startsWith('dockerfile.')) return 'dockerfile';
+  return languageExtensions[name.split('.').pop() ?? ''] ?? 'plaintext';
+}
 export function fileLanguage(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase();
-  return ({ ts: 'TypeScript', tsx: 'TSX', js: 'JavaScript', jsx: 'JSX', json: 'JSON', css: 'CSS', html: 'HTML', htm: 'HTML', md: 'Markdown', rs: 'Rust', py: 'Python', sh: 'Shell', yml: 'YAML', yaml: 'YAML' } as Record<string, string>)[ext ?? ''] ?? '純文字';
-}
-export interface TextToken { text: string; kind: string }
-// Bounded, linear lexical hints, not an HTML renderer or a full parser.
-export function highlightLine(line: string, language: string): TextToken[] {
-  if (language === '純文字' || line.length > 4096) return [{ text: line, kind: '' }];
-  const pattern = /\/\/[^\n]*|#[^\n]*|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|\b(?:const|let|var|function|return|export|import|from|class|interface|type|if|else|for|while|async|await|true|false|null|undefined|fn|pub|use|impl|struct|def|self|None|True|False)\b|\b\d+(?:\.\d+)?\b/g;
-  const result: TextToken[] = [];
-  let offset = 0;
-  for (const match of line.matchAll(pattern)) {
-    const index = match.index;
-    if (index > offset) result.push({ text: line.slice(offset, index), kind: '' });
-    const text = match[0];
-    const kind = text.startsWith('//') || text.startsWith('#') ? 'comment' : /^["'`]/.test(text) ? 'string' : /^\d/.test(text) ? 'number' : 'keyword';
-    result.push({ text, kind }); offset = index + text.length;
-  }
-  if (offset < line.length) result.push({ text: line.slice(offset), kind: '' });
-  return result;
-}
-export function literalMatches(text: string, query: string): number[] {
-  if (!query) return [];
-  const matches: number[] = [];
-  let offset = 0;
-  while (matches.length < 10000) {
-    const index = text.indexOf(query, offset);
-    if (index < 0) break;
-    matches.push(index); offset = index + Math.max(1, query.length);
-  }
-  return matches;
+  const language = monacoLanguage(path);
+  return language === 'plaintext' ? '純文字' : language;
 }

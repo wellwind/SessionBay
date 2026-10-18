@@ -206,9 +206,11 @@ test('explicit session and file selection changes center while activity icons pr
   await page.getByRole('button', { name: 'large.ts', exact: true }).dblclick();
   const document = page.getByLabel('唯讀內容：large.ts');
   await expect(document).toBeVisible();
-  await document.evaluate(element => { element.scrollTop = 800; });
-  const fileScroll = await document.evaluate(element => element.scrollTop);
-  expect(fileScroll).toBeGreaterThan(0);
+  await expect(document.locator('.view-line').first()).toBeVisible();
+  await document.focus();
+  await page.keyboard.press('Control+End');
+  await expect.poll(() => document.locator('.lines-content').getAttribute('style')).toMatch(/top:\s*-/);
+  const fileScroll = await document.locator('.lines-content').getAttribute('style');
   await sessionsButton(page).click();
   await expect(document).toBeVisible();
   await expect(page.locator('.history-mount')).toBeHidden();
@@ -216,7 +218,7 @@ test('explicit session and file selection changes center while activity icons pr
   await expect(sessionsPanel(page)).toBeHidden();
   await expect(document).toBeVisible();
   await filesButton(page).click();
-  await expect.poll(() => document.evaluate(element => element.scrollTop)).toBe(fileScroll);
+  await expect.poll(() => document.locator('.lines-content').getAttribute('style')).toBe(fileScroll);
   await page.locator('.workspace-tab-select').click();
   await expect(page.locator('.xterm-screen')).toBeVisible();
   await expectRuntimePreserved(page);
