@@ -28,6 +28,23 @@
 - [ ] 計時到期與新 Launch admission 使用同一同步界線，先重驗條件再關閉入口；新 client／Launch 取消計時。
 - [ ] 「結束所有工作並退出」確認流程，先停止 admission，再清理受管程序；部分失敗明確回報，不假稱全停。
 
+### L1 拆分與目前邊界
+
+- L1a（本次）：RuntimeManager 正向清理證據、`quiescence()` snapshot 與原子 `try_close_if_quiescent()` admission seal；只對隔離工作測試，不啟用 broker 自退。本機測試通過，Linux CI 與獨立 review 待確認。
+- L1b：協商式 UI lease 的 acquire／renew／release、crash／reload／過期與 legacy 退路。
+- L1c：broker 整段 Launch admission、歷史 owner 不確定性、lease 與 grace timer 的同步邊界，再啟用安全自退。RuntimeManager 的 snapshot 不能代替這些證明，舊 UI／broker 不因一次 List 空而退出。
+- L1d：Stop all 的使用者確認、admission 關閉及部分清理失敗回報。
+
+L1a 本次的正向平台證據限 Unix；Windows 工作完成後仍保持未確認，待平台證據與原生驗收另補。L1a 的不確定性在記錄淘汰後保留；因目前 spawn rollback 無正向結果，任何平台 spawn 錯誤均保守禁止該 manager 的 idle seal。正常手動啟動不因此停用。尚未決定 lease／grace 時限，也未接入 production idle-exit caller，以上 L1 整體驗收不得勾選完成。
+
+### L1a 本機驗證（2026-10-18，Apple Silicon macOS）
+
+- Rust 1.99、`--locked --offline`：core 575 passed／3 ignored，desktop feature 579 passed／3 ignored；兩種 feature 的 all-targets Clippy（`-D warnings`）及 rustfmt check 通過。
+- 新增五項 proof／poison／淘汰／Launch race 單元測試、三項隔離假 Shell 整合測試及一項隔離 broker 不自退回歸。Exit callback 用明確 gate 保持未完成；Launch race 使用 registry lock 與 channel 排序，不依賴猜測程序速度。
+- 真實 idle prompt 在 seal 被拒絕後仍可輸入；已 reaped／清理完成且 supervisor 完成後才可 seal。spawn 失敗後 List 空仍為未確認，正常手動啟動仍可使用。
+- 使用專用 `/private/tmp/sessionbay-l1-tests` 與 #78 worktree 的既有 target，低並行、關閉 debug symbols／incremental。先前 exec transport disconnected 與 crates.io sandbox DNS 失敗均未列為通過；恢復連線後使用現有 sparse cache 離線完整重跑，未安裝工具、未啟動模型或讀取真實歷史。
+- 僅控制測試 broker／假程序；production broker 自退、UI lease、Stop all、Windows 原生證據與 L2–L4 都未驗收，不能因此勾選完整 L1 完成。
+
 ## L2：版本隔離與 owner routing
 
 - [ ] 每個 broker 使用不可變 build identity 對應的獨立 endpoint、lock、metadata；generation 區分同版的每次執行。

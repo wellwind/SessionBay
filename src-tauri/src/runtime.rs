@@ -19,6 +19,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+mod lifecycle;
+pub use lifecycle::RuntimeQuiescence;
+
 pub const MAX_IN_FLIGHT_BYTES: usize = 256 * 1024;
 pub const MAX_IN_FLIGHT_CHUNKS: usize = 64;
 pub const OUTPUT_CHUNK_BYTES: usize = 16 * 1024;
@@ -145,6 +148,7 @@ struct Control {
     stop_requested: bool,
     input_closed: bool,
     cleanup_error: Option<String>,
+    cleanup_verified: bool,
     done: bool,
 }
 
@@ -194,6 +198,8 @@ impl Runtime {
 struct Registry {
     runtimes: HashMap<String, Arc<Runtime>>,
     shutting_down: bool,
+    // Unknown rollback/evicted cleanup evidence must survive record pruning.
+    cleanup_uncertain: bool,
 }
 
 #[derive(Default)]
@@ -320,16 +326,22 @@ impl RuntimeManager {
                 stop_requested: false,
                 input_closed: false,
                 cleanup_error: None,
+                cleanup_verified: false,
                 done: false,
             }),
             changed: Condvar::new(),
             master: Mutex::new(None),
         });
-        let spawned = platform::spawn(Arc::clone(&runtime), command, pty_size(cols, rows))?;
+        let spawned = match platform::spawn(Arc::clone(&runtime), command, pty_size(cols, rows)) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                // Platform rollback is best effort and does not return positive cleanup proof.
+                registry.cleanup_uncertain = true;
+                return Err(error);
+            }
+        };
         if registry.runtimes.len() >= MAX_RETAINED_RUNTIMES {
-            registry
-                .runtimes
-                .retain(|_, runtime| !lock(&runtime.control).done);
+            registry.prune_completed();
         }
         registry
             .runtimes
@@ -339,6 +351,7 @@ impl RuntimeManager {
             spawned.run(emit);
         }) {
             // The unstarted backend owns rollback of the child and I/O handles.
+            registry.cleanup_uncertain = true;
             registry.runtimes.remove(&info.id);
             return Err(format!("Cannot start terminal supervisor: {error}"));
         }

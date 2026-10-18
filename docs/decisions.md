@@ -819,3 +819,16 @@ Fresh Agent 僅在 typed 本地能力 preflight 明確零 Launch 拒絕後，顯
 獨立 review 發現 UI 點擊確認就清除 intent，加上取消共用 fresh mutex，使確認等待 catalog writer 時無法及時取消。確認送出後仍保留 in-flight ref，直到 IPC 結束；導航、關閉、reload、unmount 仍送取消。後端以獨立、有界且沿用原期限的 admission registry 保存原子狀態，不需取得 fresh／settings／catalog 鎖即可取消；cancel 與 consume 使用 CAS 排序。取消先成功則零 Launch，consume 先成功則後續取消不停止、不重送既有或結果未知的 Agent。此截止點依後端原子狀態判定，不依點擊時間或假定 IPC 速度。
 
 新增確定性 barrier 測試：外部持有 catalog write transaction，確認取得 fresh 後取消，再釋放 writer，驗證零 Launch；另驗證等待 fresh、consume 後取消及 UI 延遲確認／回覆。保留原 fresh→catalog→settings 鎖序，沒有為取消反轉鎖序。
+
+
+## 2026-10-18：L1a owned-runtime quiescence 安全基礎
+
+生命週期分四個獨立 PR：L1a 正向清理證據與 RuntimeManager 原子 admission seal；L1b 協商式 UI lease／續期／釋放及 legacy 退路；L1c broker 整段 Launch admission、UI lease、歷史 owner 不確定性與延遲自退整合；L1d 明確確認的 Stop all 及部分失敗。L2–L4 的版本 owner routing 與 schema 遷移不混入。
+
+L1a 不啟用 broker 自退、不新增 lease wire 欄位或停止既有程序。`quiescence()` 僅說明這個 RuntimeManager 擁有的工作，不能證明 UI 已關閉、broker 前置準備／其他 in-flight request 已清空，也不替歷史 metadata 或其他 owner 背書。真正的 broker 自退必須在 L1b／L1c 另外完成這些守門條件；舊 broker／無 lease 的舊 UI 維持既有保留行為。
+
+清理證據預設未確認。只有 supervisor 正向確認 owned child 終止與清理完成才可標記；`done`、exit code、List 的 exited／failed／空陣列都不單獨授權退出。ownership lost、cleanup error、mutex poison、spawn／worker-start rollback 無證據都禁止 seal。現有平台 spawn 只有字串錯誤，故所有 spawn 失敗都保守黏住本 manager 的不確定性，包含實際可能零 child 的失敗；需要新 manager 才能清除，未在此擴大為 rollback 協定。記錄淘汰不能清掉不確定性。
+
+`try_close_if_quiescent()` 與 Launch 使用同一 registry 鎖，一次完成重驗及 admission 關閉；晚到 Launch 必須拒絕。此 API 本身不發 signal、不 stop／forget，也不退出 broker。已知失敗但清理可證明的程序可滿足 runtime 證據；starting／stopping／unknown／尚未完成 supervisor 皆不可。本次只有 Unix supervisor 提供正向平台證據；Windows supervisor 保留預設未確認，因此實際執行過工作後會阻擋 seal，待獨立平台證據與原生驗收再補。不能以 Mac／Linux 測試宣稱 Windows 通過。
+
+後續待定：舊 UI 沒有 lease 時無法證明其關閉，建議只要本 generation 觀察到舊式未租約工作請求便保守禁自退；lease 時限、續期間隔與 idle grace 留待 L1b／L1c 決定，本 PR 不預設啟用。

@@ -185,6 +185,7 @@ fn run_worker(
     let mut blocked_since = None;
     let mut failed = false;
     let mut wait_failed = false;
+    let mut cleanup_verified = false;
     let mut stop_output_resumed = false;
     loop {
         let stopping = lock(&runtime.control).stop_requested;
@@ -271,6 +272,7 @@ fn run_worker(
                 }
                 match owned.child.wait() {
                     Ok(status) => {
+                        cleanup_verified = no_descendants && !wait_failed;
                         exit_code = if status.signal().is_some() {
                             None
                         } else {
@@ -464,7 +466,11 @@ fn run_worker(
             exit_code,
         },
     );
-    lock(&runtime.control).done = true;
+    {
+        let mut control = lock(&runtime.control);
+        control.cleanup_verified = cleanup_verified && control.cleanup_error.is_none();
+        control.done = true;
+    }
     runtime.changed.notify_all();
 }
 
