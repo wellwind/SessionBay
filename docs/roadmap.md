@@ -306,3 +306,5 @@ L1a 正向 runtime 清理證據與原子 admission seal 已實作於獨立 PR，
 - [ ] 修飾鍵點選、OSC8／URL 區分、跨平台路徑及不可信輸出驗收。
 
 排在目前工作台／broker 修復與 Snap 測試包之後，不插隊。完整需求與安全界線見 [Terminal 檔案路徑連結](terminal-file-links.md)。
+
+- Agent 面板活動文字：沿用可靠 hook／原生終端狀態、未知留白及生命週期優先；合成元件／瀏覽器回歸已加入，真實模型回合與跨平台原生驗收仍待執行。

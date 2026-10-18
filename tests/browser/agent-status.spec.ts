@@ -46,7 +46,8 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await page.screenshot({ path: testInfo.outputPath('known-status-left-no-unknown.png'), fullPage: true });
     const global = page.getByRole('button', { name: /開啟工作區 臨時 Terminal 已保留的 grok/ });
     await global.click();
-    await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('程序存活');
+    await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveCount(0);
+    await expect(page.locator('.pane-position:visible .pane-runtime-status')).toHaveCount(0);
     await expect(page.locator('.sidebar-bottom')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '設定與資料來源' })).toBeEnabled();
   });
@@ -180,10 +181,12 @@ test('ordered observations propagate without PTY activity and expire conservativ
   const workspaceStatus = page.locator('.workspace-tab').filter({ hasText: '已保留的 codex' }).locator('.runtime-activity');
   await expect(sidebarStatus).toHaveAttribute('aria-label', /Agent 最近回報：工作中/);
   await expect(workspaceStatus).toHaveAttribute('aria-label', /Agent 最近回報：工作中/);
+  await expect(page.locator('.pane-position:visible .pane-runtime-status')).toHaveText('工作中');
   await expect(sidebarStatus.locator('.runtime-output-dot')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('structured-report-left.png') });
   await emit({ revision: 2, observation: 'turnStopRequested', validForMs: 800 });
   await expect(sidebarStatus).toHaveAttribute('aria-label', /收到回合停止請求/);
+  await expect(page.locator('.pane-position:visible .pane-runtime-status')).toHaveCount(0);
   await expect(sidebarStatus).not.toHaveAttribute('aria-label', /閒置/);
   await emit({ revision: 1, observation: 'idle', validForMs: 30000 });
   await expect(sidebarStatus).toHaveCount(0);
@@ -215,6 +218,7 @@ test('native terminal states stay distinct and visibly disclose their source', a
   ]) {
     await emit(status);
     await expect(indicator).toHaveAttribute('aria-label', new RegExp(`${label}（終端回報）`));
+    await expect(page.locator('.pane-position:visible .pane-runtime-status')).toHaveText(`${label}（終端回報）`);
     await expect(page.locator('body')).not.toContainText('活動未知');
     await expect(indicator).not.toHaveAttribute('aria-label', /活動未知/);
     await expect(indicator.locator('.runtime-output-dot')).toHaveCount(0);
@@ -229,6 +233,7 @@ test('native terminal states stay distinct and visibly disclose their source', a
     });
   });
   await expect(indicator).not.toHaveAttribute('aria-label', /終端回報/);
+  await expect(page.locator('.pane-position:visible .pane-runtime-status')).toHaveText('連線中斷 · 程序狀態待確認');
 });
 
 
