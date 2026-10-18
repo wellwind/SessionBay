@@ -244,7 +244,7 @@ export interface WorkspaceFileInfo {
   path: string;
   sizeBytes: number;
   version: string;
-  kind: 'text' | 'binary';
+  kind: 'text' | 'binary' | 'image';
 }
 export interface WorkspaceFileChunk { bytes: number[]; eof: boolean }
 

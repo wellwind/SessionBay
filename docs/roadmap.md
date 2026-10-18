@@ -248,3 +248,7 @@ Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字
 ## 大型文字檔閱讀
 
 中央 Files 已實作 metadata 預檢與分塊讀取、取消、確認與分段模式；Linux dev／production browser、Tauri WebKit、Rust tests／Clippy 與 build 已在 [#66](https://github.com/wellwind/SessionBay/pull/66) 通過；尚未宣稱三平台原生驗收。詳見 [大檔閱讀](large-file-reading.md)。
+
+## 檔案圖片閱讀
+
+PNG／JPEG／GIF／VP8 有損 WebP／靜態 SVG 的中央 tab 預覽正在實作，包含縮放與資源有界處理。以 Linux 實際驗證交付，未通過前不標為驗收完成。詳見 [圖片預覽](file-image-preview.md)。

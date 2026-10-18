@@ -731,3 +731,11 @@ Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會
 移除中央 Files 預覽的 256 KiB 開檔限制。先以安全開啟的檔案 handle 取得 metadata／版本及最多 64 KiB 文字樣本，再循序讀取最多 256 KiB 的 IPC chunks；每次都檢查路徑政策、檔案身分與版本。一般文字至 20 MiB 正常閱讀；20–64 MiB 需使用者確認，採純文字效能模式；超過 64 MiB 或 300,000 行則以最多約 1 MiB／300,000 行區段閱讀，區段搜尋／複製不宣稱全文。超長行降級並揭露繪製限制。這些是 Session Bay 的資源政策，並非 VS Code 無上限讀取的複製。
 
 切換檔案／離開檔案區／取消會停止後續讀取，已送出的單一 chunk 仍可完成但不提交過時結果；active file 才建立 Monaco model。跨工作區共享有限 LRU 小檔 cache，不保留多個大型全文 model；文字讀取仍不接受 binary 或非 UTF-8，不放寬 traversal、symlink、hardlink／reparse 保護。原有小檔 API 留給舊呼叫者，不再作為 Files 的開檔路徑。一般檔案寫入尚未授權，也未實作。
+
+## 2026-10-18：中央 Files 加入受限圖片閱讀
+
+PNG／JPEG／GIF／WebP 依內容簽章辨識，由後端以有界來源大小、尺寸、像素與輸出大小驗證並解碼首幀，再交付靜態 PNG。SVG 只接受受限靜態 XML 子集，拒絕腳本、事件、外部資源與複雜主動內容，僅透過 img 顯示。原始圖檔不直接送進 WebView，也不將 SVG 內嵌為 DOM。
+
+圖片沿用中央檔案 tab 與專案路徑／版本檢查，支援符合視窗、1:1、縮放、平移及尺寸資訊。IPC 使用有界二進位回應，離開或換檔釋放 Blob URL；取消後不提交過時結果。此功能不包含圖片編輯，也不改 Git 非文字檔不做 diff 的規劃。
+
+圖片 review 發現 image-webp 0.2.4 的 lossless Huffman table 配置不受其 memory limit 完整約束。初版因此在呼叫 decoder 前拒絕 VP8L 與 lossless alpha（包含動畫 frame），保留 VP8 有損 WebP；介面明確顯示不支援壓縮方式。未以尺寸上限掩蓋解碼器配置缺口。

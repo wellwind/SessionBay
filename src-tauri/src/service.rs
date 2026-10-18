@@ -163,6 +163,15 @@ impl Service {
         let root = self.catalog.workspace_root(project_id)?;
         workspace_files::read_chunk(&root, path, version, offset, max_bytes)
     }
+    pub fn read_workspace_image(
+        &self,
+        project_id: &str,
+        path: &str,
+        version: &str,
+    ) -> Result<Vec<u8>, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        crate::workspace_images::read(&root, path, version)
+    }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;
         let (workspace, warning) = self.config.load_workspace();

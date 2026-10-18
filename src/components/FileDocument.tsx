@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api';
 import type { WorkspaceFileInfo } from '../types';
 import { ExplorerEditor, type ScrollPosition } from './ExplorerEditor';
+import { ImageViewer } from './ImageViewer';
+import { parseWorkspaceImage, type ImagePreview } from './image-reader';
 import { FilePreviewBoundary } from './FilePreviewBoundary';
 import { FULL_FILE_BYTES, NORMAL_FILE_BYTES, RangeRequired, readWorkspaceText, type ReadText } from './file-reader';
 
@@ -11,6 +13,7 @@ interface Props {
 }
 type State = { phase: 'loading'; bytes: number } | { phase: 'confirm'; info: WorkspaceFileInfo }
   | { phase: 'range'; info: WorkspaceFileInfo } | { phase: 'ready'; info: WorkspaceFileInfo; value: ReadText }
+  | { phase: 'image'; info: WorkspaceFileInfo; image: ImagePreview }
   | { phase: 'error'; error: string } | { phase: 'cancelled' };
 const size = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 
@@ -27,6 +30,11 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
       const info = await api.inspectWorkspaceFile(projectId, path);
       controller.signal.throwIfAborted();
       if (info.path !== path || !Number.isSafeInteger(info.sizeBytes) || info.sizeBytes < 0 || !info.version) throw new Error('無效檔案資訊，請重新整理');
+      if (info.kind === 'image') {
+        const response = await api.readWorkspaceImage(projectId, path, info.version);
+        controller.signal.throwIfAborted();
+        setState({ phase: 'image', info, image: parseWorkspaceImage(response) }); return;
+      }
       if (info.kind !== 'text') throw new Error('此檔案不是支援的 UTF-8 文字');
       if (request.start === undefined && info.sizeBytes > FULL_FILE_BYTES) { setState({ phase: 'range', info }); return; }
       if (request.start === undefined && info.sizeBytes > NORMAL_FILE_BYTES && !request.confirmed) { setState({ phase: 'confirm', info }); return; }
@@ -55,6 +63,9 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
     {state.phase === 'confirm' && <button onClick={() => retry({ confirmed: true })}>繼續開啟</button>}
     <button onClick={() => retry({ start: 0 })}>分段閱讀</button><button onClick={cancel}>取消</button>
   </div>;
+  if (state.phase === 'image') return <FilePreviewBoundary key={`${path}:${state.info.version}`} path={path}>
+    <ImageViewer path={path} {...state.image} format={state.image.sourceFormat} sizeBytes={state.info.sizeBytes} />
+  </FilePreviewBoundary>;
   const { value, info } = state;
   return <div className="file-document-content">
     {value.longestLine > 10000 && value.lightweight && <p className="explorer-notice" role="status">超長行僅繪製前 10,000 字元；選取與複製仍保留目前內容。</p>}

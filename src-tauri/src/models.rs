@@ -133,6 +133,7 @@ pub struct WorkspaceFilePreview {
 pub enum WorkspaceFileKind {
     Text,
     Binary,
+    Image,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

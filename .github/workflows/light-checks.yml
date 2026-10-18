@@ -43,6 +43,14 @@ jobs:
         run: npm run test:ime
       - name: Monaco lifecycle in Vite dev and production
         run: npx playwright test --config playwright.monaco.config.ts --output=test-results/monaco
+      - name: Preserve file editor and image preview evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: file-preview-evidence
+          path: test-results/monaco/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Workspace file preview screenshots and bounds
         run: npm run test:files -- --output=test-results/files
       - name: Agent lifecycle overview browser acceptance
