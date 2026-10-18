@@ -42,8 +42,16 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
       } catch (error) { model.dispose(); throw error; }
       instance.current = widget;
       const retained = latest.current.position;
-      if (retained.viewState) widget.restoreViewState(retained.viewState);
-      else widget.setScrollPosition({ scrollTop: retained.top, scrollLeft: retained.left });
+      const restore = () => {
+        if (retained.viewState) widget.restoreViewState(retained.viewState);
+        else widget.setScrollPosition({ scrollTop: retained.top, scrollLeft: retained.left });
+      };
+      restore();
+      // Restore again after the host and horizontal scrollbar have their final
+      // dimensions. Restoring during construction can clamp a near-bottom offset.
+      const restoreFrame = requestAnimationFrame(() => {
+        if (!disposed) { widget.layout(); restore(); }
+      });
       const save = () => latest.current.onScroll({ top: widget.getScrollTop(), left: widget.getScrollLeft(), viewState: widget.saveViewState() });
       const scroll = widget.onDidScrollChange(save);
       const selection = widget.onDidChangeCursorSelection(save);
@@ -52,7 +60,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
       const observer = new MutationObserver(updateTheme);
       observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
       release = () => {
-        save(); observer.disconnect(); scroll.dispose(); selection.dispose();
+        cancelAnimationFrame(restoreFrame); save(); observer.disconnect(); scroll.dispose(); selection.dispose();
         widget.dispose(); model.dispose();
         if (instance.current === widget) instance.current = null;
       };

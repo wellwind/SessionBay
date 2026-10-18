@@ -18,7 +18,7 @@ export const monaco = {
         restoreViewState: vi.fn(), saveViewState: vi.fn(() => ({ viewState: { scrollTop: top } })),
         getScrollTop: () => top, getScrollLeft: () => left,
         onDidScrollChange: () => ({ dispose: vi.fn() }), onDidChangeCursorSelection: () => ({ dispose: vi.fn() }),
-        focus: vi.fn(),
+        layout: vi.fn(), focus: vi.fn(),
         getAction: vi.fn(() => ({ run: vi.fn(() => {
           let input = container.querySelector('input');
           if (!input) { input = document.createElement('input'); input.setAttribute('aria-label', '搜尋文字'); container.append(input); }

@@ -217,6 +217,22 @@
 - 尚未完成：真實 provider causal bridge、使用者 opt-in 安裝／撤銷流程及三平台 native QA。一般 Agent 啟動仍無自動 hooks。
 - 專案內右側 Activity Bar：左側保留專案／所有目錄，歷史 Sessions／Files 共用右側工具面板，中央內容獨立；typed contribution、延遲掛載與 overflow 為未來功能保留擴充點。Git 等其他功能待實作後才加入。
 
+## 2026-10-18 Git 工作台（已確認規劃，尚未實作）
+
+完整範圍、風險與驗收見 [Git 工作台功能規劃](git-workbench-plan.md)。以下為八個預計實作 PR，全部未完成；不影響上述既有任務狀態。
+
+- [ ] G1 Git 基礎與多 repo。
+- [ ] G2 文字 Diff 與同檔部分 hunk／行暫存。
+- [ ] G3 Commit、fetch／pull／push。
+- [ ] G4 第一階段歷史 graph 與 blame。
+- [ ] G5 分支、stash／reset／revert／tag 與安全復原。
+- [ ] G6 應用內三方衝突解決及儲存。
+- [ ] G7 GitHub／自架 GitLab 主機與帳號連線。
+- [ ] G8 PR／MR 建立、review、CI 狀態與合併。
+
+Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字內容 diff 不在範圍內。既有 worktree 的正確 Git 探測與非文字變更／衝突處置仍在基礎範圍。
+
+
 ### Monaco 唯讀預覽
 
 - [x] 實作延遲載入 Monaco、唯讀模型、全文搜尋／選取／折疊、每檔案 view state、本機 workers 與 CSP。

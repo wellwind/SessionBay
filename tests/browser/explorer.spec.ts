@@ -122,3 +122,35 @@ test('Monaco local workers, readonly selection, theme and model disposal', async
   })).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('Monaco preserves folding and selection when switching file tabs', async ({ page }) => {
+  await page.goto('/tests/browser/workspace-focus-mode.html');
+  await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  await page.getByRole('button', { name: 'README.md', exact: true }).dblclick();
+  await page.getByRole('button', { name: 'src', exact: true }).click();
+  await page.getByRole('button', { name: 'index.ts', exact: true }).dblclick();
+  await expect(page.getByRole('button', { name: '檔案內搜尋', exact: true })).toBeEnabled();
+  await expect.poll(async () => page.evaluate(async () => {
+    const modulePath = '/src/components/monaco-preview.ts';
+    const { monaco } = await import(modulePath);
+    const widget = monaco.editor.getEditors()[0];
+    widget.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 7 });
+    await widget.getAction('editor.foldAll').run();
+    return widget.saveViewState().contributionsState['editor.contrib.folding'].collapsedRegions?.length ?? 0;
+  })).toBeGreaterThan(0);
+  const tabs = page.locator('.project-file-tabs-host');
+  await tabs.getByRole('tab', { name: /README.md/ }).click();
+  await expect(page.getByLabel('唯讀內容：README.md')).toContainText('<script>');
+  await tabs.getByRole('tab', { name: /index.ts/ }).click();
+  await expect(page.getByRole('button', { name: '檔案內搜尋', exact: true })).toBeEnabled();
+  await expect.poll(async () => page.evaluate(async () => {
+    const modulePath = '/src/components/monaco-preview.ts';
+    const { monaco } = await import(modulePath);
+    const widget = monaco.editor.getEditors()[0];
+    const view = widget.saveViewState();
+    return { folds: view.contributionsState['editor.contrib.folding'].collapsedRegions?.length ?? 0,
+      selected: widget.getModel().getValueInRange(widget.getSelection()) };
+  })).toEqual({ folds: 1, selected: 'export' });
+});

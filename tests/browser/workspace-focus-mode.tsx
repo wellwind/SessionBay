@@ -85,7 +85,7 @@ mockIPC((command, payload = {}) => {
       const text = path === 'large.ts'
         ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(12000) + 'END_SENTINEL\n'
         : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
-        : path === 'src/index.ts' ? 'export const greeting = "Synthetic";\n' : 'synthetic preview only';
+        : path === 'src/index.ts' ? 'export const greeting = () => {\n  const message = "Synthetic";\n  return message;\n};\n' : 'synthetic preview only';
       return { path, text, sizeBytes: new TextEncoder().encode(text).length };
     }
     case 'update_project': {
