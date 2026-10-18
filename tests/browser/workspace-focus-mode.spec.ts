@@ -16,7 +16,10 @@ async function openWorkspace(page: Page) {
   await page.goto('/tests/browser/workspace-focus-mode.html');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
+  await expect(page.getByRole('button', { name: '歷史 Sessions', exact: true })).toHaveAttribute('aria-expanded', 'false');
   await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
+  await expect(page.locator('#activity-sessions-panel')).toBeVisible();
+  await expect(page.locator('.sidebar')).toBeVisible();
   await expect(page.locator('.xterm-screen')).toBeVisible();
   await expect.poll(() => page.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
   await expect.poll(() => latestSize(page)).toBeTruthy();
@@ -65,13 +68,17 @@ test('focus gains terminal area, fits on resize, and preserves runtime and termi
   await expect(page.locator('.sidebar')).toBeHidden();
   await expect.poll(async () => (await geometry(page)).height).toBeGreaterThan(normal.height);
   const focused = await geometry(page);
-  expect(focused.width).toBe(normal.width);
+  expect(focused.width).toBeGreaterThan(normal.width);
+  await expect(page.locator('#activity-sessions-panel')).toBeHidden();
+  await expect(page.getByRole('navigation', { name: '工作區功能' })).toBeVisible();
+  await expect.poll(async () => (await latestSize(page))?.cols ?? 0).toBeGreaterThan(normalSize!.cols!);
   await expect.poll(async () => (await latestSize(page))?.rows ?? 0).toBeGreaterThan(normalSize!.rows!);
+  const focusedSize = await latestSize(page);
   await sameTerminal(page);
   await page.screenshot({ path: testInfo.outputPath('focused.png'), fullPage: true });
   await page.setViewportSize({ width: 800, height: 600 });
   await expect.poll(async () => (await geometry(page)).width).toBeLessThan(focused.width);
-  await expect.poll(async () => (await latestSize(page))?.cols ?? 0).toBeLessThan(normalSize!.cols!);
+  await expect.poll(async () => (await latestSize(page))?.cols ?? 0).toBeLessThan(focusedSize!.cols!);
   await expect(page.getByRole('button', { name: '退出專注模式', exact: true })).toBeInViewport();
   await page.locator('.xterm-screen').click();
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
@@ -87,7 +94,6 @@ test('focus gains terminal area, fits on resize, and preserves runtime and termi
 
 test('history, settings, theme and project navigation remain reachable without reattaching', async ({ page }) => {
   await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
-  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
   await expect(page.locator('#activity-sessions-panel')).toBeHidden();
   await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
   await expect(page.locator('#activity-sessions-panel')).toBeVisible();
@@ -109,11 +115,12 @@ test('history, settings, theme and project navigation remain reachable without r
   await expect(page.locator('.app-topbar')).toBeHidden();
   await sameTerminal(page);
   await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
-  await page.getByRole('navigation', { name: '工作區功能' }).getByRole('button', { name: '專案', exact: true }).click();
+  await expect(page.locator('.sidebar')).toBeVisible();
   await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
   await expect(page.locator('.project-header h1')).toHaveText('Synthetic other');
   await page.getByRole('tab', { name: /^專案/ }).click();
+  await expect(page.locator('.project-activity-tools')).toBeHidden();
   await expect(page.locator('.app-topbar')).toBeVisible();
   await expect(page.getByRole('button', { name: '退出專注模式', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
@@ -139,6 +146,9 @@ test('Files sidebar, project tabs and Zen preserve terminal lifecycle', async ({
   await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
   await expect(preview).toBeVisible();
   await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#activity-files-panel')).toBeHidden();
+  await expect(page.locator('.sidebar')).toBeHidden();
   await sameTerminal(page);
   await page.screenshot({ path: testInfo.outputPath('files-zen.png'), fullPage: true });
   await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
@@ -148,11 +158,14 @@ test('Files sidebar, project tabs and Zen preserve terminal lifecycle', async ({
   await page.locator('.project-file-tabs-host').getByRole('tab', { name: /synthetic.txt/ }).click();
   await expect(preview).toBeVisible();
   await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
-  await page.getByRole('navigation', { name: '工作區功能' }).getByRole('button', { name: '專案', exact: true }).click();
+  await expect(page.locator('#activity-files-panel')).toBeVisible();
+  await expect(page.locator('#activity-sessions-panel')).toBeHidden();
+  await expect(page.locator('.sidebar')).toBeVisible();
   await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
   await expect(page.locator('.project-file-tabs-host').getByRole('tab')).toHaveCount(0);
   await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic focus' }).click();
-  await page.locator('.project-file-tabs-host').getByRole('tab', { name: /synthetic.txt/ }).click();
+  await expect(page.locator('#activity-files-panel')).toBeVisible();
+  await expect(page.locator('.project-file-tabs-host').getByRole('tab', { name: /synthetic.txt/ })).toHaveAttribute('aria-selected', 'true');
   await expect(preview).toBeVisible();
   await page.locator('.workspace-tab-select').click();
   await expect(page.locator('.xterm-screen')).toBeVisible();
@@ -175,20 +188,29 @@ test('long tab names keep a keyboard-operable focus exit at supported narrow wid
 });
 
 
-for (const panelOpen of [true, false]) {
-  test(`hiding revealed controls restores terminal focus and preserves the activity panel (${panelOpen})`, async ({ page }) => {
-    if (!panelOpen) await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
+for (const [normalOpen, zenOpen] of [[true, false], [false, true]]) {
+  test(`hiding revealed controls restores terminal focus and independent panels (normal=${normalOpen}, Zen=${zenOpen})`, async ({ page }) => {
+    const sessions = page.getByRole('button', { name: '歷史 Sessions', exact: true });
+    if (!normalOpen) await sessions.click();
     await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+    await expect(sessions).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+    if (zenOpen) await sessions.click();
     await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+    await expect(page.locator('.sidebar')).toBeVisible();
     const hide = page.getByRole('button', { name: '收起完整控制列', exact: true });
     await hide.focus();
     await hide.click();
     await expect(page.locator('.app-topbar')).toBeHidden();
+    await expect(page.locator('.sidebar')).toBeHidden();
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+    await expect(sessions).toHaveAttribute('aria-expanded', String(zenOpen));
     await sameTerminal(page);
     await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
-    await expect(page.getByRole('button', { name: '歷史 Sessions', exact: true })).toHaveAttribute('aria-expanded', String(panelOpen));
+    await expect(sessions).toHaveAttribute('aria-expanded', String(normalOpen));
+    await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+    await expect(sessions).toHaveAttribute('aria-expanded', String(zenOpen));
+    await sameTerminal(page);
   });
 }
 

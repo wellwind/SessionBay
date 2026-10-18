@@ -791,3 +791,42 @@ it('keeps the session browser out of the center until its lazy sidebar target mo
     host.remove();
   }
 });
+
+it('remembers selected transcript and preview visibility independently for each project', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  vi.mocked(api.sessions).mockImplementation(async query => ({ catalogRevision: 'fixture',
+    items: query.projectId === 'project-b'
+      ? [session('beta-1', { projectId: 'project-b' }), session('beta-2', { projectId: 'project-b' })]
+      : [session('alpha-1'), session('alpha-2')], total: 2 }));
+  vi.mocked(api.transcript).mockImplementation(async id => transcript(`Transcript ${id}`));
+  const { container, rerender, unmount, props } = setup({ projectId: project.id, sidebarHost: host });
+  const choose = (id: string) => fireEvent.click(within(host).getByRole('button', { name: new RegExp(`^(?!刪除).*Session ${id}`) }));
+  try {
+    await tick();
+    choose('alpha-2');
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript alpha-2');
+    fireEvent.click(within(host).getByRole('button', { name: '收合預覽' }));
+    expect(within(container).queryByRole('region', { name: '對話預覽' })).not.toBeInTheDocument();
+    rerender(<HistoryView {...props} projectId="project-b" />);
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toBeVisible();
+    choose('beta-2');
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript beta-2');
+    rerender(<HistoryView {...props} projectId={project.id} />);
+    await tick();
+    expect(within(container).queryByRole('region', { name: '對話預覽' })).not.toBeInTheDocument();
+    expect(within(host).getByRole('button', { name: /^(?!刪除).*Session alpha-2/ })).toHaveAttribute('aria-current', 'true');
+    fireEvent.click(within(host).getByRole('button', { name: '顯示預覽' }));
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript alpha-2');
+    rerender(<HistoryView {...props} projectId="project-b" />);
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript beta-2');
+  } finally {
+    unmount();
+    host.remove();
+  }
+});

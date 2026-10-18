@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createPortal } from 'react-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { defaultAgentOptions } from './agents';
@@ -16,7 +17,10 @@ vi.mock('./api', () => ({ api: bridge, isDesktop: () => true,
 vi.mock('./startup', () => ({ startup: { mounted: vi.fn(), ready: vi.fn(), backendError: vi.fn() } }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => vi.fn()) }));
 vi.mock('./directory-picker', () => ({ canPickDirectory: () => false, pickDirectory: vi.fn() }));
-vi.mock('./components/History', () => ({ agentName: (kind: string) => kind, dateLabel: () => '', HistoryView: () => null }));
+vi.mock('./components/History', () => ({ agentName: (kind: string) => kind, dateLabel: () => '',
+  HistoryView: ({ sidebarHost, onSelectSession }: { sidebarHost?: HTMLDivElement | null; onSelectSession?: () => void }) =>
+    sidebarHost ? createPortal(<button onClick={onSelectSession}>Select synthetic history session</button>, sidebarHost) : null,
+}));
 // Keep App, WorkspaceCanvas, TerminalPane and all document listeners real.
 // Only the native bridge and the xterm drawing/input boundary are synthetic.
 vi.mock('@xterm/xterm', () => ({ Terminal: class {
@@ -197,6 +201,8 @@ describe('Cmd+W closes only the current workspace tab', () => {
   it('does not close during composition, repeat, modal input, or history view', async () => {
     setup([shell()]);
     await mountProject();
+    fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select synthetic history session' }));
     await nativeCloseTab(); // history
     expect(bridge.stop).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project pane-a' }));
@@ -321,10 +327,11 @@ describe('project Files workspace integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     expect(screen.getByRole('button', { name: '.env.example' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'false');
     expect(bridge.launch).not.toHaveBeenCalled(); expect(bridge.attach).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '關閉檔案 a.ts' }));
     expect(screen.queryByRole('tab', { name: /a.ts/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'false');
     expect(tab).not.toBeInTheDocument();
     expect(bridge.stop).not.toHaveBeenCalled();
   });

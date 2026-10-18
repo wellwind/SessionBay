@@ -191,7 +191,7 @@ it('invalidates deferred focus restoration after unmount', async () => {
   expect(cancel).toHaveBeenCalled();
 });
 
-it('hiding temporarily revealed controls returns keyboard focus without changing the project panel', async () => {
+it('hiding temporarily revealed controls restores keyboard focus and hides fixed navigation', async () => {
   const input = await ready();
   vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
   const frames: FrameRequestCallback[] = [];
@@ -205,7 +205,10 @@ it('hiding temporarily revealed controls returns keyboard focus without changing
   act(() => hide.focus()); fireEvent.click(hide);
   act(() => frames.splice(0).forEach(callback => callback(0)));
   expect(input).toHaveFocus();
-  expect(document.querySelector('#activity-projects-panel')).toBeVisible();
+  expect(document.querySelector('.sidebar')).not.toBeVisible();
+  expect(screen.getByRole('navigation', { name: '工作區功能' })).toBeVisible();
+  expect(screen.getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', 'false');
+  expect(document.querySelector('#activity-projects-panel')).toBeNull();
 });
 
 it.each([undefined, '', 'Mod+Shift+Z'])('shows the Zen Mode settings label without changing binding %s', async binding => {

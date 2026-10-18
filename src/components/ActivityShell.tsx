@@ -100,6 +100,11 @@ export function ActivityShell({ contributions, activeId, onActiveChange }: {
     buttons[next].focus();
   };
   return <>
+    {contributions.filter(entry => visited.has(entry.id) || entry.id === selected).map(entry =>
+      <div key={entry.id} id={`activity-${entry.id}-panel`} className="activity-panel" data-activity-id={entry.id}
+        hidden={selected !== entry.id || entry.available === false} aria-label={entry.label}>
+        {entry.renderSidebar()}
+      </div>)}
     <nav ref={rail} className="workspace-activity-bar" aria-label="工作區功能"
       onKeyDown={event => { if (!(event.target as Element).closest('[role="menu"]')) moveFocus(event, ':scope > button'); }}>
       {visible.map(entry => {
@@ -130,10 +135,6 @@ export function ActivityShell({ contributions, activeId, onActiveChange }: {
         })}
       </div>}
     </nav>
-    {contributions.filter(entry => visited.has(entry.id) || entry.id === selected).map(entry =>
-      <div key={entry.id} id={`activity-${entry.id}-panel`} className="activity-panel" data-activity-id={entry.id}
-        hidden={selected !== entry.id || entry.available === false} aria-label={entry.label}>
-        {entry.renderSidebar()}
-      </div>)}
+
   </>;
 }

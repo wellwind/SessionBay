@@ -2,15 +2,17 @@
 
 ## 使用方式
 
-全域左側依序為歷史 Sessions、Files、專案。任一時刻只有一個相鄰側欄；再點已選功能即收合。專案功能保留原本專案與所有目錄導覽、總覽、可排序專案樹、工作分頁與狀態。功能切換不變更中央 Terminal／檔案；選取歷史列才開啟對話預覽。
+左側固定保留專案／所有目錄導覽、總覽、專案樹與開啟工作狀態。專案是主要入口；進入專案後，最右側顯示 44px 工具列，依序為歷史 Sessions、Files。專案與工具不在同一層切換。
 
-初次開啟顯示專案功能。同次開啟期間，全域功能選取跨專案、正常與專注模式保留；歷史和 Files 的資料範圍隨所選專案更新。無專案的歷史入口使用全域搜尋；Files 提供選擇專案入口，不瀏覽 HOME。未顯示的已訪問側欄保持掛載，清單、目錄與文件狀態不因功能切換而重建。
+工具面板在功能列左側展開，一次只顯示一個；再點已選功能即收合並釋放全部面板寬度。圖示只切換面板，選取 Session 或檔案才更新中央內容。總覽、所有工作階段搜尋與臨時 Terminal 不顯示專案工具，也不保留右側空間；全域歷史使用原本中央搜尋介面。
+
+同次開啟期間，各專案保留中央檔案／Terminal／歷史檢視，以及各自正常／專注模式的工具選取。首次進入沒有工作分頁的專案預設開啟歷史；已有工作分頁則顯示 Terminal，工具收合。專注模式隱藏左側導航，右側工具預設收合，可明確展開；切回正常模式恢復正常工具狀態，中央工作不變。已訪問工具保留掛載，歷史的篩選、選取與分頁快取按專案保存。
 
 功能列可用 Tab、Enter／Space 操作；上下鍵、Home／End 移動焦點。高度不足時顯示「更多功能」選單，保留所選功能標記與可用性。選單支援上下鍵、Home／End 及 Escape 返回入口。
 
 ## 新增內部功能
 
-`src/components/ActivityShell.tsx` 提供 `ActivityContribution`；App 只組裝 contribution 清單，shell 不包含 Sessions、Files 或 Projects 的條件分支。
+`src/components/ActivityShell.tsx` 提供 `ActivityContribution`；App 只組裝 contribution 清單，shell 不包含 任何功能 ID 的條件分支。
 
 ```tsx
 const contribution: ActivityContribution = {
@@ -20,7 +22,7 @@ const contribution: ActivityContribution = {
   available: true,
   badge: 3,
   onActivate: () => prepareExampleContext(),
-  renderSidebar: () => <ExampleSidebar projectId={selectedId} />,
+  renderSidebar: () => <ExampleSidebar projectId={current.id} />,
 };
 ```
 
@@ -32,4 +34,4 @@ const contribution: ActivityContribution = {
 
 ## 驗證界線
 
-瀏覽器 fixture 使用合成專案與 Session，不讀取私人歷史。新增 UI 必須檢查 720／1200／1440 寬度、深淺主題、正常與專注模式、單側欄收合後的 Terminal 邊界，以及短高度篩選。瀏覽器驗證不能替代原生 WebView、實體 IME 或跨平台驗收。
+瀏覽器 fixture 使用合成專案與 Session，不讀取私人歷史。新增 UI 必須檢查 720／1200／1440 寬度、深淺主題、正常與專注模式、左導航／右工具收合後的 Terminal 邊界與總覽零空白佔位，以及短高度篩選。瀏覽器驗證不能替代原生 WebView、實體 IME 或跨平台驗收。

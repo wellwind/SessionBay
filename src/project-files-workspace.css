@@ -11,7 +11,7 @@
 }
 
 /* Activity selection controls only the adjacent panel, never the work surface. */
-.activity-sessions-panel { display: flex; flex: 0 0 320px; min-width: 0; max-width: 40%; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
+.activity-sessions-panel { display: flex; min-width: 0; min-height: 0; background: var(--panel); }
 .activity-sessions-panel[hidden] { display: none; }
 .activity-history-browser { width: 100%; min-width: 0; overflow: hidden; }
 .activity-history-browser .history-controls { padding: 12px; flex-wrap: wrap; gap: 6px; }
@@ -22,23 +22,34 @@
 .activity-history-browser .session-list { padding-inline: 8px; }
 .activity-history-browser .session-card { border-radius: 3px; }
 .activity-history-preview .transcript-column { flex: 1; min-width: 0; }
-@media (max-width: 900px) { .activity-sessions-panel { flex-basis: 280px; } }
 .activity-history-browser .history-controls .search-field { min-width: 0; width: 100%; }
 .activity-history-browser .history-agent-filter { max-width: 100%; }
 .activity-history-browser .filter-bar > * { max-width: 100%; }
 .activity-history-browser .empty-state { padding: 20px 12px; }
 .activity-history-controls { flex: 0 1 auto; min-height: 0; max-height: 50%; overflow: auto; }
 .activity-history-browser .search-field input { min-width: 0; }
-/* One global rail and one adjacent panel in normal and Zen modes. */
+/* Left project navigation remains independent of right-hand tools. */
 .sidebar .navigation-tabs { display: flex; margin-bottom: 12px; gap: 0; border-radius: 0; padding: 0; }
 .sidebar .navigation-tabs > button { flex: 1; min-width: 0; padding: 8px 4px; border-radius: 0; }
-.activity-empty-panel { display: flex; flex-direction: column; gap: 20px; padding: 16px; width: 280px; min-width: 0; }
-.activity-empty-panel strong { font-size: 13px; }
-.activity-panel > .sidebar { flex: 0 0 300px; width: 300px; max-width: 100%; padding: 12px 10px 0; }
-.activity-panel > .activity-sessions-panel { flex: 0 0 320px; max-width: 100%; }
 .activity-panel > .project-files-sidebar-host { max-width: 100%; }
-@media (max-width: 900px) {
-  .activity-panel > .sidebar { flex-basis: 260px; width: 260px; }
-  .activity-panel > .activity-sessions-panel { flex-basis: 280px; }
-}
 .activity-history-heading { margin: 0; padding: 12px 12px 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Project navigation is independent of the project-scoped right-hand tools. */
+.app-body > .sidebar[hidden], .project-activity-tools[hidden] { display: none; }
+.app-body > .sidebar { width: 236px; padding: 12px 10px 0; }
+.project-activity-tools { display: flex; flex: 0 0 auto; min-width: 0; min-height: 0; max-width: 45%; }
+.project-activity-tools .activity-panel { max-width: none; flex: 0 1 auto; border-left: 1px solid var(--border); }
+.project-activity-tools .activity-sessions-panel { flex: 0 1 320px; width: 320px; border-right: 0; }
+.project-activity-tools .workspace-activity-bar { border-left: 1px solid var(--border); border-right: 0; }
+.project-activity-tools .workspace-activity[aria-pressed='true']::before { left: auto; right: 0; }
+.project-activity-tools .activity-overflow-menu { left: auto; right: 100%; }
+.project-activity-tools .project-files-sidebar-host { flex-shrink: 1; }
+.app-shell .project-header { flex-wrap: wrap; }
+.app-shell .project-header > .project-heading { flex-basis: 220px; }
+@media (max-width: 900px) {
+  .app-body > .sidebar { width: 180px; }
+  .project-activity-tools .activity-sessions-panel { flex-basis: 220px; width: 220px; }
+  .project-activity-tools .project-files-sidebar { max-width: 220px; min-width: 0; }
+}
+
+.project-files-sidebar[data-side="right"] { border-right: 0; }
+.project-files-sidebar[data-side="right"] .project-files-resize { right: auto; left: -2px; }

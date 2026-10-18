@@ -6,9 +6,9 @@ import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 
 afterEach(() => vi.restoreAllMocks());
-const ids = ['sessions', 'files', 'projects', 'synthetic'];
+const ids = ['sessions', 'files', 'search', 'synthetic'];
 function Harness({ entries }: { entries: ActivityContribution[] }) {
-  const [active, setActive] = useState<string | null>('projects');
+  const [active, setActive] = useState<string | null>('sessions');
   return <ActivityShell contributions={entries} activeId={active} onActiveChange={setActive} />;
 }
 const entries = (): ActivityContribution[] => ids.map(id => ({ id, label: id, icon: Folder,
@@ -27,6 +27,9 @@ describe('generic activity contributions', () => {
     const nav = screen.getByRole('navigation', { name: '工作區功能' });
     expect(within(nav).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(ids);
     expect(screen.queryByLabelText('synthetic value')).not.toBeInTheDocument();
+    const sessionsPanel = document.getElementById('activity-sessions-panel')!;
+    expect(sessionsPanel.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(nav).getByRole('button', { name: 'sessions' })).toHaveAttribute('aria-controls', sessionsPanel.id);
     fireEvent.click(within(nav).getByRole('button', { name: 'synthetic' }));
     const input = screen.getByLabelText('synthetic value');
     fireEvent.change(input, { target: { value: 'retained' } });
@@ -52,7 +55,7 @@ describe('generic activity contributions', () => {
     const first = within(nav).getByRole('button', { name: 'sessions' });
     first.focus();
     fireEvent.keyDown(first, { key: 'ArrowDown' });
-    expect(within(nav).getByRole('button', { name: 'projects' })).toHaveFocus();
+    expect(within(nav).getByRole('button', { name: 'search' })).toHaveFocus();
     fireEvent.keyDown(document.activeElement!, { key: 'End' });
     const synthetic = within(nav).getByRole('button', { name: 'synthetic' });
     expect(synthetic).toHaveFocus();
@@ -78,7 +81,7 @@ describe('generic activity contributions', () => {
       const more = within(nav).getByRole('button', { name: '更多功能' });
       fireEvent.click(more);
       const menu = screen.getByRole('menu', { name: '更多工作區功能' });
-      expect(within(menu).getByRole('menuitemradio', { name: 'projects' })).toHaveFocus();
+      expect(within(menu).getByRole('menuitemradio', { name: 'search' })).toHaveFocus();
       fireEvent.keyDown(document.activeElement!, { key: 'End' });
       const synthetic = within(menu).getByRole('menuitemradio', { name: 'synthetic' });
       expect(synthetic).toHaveFocus();

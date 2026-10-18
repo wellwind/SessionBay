@@ -153,7 +153,9 @@ for (const width of [800, 1200]) test(`tab strip edge spacing and overflow at ${
     await strip.evaluate(element => { element.scrollLeft = 0; });
     const edges = await strip.evaluate(element => {
       const rect = element.getBoundingClientRect();
-      const first = element.firstElementChild!.getBoundingClientRect();
+      // WorkspaceTabs starts with clipped accessibility-only spans; measure the
+      // first real flex item (the project control in Zen, otherwise a tab).
+      const first = element.querySelector(':scope > .focus-project-control, :scope > .workspace-tab')!.getBoundingClientRect();
       return { left: first.left - rect.left, padding: getComputedStyle(element).paddingInline };
     });
     expect(edges).toEqual({ left: 0, padding: '0px' });

@@ -5,24 +5,27 @@ type Call = { command: string; data?: string; query?: SessionQuery };
 const calls = (page: Page) => page.evaluate(() =>
   (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture.calls);
 const sessionsButton = (page: Page) => page.getByRole('button', { name: '歷史 Sessions', exact: true });
-const projectsButton = (page: Page) => page.getByRole('navigation', { name: '工作區功能' }).getByRole('button', { name: '專案', exact: true });
-const projectsPanel = (page: Page) => page.locator('#activity-projects-panel');
 const filesButton = (page: Page) => page.getByRole('button', { name: 'Files', exact: true });
 const sessionsPanel = (page: Page) => page.locator('#activity-sessions-panel');
 const filesPanel = (page: Page) => page.locator('#activity-files-panel');
+const rail = (page: Page) => page.locator('.workspace-activity-bar');
+const navigator = (page: Page) => page.locator('.sidebar');
+const selectProject = (page: Page, name: string) => navigator(page).locator('.project-main').filter({ hasText: name }).click();
 
 async function openWorkspace(page: Page, options = '', openSessions = true) {
   await page.goto(`/tests/browser/workspace-focus-mode.html?activity=1${options}`);
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  await expect(rail(page)).toBeHidden();
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
   await expect(page.locator('.xterm-screen')).toBeVisible();
   await expect.poll(async () => (await page.locator('.xterm-rows').innerText()).replace(/\s/g, '')).toContain('Syntheticfocusoutput');
-  await expect(projectsButton(page)).toHaveAttribute('aria-expanded', 'true');
+  await expect(navigator(page)).toBeVisible();
+  await expect(sessionsButton(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(filesButton(page)).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('.project-work-content').getByRole('list', { name: 'Session 清單', includeHidden: true })).toHaveCount(0);
   if (openSessions) {
     await sessionsButton(page).click();
     await expect(sessionsPanel(page).getByRole('list', { name: 'Session 清單' })).toBeVisible();
-    await expect(projectsPanel(page)).toBeHidden();
   }
   await page.evaluate(() => Object.assign(window, {
     activityOriginalTerminal: document.querySelector('.xterm'),
@@ -41,77 +44,94 @@ async function expectRuntimePreserved(page: Page) {
     .map(call => call.command)).toEqual(['attach_runtime']);
 }
 
+async function geometry(page: Page) {
+  return page.evaluate(() => {
+    const box = (selector: string) => {
+      const rect = document.querySelector(selector)!.getBoundingClientRect();
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+    };
+    return { body: box('.app-body'), navigator: box('.sidebar'), main: box('.main-content'),
+      header: box('.project-header'), content: box('.project-work-content'), rail: box('.workspace-activity-bar'),
+      tools: box('.project-activity-tools'), viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+  });
+}
+
+async function expectAdjacentSurfaces(page: Page, panel?: 'sessions' | 'files') {
+  const value = await geometry(page);
+  const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1);
+  near(value.main.left, value.navigator.width ? value.navigator.right : value.body.left);
+  near(value.content.left, value.main.left);
+  if (value.header.width) near(value.header.left, value.content.left);
+  near(value.rail.right, value.body.right);
+  near(value.rail.width, 44);
+  if (panel) {
+    const side = (await page.locator(`#activity-${panel}-panel`).boundingBox())!;
+    near(value.content.right, side.x);
+    near(side.x + side.width, value.rail.left);
+  } else near(value.content.right, value.rail.left);
+  const terminal = page.locator('.terminal-pane:visible');
+  if (await terminal.count() === 1) {
+    const surface = (await terminal.boundingBox())!;
+    near(surface.x, value.content.left);
+    near(surface.y, value.content.top);
+    near(surface.x + surface.width, value.content.right);
+    near(surface.y + surface.height, value.content.bottom);
+  }
+  expect(value.content.width).toBeGreaterThan(0);
+  expect(value.scrollWidth).toBeLessThanOrEqual(value.viewport);
+  return value;
+}
+
 for (const theme of ['dark', 'light']) for (const width of [1200, 1440, 720]) {
-  test(`activity navigation ${theme} ${width}: accessible selection, collapse and retained terminal`, async ({ page }, info) => {
+  test(`right project tools ${theme} ${width}: independent navigation and normal/Zen geometry`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 850 });
     await openWorkspace(page, `&theme=${theme}`, false);
-    await expect(projectsPanel(page)).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`activity-projects-${theme}-${width}.png`), fullPage: true });
-    await sessionsButton(page).click();
-    await expect(projectsPanel(page)).toBeHidden();
     const navigation = page.getByRole('navigation', { name: '工作區功能' });
-    await expect(navigation.getByRole('button')).toHaveCount(3);
     expect(await navigation.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))))
-      .toEqual(['歷史 Sessions', 'Files', '專案']);
-    await expect(page.locator('.workspace-activity-bar')).toHaveCount(1);
-    await expect(page.locator('.app-body > .sidebar')).toHaveCount(0);
-    await expect(page.locator('.activity-panel:visible')).toHaveCount(1);
-    await expect(sessionsButton(page)).toHaveAttribute('aria-pressed', 'true');
-    await expect(sessionsButton(page)).toHaveAttribute('aria-expanded', 'true');
-    await expect(filesButton(page)).toHaveAttribute('aria-pressed', 'false');
-    await expect(filesPanel(page)).toBeHidden();
+      .toEqual(['歷史 Sessions', 'Files']);
+    await expect(page.locator('#activity-projects-panel')).toHaveCount(0);
     await expect(page.locator('.workspace-tabs').getByRole('button', { name: '歷史 Session', exact: true })).toHaveCount(0);
-    const withPanel = await page.locator('.terminal-body').boundingBox();
-    await sessionsButton(page).focus();
-    await page.keyboard.press('Enter');
-    await expect(sessionsPanel(page)).toBeHidden();
-    await expect(sessionsButton(page)).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('.activity-panel:visible')).toHaveCount(0);
-    await expect.poll(async () => (await page.locator('.terminal-body').boundingBox())!.width).toBeGreaterThan(withPanel!.width);
+    const normal = await expectAdjacentSurfaces(page);
+    await page.screenshot({ path: info.outputPath(`activity-normal-collapsed-${theme}-${width}.png`), fullPage: true });
+    await sessionsButton(page).click();
+    await expect(sessionsPanel(page)).toBeVisible();
+    await expect(navigator(page)).toBeVisible();
     await expect(page.locator('.xterm-screen')).toBeVisible();
-    await page.keyboard.press('Tab');
+    const expanded = await expectAdjacentSurfaces(page, 'sessions');
+    expect(expanded.content.width).toBeLessThan(normal.content.width);
+    await page.screenshot({ path: info.outputPath(`activity-normal-sessions-${theme}-${width}.png`), fullPage: true });
+    await sessionsButton(page).focus();
+    await page.keyboard.press('ArrowDown');
     await expect(filesButton(page)).toBeFocused();
-    await page.keyboard.press('Space');
-    await expect(filesButton(page)).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Enter');
     await expect(filesPanel(page)).toBeVisible();
     await expect(sessionsPanel(page)).toBeHidden();
+    await expectAdjacentSurfaces(page, 'files');
     await expect(page.locator('.xterm-screen')).toBeVisible();
-    await page.keyboard.press('Tab');
-    await expect(projectsButton(page)).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(projectsPanel(page)).toBeVisible();
     await expect(filesPanel(page)).toBeHidden();
-    await expect(page.locator('.xterm-screen')).toBeVisible();
+    await expectAdjacentSurfaces(page);
+    await sessionsButton(page).click();
+    await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+    await expect(navigator(page)).toBeHidden();
+    await expect(sessionsPanel(page)).toBeHidden();
+    await expect(filesPanel(page)).toBeHidden();
+    const zen = await expectAdjacentSurfaces(page);
+    expect(zen.content.width).toBeGreaterThan(width * 0.9);
+    expect(zen.content.height).toBeGreaterThan(normal.content.height);
+    await expectRuntimePreserved(page);
+    await page.screenshot({ path: info.outputPath(`activity-zen-collapsed-${theme}-${width}.png`), fullPage: true });
     await sessionsButton(page).click();
     await expect(sessionsPanel(page)).toBeVisible();
-    await expect(filesPanel(page)).toBeHidden();
-    await expect(projectsPanel(page)).toBeHidden();
-    await expect(filesButton(page)).toHaveAttribute('aria-pressed', 'false');
-    const geometry = await page.evaluate(() => {
-      const bar = document.querySelector('.workspace-activity-bar')!.getBoundingClientRect();
-      const panel = document.querySelector('#activity-sessions-panel')!.getBoundingClientRect();
-      const work = document.querySelector('.project-work-content')!.getBoundingClientRect();
-      return { barRight: bar.right, panelLeft: panel.left, panelRight: panel.right, workLeft: work.left,
-        viewport: innerWidth, scrollWidth: document.documentElement.scrollWidth };
-    });
-    expect(geometry.barRight).toBeLessThanOrEqual(geometry.panelLeft);
-    expect(geometry.panelRight).toBeLessThanOrEqual(geometry.workLeft);
-    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport);
-    await expectRuntimePreserved(page);
-    await page.screenshot({ path: info.outputPath(`activity-${theme}-${width}.png`), fullPage: true });
-    await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
-    await expect(page.locator('.sidebar')).toBeHidden();
+    await expectAdjacentSurfaces(page, 'sessions');
+    await page.screenshot({ path: info.outputPath(`activity-zen-sessions-${theme}-${width}.png`), fullPage: true });
+    await sessionsButton(page).click();
+    await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
+    await expect(navigator(page)).toBeVisible();
     await expect(sessionsPanel(page)).toBeVisible();
-    await expect(page.locator('.xterm-screen')).toBeVisible();
-    await expect(page.getByRole('button', { name: '退出專注模式', exact: true })).toBeInViewport();
+    await expectAdjacentSurfaces(page, 'sessions');
     await expectRuntimePreserved(page);
-    await page.screenshot({ path: info.outputPath(`activity-zen-${theme}-${width}.png`), fullPage: true });
-    await projectsButton(page).click();
-    await expect(projectsPanel(page)).toBeVisible();
-    await expect(sessionsPanel(page)).toBeHidden();
-    await expect(page.locator('.xterm-screen')).toBeVisible();
-    await expectRuntimePreserved(page);
-    await page.screenshot({ path: info.outputPath(`activity-zen-projects-${theme}-${width}.png`), fullPage: true });
+    await info.attach('normal-zen-geometry', { body: JSON.stringify({ normal, expanded, zen }, null, 2), contentType: 'application/json' });
   });
 }
 
@@ -128,10 +148,8 @@ test('switching activities retains session filters, list position and terminal i
   await expect.poll(async () => (await calls(page)).filter(call => call.command === 'write_runtime').map(call => call.data).join('')).toBe('synthetic input');
   const queries = (await calls(page)).filter(call => call.command === 'query_sessions').length;
   for (let iteration = 0; iteration < 3; iteration++) {
-    await projectsButton(page).click();
-    await expect(projectsPanel(page)).toBeVisible();
-    await expect(page.locator('.xterm-screen')).toBeVisible();
     await filesButton(page).click();
+    await expect(navigator(page)).toBeVisible();
     await expect(page.locator('.xterm-screen')).toBeVisible();
     await filesButton(page).click();
     await expect(filesPanel(page)).toBeHidden();
@@ -144,13 +162,17 @@ test('switching activities retains session filters, list position and terminal i
   await expectRuntimePreserved(page);
 });
 
-test('selecting a session opens its center transcript; activity switches preserve transcript and document state', async ({ page }) => {
+test('explicit session and file selection changes center while activity icons preserve it', async ({ page }) => {
   await openWorkspace(page);
   await sessionsPanel(page).locator('.session-card-select').filter({ hasText: 'Synthetic focus session 2' }).first().click();
   const transcript = page.getByRole('region', { name: '對話預覽' });
   await expect(transcript).toBeVisible();
   await expect(transcript).toContainText('Synthetic transcript project-focus-session-2 message 59');
   await expect(page.locator('.xterm-screen')).toBeHidden();
+  const contentBounds = (await page.locator('.project-work-content').boundingBox())!;
+  const transcriptBounds = (await transcript.boundingBox())!;
+  expect(Math.abs(transcriptBounds.x - contentBounds.x)).toBeLessThan(1);
+  expect(Math.abs(transcriptBounds.width - contentBounds.width)).toBeLessThan(1);
   await expect(sessionsPanel(page).getByRole('region', { name: '對話預覽' })).toHaveCount(0);
   const transcriptScroll = transcript.locator('.transcript-scroll');
   await transcriptScroll.evaluate(element => { element.scrollTop = 120; });
@@ -166,7 +188,6 @@ test('selecting a session opens its center transcript; activity switches preserv
   await sessionsButton(page).click();
   await expect(document).toBeVisible();
   await expect(page.locator('.history-mount')).toBeHidden();
-  await expect(sessionsPanel(page).locator('.session-card-select[aria-current="true"]')).toContainText('Synthetic focus session 2');
   await sessionsButton(page).click();
   await expect(sessionsPanel(page)).toBeHidden();
   await expect(document).toBeVisible();
@@ -177,123 +198,91 @@ test('selecting a session opens its center transcript; activity switches preserv
   await expectRuntimePreserved(page);
 });
 
-test('one global activity selection preserves project-scoped files through project navigation', async ({ page }) => {
-  await openWorkspace(page);
+test('each project restores its selected center tab and independently chosen tool panel', async ({ page }) => {
+  await openWorkspace(page, '', false);
   await filesButton(page).click();
   await page.getByRole('button', { name: 'src', exact: true }).click();
   await page.getByRole('button', { name: 'index.ts', exact: true }).dblclick();
-  await expect(page.getByLabel('唯讀內容：src/index.ts')).toBeVisible();
-  await projectsButton(page).click();
-  await expect(sessionsPanel(page)).toBeHidden();
+  const document = page.getByLabel('唯讀內容：src/index.ts');
+  await expect(document).toBeVisible();
+  await selectProject(page, 'Synthetic other');
+  await expect(sessionsButton(page)).toHaveAttribute('aria-expanded', 'true');
   await expect(filesPanel(page)).toBeHidden();
-  await expect(page.getByLabel('唯讀內容：src/index.ts')).toBeVisible();
-  await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
-  await expect(projectsButton(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.locator('.project-file-tabs-host').getByRole('tab')).toHaveCount(0);
-  await sessionsButton(page).click();
   await expect(sessionsPanel(page)).toContainText('Synthetic other session');
   await expect(sessionsPanel(page)).not.toContainText('Synthetic focus session');
-  await expect(projectsPanel(page)).toBeHidden();
-  await projectsButton(page).click();
-  await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic focus' }).click();
-  await expect(projectsButton(page)).toHaveAttribute('aria-expanded', 'true');
-  await filesButton(page).click();
+  await expect(page.locator('.project-file-tabs-host').getByRole('tab')).toHaveCount(0);
+  await sessionsButton(page).click();
+  await selectProject(page, 'Synthetic focus');
+  await expect(filesButton(page)).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('button', { name: 'index.ts', exact: true })).toBeVisible();
-  await page.locator('.project-file-tabs-host').getByRole('tab', { name: /index.ts/ }).click();
-  await expect(page.getByLabel('唯讀內容：src/index.ts')).toBeVisible();
-  await projectsButton(page).click();
-  await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
-  await expect(page.locator('.xterm-screen')).toBeVisible();
-  await expect(projectsPanel(page)).toBeVisible();
+  await expect(document).toBeVisible();
+  await selectProject(page, 'Synthetic other');
+  await expect(sessionsPanel(page)).toBeHidden();
   await expect(filesPanel(page)).toBeHidden();
+  await selectProject(page, 'Synthetic focus');
+  await page.locator('.workspace-tab-select').click();
+  await selectProject(page, 'Synthetic other');
+  await selectProject(page, 'Synthetic focus');
+  await expect(page.locator('.xterm-screen')).toBeVisible();
+  await expect(filesButton(page)).toHaveAttribute('aria-expanded', 'true');
   await expectRuntimePreserved(page);
 });
 
-test('Zen keeps activity controls reachable and preserves the chosen panel on exit', async ({ page }, info) => {
+test('Zen tool choice is remembered separately and never changes normal panel or left navigation', async ({ page }) => {
   await openWorkspace(page);
-  await filesButton(page).click();
   await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
-  await expect(page.locator('.app-topbar')).toBeHidden();
-  await expect(page.locator('.sidebar')).toBeHidden();
-  await expect(page.getByRole('navigation', { name: '工作區功能' })).toBeVisible();
+  await expect(navigator(page)).toBeHidden();
+  await expect(sessionsPanel(page)).toBeHidden();
+  await filesButton(page).click();
   await expect(filesPanel(page)).toBeVisible();
-  await page.screenshot({ path: info.outputPath('activity-zen-files.png'), fullPage: true });
-  await sessionsButton(page).click();
+  await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
+  await expect(navigator(page)).toBeVisible();
   await expect(sessionsPanel(page)).toBeVisible();
-  await expect(page.locator('.xterm-screen')).toBeVisible();
-  await page.screenshot({ path: info.outputPath('activity-zen-sessions.png'), fullPage: true });
-  await sessionsButton(page).click();
-  await expect(sessionsPanel(page)).toBeHidden();
-  await page.getByRole('button', { name: '退出專注模式', exact: true }).focus();
-  await page.keyboard.press('Enter');
-  await expect(page.locator('.app-topbar')).toBeVisible();
-  await expect(sessionsPanel(page)).toBeHidden();
   await expect(filesPanel(page)).toBeHidden();
+  await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+  await expect(filesPanel(page)).toBeVisible();
+  await expect(sessionsPanel(page)).toBeHidden();
+  await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+  await expect(navigator(page)).toBeVisible();
+  await expect(filesPanel(page)).toBeVisible();
+  await page.getByRole('button', { name: '收起完整控制列', exact: true }).click();
+  await expect(navigator(page)).toBeHidden();
+  await expect(filesPanel(page)).toBeVisible();
   await expectRuntimePreserved(page);
-  await page.screenshot({ path: info.outputPath('activity-zen-restored.png'), fullPage: true });
 });
 
 for (const width of [1200, 1440, 720]) {
-  test(`single activity sidebar collapses without empty terminal gutters at ${width}px`, async ({ page }, info) => {
+  test(`collapsed project tools have no placeholder gutters at ${width}px`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 850 });
-    await openWorkspace(page);
-    await projectsButton(page).click();
-    await expect(projectsPanel(page)).toBeVisible();
-    await expect(sessionsPanel(page)).toBeHidden();
-    await expect(filesPanel(page)).toBeHidden();
-    await expect(projectsButton(page)).toHaveAttribute('aria-expanded', 'true');
-    await projectsButton(page).click();
-    await expect(projectsPanel(page)).toBeHidden();
-    await expect(sessionsPanel(page)).toBeHidden();
-    await expect(filesPanel(page)).toBeHidden();
-    const edgeGeometry = () => page.evaluate(() => {
-      const box = (selector: string) => {
-        const rect = document.querySelector(selector)!.getBoundingClientRect();
-        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width };
-      };
-      return { bar: box('.workspace-activity-bar'), content: box('.project-work-content'),
-        terminal: box('.terminal-pane'), canvas: box('.workspace-canvas'), width: innerWidth };
-    });
-    const expectFullSurface = async () => {
-      await expect.poll(async () => {
-        const geometry = await edgeGeometry();
-        return Math.abs(geometry.content.left - geometry.bar.right) < 1 &&
-          ['left', 'top', 'right', 'bottom'].every(key =>
-            Math.abs(geometry.terminal[key as keyof typeof geometry.terminal] - geometry.content[key as keyof typeof geometry.content]) < 1);
-      }).toBe(true);
-      const geometry = await edgeGeometry();
-      expect(geometry.content.width).toBeGreaterThan(geometry.width * 0.9);
-      expect(geometry.canvas).toEqual(geometry.content);
-      await expectRuntimePreserved(page);
-      return geometry;
-    };
-    const normal = await expectFullSurface();
-    await page.screenshot({ path: info.outputPath(`activity-panel-collapsed-${width}.png`), fullPage: true });
-    await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
-    const zen = await expectFullSurface();
-    expect(zen.content.bottom - zen.content.top).toBeGreaterThan(normal.content.bottom - normal.content.top);
-    await page.screenshot({ path: info.outputPath(`activity-zen-panel-collapsed-${width}.png`), fullPage: true });
-    await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
-    await expect(page.locator('.sidebar')).toBeHidden();
-    await projectsButton(page).click();
-    await expect(page.locator('.sidebar')).toBeVisible();
-    await expect(sessionsPanel(page)).toBeHidden();
-    await expect(filesPanel(page)).toBeHidden();
+    await openWorkspace(page, '', false);
+    await navigator(page).getByRole('button', { name: '隱藏側欄', exact: true }).click();
+    await expect(navigator(page)).toBeHidden();
+    const normal = await expectAdjacentSurfaces(page);
+    expect(normal.content.width).toBeGreaterThan(width * 0.9);
     await expectRuntimePreserved(page);
-    await info.attach('edge-geometry', { body: JSON.stringify({ normal, zen }, null, 2), contentType: 'application/json' });
+    await page.screenshot({ path: info.outputPath(`activity-no-gutters-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+    const zen = await expectAdjacentSurfaces(page);
+    expect(zen.content.width).toBeGreaterThan(width * 0.9);
+    expect(zen.content.height).toBeGreaterThan(normal.content.height);
+    await page.screenshot({ path: info.outputPath(`activity-zen-no-gutters-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
+    await expect(navigator(page)).toBeHidden();
+    await page.getByRole('button', { name: '顯示側欄', exact: true }).click();
+    await expect(navigator(page)).toBeVisible();
+    await expectAdjacentSurfaces(page);
+    await expectRuntimePreserved(page);
   });
 }
 
-test('expanded filters remain scrollable above a usable session list at 700×550', async ({ page }, info) => {
+test('expanded filters stay scrollable above a usable session list at 700×550', async ({ page }, info) => {
   await page.setViewportSize({ width: 700, height: 550 });
   await openWorkspace(page);
   const panel = sessionsPanel(page);
   await panel.getByRole('button', { name: '篩選', exact: true }).click();
   const controls = panel.locator('.activity-history-controls');
-  await expect(controls).toBeVisible();
   await expect.poll(() => controls.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
-  const list = panel.getByRole('list', { name: 'Session 清單' });
-  expect((await list.boundingBox())!.height).toBeGreaterThanOrEqual(120);
+  expect((await panel.getByRole('list', { name: 'Session 清單' }).boundingBox())!.height).toBeGreaterThanOrEqual(120);
   const children = panel.getByRole('checkbox', { name: '包含子代理與分支' });
   await children.check();
   await expect(children).toBeInViewport();
@@ -302,83 +291,74 @@ test('expanded filters remain scrollable above a usable session list at 700×550
   await expect(children).not.toBeChecked();
   await controls.evaluate(element => { element.scrollTop = 0; });
   await expect(panel.getByRole('textbox', { name: '搜尋 Session' })).toBeInViewport();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await expect(page.locator('.xterm-screen')).toBeVisible();
+  await expectAdjacentSurfaces(page, 'sessions');
   await expectRuntimePreserved(page);
   await page.screenshot({ path: info.outputPath('activity-short-expanded-filters.png'), fullPage: true });
 });
 
-test('unscoped Files explains its context and opens Projects while global Sessions remains available', async ({ page }) => {
+test('overview has no project rail or empty column and explicit global search stays independent', async ({ page }) => {
   await page.goto('/tests/browser/workspace-focus-mode.html?activity=1');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
-  await expect(projectsPanel(page)).toBeVisible();
-  const overview = page.getByRole('region', { name: '專案管理總覽', exact: true });
-  await expect(overview).toBeVisible();
-  await filesButton(page).click();
-  await expect(filesButton(page)).toBeEnabled();
-  await expect(filesButton(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(filesPanel(page).getByRole('button', { name: '選擇專案', exact: true })).toBeVisible();
-  await expect(projectsPanel(page)).toBeHidden();
-  await expect(sessionsPanel(page)).toBeHidden();
-  await expect(overview).toBeVisible();
-  await filesPanel(page).getByRole('button', { name: '選擇專案', exact: true }).click();
-  await expect(projectsPanel(page)).toBeVisible();
-  await expect(filesPanel(page)).toBeHidden();
-  await sessionsButton(page).click();
-  await expect(sessionsPanel(page)).toBeVisible();
-  await expect(projectsPanel(page)).toBeHidden();
-  await sessionsPanel(page).getByRole('textbox', { name: '搜尋 Session' }).fill('other session');
-  await expect(sessionsPanel(page)).toContainText('Synthetic other session');
-  await expect(overview).toBeVisible();
-  await expect(page.getByRole('region', { name: '對話預覽' })).toBeHidden();
+  await expect(navigator(page)).toBeVisible();
+  await expect(page.getByRole('region', { name: '專案管理總覽', exact: true })).toBeVisible();
+  await expect(rail(page)).toBeHidden();
+  const overview = await geometry(page);
+  expect(overview.tools.width).toBe(0);
+  expect(overview.main.left).toBe(overview.navigator.right);
+  expect(overview.main.right).toBe(overview.body.right);
+  await navigator(page).getByRole('tab', { name: /^所有目錄/ }).click();
+  await page.getByRole('button', { name: '搜尋所有工作階段', exact: true }).click();
+  await expect(rail(page)).toBeHidden();
+  await expect(page.locator('.project-work-content').getByRole('list', { name: 'Session 清單' })).toBeVisible();
+  await page.getByRole('textbox', { name: '搜尋 Session' }).fill('other session');
+  await expect(page.getByRole('list', { name: 'Session 清單' })).toContainText('Synthetic other session');
   const queries = (await calls(page)).filter(call => call.command === 'query_sessions');
   expect(queries.at(-1)?.query?.projectId).toBeUndefined();
-  expect(queries.at(-1)?.query?.query).toBe('other session');
-  await sessionsButton(page).click();
-  await expect(sessionsPanel(page)).toBeHidden();
-  await expect(overview).toBeVisible();
-  await sessionsButton(page).click();
-  await sessionsPanel(page).locator('.session-card-select').first().click();
-  const transcript = page.getByRole('region', { name: '對話預覽' });
-  await expect(transcript).toBeVisible();
-  await expect(overview).toBeHidden();
-  await projectsButton(page).click();
-  await expect(transcript).toBeVisible();
+  await page.getByRole('button', { name: '返回目錄總覽', exact: true }).click();
+  await expect(page.getByRole('region', { name: '所有目錄總覽', exact: true })).toBeVisible();
+  await expect(rail(page)).toBeHidden();
   expect((await calls(page)).filter(call => ['launch_runtime', 'stop_runtime', 'forget_runtime'].includes(call.command))).toEqual([]);
 });
 
-
-test('Sessions changes to global scope when a temporary Terminal opens without changing activity', async ({ page }) => {
+test('temporary Terminal hides project tools without leaking project sessions and restores the original project', async ({ page }) => {
   await openWorkspace(page, '&temporary=1');
-  await expect(sessionsPanel(page).getByRole('heading', { name: 'Synthetic focus', exact: true })).toBeVisible();
+  await sessionsPanel(page).getByRole('textbox', { name: '搜尋 Session' }).fill('focus session');
   await page.getByRole('button', { name: '開啟臨時 Terminal', exact: true }).click();
   await expect(page.locator('.project-header h1')).toHaveText('臨時 Terminal');
-  await expect(sessionsButton(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(sessionsPanel(page).getByRole('heading', { name: '所有 Sessions', exact: true })).toBeVisible();
-  await expect.poll(async () => (await calls(page)).filter(call => call.command === 'query_sessions').at(-1)?.query?.projectId).toBeUndefined();
-  await sessionsPanel(page).getByRole('textbox', { name: '搜尋 Session' }).fill('other session');
-  await expect(sessionsPanel(page)).toContainText('Synthetic other session');
-  await expect(sessionsPanel(page)).not.toContainText('Synthetic focus session');
+  await expect(rail(page)).toBeHidden();
+  await expect(sessionsPanel(page)).toBeHidden();
   await expect(page.locator('.xterm-screen:visible')).toHaveCount(1);
-  await sessionsPanel(page).locator('.session-card-select').first().click();
-  const transcript = page.getByRole('region', { name: '對話預覽' });
-  await expect(transcript).toBeVisible();
-  await expect(transcript).toContainText('Synthetic transcript project-other-session-0 message 59');
-  await filesButton(page).click();
-  await expect(transcript).toBeVisible();
-  await expect(transcript).toContainText('Synthetic transcript project-other-session-0 message 59');
-  await expect(filesPanel(page).getByRole('button', { name: '選擇專案', exact: true })).toBeVisible();
-  await sessionsButton(page).click();
-  await expect(sessionsPanel(page).getByRole('textbox', { name: '搜尋 Session' })).toHaveValue('other session');
-  await projectsButton(page).click();
-  await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
-  await sessionsButton(page).click();
+  const temporary = await geometry(page);
+  expect(temporary.tools.width).toBe(0);
+  expect(temporary.content.right).toBe(temporary.body.right);
+  await selectProject(page, 'Synthetic focus');
+  await expect(sessionsPanel(page)).toBeVisible();
   await expect(sessionsPanel(page).getByRole('heading', { name: 'Synthetic focus', exact: true })).toBeVisible();
-  await expect(sessionsPanel(page)).toContainText('Synthetic focus session');
-  await expect(sessionsPanel(page)).not.toContainText('Synthetic other session');
+  await expect(sessionsPanel(page).getByRole('textbox', { name: '搜尋 Session' })).toHaveValue('focus session');
+  await expect(page.locator('.xterm-screen:visible')).toHaveCount(1);
   expect(await page.evaluate(() => (window as unknown as { activityOriginalTerminal: Element }).activityOriginalTerminal === document.querySelector('.xterm'))).toBe(true);
   const operations = await calls(page);
   expect(operations.filter(call => call.command === 'launch_runtime')).toHaveLength(1);
   expect(operations.filter(call => call.command === 'attach_runtime')).toHaveLength(1);
   expect(operations.filter(call => ['detach_runtime', 'stop_runtime', 'forget_runtime'].includes(call.command))).toEqual([]);
+});
+
+test('a project without runtime or history opens Sessions and can browse Files without launching work', async ({ page }) => {
+  await page.goto('/tests/browser/workspace-focus-mode.html?activity=1&empty=1');
+  await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  await selectProject(page, 'Synthetic other');
+  await expect(sessionsButton(page)).toHaveAttribute('aria-expanded', 'true');
+  await expect(sessionsPanel(page)).toContainText('把工作接續起來');
+  await expect(page.locator('.workspace-tab-select')).toHaveCount(0);
+  await expect(navigator(page)).toBeVisible();
+  await filesButton(page).click();
+  await expect(sessionsPanel(page)).toBeHidden();
+  await page.getByRole('button', { name: 'README.md', exact: true }).click();
+  await expect(page.getByLabel('唯讀內容：README.md')).toBeVisible();
+  await selectProject(page, 'Synthetic focus');
+  await expect(page.locator('.xterm-screen')).toBeVisible();
+  await selectProject(page, 'Synthetic other');
+  await expect(filesButton(page)).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByLabel('唯讀內容：README.md')).toBeVisible();
+  expect((await calls(page)).filter(call => ['launch_runtime', 'stop_runtime', 'forget_runtime'].includes(call.command))).toEqual([]);
 });

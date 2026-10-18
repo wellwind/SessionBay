@@ -55,7 +55,8 @@ if (edgeFixture) {
 }
 const activityFixture = fixtureParams.has('activity');
 if (activityFixture) bootstrap.projects.forEach(project => { project.sessionCount = 80; project.agents = ['codex', 'claude']; });
-const sessions = bootstrap.projects.flatMap(project => Array.from({ length: 80 }, (_, index): Session => ({
+if (fixtureParams.has('empty')) Object.assign(bootstrap.projects[1], { sessionCount: 0, agents: [] });
+const sessions = bootstrap.projects.flatMap(project => Array.from({ length: project.sessionCount }, (_, index): Session => ({
   id: `${project.id}-session-${index}`, title: `${project.name} session ${index}`,
   sourceId: 'synthetic-source', kind: index % 2 === 0 ? 'codex' : 'claude',
   externalId: `synthetic-external-${project.id}-${index}`, projectId: project.id,

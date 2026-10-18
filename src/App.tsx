@@ -10,7 +10,6 @@ import {
   Command as CommandIcon,
   Folder,
   Files,
-  FolderKanban,
   FolderPlus,
   Star,
   Trash2,
@@ -136,9 +135,9 @@ export default function App() {
   const [fileSidebarHost, setFileSidebarHost] = useState<HTMLDivElement | null>(null);
   const [fileDocumentHost, setFileDocumentHost] = useState<HTMLDivElement | null>(null);
   const [visitedFileProjects, setVisitedFileProjects] = useState<string[]>([]);
-  const [activeActivity, setActiveActivity] = useState<string | null>('projects');
-  const lastActivity = useRef('projects');
-  if (activeActivity) lastActivity.current = activeActivity;
+  const [projectActivities, setProjectActivities] = useState<Record<string, { normal: string | null; zen: string | null }>>({});
+  const projectViews = useRef<Record<string, 'history' | 'workspace' | 'files'>>({});
+  const initialProjectActivities = useRef<Record<string, string | null>>({});
   const [historySidebarHost, setHistorySidebarHost] = useState<HTMLDivElement | null>(null);
   const filesToggle = useRef<HTMLButtonElement>(null);
   const projectsToggle = useRef<HTMLButtonElement>(null);
@@ -161,9 +160,7 @@ export default function App() {
   const quickThemeOpenRef = useRef(false);
   quickThemeOpenRef.current = quickThemeOpen;
   const detectionGeneration = useRef(0);
-  const sidebarOpen = activeActivity === 'projects';
-  const setSidebarOpen = (open: boolean | ((value: boolean) => boolean)) =>
-    setActiveActivity((previous) => (typeof open === 'function' ? open(previous === 'projects') : open) ? 'projects' : null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   // Presentation only: never replace the canvas or change serialized workspace state.
   const [focusMode, setFocusMode] = useState(false);
   const [focusControlsOpen, setFocusControlsOpen] = useState(false);
@@ -283,8 +280,21 @@ export default function App() {
   );
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
+  const activityMode = focusMode ? 'zen' : 'normal';
+  if (current && !(current.id in initialProjectActivities.current)) initialProjectActivities.current[current.id] =
+    workspace.tabs.some(tab => tab.projectId === current.id) ? null : 'sessions';
+  const defaultActivity = current ? initialProjectActivities.current[current.id] : null;
+  const activeActivity = current ? projectActivities[current.id]?.[activityMode] ??
+    (projectActivities[current.id] ? null : focusMode ? null : defaultActivity) : null;
+  const setActiveActivity = (id: string | null) => {
+    if (!current) return;
+    setProjectActivities(previous => ({ ...previous, [current.id]: {
+      ...(previous[current.id] ?? { normal: defaultActivity, zen: null }), [activityMode]: id,
+    } }));
+  };
+  if (current) projectViews.current[current.id] = view;
   const historyVisible = !!current || allSessionsSearch;
-  const historyEnabled = historyVisible || activeActivity === 'sessions';
+  const historyEnabled = historyVisible;
   if (historyEnabled) lastHistoryProject.current = current?.id ?? null;
   const launchProjectId = current && !current.workspaceOnly ? current.id : undefined;
   useEffect(() => {
@@ -1014,7 +1024,8 @@ export default function App() {
     { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式（Zen Mode）' : '進入專注模式（Zen Mode）',
       disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
-      setActiveActivity(previous => previous === null ? lastActivity.current : null);
+      if (focusMode) setFocusControlsOpen(value => !value);
+      else setSidebarOpen(previous => !previous);
     } },
   ].map((command) => ({ ...command, shortcut: effectiveShortcuts[command.id] ?? '' }));
   const commandRef = useRef(commands);
@@ -1166,7 +1177,6 @@ export default function App() {
       : legacyProjectOrder(a, b));
   const listCollapsed = navigation === 'projects' ? sidebar.projectsCollapsed : sidebar.directoriesCollapsed;
   const selectNavigation = (page: 'projects' | 'directories') => {
-    setActiveActivity('projects');
     setNavigation(page);
     setSelectedId(undefined);
     setAllSessionsSearch(false);
@@ -1177,7 +1187,7 @@ export default function App() {
   const selectProject = (project: Project) => {
     setSelectedId(project.id);
     setAllSessionsSearch(false);
-    setView('history');
+    setView(projectViews.current[project.id] ?? (workspace.tabs.some(tab => tab.projectId === project.id) ? 'workspace' : 'history'));
     setMaximizedId(null);
   };
   const navigationName = navigation === 'projects' ? '專案' : '所有目錄';
@@ -1190,13 +1200,10 @@ export default function App() {
     { id: 'sessions', label: '歷史 Sessions', icon: History,
       renderSidebar: () => <div className="activity-sessions-panel" ref={setHistorySidebarHost} /> },
     { id: 'files', label: 'Files', icon: Files, buttonRef: filesToggle,
-      renderSidebar: () => <div className="project-files-sidebar-host" ref={setFileSidebarHost}>
-        {!filesAvailable && <div className="activity-empty-panel"><strong>Files</strong>
-          <button className="secondary" onClick={() => setActiveActivity('projects')}>選擇專案</button>
-        </div>}
-      </div> },
-    { id: 'projects', label: '專案', icon: FolderKanban, buttonRef: projectsToggle,
-      renderSidebar: () => (<aside className="sidebar" aria-label="專案導覽">
+      available: filesAvailable,
+      renderSidebar: () => <div className="project-files-sidebar-host" ref={setFileSidebarHost} /> },
+  ];
+  const projectNavigation = <aside className="sidebar" hidden={!sidebarOpen || compactWorkspace} aria-label="專案導覽">
         <div className="navigation-tabs" role="tablist" aria-label="導覽頁面">
             {(['projects', 'directories'] as const).map((page) => <button key={page} type="button"
               id={`navigation-${page}`} role="tab" aria-selected={navigation === page}
@@ -1221,7 +1228,14 @@ export default function App() {
               <button
                 className="icon-button"
                 aria-label="隱藏側欄"
-                onClick={() => { setSidebarOpen(false); projectsToggle.current?.focus({ preventScroll: true }); }}
+                onClick={event => {
+                  const owner = event.currentTarget;
+                  setSidebarOpen(false);
+                  requestAnimationFrame(() => {
+                    if ((document.activeElement === owner || document.activeElement === document.body) &&
+                      !document.querySelector('[role="dialog"], dialog[open]')) projectsToggle.current?.focus({ preventScroll: true });
+                  });
+                }}
               >
                 <PanelLeftClose size={16} />
               </button>
@@ -1292,8 +1306,7 @@ export default function App() {
                 </nav>
               </section>
             )}
-          </aside>) },
-  ];
+          </aside>;
   return (
     <RuntimeActivityProvider><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
@@ -1339,14 +1352,14 @@ export default function App() {
         </div>
       </header>
       <div className="app-body">
-        <ActivityShell contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
+        {projectNavigation}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
             <div className="project-heading">
               <nav className="breadcrumb" aria-label="目前位置">
                 {!sidebarOpen && (
                   <button
-                    className="icon-button"
+                    className="icon-button" ref={projectsToggle}
                     aria-label="顯示側欄"
                     onClick={() => setSidebarOpen(true)}
                   >
@@ -1402,7 +1415,7 @@ export default function App() {
             <div className="header-buttons">
               <button className="icon-button" title="資源回收筒" aria-label="資源回收筒" disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
-                onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); setActiveActivity(allSessionsSearch ? 'projects' : 'sessions'); }}>
+                onClick={() => { setAllSessionsSearch((value) => !value); setView('history');  }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
                 {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
               </button>}
@@ -1528,7 +1541,7 @@ export default function App() {
                   style={{ display: view === 'history' ? undefined : 'none' }}
                 >
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
-                    sidebarHost={historySidebarHost}
+                    sidebarHost={current ? historySidebarHost : undefined}
                     scopeLabel={current?.name ?? '所有 Sessions'}
                     onSelectSession={() => { if (!current) setAllSessionsSearch(true); setView('history'); }}
                     projectId={lastHistoryProject.current ?? undefined}
@@ -1600,7 +1613,7 @@ export default function App() {
                 )}
                 </div>
                 {visitedFileProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <WorkspaceFiles key={id}
-                  projectId={id} visible={current?.id === id} active={view === 'files' && current?.id === id}
+                  sidebarSide="right" projectId={id} visible={current?.id === id} active={view === 'files' && current?.id === id}
                   sidebarVisible={current?.id === id && filesVisible} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
                   onActivate={() => setView('files')} onEmpty={() => {
                     setView(activeTab ? 'workspace' : 'history');
@@ -1620,6 +1633,9 @@ export default function App() {
             </>
           )}
         </main>
+        <div className="project-activity-tools" hidden={!current}>
+          <ActivityShell contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
+        </div>
       </div>
       <footer className={`statusbar${index.running || index.errors.length || index.cancelled || zoomError || themeSaving ? ' statusbar-important' : ''}`}>
         <div>
@@ -1938,7 +1954,7 @@ export default function App() {
                 .slice(0, 20).map(project => ({
                   id: `project-${project.id}`, label: <><Folder size={14} />{project.name}</>,
                   search: `${project.name} ${project.path}`, detail: <small>{project.path || '未分類'}</small>,
-                  run: () => { setSelectedId(project.id); setView('history'); closePalette(); },
+                  run: () => { selectProject(project); closePalette(); },
                 })),
             ]} />}
         </Dialog>
