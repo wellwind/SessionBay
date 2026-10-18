@@ -39,11 +39,11 @@ it('contains delayed Monaco errors, releases resources and retries without repla
   expect(previewErrors.size).toBe(0);
 });
 
-it('cleans up a synchronous setup failure after editor creation', async () => {
+it('cleans up a synchronous theme setup failure before editor creation', async () => {
   monaco.editor.setTheme.mockImplementationOnce(() => { throw new Error('theme setup failed'); });
   render(<ExplorerEditor {...props} />);
   expect(await screen.findByRole('alert')).toHaveTextContent('無法載入編輯器');
-  expect(models[0].dispose).toHaveBeenCalledOnce(); expect(widgets[0].dispose).toHaveBeenCalledOnce();
+  expect(models[0].dispose).toHaveBeenCalledOnce(); expect(widgets).toHaveLength(0);
   expect(previewErrors.size).toBe(0);
 });
 
@@ -62,7 +62,7 @@ it('contains an unexpected error reported synchronously during construction', as
   render(<ExplorerEditor {...props} />);
   await screen.findByRole('alert');
   expect(screen.getByRole('button', { name: '檔案內搜尋' })).toBeDisabled();
-  expect(models[0].dispose).toHaveBeenCalledOnce(); expect(widgets[0].dispose).toHaveBeenCalledOnce();
+  expect(models[0].dispose).toHaveBeenCalledOnce(); expect(widgets).toHaveLength(0);
   expect(previewErrors.size).toBe(0);
 });
 
@@ -111,4 +111,22 @@ it('isolates React render failures and retry remounts only the failed preview', 
   expect(screen.getByLabelText('live terminal')).toBe(terminal);
   expect(mounted).toHaveBeenCalledOnce();
   view.unmount(); expect(unmounted).toHaveBeenCalledOnce();
+});
+
+it('contains a theme update failure after editor creation and releases the observer', async () => {
+  const original = document.documentElement.dataset.themePalette;
+  const view = render(<ExplorerEditor {...props} />);
+  await ready();
+  monaco.editor.setTheme.mockImplementationOnce(() => { throw new Error('theme update failed'); });
+  await act(async () => { document.documentElement.dataset.themePalette = 'ocean'; });
+  expect(await screen.findByRole('alert')).toHaveTextContent('無法載入編輯器');
+  expect(models[0].dispose).toHaveBeenCalledOnce(); expect(widgets[0].dispose).toHaveBeenCalledOnce();
+  expect(previewErrors.size).toBe(0);
+  const calls = monaco.editor.setTheme.mock.calls.length;
+  await act(async () => {
+    if (original === undefined) delete document.documentElement.dataset.themePalette;
+    else document.documentElement.dataset.themePalette = original;
+  });
+  expect(monaco.editor.setTheme).toHaveBeenCalledTimes(calls);
+  view.unmount();
 });

@@ -76,6 +76,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
           monaco.editor.setTheme(previewThemeName);
         };
         updateTheme();
+        if (failed || disposed) return;
         widget = monaco.editor.create(host, {
           theme: previewThemeName,
           model, readOnly: true, domReadOnly: true, automaticLayout: true,
