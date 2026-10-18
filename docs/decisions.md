@@ -716,6 +716,16 @@ broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn ide
 
 保留內部 typed contribution contract：功能提供 ID、圖示、名稱、renderer、availability、badge 與啟用 callback，shell 負責順序、選取／收合、鍵盤、首次延遲掛載、狀態保留與 overflow。功能 renderer 從專案 context 取得資料；不建立第三方插件平台或尚未實作的 Git 按鈕。
 
+## 2026-10-18：OpenCode 使用 launch-local plugin 回報原生活動
+
+下一個正式來源採 OpenCode 1.19.2 以上、2.0.0 以下的 stable CLI；這是已審閱 1.19.2／1.19.3 原始碼後選定的支援基線，不是宣稱 hooks 最早版本。Unix 每次啟動在 owner-only 暫存目錄建立固定、無套件依賴的 `.mjs`，只在子程序 `OPENCODE_CONFIG_CONTENT` 加入 file URI，保留既有 JSONC、plugin 與 argv。`--pure`／`OPENCODE_PURE` 仍禁止 plugin；啟用活動時明確拒絕不相容設定，不偷偷移除旗標。Windows 尚不啟用此來源。
+
+新 root 只能由 `chat.message` 加上該 provider client 回傳的相符 Session／directory／無 parentID 建立；恢復以原生 `ses_` ID 驗證，不使用 catalog ID 或 resume deduplication hash。任意第一個 status、歷史最近 Session、child 及未驗證 ancestry 不能綁定。每個 launch 只有單一 ordered reporter；多次 plugin 初始化不重設序號，dispose／通訊中斷後不復活舊來源。
+
+`session.status` 的 busy／retry／idle 是活動依據；permission／question 的 asked/replied/rejected 維護有界 pending ID 集合，不讀內容。`session.error` 也可能是可恢復的準備錯誤，故降為 unknown，不武斷宣稱 terminal failure；後續 idle 不把不確定結果升級為成功。只有新 busy/retry 恢復連續來源。idle 只表示 provider 閒置，不保證工作成功。5 秒刷新只重送事件維護的狀態；broker 原有30秒 TTL、世代與撤銷仍生效。
+
+合成 plugin／helper／broker contracts 可以在無登入、無模型呼叫的 Linux 環境驗證；正式 CLI 載入與真實回合另列證據，不能以 fixture 代替。macOS／Windows 原生 QA 繼續標示尚未執行，不作目前 Linux 交付的假性通過。
+
 ## 2026-10-18：Git 工作台規劃定案，功能尚未實作
 
 使用者確認在 Session Bay 內完成日常 Git、PR／MR 與三方衝突處理；GitLab 為自架主機。一專案可含多 repo，僅有效 Git 工作目錄啟用功能，正確辨識 .git file 與既有 worktree。文字 diff 支援同檔部分 hunk／行 stage／unstage，第一階段包含歷史 graph 與 blame。不做非文字內容 diff，但保留整檔變更與衝突處置。

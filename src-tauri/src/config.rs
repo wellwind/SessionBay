@@ -303,7 +303,7 @@ impl Settings {
         if self
             .agent_hooks
             .keys()
-            .any(|kind| !matches!(kind.as_str(), "codex" | "claude"))
+            .any(|kind| !matches!(kind.as_str(), "codex" | "claude" | "opencode"))
         {
             return Err("此 Agent 尚未支援真實 hooks".into());
         }

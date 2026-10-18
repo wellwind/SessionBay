@@ -9,6 +9,7 @@ use crate::{
 use std::{path::PathBuf, time::Instant};
 
 pub(super) struct Lease {
+    pub launch: String,
     pub runtime_id: String,
     pub provider: AgentKind,
     pub expected_session: Option<String>,
@@ -18,6 +19,14 @@ pub(super) struct Lease {
     pub source_sequence: u64,
     pub live: bool,
     pub retired_sessions: std::collections::HashSet<String>,
+}
+impl Drop for Lease {
+    fn drop(&mut self) {
+        // Also covers host teardown when a runtime callback can no longer
+        // upgrade its weak host reference. Never follow a callback-supplied path.
+        crate::claude_state::cleanup(&self.launch);
+        crate::opencode_state::cleanup(&self.launch);
+    }
 }
 impl Host {
     pub(super) fn receive_provider_hook(
@@ -165,7 +174,6 @@ impl Host {
     }
     pub(super) fn fail_provider_hook(&self, launch: &str) {
         if let Some(lease) = lock(&self.provider_hooks).remove(launch) {
-            crate::claude_state::cleanup(launch);
             self.close_runtime_activity(&lease.runtime_id);
         }
     }
@@ -176,27 +184,13 @@ impl Host {
             .filter(|lease| lease.provider == provider)
             .map(|lease| lease.runtime_id.clone())
             .collect();
-        leases.retain(|launch, lease| {
-            if lease.provider == provider {
-                crate::claude_state::cleanup(launch);
-                false
-            } else {
-                true
-            }
-        });
+        leases.retain(|_, lease| lease.provider != provider);
         for id in ids {
             self.close_runtime_activity(&id);
         }
     }
     pub(super) fn revoke_runtime_hooks(&self, runtime_id: &str) {
-        lock(&self.provider_hooks).retain(|launch, lease| {
-            if lease.runtime_id == runtime_id {
-                crate::claude_state::cleanup(launch);
-                false
-            } else {
-                true
-            }
-        });
+        lock(&self.provider_hooks).retain(|_, lease| lease.runtime_id != runtime_id);
         self.close_runtime_activity(runtime_id);
     }
 }
@@ -254,5 +248,192 @@ mod tests {
                 .unwrap()
                 .unwrap();
         assert_eq!(normalized.turn_id.as_deref(), Some("t"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod opencode_tests {
+    use super::*;
+    use crate::{agent_activity::Observation, broker::UiEvent, runtime::LaunchSpec};
+    use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
+
+    fn launch(
+        host: &Arc<Host>,
+        root: &Path,
+        pane: &str,
+        resume: Option<&str>,
+    ) -> Result<Response, String> {
+        let executable = root.join("synthetic-opencode");
+        std::fs::write(&executable,
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then printf '1.19.2\\n'; exit; fi\nexec sleep 60\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        host.handle(Request::Launch {
+            generation: host.generation.clone(),
+            spec: Box::new(LaunchSpec {
+                executable: executable.to_str().unwrap().into(),
+                args: vec!["--session".into(), "ses_indexedRoot".into()],
+                cwd: root.into(),
+                env: HashMap::from([
+                    (hooks::OPT_IN.into(), "live".into()),
+                    ("OPENCODE_CONFIG_CONTENT".into(), "{}".into()),
+                ]),
+                session_id: Some("catalog-id-not-provider-id".into()),
+                resume_key: Some("provider-opaque-database-and-session-key".into()),
+                pane_id: pane.into(),
+            }),
+            kind: "opencode".into(),
+            project_id: None,
+            profile_id: None,
+            resume_id: resume.map(str::to_owned),
+            home_directory: false,
+            cols: 80,
+            rows: 24,
+        })
+    }
+
+    fn state(
+        host: &Host,
+        launch: &str,
+        session: &str,
+        sequence: u64,
+        observation: Observation,
+    ) -> Result<Response, String> {
+        host.receive_provider_state(
+            launch,
+            hooks::StateReport {
+                session: session.into(),
+                turn: None,
+                sequence,
+                observation,
+            },
+        )
+    }
+
+    fn observation(host: &Host, runtime: &str) -> Option<Observation> {
+        let UiEvent::AgentActivity { observation, .. } =
+            host.poll_activity(runtime, None, Instant::now()).unwrap()
+        else {
+            panic!("missing activity");
+        };
+        observation
+    }
+
+    #[test]
+    fn opencode_native_root_sequence_retry_and_revoke_use_existing_state_pipeline() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Host::open(root.path().into()).unwrap();
+        let Response::Runtime { info: Some(info) } =
+            launch(&host, root.path(), "live-pane", None).unwrap()
+        else {
+            panic!("missing runtime");
+        };
+        let launch = lock(&host.provider_hooks).keys().next().unwrap().clone();
+        let path = crate::opencode_state::staged_path(&launch).unwrap();
+        assert!(path.exists());
+        assert_eq!(
+            lock(&host.provider_hooks)[&launch]
+                .expected_session
+                .as_deref(),
+            Some("ses_indexedRoot")
+        );
+        assert!(lock(&host.provider_hooks)[&launch].live);
+        assert!(state(&host, &launch, "ses_wrongRoot", 1, Observation::Busy).is_err());
+        assert_eq!(lock(&host.provider_hooks)[&launch].source_sequence, 0);
+        state(&host, &launch, "ses_indexedRoot", 1, Observation::Busy).unwrap();
+        assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
+        for sequence in [0, 1, 3] {
+            assert!(state(
+                &host,
+                &launch,
+                "ses_indexedRoot",
+                sequence,
+                Observation::Idle
+            )
+            .is_err());
+            assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
+        }
+        state(&host, &launch, "ses_indexedRoot", 2, Observation::Retry).unwrap();
+        assert_eq!(observation(&host, &info.id), Some(Observation::Retry));
+        state(
+            &host,
+            &launch,
+            "ses_indexedRoot",
+            3,
+            Observation::AwaitingInput,
+        )
+        .unwrap();
+        assert_eq!(
+            observation(&host, &info.id),
+            Some(Observation::AwaitingInput)
+        );
+        state(&host, &launch, "ses_indexedRoot", 4, Observation::Unknown).unwrap();
+        assert_eq!(observation(&host, &info.id), None);
+        state(&host, &launch, "ses_nextRoot", 5, Observation::Idle).unwrap();
+        assert_eq!(observation(&host, &info.id), Some(Observation::Idle));
+        let expired = host
+            .poll_activity(
+                &info.id,
+                None,
+                Instant::now() + std::time::Duration::from_secs(31),
+            )
+            .unwrap();
+        assert!(matches!(
+            expired,
+            UiEvent::AgentActivity {
+                observation: None,
+                ..
+            }
+        ));
+        host.revoke_provider_hooks(AgentKind::OpenCode);
+        assert!(lock(&host.provider_hooks).is_empty());
+        assert!(!path.exists());
+        assert_eq!(observation(&host, &info.id), None);
+        assert!(state(&host, &launch, "ses_nextRoot", 6, Observation::Busy).is_err());
+        assert_eq!(host.runtime.list()[0].state, "running");
+        host.runtime.shutdown().unwrap();
+    }
+
+    #[test]
+    fn opencode_failed_callback_runtime_exit_and_host_drop_remove_staging() {
+        for cleanup_mode in 0..3 {
+            let root = tempfile::tempdir().unwrap();
+            let host = Host::open(root.path().into()).unwrap();
+            let Response::Runtime { info: Some(info) } =
+                launch(&host, root.path(), "cleanup-pane", Some("ses_indexedRoot")).unwrap()
+            else {
+                panic!("missing runtime");
+            };
+            let launch = lock(&host.provider_hooks).keys().next().unwrap().clone();
+            let path = crate::opencode_state::staged_path(&launch).unwrap();
+            if cleanup_mode == 0 {
+                host.fail_provider_hook(&launch);
+                assert!(!path.exists());
+                host.runtime.shutdown().unwrap();
+            } else if cleanup_mode == 1 {
+                host.runtime.stop(&info.id).unwrap();
+                let deadline = Instant::now() + std::time::Duration::from_secs(2);
+                while path.exists() && Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                assert!(!path.exists());
+            } else {
+                // Lease-owned cleanup also works if callbacks lose their host.
+                drop(host);
+                assert!(!path.exists());
+            }
+        }
+    }
+
+    #[test]
+    fn opencode_resume_metadata_mismatch_is_rejected_before_launch() {
+        let root = tempfile::tempdir().unwrap();
+        let host = Host::open(root.path().into()).unwrap();
+        assert!(
+            launch(&host, root.path(), "mismatch-pane", Some("ses_otherRoot"))
+                .unwrap_err()
+                .contains("resume metadata")
+        );
+        assert!(host.runtime.list().is_empty());
+        assert!(lock(&host.provider_hooks).is_empty());
     }
 }

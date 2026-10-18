@@ -33,6 +33,11 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/sessionbay-claude-runtime" --ignore-scripts --no-audit --no-fund --save-exact --registry https://registry.npmjs.org @anthropic-ai/claude-code@2.1.302
           CLAUDE_BINARY="$RUNNER_TEMP/sessionbay-claude-runtime/node_modules/@anthropic-ai/claude-code-linux-x64/claude" node scripts/test-claude-plugin-runtime.mjs
+      - name: Official OpenCode plugin loader (no model)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sessionbay-opencode-binary" --ignore-scripts --no-audit --no-fund --save-exact --registry https://registry.npmjs.org opencode-linux-x64@1.19.3
+          npm install --prefix "$RUNNER_TEMP/sessionbay-opencode-plugin" --ignore-scripts --no-audit --no-fund --save-exact --registry https://registry.npmjs.org @opencode-ai/plugin@1.19.3
+          OPENCODE_BINARY="$RUNNER_TEMP/sessionbay-opencode-binary/node_modules/opencode-linux-x64/bin/opencode" OPENCODE_PLUGIN_DEPENDENCIES="$RUNNER_TEMP/sessionbay-opencode-plugin" node scripts/test-opencode-plugin-runtime.mjs
       - name: Verify sandbox-supported Chrome and install browser dependencies
         run: |
           command -v google-chrome

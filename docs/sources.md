@@ -287,6 +287,16 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [VS Code User Interface](https://code.visualstudio.com/docs/editing/getting-started/userinterface)：Activity Bar 選擇 Primary Side Bar 的功能，中央編輯區獨立。
 - [VS Code Custom Layout](https://code.visualstudio.com/docs/configure/custom-layout)：側欄顯示切換與 Zen Mode。Session Bay 僅採功能／內容分離原則，保留自己的專注模式快捷入口。
 
+## 2026-10-18：OpenCode launch-local 活動來源
+
+- [官方 config](https://opencode.ai/docs/config/)／[plugins](https://opencode.ai/docs/plugins/)：`OPENCODE_CONFIG_CONTENT`、local file plugin；不新增 npm 依賴。
+- [v1.19.3 plugin 實作](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/plugin/index.ts)：`--pure` 禁止 plugins、逐 instance directory 過濾，outward `{type, properties}`，event callbacks 不 await、dispose。
+- [v1.19.3 hook API](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/plugin/src/index.ts)／[session prompt](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/prompt.ts)：chat.message 提供 sessionID；session.error 包含可恢復的 preparation error，非 terminal success/failure 契約。
+- [v1.19.3 status](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/status.ts)／[schema](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/schema/src/session-status-event.ts)：busy／retry／idle；idle 從 map 刪除，不能以缺項建立未知 Session 身份。
+- [v1.19.3 permission](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/schema/src/v1/permission.ts)／[question](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/schema/src/v1/question.ts)：asked 的 id、resolution 的 requestID 與各自 sessionID。
+- [v1.19.2 config](https://github.com/anomalyco/opencode/blob/v1.19.2/packages/opencode/src/config/config.ts)：inline JSONC 與 plugin origins 的合併。本輪審閱1.19.2／1.19.3，選定 >=1.19.2,<2 stable；不是最早支援版本或未來版本 E2E 保證。
+
+來源查閱日2026-10-18。Linux 已實測官方 `opencode-linux-x64@1.19.3`：npm tarball SHA-512 `wz+kXi7ZkvLW04hEIocW3RoEznALJ3YGnvNlZdXFarYF0v1jyDyAwpPGZkxb4JZDrw4oy48/LDZ8wCFIQDTxhw==`；`--version`、隔離 `debug config` 與 production plugin 載入／dispose 通過，未登入或呼叫模型。這些證據與合成 contracts 分列，不冒充真實回合驗收。
 ## Monaco 唯讀預覽（2026-10-18）
 
 - 官方 ESM / Vite worker 整合：https://github.com/microsoft/monaco-editor/blob/main/docs/integrate-esm.md

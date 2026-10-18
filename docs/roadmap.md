@@ -224,7 +224,7 @@
 
 ## 2026-10-18 真實 hook bridge
 
-Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。其餘三種 provider 不宣稱已接通。
+Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。OpenCode 後續增量見下；Grok／Antigravity 不宣稱已接通。
 
 ### 原生狀態實作與驗收
 
@@ -233,9 +233,17 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 - [x] PR56 69e26df exact-head Linux CI；Claude 2.1.302 Linux 官方 plugin validate；Codex 0.159.2 Linux 官方 app-server initialize / 空 loaded-list（無模型請求）。
 - [ ] 整合最新 main 後 exact-head CI；真實 CLI 回合 Busy→Idle 與 GUI 驗收（無憑證的載入測試不等於回合驗收）。
 - [ ] macOS／Windows 原生驗收；依目前交付範圍不作 Linux 合併門檻。
-- [ ] Claude 回合內權限／輸入等待、其餘三工具及 Windows 的正式支援。
+- [ ] Claude 回合內權限／輸入等待、Grok／Antigravity 及 Windows 的正式支援。
 
 - 專案內右側 Activity Bar：左側保留專案／所有目錄，歷史 Sessions／Files 共用右側工具面板，中央內容獨立；typed contribution、延遲掛載與 overflow 為未來功能保留擴充點。Git 等其他功能待實作後才加入。
+
+### OpenCode 原生活動增量（2026-10-18）
+
+- [x] Unix launch-local plugin、保留 JSONC／argv／--pure、native root ancestry 驗證、單一有序來源與 broker TTL。
+- [x] busy／retry／idle、pending permission／question 集合，來源錯誤降為 unknown，不把 error／idle 當成功。
+- [x] 官方 OpenCode 1.19.3 Linux `--version` 與隔離 `debug config` plugin 載入／dispose，無登入／模型呼叫。
+- [ ] 真實回合與等待狀態 E2E；無模型載入與合成 contracts 不取代此證據。
+- [ ] macOS 原生 QA；Windows private staging、能力啟用及 native QA。
 
 ## 2026-10-18 Git 工作台（已確認規劃，尚未實作）
 
