@@ -15,7 +15,6 @@
     "tauri": "node scripts/tauri.mjs",
     "test:files": "playwright test --config playwright.files.config.ts",
     "test:images": "playwright test --config playwright.images.config.ts",
-
     "test:agent-status": "playwright test --config playwright.agent-status.config.ts",
     "test:tabs": "playwright test --config playwright.tabs.config.ts",
     "test:layout": "playwright test --config playwright.layout.config.ts",
@@ -32,6 +31,7 @@
     "@xterm/addon-search": "0.16.0",
     "@xterm/xterm": "6.0.0",
     "lucide-react": "^0.468.0",
+    "monaco-editor": "0.57.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

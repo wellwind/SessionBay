@@ -27,7 +27,27 @@
       if (status) {
         status.hidden = false;
         status.setAttribute('role', 'alert');
-        status.textContent = 'Session Bay 啟動失敗。請重新啟動應用程式。\n' + detail;
+        status.textContent = 'Session Bay 畫面發生錯誤。\n' + detail + '\n';
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = '重新載入視窗（Reload Window）';
+        var feedback = document.createElement('div');
+        feedback.setAttribute('role', 'status');
+        button.addEventListener('click', function () {
+          button.disabled = true;
+          feedback.textContent = '正在準備重新載入…';
+          // This fallback works even if the app's module graph never loaded.
+          // Once mounted, its handler flushes workspace persistence first.
+          Promise.resolve().then(function () {
+            if (typeof window.SessionBayReload === 'function') return window.SessionBayReload();
+            window.location.reload();
+          }).catch(function (failure) {
+            button.disabled = false;
+            feedback.textContent = String(failure && failure.message ? failure.message : failure);
+          });
+        });
+        status.appendChild(button);
+        status.appendChild(feedback);
       }
     }
     if (document.body) show();

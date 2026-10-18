@@ -45,6 +45,8 @@ jobs:
         run: npm run test:layout
       - name: Caps Lock composition transaction browser regression
         run: npm run test:ime
+      - name: Monaco lifecycle in Vite dev and production
+        run: npx playwright test --config playwright.monaco.config.ts --output=test-results/monaco
       - name: Workspace file preview screenshots and bounds
         run: npm run test:files -- --output=test-results/files
       - name: Agent lifecycle overview browser acceptance

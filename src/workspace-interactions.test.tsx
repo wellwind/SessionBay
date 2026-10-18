@@ -85,7 +85,7 @@ async function ready() {
   act(() => channel({ type: 'snapshot', runtimeId: 'runtime-a', sequence: 0, data: [], cols: 80, rows: 24, truncated: false }));
   const input = screen.getByRole('textbox', { name: 'Integration terminal input' });
   act(() => input.focus());
-  await waitFor(() => expect(screen.getByText(/^工作台 100%/)).not.toHaveTextContent('套用中'));
+  await waitFor(() => expect(screen.getByText(/^縮放 100%/)).not.toHaveTextContent('套用中'));
   return input;
 }
 function openThemePicker() {
