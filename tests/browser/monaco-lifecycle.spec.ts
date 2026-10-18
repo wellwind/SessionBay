@@ -40,7 +40,7 @@ test('JSON worker activation before later editors never registers missing servic
   // Same-file quick-open reuses the active model. Leaving Files releases it.
   const json = page.getByLabel('唯讀內容：settings.json');
   await json.locator('.monaco-editor').evaluate(node => { (window as unknown as { retainedEditor: Element }).retainedEditor = node; });
-  const retainedText = await json.locator('.view-lines').innerText();
+  const retainedText = await json.locator('.view-line').allTextContents();
   await json.focus();
   await page.keyboard.press('Control+p');
   let picker = page.getByRole('dialog', { name: /快速開啟/ });
@@ -60,7 +60,7 @@ test('JSON worker activation before later editors never registers missing servic
   await picker.getByRole('combobox').fill('settings.json');
   await picker.getByRole('combobox').press('Enter');
   await expect(json.locator('.view-line').first()).toBeVisible();
-  await expect(json.locator('.view-lines')).toHaveText(retainedText);
+  await expect(json.locator('.view-line')).toHaveText(retainedText);
   await expect(page.locator('.monaco-editor')).toHaveCount(1);
   expect(await json.locator('.monaco-editor').evaluate(node => node === (window as unknown as { retainedEditor: Element }).retainedEditor)).toBe(false);
   await page.locator('.workspace-tab-select').click();
