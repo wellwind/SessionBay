@@ -733,3 +733,19 @@ broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn ide
 ## 2026-10-18：採用官方 OSC7501，明示終端來源信任
 
 Codex 新版、Grok、Antigravity 使用官方原生終端狀態，補足透明 interactive CLI 與 resume/fork 的限制；不採用競品 screen detection 或 gateable Stop→done。採用獨立 broker capability、無 heartbeat 的 event-maintained 記錄、明確「終端回報」UI 與 opt-in/revoke。Claude/OpenCode 保留既有 lifecycle/plugin 路徑。真實模型回合、Windows 與完整 GUI 未驗事項仍保留。詳見 [原生終端活動訊號](native-terminal-status.md)。
+
+## 2026-10-18：Monaco 唯讀預覽
+
+中央 Files tabs 使用 Monaco Editor 0.57.0 取代逐行 regex 高亮；編輯器與語言定義延遲載入，worker 由 Vite 本機打包，CSP 僅新增 worker-src 'self'。保留後端 256 KiB、安全路徑與文字格式檢查，不新增寫檔 API。提供全文選取／搜尋、語法折疊與每檔案 view state；卸載時釋放 model/editor。僅詞法高亮與本機 JSON 支援，不宣稱 VS Code extension host 或完整語意診斷；JSON 遠端 schema 請求關閉。切換 Files 不重建 Terminal。
+
+### 2026-10-18：Monaco contribution 必須在第一次初始化前完整註冊
+
+Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會引入整套 editor contributions；精簡 API 建立模型後才載入會讓 `StandaloneServices` 的一次性 singleton snapshot 缺少 `ISuggestMemories`，下一個 editor 的 SuggestController 因而失敗。改在 lazy preview 模組內先載入官方 `features/register.all`；仍延後整個 preview 模組直到開檔，不靠停用 suggest 隱藏問題。Vite dev 與 production 都測非 JSON → JSON worker → 多次 TS/JSON 切換。Monaco library 的 delayed error 改送 file-preview 錯誤介面，React file boundary 隔離 render 失敗，不覆蓋全域 window error 監聽。
+## 2026-10-18：移除重複視覺輔助文案
+
+依使用者指定移除本機優先 badge、啟動說明、來源與工具重複說明、支援能力的成功態文案、主題數量提示與部分縮放說明。移除整個空容器，保留欄位 label、錯誤／不支援狀態、停用行為、權限警告與設定儲存邏輯。程式碼預覽的選取提示由 Monaco 更新移除，這份清理不改 editor 實作。
+## 2026-10-18：Reload Window 只重新載入前端
+
+命令面板提供「重新載入視窗（Reload Window）」。重新載入前沿用關閉視窗的序列化保存流程，等待既有保存與面板清理，再以瀏覽器 reload 重新 bootstrap、接回 broker runtime。不呼叫 close／stop／launch。儲存失敗取消重新載入並顯示錯誤。
+
+模組載入失敗或 React 畫面崩潰時，最早載入的 dependency-free startup overlay 另提供同名按鈕。已有 App 時保留最後 committed 保存 handler；App 尚未載入時直接 reload，不覆寫尚未讀取的工作區。這是復原入口，不修復造成錯誤的根因。

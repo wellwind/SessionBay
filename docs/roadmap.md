@@ -257,3 +257,9 @@ Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字
 ## 真實活動訊號整合進度（2026-10-18）
 
 Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 opt-in broker／UI；後三者明示終端來源信任。五工具全部串接與 Linux 驗證為整合門檻，不能用畫面推測替代。真實無登入啟動、合成回歸、模型回合與平台驗收分開追蹤，見 [原生終端活動訊號](native-terminal-status.md)。Windows 原生 hooks／OSC 的驗收仍未完成。
+
+### Monaco 唯讀預覽
+
+- [x] 實作延遲載入 Monaco、唯讀模型、全文搜尋／選取／折疊、每檔案 view state、本機 workers 與 CSP。
+- [ ] Linux 真實瀏覽器整合驗證與 review 後合併（以 PR 證據更新）。
+- [ ] macOS／Windows 原生 WebView 驗收（非此次 Linux 交付阻礙）。

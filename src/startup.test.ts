@@ -20,6 +20,7 @@ function harness(smokeEnabled = false) {
     addEventListener: (name: string, handler: (event: Record<string, unknown>) => void) => events.set(name, handler),
     requestAnimationFrame: (callback: FrameRequestCallback) => frames.push(callback),
     SessionBaySmokeProbe: probe,
+    location: { reload: vi.fn() },
   } as unknown as Window;
   vi.spyOn(doc, 'addEventListener').mockImplementation((name, handler) => {
     events.set(name, handler as unknown as (event: Record<string, unknown>) => void);
@@ -54,6 +55,27 @@ describe('pre-module startup observer', () => {
     expect(h.phases()).toEqual(['observer', 'error']);
     expect(h.doc.querySelector('[role="alert"]')?.textContent).toContain('Resource failed to load');
     expect(h.doc.documentElement.dataset.sessionbayReady).toBe('false');
+  });
+
+  it('reloads even when the main module failed to load', async () => {
+    const h = harness();
+    h.win.SessionBayStartup!.error('Missing module');
+    h.doc.querySelector('button')!.click();
+    await Promise.resolve();
+    expect(h.win.location.reload).toHaveBeenCalledOnce();
+  });
+
+  it('uses the mounted workspace flush and shows a rejected save without reloading', async () => {
+    const h = harness();
+    h.win.SessionBayReload = vi.fn().mockRejectedValue(new Error('workspace save failed'));
+    h.win.SessionBayStartup!.error('React render failed');
+    const button = h.doc.querySelector('button')!;
+    button.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(h.win.SessionBayReload).toHaveBeenCalledOnce();
+    expect(h.win.location.reload).not.toHaveBeenCalled();
+    expect(button.disabled).toBe(false);
+    expect(h.doc.querySelector('#startup-status')?.textContent).toContain('workspace save failed');
   });
 
   it('captures import-time JavaScript errors with module/line information', () => {

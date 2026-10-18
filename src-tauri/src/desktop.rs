@@ -62,6 +62,10 @@ fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
         // verifies real providers. Never run automated smoke clicks over them.
         return Ok(false);
     }
+    // This probe creates only synthetic in-memory editor models, never reads files.
+    if phase == "monaco-probe" {
+        return Ok(std::env::var("SESSIONBAY_SMOKE_MONACO").as_deref() == Ok("1"));
+    }
     if phase == "terminal-probe" || phase == "files-probe" {
         let flag = if phase == "files-probe" {
             "SESSIONBAY_SMOKE_FILES"

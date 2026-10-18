@@ -19,3 +19,5 @@ playwright-report/
 /artifacts/
 
 test-results-flicker/
+
+dist-monaco-smoke/
