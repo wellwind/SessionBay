@@ -85,7 +85,7 @@ fn until_text(
             UiEvent::Error { message, .. } | UiEvent::Disconnected { message, .. } => {
                 panic!("{message}")
             }
-            UiEvent::AgentActivity { .. } => {}
+            UiEvent::AgentActivity { .. } | UiEvent::TerminalStatus { .. } => {}
             UiEvent::Exit { .. } => panic!("process ended before marker"),
         }
     }

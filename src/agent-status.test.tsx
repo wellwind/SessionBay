@@ -79,7 +79,7 @@ describe('Agent lifecycle projection', () => {
 });
 
 describe('Agent status overview display', () => {
-  it('shows project and global summaries, unknown activity and explicit lifecycle rows with focus actions', () => {
+  it('shows project and global summaries and explicit lifecycle rows with focus actions', () => {
     const focus = vi.fn();
     const ws = workspace(pane('a'), pane('b', { projectId: null, state: 'disconnected' }),
       pane('c', { state: 'interrupted' }), pane('shell', { kind: 'shell' }));
@@ -88,12 +88,13 @@ describe('Agent status overview display', () => {
     const p = screen.getByText('Project A').closest('details')!;
     fireEvent.click(within(p).getByText('Project A'));
     expect(within(p).getByText('已開啟 2 · 存活 1 · 已結束 0 · 中斷 1')).toBeInTheDocument();
-    expect(within(p).getByText('程序存活 · 活動未知')).toBeInTheDocument();
+    expect(within(p).getByText('程序存活')).toBeInTheDocument();
     fireEvent.click(within(p).getByRole('button', { name: /Agent a/ }));
     expect(focus).toHaveBeenCalledWith('a');
     expect(screen.getByText('全域工作階段')).toBeInTheDocument();
     expect(screen.getByText('連線中斷 · 存活未知')).toBeInTheDocument();
     expect(screen.getByText('已開啟 0 · 存活 0 · 已結束 0 · 中斷 0')).toBeInTheDocument();
+    expect(view.container.textContent).not.toContain('活動未知');
     expect(view.container.textContent).not.toContain('Agent shell');
     expect(view.container.textContent).not.toContain('99');
     const next = patchWorkspacePane(ws, 'a', { state: 'exited' });

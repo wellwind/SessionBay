@@ -1004,6 +1004,20 @@ describe('fresh Agent backend-owned launch', () => {
     expect(api.stop).not.toHaveBeenCalled();
   });
 
+  it('reports a pre-spawn hook rejection without inventing an unknown launch or retrying', async () => {
+    const pending = pendingLaunch();
+    await submitFresh();
+    await act(async () => pending.reject(new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 這次未啟動 Agent，既有工作不受影響。請關閉此工具 hooks 後手動建立新工作。')));
+    expect(screen.getByText(/這次未啟動 Agent/)).toBeInTheDocument();
+    expect(screen.queryByText(/無法確認 Agent 啟動結果/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/SESSIONBAY_LAUNCH_NOT_STARTED/)).not.toBeInTheDocument();
+    expect(Object.keys(workspaceSnapshot().panes)).toEqual(['pane-a']);
+    await tick(2000);
+    expect(api.launchFresh).toHaveBeenCalledOnce();
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+
   it('does not fabricate a pane or retry after an uncertain launch failure', async () => {
     const pending = pendingLaunch();
     await submitFresh();

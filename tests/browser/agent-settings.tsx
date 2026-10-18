@@ -21,6 +21,6 @@ const settings: Settings = {
 };
 const noop = async () => {};
 createRoot(document.getElementById('root')!).render(<SettingsPanel settings={settings}
-  installations={agentKinds.map((kind) => ({ kind, available: kind === 'codex', executable: kind === 'codex' ? '/synthetic/codex' : null, version: null, error: null }))}
+  installations={agentKinds.map((kind) => ({ kind, available: kind === 'codex', executable: kind === 'codex' ? '/synthetic/home/tools/very-long-installation-directory/node/bin/codex' : null, version: null, error: null }))}
   index={{ running: false, processed: 0, total: 0, cancelled: false, errors: [], sources: [] }}
   onSave={noop} onClose={() => {}} onDetect={noop} onScan={noop} onCancelScan={noop} onClearIndex={noop} />);

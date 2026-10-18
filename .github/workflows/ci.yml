@@ -2,7 +2,7 @@ name: Desktop acceptance (manual)
 # Complete acceptance is intentionally manual; a skipped/unrun matrix is not a pass.
 on:
   push:
-    branches: ['feat/monaco-file-preview']
+    branches: ['feat/monaco-file-preview', 'feat/large-file-reading', 'feat/image-file-preview']
     paths:
       - 'src/**'
       - 'src-tauri/**'

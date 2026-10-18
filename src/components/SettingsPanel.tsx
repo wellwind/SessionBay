@@ -21,6 +21,7 @@ import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Sett
 import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions, isAgentEnabled } from '../agents';
 import type { HistoryAgentKind } from '../agents';
+import { isAgentHooksEnabled, normalizedAgentHooks } from '../settings';
 import { isAbsoluteFilesystemPath } from '../paths';
 import { Select, SearchableSelect } from './controls';
 import { AgentIcon } from './AgentIcon';
@@ -75,6 +76,7 @@ const sections = [
 function cloneSettings(settings: Settings): Settings {
   return {
     ...settings,
+    agentHooks: normalizedAgentHooks(settings),
     ...(settings.agentEnabled ? { agentEnabled: { ...settings.agentEnabled } } : {}),
     profiles: settings.profiles.map((profile) => ({
       ...profile,
@@ -697,13 +699,21 @@ export function SettingsPanel({
                             </label>
                             {installation?.executable && (
                               <p className="settings-detected-path" title={installation.executable}>
-                                目前：{installation.executable}
+                                <span className="settings-detected-label">目前：</span><span className="settings-detected-value">{installation.executable}</span>
                               </p>
                             )}
                             {installation?.error && (
                               <p className="settings-subtle-warning">{installation.error}</p>
                             )}
                             {!agentCapabilities[kind].history.supported && <p className="settings-help">支援啟動／指定對話 ID 恢復，尚不索引歷史。</p>}
+                            {(kind === 'codex' || kind === 'claude' || kind === 'opencode' || kind === 'grok' || kind === 'antigravity') && <>
+                              <label className="settings-field">
+                                <span><input className="checkbox" type="checkbox"
+                                  aria-label={`${agentNames[kind]} 真實活動 hooks`}
+                                  checked={isAgentHooksEnabled(draft, kind)}
+                                  onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> 啟用真實活動 hooks</span>
+                              </label>
+                            </>}
                             <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>
                               <summary aria-label={`${agentNames[kind]} 參數與權限設定`}>
                                 <span>參數與權限</span><span>{draft.agentOptions[kind].bypassPermissions ? '高風險模式已開啟' : argumentSummary}</span>

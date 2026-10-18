@@ -42,6 +42,10 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
     fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
     let service = Service::open(temp.path().join("app")).unwrap();
     let mut settings = service.settings().unwrap();
+    // Owned synthetic stubs use the direct runtime, without a hook broker.
+    for kind in AgentKind::ALL {
+        settings.agent_hooks.insert(kind.as_str().into(), false);
+    }
     settings.sources = vec![
         HistorySource {
             id: "codex-test".into(),
@@ -296,4 +300,51 @@ fn uncurated_sessions_keep_their_own_cwd_and_relocation_and_live_runtimes() {
         relocated.canonicalize().unwrap().to_string_lossy()
     );
     service.shutdown().unwrap();
+}
+
+#[test]
+fn provider_live_state_is_explicit_and_only_affects_future_launch_plans() {
+    let temp = tempfile::tempdir().unwrap();
+    let service = Service::open(temp.path().join("app")).unwrap();
+    let mut settings = service.settings().unwrap();
+    // Owned synthetic stubs use the direct runtime, without a hook broker.
+    for kind in AgentKind::ALL {
+        settings.agent_hooks.insert(kind.as_str().into(), false);
+    }
+    settings.sources.clear();
+    settings.executables.claude = "/bin/sh".into();
+    service.save_settings(settings.clone()).unwrap();
+    let request = LaunchRequest {
+        pane_id: "state-pane".into(),
+        kind: "claude".into(),
+        project_id: None,
+        session_id: None,
+        resume_id: None,
+        cwd: Some(temp.path().to_string_lossy().into()),
+        profile_id: None,
+        cols: 80,
+        rows: 24,
+    };
+    let ordinary = service.plan_launch(&request).unwrap();
+    assert!(!ordinary
+        .env
+        .contains_key(sessionbay_lib::provider_hooks::OPT_IN));
+    settings.agent_hooks.insert("claude".into(), true);
+    service.save_settings(settings.clone()).unwrap();
+    let live = service.plan_launch(&request).unwrap();
+    assert_eq!(
+        live.env
+            .get(sessionbay_lib::provider_hooks::OPT_IN)
+            .map(String::as_str),
+        Some("live")
+    );
+    assert_eq!(ordinary.args, live.args);
+    assert_eq!(ordinary.executable, live.executable);
+    settings.agent_hooks.insert("claude".into(), false);
+    service.save_settings(settings).unwrap();
+    assert!(!service
+        .plan_launch(&request)
+        .unwrap()
+        .env
+        .contains_key(sessionbay_lib::provider_hooks::OPT_IN));
 }

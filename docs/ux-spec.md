@@ -265,6 +265,10 @@ macOS Cmd+W／File → Close Tab 關閉目前工作區分頁（包含分割面�
 
 載入完成不顯示常駐結果頁尾；對話預覽與側欄底部不顯示通用隱私說明或佔位。載入、錯誤、重試及頂欄「設定與資料來源」仍保留。
 
+## 2026-10-18 真實活動 hooks 設定
+
+來源與工具的 Codex／Claude 詳細設定新增明確 opt-in。切換先保留在 draft，儲存後生效，取消不更改。啟用適用後續 launch；停用儲存即撤銷既有回報，Agent 不停止。旁註說明 launch-local 設定、未知／來源過期、Claude 主回合狀態與 Codex fresh-session 相容性邊界；正式狀態不由 gateable Stop 或延遲 Notification 推導。詳見 [provider-hooks](provider-hooks.md)。
+
 ### 工作區功能列
 
 左側保留專案／所有目錄導覽。進入專案後，最右側工具列依序顯示歷史 Sessions、Files，單一工具面板向左展開，再點收合。圖示不改變中央工作，選取檔案／Session 才更新中央。總覽無工具列或預留空白，標題、分頁與內容左緣對齊。
@@ -280,3 +284,7 @@ macOS Cmd+W／File → Close Tab 關閉目前工作區分頁（包含分割面�
 ### Monaco 唯讀 Files 預覽
 
 中央檔案分頁使用 Monaco 內建全文搜尋、選取與折疊，保持右側共用 panel／Zen 佈局。編輯器載入中有穩定占位與狀態提示，失敗可重試；不搶奪使用者目前焦點。背景主題切換同步深淺色。既有 Terminal 不重掛載。
+
+## Files 大檔閱讀
+
+依大小顯示確認或分段控制，保留中央檔案 tab；取消只影響此讀取，不關閉工作程序。詳見 [大檔閱讀](large-file-reading.md)。

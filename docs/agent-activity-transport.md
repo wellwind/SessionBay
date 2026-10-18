@@ -1,5 +1,7 @@
 # Agent 活動傳輸：明確啟用的 ordered bridge
 
+2026-10-18 更新：Codex／Claude 的 launch-local 真實 hook 註冊與撤銷實作見 [provider-hooks](provider-hooks.md)。以下保留 #54 ordered transport 的原始範圍與驗證邊界。
+
 ## 本輪範圍
 
 在 [#53 observation 基礎](agent-activity.md) 上接通現有 broker → subscription → TerminalPane → 左側狀態圖示。共享 registry 的 `activity.transport=orderedBridgeOptIn` 表示程式 API 可用；**所有真實 Agent 啟動仍預設不啟用、沒有自動 hook 安裝，也沒有已完成的真實 CLI 整合宣稱。**

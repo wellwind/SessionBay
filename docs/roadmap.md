@@ -1,5 +1,11 @@
 # Session Bay 開發路線圖
 
+## 2026-10-18 發行與後續順序（最新）
+
+已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。新功能全部尚未完成；本節的最新順序優先於下方歷史排程：五工具 hook → Snap 可安裝測試包；並行 Quick Open／共用 panel、大檔後圖片；接著 Git G1–G4 → 完整 Release／Update → 永久刪除 → 遠端／Web／用量。Git 的完整八階工作包沿用既有規劃。
+
+目前功能 PR 以相關 Linux 驗證及 review 作交付門檻；發行特定 OS／架構仍需該目標實測，未驗平台不假稱通過。Windows #46 不在此次交付內。
+
 > 2026-10-16 實作更新：本次加入 Windows 原生支援；平台前提與待驗項目見[三平台支援](platform-support.md)。既有 macOS＋Linux P0 程式碼保留；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
 以完整工作恢復流程分階段交付。以下是工作順序與驗收門檻提案，尚未估算工期或指定發行日期。
 
@@ -215,7 +221,29 @@
 
 - 提供 opt-in ordered publisher、runtime 綁定、短期 capability、重連／expiry 與 App observation 傳遞；詳見 [範圍與驗收邊界](agent-activity-transport.md)。
 - 尚未完成：真實 provider causal bridge、使用者 opt-in 安裝／撤銷流程及三平台 native QA。一般 Agent 啟動仍無自動 hooks。
+
+## 2026-10-18 真實 hook bridge
+
+Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。OpenCode 後續增量見下；Grok／Antigravity 不宣稱已接通。
+
+### 原生狀態實作與驗收
+
+- [x] Claude launch-local mod、Codex owned app-server read-only observer、source sequence／快照失效及 UI 進行中／等待／閒置圖示。
+- [x] 設定關閉撤銷現有來源，保留 Agent 執行；不修改使用者全域 hooks 或 notify。
+- [x] PR56 69e26df exact-head Linux CI；Claude 2.1.302 Linux 官方 plugin validate；Codex 0.159.2 Linux 官方 app-server initialize / 空 loaded-list（無模型請求）。
+- [ ] 整合最新 main 後 exact-head CI；真實 CLI 回合 Busy→Idle 與 GUI 驗收（無憑證的載入測試不等於回合驗收）。
+- [ ] macOS／Windows 原生驗收；依目前交付範圍不作 Linux 合併門檻。
+- [ ] Claude 回合內權限／輸入等待、Grok／Antigravity 及 Windows 的正式支援。
+
 - 專案內右側 Activity Bar：左側保留專案／所有目錄，歷史 Sessions／Files 共用右側工具面板，中央內容獨立；typed contribution、延遲掛載與 overflow 為未來功能保留擴充點。Git 等其他功能待實作後才加入。
+
+### OpenCode 原生活動增量（2026-10-18）
+
+- [x] Unix launch-local plugin、保留 JSONC／argv／--pure、native root ancestry 驗證、單一有序來源與 broker TTL。
+- [x] busy／retry／idle、pending permission／question 集合，來源錯誤降為 unknown，不把 error／idle 當成功。
+- [x] 官方 OpenCode 1.19.3 Linux `--version` 與隔離 `debug config` plugin 載入／dispose，無登入／模型呼叫。
+- [ ] 真實回合與等待狀態 E2E；無模型載入與合成 contracts 不取代此證據。
+- [ ] macOS 原生 QA；Windows private staging、能力啟用及 native QA。
 
 ## 2026-10-18 Git 工作台（已確認規劃，尚未實作）
 
@@ -234,9 +262,20 @@ Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字
 
 2026-10-18 候選：專案 Cmd+P 將已開分頁、未開 Sessions 預覽及有界遞迴檔名搜尋整合；右工具共用 resize 容器、可存取 tooltip 與自訂快捷鍵。Linux 自動化驗證隨 PR 記錄；macOS／Windows 原生互動未驗，不以交叉編譯代替。
 
+## 真實活動訊號整合進度（2026-10-18）
+
+Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 opt-in broker／UI；後三者明示終端來源信任。五工具全部串接與 Linux 驗證為整合門檻，不能用畫面推測替代。真實無登入啟動、合成回歸、模型回合與平台驗收分開追蹤，見 [原生終端活動訊號](native-terminal-status.md)。Windows 原生 hooks／OSC 的驗收仍未完成。
 
 ### Monaco 唯讀預覽
 
 - [x] 實作延遲載入 Monaco、唯讀模型、全文搜尋／選取／折疊、每檔案 view state、本機 workers 與 CSP。
-- [ ] Linux 真實瀏覽器整合驗證與 review 後合併（以 PR 證據更新）。
+- [x] Linux 真實瀏覽器與 Tauri WebKit、review 通過，已合併 [#60](https://github.com/wellwind/SessionBay/pull/60)。
 - [ ] macOS／Windows 原生 WebView 驗收（非此次 Linux 交付阻礙）。
+
+## 大型文字檔閱讀
+
+中央 Files 已實作 metadata 預檢與分塊讀取、取消、確認與分段模式；Linux dev／production browser、Tauri WebKit、Rust tests／Clippy 與 build 已在 [#66](https://github.com/wellwind/SessionBay/pull/66) 通過；尚未宣稱三平台原生驗收。詳見 [大檔閱讀](large-file-reading.md)。
+
+## 檔案圖片閱讀
+
+PNG／JPEG／GIF／VP8 有損 WebP／靜態 SVG 的中央 tab 預覽正在實作，包含縮放與資源有界處理。以 Linux 實際驗證交付，未通過前不標為驗收完成。詳見 [圖片預覽](file-image-preview.md)。

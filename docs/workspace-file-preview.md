@@ -1,5 +1,7 @@
 # 工作區檔案預覽
 
+> 最新預覽策略：以下早期純文字、256 KiB 與快取說明保留作歷史紀錄，由 [大型文字檔閱讀](large-file-reading.md) 與 [圖片預覽](file-image-preview.md) 的目前策略取代。僅目前可見的檔案建立文字 model／圖片資源；離開檔案區會取消後續讀取並釋放預覽資源，返回時依保留的檔案與 view state 還原。小檔文字使用跨工作區有界 LRU cache，不保留多個大型全文 model。Terminal 元件與 Runtime 身分仍維持不變。
+
 ## 操作與範圍
 
 進入 catalog 專案後，可從工作區右側 Activity Bar 的第二個圖示開啟 Files 側欄，無需先開 Terminal／Agent。第一個圖示為歷史 Sessions，再點目前功能可收合；正常與專注模式皆可使用。選檔後主工作區顯示獨立的唯讀檔案 tab，原 Terminal 持續執行、保留元件與 Runtime，只暫時隱藏；點原工作分頁即可切回。臨時 Terminal 不提供 HOME 檔案瀏覽。
@@ -45,4 +47,4 @@ Files 重整未改 Rust、IPC、權限、檔案根或 Runtime schema。2026-10-1
 
 ## 專案快速開啟
 
-Cmd+P／非終端區 Ctrl+P 同時搜尋已開分頁、索引中的歷史 Sessions 及未展開目錄的檔案路徑。檔名搜尋只讀目錄 metadata，不讀內容；隱藏檔納入，排除 .git、node_modules、target、dist、符號連結與多重硬連結。相對路徑包含比對不分大小寫。最多 50 筆結果、20,000 entries、32 層與 250 ms cooperative budget（不保證單次 filesystem call 的硬性超時），截斷會顯示範圍提示。結果為有界子集合的路徑排序；未保證全專案完整排名。既有檔案 tab 原位聚焦，未開檔案建立固定唯讀 tab；20 tabs 與 256 KiB 預覽限制不變。
+Cmd+P／非終端區 Ctrl+P 同時搜尋已開分頁、索引中的歷史 Sessions 及未展開目錄的檔案路徑。檔名搜尋只讀目錄 metadata，不讀內容；隱藏檔納入，排除 .git、node_modules、target、dist、符號連結與多重硬連結。相對路徑包含比對不分大小寫。最多 50 筆結果、20,000 entries、32 層與 250 ms cooperative budget（不保證單次 filesystem call 的硬性超時），截斷會顯示範圍提示。結果為有界子集合的路徑排序；未保證全專案完整排名。既有檔案 tab 原位聚焦，未開檔案建立固定唯讀 tab；20 tabs 上限不變；文字預覽依大小採一般、確認或分段閱讀，圖片依受限解碼策略顯示，詳見 [大型文字檔閱讀](large-file-reading.md) 與 [圖片預覽](file-image-preview.md)。

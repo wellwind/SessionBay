@@ -74,3 +74,7 @@
 }
 @media (pointer: coarse) { .explorer button, .explorer select { min-height: 36px; } }
 @media (prefers-reduced-motion: reduce) { .explorer *, .explorer *::before, .explorer *::after { transition: none !important; scroll-behavior: auto !important; } }
+.file-document-content{display:flex;flex-direction:column;min-width:0;min-height:0;height:100%;overflow:hidden}
+.file-document-content>.explorer-editor{flex:1;min-height:0}
+.file-range-bar{display:flex;align-items:center;gap:8px;padding:4px 8px;flex-shrink:0;border-bottom:1px solid var(--border);font-size:12px}
+.file-range-bar span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

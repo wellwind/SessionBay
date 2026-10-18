@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Channel } from '@tauri-apps/api/core';
@@ -63,12 +62,35 @@ const sessions = bootstrap.projects.flatMap(project => Array.from({ length: proj
   cwd: project.path, updatedAt: '2026-10-17T12:00:00Z', timeSource: 'event',
   archived: false, parentId: null, partial: false, snippet: `Synthetic session ${index} only`,
 })));
-const calls: { query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean }[] = [];
+const fileBytes = new Map(['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', 'src/index.ts', 'deep/unvisited.ts'].map(path => {
+  const text = path === 'large.ts'
+    ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(12000) + 'END_SENTINEL\n'
+    : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
+    : path === 'settings.json' ? '{\n  "synthetic": true,\n  "count": 42\n}\n'
+    : path === 'src/index.ts' ? 'export const greeting = () => {\n  const message = "Synthetic";\n  return message;\n};\n' : 'synthetic preview only';
+  return [path, new TextEncoder().encode(text)];
+}));
+const generatedFileSizes = new Map<string, number>(fixtureParams.get('large-files') === '1' ? [
+  ['medium.txt', 1024 * 1024], ['big.txt', 21 * 1024 * 1024],
+  ['huge.txt', 65 * 1024 * 1024], ['slow.txt', 2 * 1024 * 1024],
+] as const : []);
+const imageFixture = fixtureParams.get('file-images') === '1';
+const imageFiles = imageFixture ? ['picture.png', 'drawing.svg', 'broken.png'] : [];
+const imagePacket = (svg: boolean): ArrayBuffer => {
+  const data = svg ? new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="red"/></svg>')
+    : Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), c => c.charCodeAt(0));
+  const header = new TextEncoder().encode(JSON.stringify({ mime: svg ? 'image/svg+xml' : 'image/png', sourceFormat: svg ? 'svg' : 'png', width: svg ? 120 : 1, height: svg ? 80 : 1, firstFrameOnly: false }));
+  const result = new ArrayBuffer(8 + header.length + data.length); const bytes = new Uint8Array(result);
+  bytes.set([83, 66, 73, 49]); new DataView(result).setUint32(4, header.length, true); bytes.set(header, 8); bytes.set(data, 8 + header.length); return result;
+};
+const generatedLine = 'synthetic row '.padEnd(127, '.') + '\n';
+const fileVersion = (projectId: unknown, path: unknown) => `fixture:${projectId}:${path}:1`;
+const calls: { query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean; path?: string; version?: string; offset?: number; maxBytes?: number }[] = [];
 Object.assign(window, { isTauri: true, focusFixture: { calls } });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
-  calls.push({ command, ...(command === 'query_sessions' ? { query: args.query as SessionQuery } : {}), ...(command === 'read_transcript' ? { sessionId: args.sessionId as string } : {}), ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
+  calls.push({ command, ...(['inspect_workspace_file', 'read_workspace_file_chunk'].includes(command) ? { path: args.path as string, version: args.version as string | undefined, offset: args.offset as number | undefined, maxBytes: args.maxBytes as number | undefined } : {}), ...(command === 'query_sessions' ? { query: args.query as SessionQuery } : {}), ...(command === 'read_transcript' ? { sessionId: args.sessionId as string } : {}), ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
   switch (command) {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
@@ -77,18 +99,37 @@ mockIPC((command, payload = {}) => {
       { name: 'index.ts', path: 'src/index.ts', kind: 'file' },
     ] : [
       { name: 'src', path: 'src', kind: 'directory' },
-      ...['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json'].map(name => ({ name, path: name, kind: 'file' })),
+      ...['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', ...generatedFileSizes.keys(), ...imageFiles].map(name => ({ name, path: name, kind: 'file' })),
       { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
     ], nextOffset: null };
     case 'search_workspace_files': return { paths: ['src/index.ts', 'deep/unvisited.ts', 'README.md'].filter(path => String(args.query).trim() && path.toLowerCase().includes(String(args.query).toLowerCase())), truncated: false };
-    case 'read_workspace_file': {
+    case 'inspect_workspace_file': {
       const path = args.path as string;
-      const text = path === 'large.ts'
-        ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(12000) + 'END_SENTINEL\n'
-        : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
-        : path === 'settings.json' ? '{\n  "synthetic": true,\n  "count": 42\n}\n'
-        : path === 'src/index.ts' ? 'export const greeting = () => {\n  const message = "Synthetic";\n  return message;\n};\n' : 'synthetic preview only';
-      return { path, text, sizeBytes: new TextEncoder().encode(text).length };
+      if (imageFiles.includes(path)) return { path, sizeBytes: 100, version: fileVersion(args.projectId, path), kind: 'image' };
+      const sizeBytes = generatedFileSizes.get(path) ?? fileBytes.get(path)?.length;
+      if (sizeBytes === undefined || !bootstrap.projects.some(project => project.id === args.projectId)) throw new Error('Unknown synthetic file');
+      return { path, sizeBytes, version: fileVersion(args.projectId, path), kind: 'text' };
+    }
+    case 'read_workspace_image': {
+      if (!imageFiles.includes(args.path as string) || args.version !== fileVersion(args.projectId, args.path)) throw new Error('Unknown synthetic image');
+      if (args.path === 'broken.png') throw new Error('圖片內容無效');
+      return imagePacket(args.path === 'drawing.svg');
+    }
+    case 'read_workspace_file_chunk': {
+      const path = args.path as string;
+      const bytes = fileBytes.get(path);
+      const sizeBytes = generatedFileSizes.get(path) ?? bytes?.length;
+      const offset = args.offset as number, maxBytes = args.maxBytes as number;
+      if (sizeBytes === undefined || !bootstrap.projects.some(project => project.id === args.projectId)
+        || args.version !== fileVersion(args.projectId, args.path)) throw new Error('Synthetic file version changed');
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > sizeBytes
+        || !Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > 256 * 1024) throw new Error('Invalid synthetic file range');
+      // Generate only the requested range, even for the 65 MiB fixture.
+      const length = Math.min(maxBytes, sizeBytes - offset);
+      const chunk = bytes ? Array.from(bytes.subarray(offset, offset + length))
+        : Array.from({ length }, (_, index) => generatedLine.charCodeAt((offset + index) % generatedLine.length));
+      const result = { bytes: chunk, eof: offset + length === sizeBytes };
+      return path === 'slow.txt' ? new Promise(resolve => setTimeout(() => resolve(result), 100)) : result;
     }
     case 'update_project': {
       const project = bootstrap.projects.find(item => item.id === args.projectId)!;

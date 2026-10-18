@@ -500,3 +500,484 @@ fn recursive_search_never_follows_outside_links_or_hard_link_aliases() {
         assert!(f.service.read_workspace_file(&f.project_id, path).is_err());
     }
 }
+
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+mod bounded_reads {
+    use super::*;
+    use sessionbay_lib::models::WorkspaceFileKind;
+    use std::{
+        fs::{File, FileTimes, OpenOptions},
+        io::Write,
+        time::{Duration, SystemTime},
+    };
+
+    const CHUNK_BYTES: usize = 256 * 1024;
+    const SAMPLE_BYTES: usize = 64 * 1024;
+
+    #[test]
+    fn reads_large_utf8_in_bounded_chunks_without_legacy_limit() {
+        let fixture = Fixture::new();
+        let text = "繁體中文🦀\r\n\t".repeat(40_000);
+        fs::write(fixture.root.join("large.txt"), &text).unwrap();
+        let info = fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "large.txt")
+            .unwrap();
+        assert_eq!(info.path, "large.txt");
+        assert_eq!(info.size_bytes, text.len() as u64);
+        assert_eq!(info.kind, WorkspaceFileKind::Text);
+        assert_eq!(info.version.len(), 64);
+        assert!(info.version.bytes().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(
+            info,
+            fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, "large.txt")
+                .unwrap()
+        );
+        let mut bytes = Vec::new();
+        loop {
+            let chunk = fixture
+                .service
+                .read_workspace_file_chunk(
+                    &fixture.project_id,
+                    "large.txt",
+                    &info.version,
+                    bytes.len() as u64,
+                    CHUNK_BYTES,
+                )
+                .unwrap();
+            assert!(!chunk.bytes.is_empty());
+            assert!(chunk.bytes.len() <= CHUNK_BYTES);
+            bytes.extend(chunk.bytes);
+            assert_eq!(chunk.eof, bytes.len() == text.len());
+            if chunk.eof {
+                break;
+            }
+        }
+        assert_eq!(bytes, text.as_bytes());
+        assert_eq!(fs::read(fixture.root.join("large.txt")).unwrap(), bytes);
+        // Retain the previous API contract for older callers.
+        assert!(fixture
+            .service
+            .read_workspace_file(&fixture.project_id, "large.txt")
+            .unwrap_err()
+            .contains("256 KiB"));
+    }
+
+    #[test]
+    fn raw_chunks_preserve_every_split_inside_multibyte_characters_and_bom() {
+        let fixture = Fixture::new();
+        let text = "\u{feff}aé中🦀\r\n";
+        fs::write(fixture.root.join("utf8.txt"), text).unwrap();
+        let info = fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "utf8.txt")
+            .unwrap();
+        for max_bytes in 1..=7 {
+            let mut bytes = Vec::new();
+            loop {
+                let chunk = fixture
+                    .service
+                    .read_workspace_file_chunk(
+                        &fixture.project_id,
+                        "utf8.txt",
+                        &info.version,
+                        bytes.len() as u64,
+                        max_bytes,
+                    )
+                    .unwrap();
+                assert!(chunk.bytes.len() <= max_bytes);
+                bytes.extend(chunk.bytes);
+                if chunk.eof {
+                    break;
+                }
+            }
+            assert_eq!(String::from_utf8(bytes).unwrap(), text);
+        }
+    }
+
+    #[test]
+    fn preflight_tolerates_only_nonfinal_incomplete_utf8_and_is_sample_bounded() {
+        let fixture = Fixture::new();
+        for (index, prefix_length) in (SAMPLE_BYTES - 3..SAMPLE_BYTES).enumerate() {
+            let mut bytes = vec![b'a'; prefix_length];
+            bytes.extend("🦀".as_bytes());
+            let name = format!("boundary-{index}.txt");
+            fs::write(fixture.root.join(&name), &bytes).unwrap();
+            let info = fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, &name)
+                .unwrap();
+            assert_eq!(info.kind, WorkspaceFileKind::Text);
+            bytes.truncate(SAMPLE_BYTES);
+            fs::write(fixture.root.join(&name), &bytes).unwrap();
+            assert_eq!(
+                fixture
+                    .service
+                    .inspect_workspace_file(&fixture.project_id, &name)
+                    .unwrap()
+                    .kind,
+                WorkspaceFileKind::Binary,
+                "a final partial UTF-8 character must not be accepted"
+            );
+        }
+        let mut bytes = vec![b'a'; SAMPLE_BYTES];
+        bytes.extend([0, 255]);
+        fs::write(fixture.root.join("later-binary.txt"), &bytes).unwrap();
+        let info = fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "later-binary.txt")
+            .unwrap();
+        // Classification is explicitly a bounded hint; streaming text callers
+        // still validate all later content. The raw-byte API does not decode it.
+        assert_eq!(info.kind, WorkspaceFileKind::Text);
+        assert_eq!(
+            fixture
+                .service
+                .read_workspace_file_chunk(
+                    &fixture.project_id,
+                    "later-binary.txt",
+                    &info.version,
+                    SAMPLE_BYTES as u64,
+                    CHUNK_BYTES,
+                )
+                .unwrap()
+                .bytes,
+            [0, 255]
+        );
+    }
+
+    #[test]
+    fn classifies_binary_and_control_bytes_without_blocking_raw_reads() {
+        let fixture = Fixture::new();
+        for (name, bytes) in [
+            ("binary-nul.bin", b"before\0after".as_slice()),
+            ("escape.bin", b"\x1b[31m".as_slice()),
+            ("c1.bin", "\u{0085}".as_bytes()),
+            ("invalid.bin", b"\xff\xfe".as_slice()),
+            ("incomplete.bin", b"\xf0\x9f".as_slice()),
+        ] {
+            fs::write(fixture.root.join(name), bytes).unwrap();
+            let info = fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, name)
+                .unwrap();
+            assert_eq!(info.kind, WorkspaceFileKind::Binary, "{name}");
+            let chunk = fixture
+                .service
+                .read_workspace_file_chunk(&fixture.project_id, name, &info.version, 0, CHUNK_BYTES)
+                .unwrap();
+            assert_eq!(chunk.bytes, bytes);
+            assert!(chunk.eof);
+        }
+    }
+
+    #[test]
+    fn validates_chunk_budget_offset_eof_and_empty_files() {
+        let fixture = Fixture::new();
+        for (name, bytes) in [
+            ("empty.txt", b"".as_slice()),
+            ("short.txt", b"abc".as_slice()),
+        ] {
+            fs::write(fixture.root.join(name), bytes).unwrap();
+            let info = fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, name)
+                .unwrap();
+            assert_eq!(info.kind, WorkspaceFileKind::Text);
+            for max_bytes in [0, CHUNK_BYTES + 1, usize::MAX] {
+                assert!(fixture
+                    .service
+                    .read_workspace_file_chunk(
+                        &fixture.project_id,
+                        name,
+                        &info.version,
+                        0,
+                        max_bytes,
+                    )
+                    .unwrap_err()
+                    .contains("256 KiB"));
+            }
+            for offset in [bytes.len() as u64 + 1, u64::MAX] {
+                assert!(fixture
+                    .service
+                    .read_workspace_file_chunk(&fixture.project_id, name, &info.version, offset, 1,)
+                    .unwrap_err()
+                    .contains("讀取位置"));
+            }
+            let eof = fixture
+                .service
+                .read_workspace_file_chunk(
+                    &fixture.project_id,
+                    name,
+                    &info.version,
+                    bytes.len() as u64,
+                    CHUNK_BYTES,
+                )
+                .unwrap();
+            assert!(eof.eof);
+            assert!(eof.bytes.is_empty());
+            for version in ["", "fake", &"g".repeat(64), &"0".repeat(64)] {
+                assert!(fixture
+                    .service
+                    .read_workspace_file_chunk(&fixture.project_id, name, version, 0, 1)
+                    .unwrap_err()
+                    .contains("已變更"));
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn handles_sparse_sizes_and_offsets_beyond_four_gib_without_full_read() {
+        use std::io::{Seek, SeekFrom};
+        let fixture = Fixture::new();
+        let path = fixture.root.join("sparse.bin");
+        let mut file = File::create(&path).unwrap();
+        let marker_offset = 4 * 1024 * 1024 * 1024 + 123;
+        file.seek(SeekFrom::Start(marker_offset)).unwrap();
+        file.write_all(b"tail").unwrap();
+        drop(file);
+        let info = fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "sparse.bin")
+            .unwrap();
+        assert_eq!(info.size_bytes, marker_offset + 4);
+        assert_eq!(info.kind, WorkspaceFileKind::Binary);
+        let chunk = fixture
+            .service
+            .read_workspace_file_chunk(
+                &fixture.project_id,
+                "sparse.bin",
+                &info.version,
+                marker_offset,
+                CHUNK_BYTES,
+            )
+            .unwrap();
+        assert_eq!(chunk.bytes, b"tail");
+        assert!(chunk.eof);
+    }
+
+    #[test]
+    fn rejects_modified_truncated_grown_or_replaced_versions() {
+        let fixture = Fixture::new();
+        let path = fixture.root.join("version.txt");
+        for change in ["modified", "truncated", "grown", "replaced"] {
+            fs::write(&path, b"initial").unwrap();
+            let info = fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, "version.txt")
+                .unwrap();
+            let previous_modified = fs::metadata(&path).unwrap().modified().unwrap();
+            match change {
+                "modified" => {
+                    fs::write(&path, b"changed").unwrap();
+                    File::options()
+                        .write(true)
+                        .open(&path)
+                        .unwrap()
+                        .set_times(
+                            FileTimes::new()
+                                .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(42)),
+                        )
+                        .unwrap();
+                }
+                "truncated" => File::create(&path).unwrap().set_len(1).unwrap(),
+                "grown" => {
+                    OpenOptions::new()
+                        .append(true)
+                        .open(&path)
+                        .unwrap()
+                        .write_all(b"more")
+                        .unwrap();
+                }
+                "replaced" => {
+                    fs::rename(&path, fixture.root.join("old-version.txt")).unwrap();
+                    fs::write(&path, b"initial").unwrap();
+                    File::options()
+                        .write(true)
+                        .open(&path)
+                        .unwrap()
+                        .set_times(FileTimes::new().set_modified(previous_modified))
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                fixture
+                    .service
+                    .read_workspace_file_chunk(
+                        &fixture.project_id,
+                        "version.txt",
+                        &info.version,
+                        0,
+                        CHUNK_BYTES,
+                    )
+                    .unwrap_err()
+                    .contains("已變更"),
+                "{change}"
+            );
+            let changed = fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, "version.txt")
+                .unwrap();
+            assert_ne!(info.version, changed.version, "{change}");
+        }
+    }
+
+    #[test]
+    fn requires_catalog_identity_original_root_and_safe_relative_paths() {
+        let fixture = Fixture::new();
+        fs::write(fixture.root.join("file.txt"), "inside").unwrap();
+        let info = fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "file.txt")
+            .unwrap();
+        fixture.insert_project("unclassified-bounded", None, fixture.root.to_str());
+        for project in ["", "unknown", "unclassified-bounded"] {
+            assert!(fixture
+                .service
+                .inspect_workspace_file(project, "file.txt")
+                .is_err());
+            assert!(fixture
+                .service
+                .read_workspace_file_chunk(project, "file.txt", &info.version, 0, 1)
+                .is_err());
+        }
+        for path in [
+            "",
+            "..",
+            "../file.txt",
+            "/file.txt",
+            "a/../file.txt",
+            "a//b",
+            "a\\b",
+            "file:stream",
+            "CON",
+            "trailing.",
+            "file\0.txt",
+        ] {
+            assert!(
+                fixture
+                    .service
+                    .inspect_workspace_file(&fixture.project_id, path)
+                    .is_err(),
+                "{path:?}"
+            );
+            assert!(
+                fixture
+                    .service
+                    .read_workspace_file_chunk(&fixture.project_id, path, &info.version, 0, 1)
+                    .is_err(),
+                "{path:?}"
+            );
+        }
+        let outside = fixture.base.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("file.txt"), "outside").unwrap();
+        fixture
+            .service
+            .catalog
+            .update_project(&fixture.project_id, None, outside.to_str(), None, None)
+            .unwrap();
+        let chunk = fixture
+            .service
+            .read_workspace_file_chunk(
+                &fixture.project_id,
+                "file.txt",
+                &info.version,
+                0,
+                CHUNK_BYTES,
+            )
+            .unwrap();
+        assert_eq!(chunk.bytes, b"inside");
+        for path in ["missing.txt", "."] {
+            assert!(fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, path)
+                .is_err());
+        }
+        fs::create_dir(fixture.root.join("directory")).unwrap();
+        assert!(fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "directory")
+            .is_err());
+    }
+
+    #[test]
+    fn hardlink_added_between_calls_is_rejected_before_content_is_returned() {
+        let fixture = Fixture::new();
+        let path = fixture.root.join("file.txt");
+        fs::write(&path, "synthetic private bytes").unwrap();
+        let info = fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "file.txt")
+            .unwrap();
+        fs::hard_link(&path, fixture.base.join("outside-alias.txt")).unwrap();
+        assert!(fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "file.txt")
+            .unwrap_err()
+            .contains("多重硬連結"));
+        assert!(fixture
+            .service
+            .read_workspace_file_chunk(
+                &fixture.project_id,
+                "file.txt",
+                &info.version,
+                0,
+                CHUNK_BYTES
+            )
+            .unwrap_err()
+            .contains("多重硬連結"));
+        assert_eq!(fs::read(&path).unwrap(), b"synthetic private bytes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacement_links_roots_intermediates_and_fifo_fail_closed() {
+        use std::{ffi::CString, os::unix::fs::symlink, time::Instant};
+        let fixture = Fixture::new();
+        let outside = fixture.base.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("file.txt"), "outside must not leak").unwrap();
+        fs::write(fixture.root.join("file.txt"), "inside").unwrap();
+        let info = fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "file.txt")
+            .unwrap();
+        fs::rename(
+            fixture.root.join("file.txt"),
+            fixture.root.join("original.txt"),
+        )
+        .unwrap();
+        symlink(outside.join("file.txt"), fixture.root.join("file.txt")).unwrap();
+        symlink(&outside, fixture.root.join("linked-parent")).unwrap();
+        let fifo = CString::new(fixture.root.join("fifo").to_str().unwrap()).unwrap();
+        // SAFETY: owner-only synthetic fixture path, NUL-terminated above.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        for name in ["file.txt", "linked-parent/file.txt", "fifo"] {
+            let start = Instant::now();
+            assert!(fixture
+                .service
+                .inspect_workspace_file(&fixture.project_id, name)
+                .is_err());
+            assert!(fixture
+                .service
+                .read_workspace_file_chunk(&fixture.project_id, name, &info.version, 0, 1)
+                .is_err());
+            assert!(start.elapsed() < Duration::from_secs(2));
+        }
+        fs::rename(&fixture.root, fixture.base.join("original-root")).unwrap();
+        symlink(&outside, &fixture.root).unwrap();
+        assert!(fixture
+            .service
+            .inspect_workspace_file(&fixture.project_id, "file.txt")
+            .is_err());
+        assert!(fixture
+            .service
+            .read_workspace_file_chunk(&fixture.project_id, "file.txt", &info.version, 0, 1)
+            .is_err());
+    }
+}

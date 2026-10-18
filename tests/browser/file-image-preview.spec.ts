@@ -1,0 +1,28 @@
+import { expect, test } from '@playwright/test';
+test('central file tabs preview bounded images, zoom, recover and keep terminal identity', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/tests/browser/workspace-focus-mode.html?file-images=1');
+  await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
+  await page.locator('.xterm-screen').evaluate(node => { (window as unknown as { terminalIdentity: Element }).terminalIdentity = node; });
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
+  await page.getByRole('button', { name: 'picture.png', exact: true }).dblclick();
+  const png = page.getByLabel('圖片預覽：picture.png');
+  await expect(png.locator('img')).toBeVisible();
+  await expect.poll(() => png.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(1);
+  await page.getByRole('button', { name: '放大圖片', exact: true }).click();
+  await expect(page.getByLabel('圖片縮放比例')).toContainText('125');
+  await page.getByRole('button', { name: 'drawing.svg', exact: true }).dblclick();
+  const svg = page.getByLabel('圖片預覽：drawing.svg');
+  await expect(svg.locator('img')).toBeVisible();
+  await expect.poll(() => svg.locator('img').evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(120);
+  await page.getByRole('button', { name: '原始大小 1:1', exact: true }).click();
+  await expect(page.getByLabel('圖片縮放比例')).toContainText('100');
+  await page.screenshot({ path: info.outputPath('file-images.png') });
+  await page.getByRole('button', { name: 'broken.png', exact: true }).dblclick();
+  await expect(page.getByRole('alert')).toContainText('圖片內容無效');
+  await page.locator('.workspace-tab-select').click();
+  expect(await page.locator('.xterm-screen').evaluate(node => node === (window as unknown as { terminalIdentity: Element }).terminalIdentity)).toBe(true);
+  expect(errors).toEqual([]);
+});

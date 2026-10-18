@@ -1,14 +1,145 @@
 //! Read-only, catalog-scoped workspace preview. Never canonicalize and then open
 //! an untrusted path: every component is resolved relative to an owned directory
 //! descriptor, with symlink following disabled in the actual open operation.
-use crate::models::{WorkspaceFilePage, WorkspaceFilePreview, WorkspaceFileSearch};
+use crate::models::{
+    WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFileKind, WorkspaceFilePage,
+    WorkspaceFilePreview, WorkspaceFileSearch,
+};
+use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::{
+    fs::File,
+    io::{Read, Seek, SeekFrom},
+};
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 const PAGE_SIZE: usize = 200;
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 const MAX_FILE_BYTES: usize = 256 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
+const MAX_CHUNK_BYTES: usize = 256 * 1024;
+const SAMPLE_BYTES: usize = 64 * 1024;
+const FILE_CHANGED: &str = "檔案在讀取期間已變更，請重新開啟";
+
+#[derive(Debug, PartialEq, Eq)]
+struct FileSnapshot {
+    size_bytes: u64,
+    version: String,
+}
+
+fn opaque_version(identity: &str) -> String {
+    format!("{:x}", Sha256::digest(identity.as_bytes()))
+}
+
+fn is_text_sample(bytes: &[u8], eof: bool) -> bool {
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        // A bounded sample may end inside a multibyte codepoint. This is not
+        // proof of an invalid encoding unless these are the actual final bytes.
+        Err(error) if !eof && error.error_len().is_none() => {
+            std::str::from_utf8(&bytes[..error.valid_up_to()]).unwrap_or("")
+        }
+        Err(_) => return false,
+    };
+    !text
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+}
+
+/// Every call opens its own securely resolved descriptor. The version is an
+/// equality token, never a capability to read another project or an old handle.
+pub(crate) fn inspect(root: &Path, path: &str) -> Result<WorkspaceFileInfo, String> {
+    let parts = relative_parts(path, false)?;
+    let mut file = platform::open_file(root, &parts)?;
+    let snapshot = platform::snapshot(&file)?;
+    let sample = read_opened_chunk(&mut file, &snapshot, 0, SAMPLE_BYTES)?;
+    Ok(WorkspaceFileInfo {
+        path: path.to_owned(),
+        size_bytes: snapshot.size_bytes,
+        version: snapshot.version,
+        kind: if crate::workspace_images::recognizes(&sample.bytes) {
+            WorkspaceFileKind::Image
+        } else if is_text_sample(&sample.bytes, sample.eof) {
+            WorkspaceFileKind::Text
+        } else {
+            WorkspaceFileKind::Binary
+        },
+    })
+}
+
+/// Read one capped revision through the same secure descriptor resolution used
+/// by text chunks. Never pass a filesystem path to an image decoder.
+pub(crate) fn read_bounded(
+    root: &Path,
+    path: &str,
+    version: &str,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let parts = relative_parts(path, false)?;
+    if version.len() != 64 || !version.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(FILE_CHANGED.into());
+    }
+    let mut file = platform::open_file(root, &parts)?;
+    let snapshot = platform::snapshot(&file)?;
+    if snapshot.version != version {
+        return Err(FILE_CHANGED.into());
+    }
+    if snapshot.size_bytes == 0 || snapshot.size_bytes > max_bytes as u64 {
+        return Err("圖片大小必須介於 1 byte 與 10 MiB".into());
+    }
+    Ok(read_opened_chunk(&mut file, &snapshot, 0, max_bytes)?.bytes)
+}
+
+pub(crate) fn read_chunk(
+    root: &Path,
+    path: &str,
+    version: &str,
+    offset: u64,
+    max_bytes: usize,
+) -> Result<WorkspaceFileChunk, String> {
+    let parts = relative_parts(path, false)?;
+    if !(1..=MAX_CHUNK_BYTES).contains(&max_bytes) {
+        return Err("單次讀取大小必須介於 1 byte 與 256 KiB".into());
+    }
+    if version.len() != 64 || !version.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(FILE_CHANGED.into());
+    }
+    let mut file = platform::open_file(root, &parts)?;
+    let snapshot = platform::snapshot(&file)?;
+    if snapshot.version != version {
+        return Err(FILE_CHANGED.into());
+    }
+    read_opened_chunk(&mut file, &snapshot, offset, max_bytes)
+}
+
+fn read_opened_chunk(
+    file: &mut File,
+    before: &FileSnapshot,
+    offset: u64,
+    max_bytes: usize,
+) -> Result<WorkspaceFileChunk, String> {
+    let remaining = before
+        .size_bytes
+        .checked_sub(offset)
+        .ok_or("讀取位置超過檔案大小，請重新開啟")?;
+    let length = remaining.min(max_bytes as u64);
+    file.seek(SeekFrom::Start(offset))
+        .map_err(platform::fs_error)?;
+    let mut bytes = Vec::with_capacity(length as usize);
+    Read::by_ref(file)
+        .take(length)
+        .read_to_end(&mut bytes)
+        .map_err(platform::fs_error)?;
+    // Check the same opened file, including identity/link/type checks, after
+    // the read. A later call reopens and compares this revision again.
+    if &platform::snapshot(file)? != before || bytes.len() as u64 != length {
+        return Err(FILE_CHANGED.into());
+    }
+    Ok(WorkspaceFileChunk {
+        bytes,
+        eof: length == remaining,
+    })
+}
 // Pagination is sorted within a single directory, never a recursive tree scan.
 // Bound its snapshot independently of the response and caller-controlled offset.
 const MAX_DIRECTORY_ENTRIES: usize = 100_000;
@@ -112,8 +243,7 @@ mod platform {
     use crate::models::{WorkspaceEntry, WorkspaceEntryKind};
     use std::{
         ffi::{CStr, CString},
-        fs::File,
-        io::{self, Read},
+        io,
         mem::MaybeUninit,
         os::{
             fd::{AsRawFd, FromRawFd, IntoRawFd, RawFd},
@@ -123,7 +253,7 @@ mod platform {
         ptr::NonNull,
     };
 
-    fn fs_error(error: io::Error) -> String {
+    pub(super) fn fs_error(error: io::Error) -> String {
         match error.kind() {
             io::ErrorKind::NotFound => "檔案或目錄已不存在，請重新整理".into(),
             io::ErrorKind::PermissionDenied => "沒有權限讀取此檔案或目錄".into(),
@@ -496,11 +626,7 @@ mod platform {
         Ok(state.result)
     }
 
-    fn read_from(
-        directory: File,
-        path: &str,
-        parts: &[&str],
-    ) -> Result<WorkspaceFilePreview, String> {
+    fn open_file_from(directory: File, parts: &[&str]) -> Result<File, String> {
         let (name, parents) = parts.split_last().ok_or("請選擇一般文字檔案")?;
         let directory = descend(directory, parents)?;
         let name = c_name(name.as_bytes())?;
@@ -510,7 +636,7 @@ mod platform {
         }
         // O_NONBLOCK avoids blocking if a regular file is replaced by a FIFO
         // between fstatat and openat. O_NOFOLLOW prevents a symlink replacement.
-        let mut file = open_at(directory.as_raw_fd(), &name, false, OpenStage::PreviewFile)?;
+        let file = open_at(directory.as_raw_fd(), &name, false, OpenStage::PreviewFile)?;
         let metadata = file.metadata().map_err(fs_error)?;
         if !metadata.is_file()
             || metadata.dev() != before.st_dev as u64
@@ -523,6 +649,43 @@ mod platform {
         if metadata.nlink() > 1 {
             return Err("多重硬連結不支援：無法預覽與其他路徑共用的檔案".into());
         }
+        Ok(file)
+    }
+
+    pub(super) fn open_file(root: &Path, parts: &[&str]) -> Result<File, String> {
+        open_file_from(open_root(root)?, parts)
+    }
+
+    pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
+        let metadata = file.metadata().map_err(fs_error)?;
+        if !metadata.is_file() {
+            return Err("只能預覽一般檔案".into());
+        }
+        if metadata.nlink() != 1 {
+            return Err("多重硬連結或已移除檔案不支援：請重新開啟".into());
+        }
+        Ok(FileSnapshot {
+            size_bytes: metadata.len(),
+            version: opaque_version(&format!(
+                "unix:{}:{}:{}:{}:{}:{}:{}",
+                metadata.dev(),
+                metadata.ino(),
+                metadata.len(),
+                metadata.mtime(),
+                metadata.mtime_nsec(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+            )),
+        })
+    }
+
+    fn read_from(
+        directory: File,
+        path: &str,
+        parts: &[&str],
+    ) -> Result<WorkspaceFilePreview, String> {
+        let mut file = open_file_from(directory, parts)?;
+        let metadata = file.metadata().map_err(fs_error)?;
         if metadata.len() > MAX_FILE_BYTES as u64 {
             return Err("檔案過大：文字預覽上限為 256 KiB".into());
         }
@@ -676,6 +839,53 @@ mod platform {
         }
 
         #[test]
+        fn chunk_checks_revision_and_hardlinks_again_on_the_opened_descriptor() {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            let path = root.join("synthetic.txt");
+            fs::write(&path, "initial").unwrap();
+            let mut file = open_file(&root, &["synthetic.txt"]).unwrap();
+            let before = snapshot(&file).unwrap();
+            fs::write(&path, "grown after snapshot").unwrap();
+            assert_eq!(
+                read_opened_chunk(&mut file, &before, 0, MAX_CHUNK_BYTES).unwrap_err(),
+                FILE_CHANGED
+            );
+            let before = snapshot(&file).unwrap();
+            fs::write(&path, "x").unwrap();
+            assert_eq!(
+                read_opened_chunk(&mut file, &before, 0, MAX_CHUNK_BYTES).unwrap_err(),
+                FILE_CHANGED
+            );
+            let before = snapshot(&file).unwrap();
+            fs::hard_link(&path, root.join("alias.txt")).unwrap();
+            assert!(read_opened_chunk(&mut file, &before, 0, MAX_CHUNK_BYTES)
+                .unwrap_err()
+                .contains("多重硬連結"));
+        }
+
+        #[test]
+        fn chunk_descriptor_stays_pinned_after_root_path_replacement() {
+            let temp = tempfile::tempdir().unwrap();
+            let base = temp.path().canonicalize().unwrap();
+            let root = base.join("project");
+            let outside = base.join("outside");
+            fs::create_dir(&root).unwrap();
+            fs::create_dir(&outside).unwrap();
+            fs::write(root.join("file.txt"), "inside").unwrap();
+            fs::write(outside.join("file.txt"), "outside must not leak").unwrap();
+            let pinned = open_root(&root).unwrap();
+            fs::rename(&root, base.join("old-project")).unwrap();
+            symlink(&outside, &root).unwrap();
+            let mut file = open_file_from(pinned, &["file.txt"]).unwrap();
+            let before = snapshot(&file).unwrap();
+            let chunk = read_opened_chunk(&mut file, &before, 0, MAX_CHUNK_BYTES).unwrap();
+            assert_eq!(chunk.bytes, b"inside");
+            assert!(chunk.eof);
+            assert!(super::super::inspect(&root, "file.txt").is_err());
+        }
+
+        #[test]
         fn replaced_intermediate_component_cannot_escape_pinned_root() {
             let temp = tempfile::tempdir().unwrap();
             let base = temp.path().canonicalize().unwrap();
@@ -702,6 +912,18 @@ mod platform {
 
     const UNSUPPORTED: &str =
         "此平台尚未支援安全檔案預覽：無法保證拒絕目錄連結／重新解析點，因此已停用讀取";
+
+    pub(super) fn fs_error(error: std::io::Error) -> String {
+        error.to_string()
+    }
+
+    pub(super) fn open_file(_root: &Path, _parts: &[&str]) -> Result<File, String> {
+        Err(UNSUPPORTED.into())
+    }
+
+    pub(super) fn snapshot(_file: &File) -> Result<FileSnapshot, String> {
+        Err(UNSUPPORTED.into())
+    }
 
     pub(super) fn list(
         _root: &Path,

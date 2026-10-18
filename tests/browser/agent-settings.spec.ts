@@ -6,6 +6,15 @@ for (const mode of ['dark', 'light']) {
       await page.goto(`/tests/browser/agent-settings.html?theme=${mode}`);
       await expect(page.getByRole('textbox', { name: 'Codex 執行檔路徑' })).toBeVisible();
       await expect(page.getByRole('textbox', { name: 'Claude Code 執行檔路徑' })).toHaveCount(0);
+      for (const selector of ['.settings-installation', '.settings-history-provider']) {
+        const item = page.locator(selector).first();
+        const bounds = await item.evaluate(el => ({ child: el.getBoundingClientRect().width, parent: el.parentElement!.getBoundingClientRect().width }));
+        expect(Math.abs(bounds.parent - bounds.child)).toBeLessThan(2);
+      }
+      const label = page.locator('.settings-detected-label');
+      expect(await label.evaluate(el => getComputedStyle(el).whiteSpace)).toBe('nowrap');
+      expect(await page.locator('.settings-detected-path').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath('single-agent-full-width.png'), fullPage: true });
       const picker = page.getByRole('combobox', { name: '搜尋 Agent' });
       await picker.click();
       await expect(picker).toHaveAttribute('aria-expanded', 'true');
@@ -43,6 +52,23 @@ for (const palette of ['bay', 'code-modern', 'code-2026']) for (const theme of [
     await page.setViewportSize({ width: 800, height: 850 });
     await page.goto(`/tests/browser/agent-settings.html?theme=${theme}&palette=${palette}`);
     const picker = page.getByRole('combobox', { name: '搜尋 Agent' });
+    for (const state of ['idle', 'hover', 'focus', 'disabled'] as const) {
+      if (state === 'hover') await picker.hover();
+      if (state === 'focus') await picker.focus();
+      if (state === 'disabled') await picker.evaluate(input => { (input as HTMLInputElement).blur(); (input as HTMLInputElement).disabled = true; });
+      const surfaces = await picker.evaluate(input => {
+        const css = getComputedStyle(input);
+        const field = getComputedStyle(input.parentElement!);
+        return { background: css.backgroundColor, border: css.borderTopWidth, outline: css.outlineStyle, shadow: css.boxShadow, fieldOutline: field.outlineStyle };
+      });
+      expect(surfaces.background, `${palette} ${theme} ${state} embedded input`).toBe('rgba(0, 0, 0, 0)');
+      expect(surfaces.border).toBe('0px');
+      expect(surfaces.outline).toBe('none');
+      expect(surfaces.shadow).toBe('none');
+      if (state === 'focus') expect(surfaces.fieldOutline).toBe('solid');
+      await picker.locator('..').screenshot({ path: info.outputPath(`agent-picker-${state}.png`) });
+    }
+    await picker.evaluate(input => { (input as HTMLInputElement).disabled = false; });
     await picker.focus();
     await picker.press('ArrowDown');
     await picker.press('ArrowUp');

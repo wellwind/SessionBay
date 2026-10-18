@@ -37,9 +37,10 @@ test('JSON worker activation before later editors never registers missing servic
     await page.getByRole('button', { name: 'settings.json', exact: true }).dblclick();
     await expect(page.getByLabel('唯讀內容：settings.json').locator('.view-line').first()).toBeVisible();
   }
-  // Project quick-open reuses the current model and the hidden file view.
+  // Same-file quick-open reuses the active model. Leaving Files releases it.
   const json = page.getByLabel('唯讀內容：settings.json');
   await json.locator('.monaco-editor').evaluate(node => { (window as unknown as { retainedEditor: Element }).retainedEditor = node; });
+  const retainedText = await json.locator('.view-lines').innerText();
   await json.focus();
   await page.keyboard.press('Control+p');
   let picker = page.getByRole('dialog', { name: /快速開啟/ });
@@ -52,13 +53,16 @@ test('JSON worker activation before later editors never registers missing servic
   await picker.getByRole('combobox').fill('Focus shell');
   await picker.getByRole('combobox').press('Enter');
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+  await expect(page.locator('.monaco-editor')).toHaveCount(0);
   await page.getByRole('button', { name: 'Files', exact: true }).focus();
   await page.keyboard.press('Control+p');
   picker = page.getByRole('dialog', { name: /快速開啟/ });
   await picker.getByRole('combobox').fill('settings.json');
   await picker.getByRole('combobox').press('Enter');
   await expect(json.locator('.view-line').first()).toBeVisible();
-  expect(await json.locator('.monaco-editor').evaluate(node => node === (window as unknown as { retainedEditor: Element }).retainedEditor)).toBe(true);
+  await expect(json.locator('.view-lines')).toHaveText(retainedText);
+  await expect(page.locator('.monaco-editor')).toHaveCount(1);
+  expect(await json.locator('.monaco-editor').evaluate(node => node === (window as unknown as { retainedEditor: Element }).retainedEditor)).toBe(false);
   await page.locator('.workspace-tab-select').click();
   await expect(terminal).toBeVisible();
   expect(await terminal.evaluate(node => node === (window as unknown as { retainedTerminal: Element }).retainedTerminal)).toBe(true);

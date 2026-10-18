@@ -698,3 +698,39 @@ fn terminal_reply_drain_is_bounded_for_unreading_and_extra_byte_peers() {
         ipc.shutdown_background();
     }
 }
+
+#[test]
+fn authoritative_snapshots_expire_without_source_and_refresh_only_on_new_evidence() {
+    let (mut state, _) = state();
+    let now = Instant::now();
+    state.publish_source(Observation::Busy, now);
+    let first = state.poll(None, now).unwrap();
+    assert_eq!(observation(&first), (Some(Observation::Busy), 30000));
+    let next = state.poll(None, now + Duration::from_secs(29)).unwrap();
+    assert_eq!(observation(&next), (Some(Observation::Busy), 1000));
+    let expired = state.poll(None, now + Duration::from_secs(30)).unwrap();
+    assert_eq!(observation(&expired), (None, 0));
+    state.publish_source(
+        Observation::AwaitingPermission,
+        now + Duration::from_secs(31),
+    );
+    let waiting = state.poll(None, now + Duration::from_secs(31)).unwrap();
+    assert_eq!(
+        observation(&waiting),
+        (Some(Observation::AwaitingPermission), 30000)
+    );
+    state.publish_source(Observation::Unknown, now + Duration::from_secs(32));
+    assert_eq!(
+        observation(&state.poll(None, now + Duration::from_secs(32)).unwrap()),
+        (None, 0)
+    );
+}
+
+#[test]
+fn authoritative_snapshot_close_never_reappears() {
+    let (mut state, _) = state();
+    let now = Instant::now();
+    state.publish_source(Observation::Idle, now);
+    state.close();
+    assert_eq!(observation(&state.poll(None, now).unwrap()), (None, 0));
+}
