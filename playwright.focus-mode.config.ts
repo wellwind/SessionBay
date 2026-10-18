@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/browser',
-  testMatch: 'workspace-focus-mode.spec.ts',
+  testMatch: ['workspace-focus-mode.spec.ts', 'workspace-activity.spec.ts'],
   outputDir: './test-results/focus-mode',
   timeout: 30_000,
   workers: 1,

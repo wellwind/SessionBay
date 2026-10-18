@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Channel } from '@tauri-apps/api/core';
 import { defaultAgentOptions } from '../../src/agents';
-import type { Bootstrap, LaunchRequest, RuntimeRecord, TerminalEvent, Workspace } from '../../src/types';
+import type { Bootstrap, LaunchRequest, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
 import '../../src/styles.css';
 import '../../src/workbench.css';
 
@@ -38,6 +38,7 @@ const bootstrap: Bootstrap = {
 };
 const edgeFixture = new URLSearchParams(location.search).has('edge');
 const fixtureParams = new URLSearchParams(location.search);
+const temporaryFixture = fixtureParams.has('temporary');
 if (fixtureParams.get('theme') === 'light') bootstrap.settings.theme = 'light';
 if (['bay', 'code-modern', 'code-2026'].includes(fixtureParams.get('palette') ?? ''))
   bootstrap.settings.themePalette = fixtureParams.get('palette')!;
@@ -52,12 +53,22 @@ if (edgeFixture) {
   workspace.panes[hidden.paneId] = { ...workspace.panes['pane-focus'], id: hidden.paneId,
     title: 'Hidden shell', runtimeId: hidden.id };
 }
-const calls: { command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean }[] = [];
+const activityFixture = fixtureParams.has('activity');
+if (activityFixture) bootstrap.projects.forEach(project => { project.sessionCount = 80; project.agents = ['codex', 'claude']; });
+if (fixtureParams.has('empty')) Object.assign(bootstrap.projects[1], { sessionCount: 0, agents: [] });
+const sessions = bootstrap.projects.flatMap(project => Array.from({ length: project.sessionCount }, (_, index): Session => ({
+  id: `${project.id}-session-${index}`, title: `${project.name} session ${index}`,
+  sourceId: 'synthetic-source', kind: index % 2 === 0 ? 'codex' : 'claude',
+  externalId: `synthetic-external-${project.id}-${index}`, projectId: project.id,
+  cwd: project.path, updatedAt: '2026-10-17T12:00:00Z', timeSource: 'event',
+  archived: false, parentId: null, partial: false, snippet: `Synthetic session ${index} only`,
+})));
+const calls: { query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean }[] = [];
 Object.assign(window, { isTauri: true, focusFixture: { calls } });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
-  calls.push({ command, ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
+  calls.push({ command, ...(command === 'query_sessions' ? { query: args.query as SessionQuery } : {}), ...(command === 'read_transcript' ? { sessionId: args.sessionId as string } : {}), ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
   switch (command) {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
@@ -84,19 +95,33 @@ mockIPC((command, payload = {}) => {
       return project;
     }
     case 'list_runtimes': return runtimes;
-    case 'query_sessions': return { catalogRevision: 'fixture', items: [], total: 0 };
+    case 'query_sessions': {
+      const query = args.query as SessionQuery;
+      const filtered = activityFixture ? sessions.filter(session =>
+        (!query.projectId || session.projectId === query.projectId) &&
+        (!query.kind || session.kind === query.kind) &&
+        (!query.query || session.title.toLowerCase().includes(query.query.toLowerCase()))) : [];
+      const offset = query.offset ?? 0;
+      return { catalogRevision: 'fixture', items: filtered.slice(offset, offset + (query.limit ?? 40)), total: filtered.length };
+    }
+    case 'read_transcript': return {
+      messages: Array.from({ length: 60 }, (_, index) => ({ role: index % 2 === 0 ? 'user' : 'assistant',
+        text: `Synthetic transcript ${args.sessionId} message ${index}`, timestamp: null, line: index + 1 })),
+      hasMore: false, beforeLine: null, stale: false, warning: null,
+    };
     case 'detect_installations': case 'detect_shells': return [];
     case 'save_settings': bootstrap.settings = args.settings as Bootstrap['settings']; return bootstrap.settings;
     case 'preview_launch': {
-      if (!edgeFixture) throw new Error('Launch is disabled in the default fixture');
+      if (!edgeFixture && !temporaryFixture) throw new Error('Launch is disabled in the default fixture');
       return { executable: '/synthetic/shell', args: [], cwd: '/synthetic/focus' };
     }
     case 'launch_runtime':
     case 'attach_runtime': {
       if (command === 'launch_runtime') {
-        if (!edgeFixture) throw new Error('Launch is disabled in the default fixture');
+        if (!edgeFixture && !temporaryFixture) throw new Error('Launch is disabled in the default fixture');
         const request = args.request as LaunchRequest;
-        runtimes.push({ ...runtime, id: `runtime-${request.paneId}`, paneId: request.paneId });
+        runtimes.push({ ...runtime, id: `runtime-${request.paneId}`, paneId: request.paneId,
+          projectId: request.projectId ?? null, cwd: request.cwd || '/synthetic/home' });
       }
       const target = command === 'launch_runtime' ? runtimes.at(-1)!
         : runtimes.find(item => item.id === args.runtimeId)!;

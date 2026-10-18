@@ -44,7 +44,33 @@ callback 原始 stdin 上限 4 MiB，忽略私密欄位後才送 IPC。格式錯
 
 ## 驗證紀錄
 
-2026-10-18 native 已安裝 Codex 0.163.0、Claude 2.1.302。版本確認不等同 lifecycle 驗收。首輪 production callback/socket/subscriber 合成 driver 2/3 通過，找出錯 session 拒絕時誤撤銷 parent 的問題，已修並增加 regression，等待 exact-head CI/native 重跑。真正 provider turn 與 GUI 驗收仍進行中，不能把合成 callback 測試說成真實 Agent 已通過。
+2026-10-18 驗證分層（不把合成事件當作真實 Agent 回合）：
+
+- PR56 `69e26df` Linux CI 全過：1206 個前端測試、13 個 Claude contract 測試、238 個 Rust library 測試與整合／browser suites。
+- macOS production callback/socket/subscriber 合成 driver 修正後 4/4 通過；Claude 2.1.302 實際 plugin validate 通過。GUI 尚未完成，未送出驗收 prompt。
+- Linux 官方 Claude Code 2.1.302，在獨立空 HOME/config 及工作目錄中實際執行 plugin validate 通過，辨識所有四個 lifecycle handlers；官方 npm 私有安裝、停用安裝 scripts，不讀取既有憑證。
+- Linux 官方 Claude 2.1.302 plugin test runtime 8/8 通過：真正 compiler/runtime 驅動合成事件，process.run 已 stub，沒有真實 session、模型或 broker 呼叫。可用 `CLAUDE_BINARY=/absolute/path/to/claude node scripts/test-claude-plugin-runtime.mjs` 重跑；Linux CI 固定官方 npm 2.1.302 並停用安裝 scripts。
+- Linux 官方 Codex 0.159.2 實際 app-server stdio initialize、thread/loaded/list 通過，空 Session list、正常退出；未送模型請求。這確認協定啟動，尚未證明原生 TUI 的回合狀態。
+- 真實 CLI 回合 Busy→Idle 與 GUI 驗收仍未完成。Linux 無模型載入測試不等同真實回合驗收；需要另行準備可用登入／額度，不能複製其他裝置憑證。macOS／Windows 未原生驗收如實保留，依目前交付範圍不作 Linux 合併門檻。
+
+### 後續正式來源與平台缺口
+
+- Claude Windows：既有 broker 已有 owner-only named-pipe；仍需 bounded native version probe、Windows absolute helper path、owner-only plugin staging DACL 與實機 `.exe` callback 驗收。不能只移除 `cfg(unix)` 就宣稱支援。
+- Codex resume／fork／profile：目前保留原生 launch、活動未知。官方 command hooks 可跨平台，SessionStart 支援 resume／root fork，但 Stop 可續跑、notify 在 post-turn compaction 前發出，均不能當最終完成。需另一個官方狀態來源及 foreground activation epoch；不可把 fork-parent ID 當新 root ID，也不可假定換 session 必有 SessionEnd。
+- OpenCode：下一個實作來源。以私有 `.mjs` 的 file URL 合併到 launch-local `OPENCODE_CONFIG_CONTENT.plugin`，保留原設定及 `--pure`；以 session.status、permission/question 的 request ID 維護 pending sets。選定支援基線 1.19.2／1.19.3（不是宣稱第一個 hooks 版本），確認 parentID 與明確 root activation；不同 InstanceContext 不能各自從 sequence=1 發送。
+- Antigravity >=1.4.0：官方 `AGY_CLI_OSC7501=on`／`AGY_CLI_OSC7501_MESSAGES=brief` 可發送 structured 狀態，不需修改全域設定。但 PTY 內其他程式可偽造來源，且協定沒有 heartbeat，必須另訂「terminal-reported」信任及生命週期；不混為 owner-authenticated hook。
+- Grok：官方 `--plugin-dir` 僅對 `agent --no-leader … stdio` 生效，leader 會忽略，GROK_CONFIG overlay 也排除 hooks/plugins。既有互動 TUI 尚無已驗證透明 launch-local 注入，應另做 ACP/native-state 設計，不暗改 GROK_HOME 或全域設定。
+
+驗收需分開列：官方二進位載入、官方 runtime 的合成事件、helper→broker→subscriber 合成傳輸、真正 Agent 回合及 GUI。Linux 通過不等於 Windows/macOS 已驗。
+
+來源：
+- https://opencode.ai/docs/config/
+- https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/plugin/index.ts
+- https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/status.ts
+- https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/core/src/session/turn.rs
+- https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/core/src/hook_runtime.rs
+- https://github.com/google-antigravity/antigravity-cli/blob/86a5bdda81a063d707ac4ab87fb72f7dfe30ab67/CHANGELOG.md
+- https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/09-plugins.md
 
 官方來源：
 - https://code.claude.com/docs/en/plugins/mods/overview

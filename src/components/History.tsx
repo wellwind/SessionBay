@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowRight,
@@ -69,7 +70,13 @@ export function HistoryView({
   onHistoryChanged,
   curating = false,
   disabled = false,
+  sidebarHost,
+  scopeLabel,
+  onSelectSession,
 }: {
+  sidebarHost?: HTMLDivElement | null;
+  scopeLabel?: string;
+  onSelectSession?: () => void;
   projectId?: string;
   projects: Project[];
   refreshToken: number;
@@ -140,9 +147,14 @@ export function HistoryView({
       before: localDayBound(filters.before, true), offset, limit,
       ...(filters.oldestFirst ? { oldestFirst: true } : {}) }), disabled, filters.query ? 220 : 0);
   const { loading, error } = page;
-  const [selection, setSelected] = useState<Session | null>(null);
+  const [selections, setSelections] = useState<Record<string, Session | null>>({});
+  const selection = selections[key] ?? null;
+  const setSelected = (value: Session | null | ((previous: Session | null) => Session | null)) =>
+    setSelections(previous => ({ ...previous, [key]: typeof value === 'function' ? value(previous[key] ?? null) : value }));
   const selected = page.items.find(item => item.id === selection?.id) ?? page.items[0] ?? null;
-  const [previewOpen, setPreviewOpen] = useState(true);
+  const [previews, setPreviews] = useState<Record<string, boolean>>({});
+  const previewOpen = previews[key] ?? true;
+  const setPreviewOpen = (open: boolean) => setPreviews(previous => ({ ...previous, [key]: open }));
   const [moreFilters, setMoreFilters] = useState(false);
   const [dateReset, setDateReset] = useState(0);
   const selectedSessionId = selected?.id;
@@ -272,8 +284,7 @@ export function HistoryView({
     !!filters.before ||
     filters.children;
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
-  return (
-    <div className="history-view">
+  const controls = <>
       {undoId && <div className="history-undo" role="status">
         <p>已移入資源回收筒。</p>
         <div className="history-undo-actions">
@@ -323,7 +334,7 @@ export function HistoryView({
           className="icon-button"
           title={previewOpen ? '收合預覽' : '顯示預覽'}
           aria-label={previewOpen ? '收合預覽' : '顯示預覽'}
-          onClick={() => setPreviewOpen(!previewOpen)}
+          onClick={() => { setPreviewOpen(!previewOpen); if (!previewOpen) onSelectSession?.(); }}
         >
           <FileText size={17} />
         </button>
@@ -361,8 +372,8 @@ export function HistoryView({
       <div className="history-caption">
         <span>{loading ? '搜尋中…' : `${page.total} 個 Session`}</span>
       </div>
-      <div className={`history-columns ${previewOpen ? '' : 'preview-hidden'}`}>
-        <div className="session-column">
+    </>;
+  const sessionList = <div className="session-column">
           {error && !page.items.length ? (
             <div className="empty-state">
               <FileText size={32} />
@@ -408,6 +419,7 @@ export function HistoryView({
                     onClick={() => {
                       setSelected(session);
                       setPreviewOpen(true);
+                      onSelectSession?.();
                     }}
                   >
                     <div className="session-card-top">
@@ -439,8 +451,8 @@ export function HistoryView({
               )} />
           )}
 
-        </div>
-        {previewOpen && (
+        </div>;
+  const preview = previewOpen && (
           <section className="transcript-column" aria-label="對話預覽">
             {selected ? (
               <>
@@ -577,12 +589,19 @@ export function HistoryView({
               <div className="empty-state">
                 <FileText size={30} />
                 <h3>留住工作的脈絡</h3>
-                <p>選取左側 Session，從最近的對話繼續。</p>
+                <p>選取 Session，從最近的對話繼續。</p>
               </div>
             )}
           </section>
-        )}
-      </div>
+        );
+  if (sidebarHost !== undefined) return <>
+    {sidebarHost && createPortal(<div className="history-view activity-history-browser"><div className="activity-history-controls">{scopeLabel && <h2 className="activity-history-heading">{scopeLabel}</h2>}{controls}</div>{sessionList}</div>, sidebarHost)}
+    <div className="history-view activity-history-preview">{preview}</div>
+  </>;
+  return <div className="history-view history-standalone">
+    {controls}
+    <div className={`history-columns ${previewOpen ? '' : 'preview-hidden'}`}>
+      {sessionList}{preview}
     </div>
-  );
+  </div>;
 }

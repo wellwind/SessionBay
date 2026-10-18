@@ -703,3 +703,19 @@ broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn ide
 ## 2026-10-18：原生狀態來源取代 gateable hooks 作為正式 launch 路徑
 
 前述 command-hook bridge 保留低階測試；正式設定啟用後，Claude >=2.1.287 改以 launch-local mod 的主回合 start/complete，Codex 改以 app-owned private app-server + 原生 remote TUI + metadata-only observer。既有 hooks/notify 不覆寫，不增加模型請求。由單一來源序號與30秒快照期限傳送 current state；舊 gateable callback 不能覆寫。Claude 只宣稱 active main turn／完成，尚不辨識回合內等待。詳細版本限制、未知／撤銷、隔離原生驗收步驟見 [provider-hooks](provider-hooks.md)。
+
+## 2026-10-18：專案內右側 Activity Bar
+
+原先全域三功能方案經畫面回饋撤回：切換全域 Sessions 卻保留目錄總覽造成脈絡混淆，並有額外留白。依確認後的新方案，左側恢復專案／所有目錄，工具限於選定專案，位於最右側，歷史 Sessions 第一、Files 第二；Projects 不再是工具 contribution。
+
+工具面板向左展開，一次一個，收合不保留寬度；總覽不顯示工具。中央檢視與工具選取按專案保留，正常／專注工具狀態分開；專注預設收合右工具並隱藏左導航。圖示與專注切換不替換中央內容或重啟 Runtime。首次進入無工作專案開歷史，有工作專案恢復工作分頁。
+
+保留內部 typed contribution contract：功能提供 ID、圖示、名稱、renderer、availability、badge 與啟用 callback，shell 負責順序、選取／收合、鍵盤、首次延遲掛載、狀態保留與 overflow。功能 renderer 從專案 context 取得資料；不建立第三方插件平台或尚未實作的 Git 按鈕。
+
+## 2026-10-18：Git 工作台規劃定案，功能尚未實作
+
+使用者確認在 Session Bay 內完成日常 Git、PR／MR 與三方衝突處理；GitLab 為自架主機。一專案可含多 repo，僅有效 Git 工作目錄啟用功能，正確辨識 .git file 與既有 worktree。文字 diff 支援同檔部分 hunk／行 stage／unstage，第一階段包含歷史 graph 與 blame。不做非文字內容 diff，但保留整檔變更與衝突處置。
+
+危險操作採清楚確認與可驗證復原點，防止 Agent／外部編輯造成過期寫入；一般 push 不自動推送所有 tag。GitHub／自架 GitLab 採多主機／帳號架構，PR／MR review／合併在應用內完成；CI 先狀態與外連，logs／retry／cancel 後續。Worktree 管理後續，識別能力不能延後。
+
+完整規劃與八個實作 PR 的相依／驗收見 [Git 工作台](git-workbench-plan.md)。本次只新增文件，所有 Git 功能均未完成／未驗收；Monaco 等文字引擎仍是候選，沒有選定或安裝。本文件不授權對使用者 repo 執行破壞操作或自動配置憑證。

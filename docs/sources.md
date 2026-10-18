@@ -281,3 +281,8 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - https://code.claude.com/docs/en/hooks ：--settings、prompt_id、SessionEnd、Notification 的約 6／60 秒延遲。
 
 來源為官方 current docs；版本可用性與 native CLI callback 仍需逐版實測，不能以文檔存在代替驗收。
+
+## 2026-10-18：Activity Bar 參考
+
+- [VS Code User Interface](https://code.visualstudio.com/docs/editing/getting-started/userinterface)：Activity Bar 選擇 Primary Side Bar 的功能，中央編輯區獨立。
+- [VS Code Custom Layout](https://code.visualstudio.com/docs/configure/custom-layout)：側欄顯示切換與 Zen Mode。Session Bay 僅採功能／內容分離原則，保留自己的專注模式快捷入口。

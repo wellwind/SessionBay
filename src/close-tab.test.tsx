@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createPortal } from 'react-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { defaultAgentOptions } from './agents';
@@ -16,7 +17,10 @@ vi.mock('./api', () => ({ api: bridge, isDesktop: () => true,
 vi.mock('./startup', () => ({ startup: { mounted: vi.fn(), ready: vi.fn(), backendError: vi.fn() } }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => vi.fn()) }));
 vi.mock('./directory-picker', () => ({ canPickDirectory: () => false, pickDirectory: vi.fn() }));
-vi.mock('./components/History', () => ({ agentName: (kind: string) => kind, dateLabel: () => '', HistoryView: () => null }));
+vi.mock('./components/History', () => ({ agentName: (kind: string) => kind, dateLabel: () => '',
+  HistoryView: ({ sidebarHost, onSelectSession }: { sidebarHost?: HTMLDivElement | null; onSelectSession?: () => void }) =>
+    sidebarHost ? createPortal(<button onClick={onSelectSession}>Select synthetic history session</button>, sidebarHost) : null,
+}));
 // Keep App, WorkspaceCanvas, TerminalPane and all document listeners real.
 // Only the native bridge and the xterm drawing/input boundary are synthetic.
 vi.mock('@xterm/xterm', () => ({ Terminal: class {
@@ -35,6 +39,7 @@ vi.mock('@xterm/xterm', () => ({ Terminal: class {
     this.textarea.addEventListener('keydown', event => { this.handler(event); });
     host.append(this.textarea);
   }
+  onRender() { return { dispose() {} }; }
   onData(callback: (value: string) => void) { this.data = callback; return { dispose() {} }; }
   input(value: string) { this.data(value); }
   write(_data: unknown, done?: () => void) { done?.(); }
@@ -130,13 +135,14 @@ describe('Cmd+W closes only the current workspace tab', () => {
     bridge.readWorkspaceFile.mockResolvedValue({ path: 'safe.ts', text: 'const safe = true;', sizeBytes: 18 });
     await openWorkspace();
     const terminal = screen.getByRole('textbox', { name: 'Integration terminal input' });
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     fireEvent.click(await screen.findByRole('button', { name: 'safe.ts' }));
     const editor = await screen.findByLabelText('唯讀內容：safe.ts'); editor.focus();
     fireEvent.keyDown(editor, { key: 'w', code: 'KeyW', metaKey: true });
     expect(screen.queryByRole('tab', { name: /safe.ts/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'safe.ts' }));
     await screen.findByLabelText('唯讀內容：safe.ts');
-    screen.getByRole('button', { name: '隱藏 Files 側欄' }).focus();
+    screen.getByRole('button', { name: 'Files' }).focus();
     await nativeCloseTab();
     expect(screen.queryByRole('tab', { name: /safe.ts/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -196,6 +202,8 @@ describe('Cmd+W closes only the current workspace tab', () => {
   it('does not close during composition, repeat, modal input, or history view', async () => {
     setup([shell()]);
     await mountProject();
+    fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select synthetic history session' }));
     await nativeCloseTab(); // history
     expect(bridge.stop).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project pane-a' }));
@@ -305,6 +313,7 @@ describe('project Files workspace integration', () => {
     render(<App />);
     const navigation = await screen.findByRole('navigation', { name: '專案' });
     fireEvent.click(await within(navigation).findByRole('button', { name: /^Synthetic project/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     expect(await screen.findByRole('button', { name: '.env.example' })).toBeVisible();
     expect(bridge.listWorkspaceFiles).toHaveBeenCalledWith('project-a', '', 0, true);
     fireEvent.click(screen.getByRole('button', { name: 'a.ts' }));
@@ -312,23 +321,26 @@ describe('project Files workspace integration', () => {
     const tab = screen.getByRole('tab', { name: /a.ts/ });
     expect(tab.closest('.workspace-tabs')).not.toBeNull();
     expect(screen.queryByLabelText('顯示隱藏檔案')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '隱藏 Files 側欄' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     expect(document).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
     expect(screen.getByLabelText('唯讀內容：a.ts')).toBe(document);
-    fireEvent.click(screen.getByRole('button', { name: '顯示 Files 側欄' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     expect(screen.getByRole('button', { name: '.env.example' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'false');
     expect(bridge.launch).not.toHaveBeenCalled(); expect(bridge.attach).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '關閉檔案 a.ts' }));
     expect(screen.queryByRole('tab', { name: /a.ts/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '歷史 Session' })).toHaveClass('active');
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'false');
+    expect(tab).not.toBeInTheDocument();
     expect(bridge.stop).not.toHaveBeenCalled();
   });
   it('shares files across runtime tabs, cycles common shortcuts, and never writes file keys to PTY', async () => {
     setup([shell(), shell({ id: 'runtime-b', paneId: 'pane-b' })]); files();
     await openWorkspace();
     const terminals = screen.getAllByRole('textbox', { name: 'Integration terminal input', hidden: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     fireEvent.doubleClick(await screen.findByRole('button', { name: 'a.ts' }));
     await screen.findByLabelText('唯讀內容：a.ts');
     const file = screen.getByRole('tab', { name: /a.ts/ });
@@ -346,9 +358,10 @@ describe('project Files workspace integration', () => {
   });
   it('keeps file closes blocked by a modal and composition, including when focus is on chrome', async () => {
     setup([shell()]); files(); await openWorkspace();
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }));
     fireEvent.click(await screen.findByRole('button', { name: 'a.ts' }));
     await screen.findByLabelText('唯讀內容：a.ts');
-    const toggle = screen.getByRole('button', { name: '隱藏 Files 側欄' }); toggle.focus();
+    const toggle = screen.getByRole('button', { name: 'Files' }); toggle.focus();
     fireEvent.keyDown(toggle, { key: 'w', metaKey: true, isComposing: true });
     expect(screen.getByRole('tab', { name: /a.ts/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '新增工作區分頁' }));
@@ -363,12 +376,13 @@ it('returns last-file close focus to the Files toggle when the tree is hidden', 
   setup([shell()]);
   bridge.listWorkspaceFiles.mockResolvedValue({ entries: [{ name: 'a.ts', path: 'a.ts', kind: 'file' }], nextOffset: null });
   await openWorkspace();
+  fireEvent.click(screen.getByRole('button', { name: 'Files' }));
   fireEvent.click(await screen.findByRole('button', { name: 'a.ts' }));
   const editor = await screen.findByLabelText('唯讀內容：a.ts');
-  fireEvent.click(screen.getByRole('button', { name: '隱藏 Files 側欄' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Files' }));
   editor.focus();
   fireEvent.keyDown(editor, { key: 'w', metaKey: true });
-  await waitFor(() => expect(screen.getByRole('button', { name: '顯示 Files 側欄' })).toHaveFocus());
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Files' })).toHaveFocus());
   expect(screen.queryByRole('tab', { name: /a.ts/ })).not.toBeInTheDocument();
   expect(bridge.stop).not.toHaveBeenCalled(); expect(bridge.write).not.toHaveBeenCalled();
 });

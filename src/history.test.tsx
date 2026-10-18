@@ -737,3 +737,96 @@ it('cannot resume or curate stale project results while the next directory is lo
   expect(onResume).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: 'project-b' }));
   expect(onCurate).not.toHaveBeenCalled();
 });
+
+it('portals the session browser independently of the center transcript without resetting selection', async () => {
+  const sidebarHost = document.createElement('div');
+  document.body.append(sidebarHost);
+  const onSelectSession = vi.fn();
+  const { container, rerender, unmount, props } = setup({ projectId: project.id, sidebarHost, onSelectSession });
+  try {
+    await tick();
+    const list = within(sidebarHost).getByRole('list', { name: 'Session 清單' });
+    const search = within(sidebarHost).getByRole('textbox', { name: '搜尋 Session' });
+    expect(container.querySelector('.session-list')).toBeNull();
+    expect(within(sidebarHost).queryByRole('region', { name: '對話預覽' })).not.toBeInTheDocument();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Synthetic transcript');
+    expect(onSelectSession).not.toHaveBeenCalled();
+    container.style.display = 'none';
+    expect(search).toBeVisible();
+    fireEvent.click(within(list).getByRole('button', { name: /^(?!刪除).*Session alpha/ }));
+    expect(onSelectSession).toHaveBeenCalledOnce();
+    sidebarHost.hidden = true;
+    container.style.display = '';
+    rerender(<HistoryView {...props} />);
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Synthetic transcript');
+    sidebarHost.hidden = false;
+    expect(within(sidebarHost).getByRole('list', { name: 'Session 清單' })).toBe(list);
+    expect(within(sidebarHost).getByRole('textbox', { name: '搜尋 Session' })).toBe(search);
+    expect(api.transcript).toHaveBeenCalledOnce();
+  } finally {
+    unmount();
+    sidebarHost.remove();
+  }
+});
+
+it('keeps the session browser out of the center until its lazy sidebar target mounts', async () => {
+  const { container, rerender, unmount, props } = setup({ projectId: project.id, sidebarHost: null });
+  const host = document.createElement('div');
+  try {
+    await tick();
+    expect(within(container).queryByRole('list', { name: 'Session 清單' })).not.toBeInTheDocument();
+    expect(within(container).queryByRole('textbox', { name: '搜尋 Session' })).not.toBeInTheDocument();
+    const preview = within(container).getByRole('region', { name: '對話預覽' });
+    expect(preview).toHaveTextContent('Synthetic transcript');
+    document.body.append(host);
+    rerender(<HistoryView {...props} sidebarHost={host} />);
+    await tick();
+    expect(within(host).getByRole('list', { name: 'Session 清單' })).toBeVisible();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toBe(preview);
+    expect(within(container).queryByRole('list', { name: 'Session 清單' })).not.toBeInTheDocument();
+    expect(api.transcript).toHaveBeenCalledOnce();
+  } finally {
+    unmount();
+    host.remove();
+  }
+});
+
+it('remembers selected transcript and preview visibility independently for each project', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  vi.mocked(api.sessions).mockImplementation(async query => ({ catalogRevision: 'fixture',
+    items: query.projectId === 'project-b'
+      ? [session('beta-1', { projectId: 'project-b' }), session('beta-2', { projectId: 'project-b' })]
+      : [session('alpha-1'), session('alpha-2')], total: 2 }));
+  vi.mocked(api.transcript).mockImplementation(async id => transcript(`Transcript ${id}`));
+  const { container, rerender, unmount, props } = setup({ projectId: project.id, sidebarHost: host });
+  const choose = (id: string) => fireEvent.click(within(host).getByRole('button', { name: new RegExp(`^(?!刪除).*Session ${id}`) }));
+  try {
+    await tick();
+    choose('alpha-2');
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript alpha-2');
+    fireEvent.click(within(host).getByRole('button', { name: '收合預覽' }));
+    expect(within(container).queryByRole('region', { name: '對話預覽' })).not.toBeInTheDocument();
+    rerender(<HistoryView {...props} projectId="project-b" />);
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toBeVisible();
+    choose('beta-2');
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript beta-2');
+    rerender(<HistoryView {...props} projectId={project.id} />);
+    await tick();
+    expect(within(container).queryByRole('region', { name: '對話預覽' })).not.toBeInTheDocument();
+    expect(within(host).getByRole('button', { name: /^(?!刪除).*Session alpha-2/ })).toHaveAttribute('aria-current', 'true');
+    fireEvent.click(within(host).getByRole('button', { name: '顯示預覽' }));
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript alpha-2');
+    rerender(<HistoryView {...props} projectId="project-b" />);
+    await tick();
+    expect(within(container).getByRole('region', { name: '對話預覽' })).toHaveTextContent('Transcript beta-2');
+  } finally {
+    unmount();
+    host.remove();
+  }
+});
