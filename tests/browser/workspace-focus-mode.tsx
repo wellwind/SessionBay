@@ -74,6 +74,15 @@ const generatedFileSizes = new Map<string, number>(fixtureParams.get('large-file
   ['medium.txt', 1024 * 1024], ['big.txt', 21 * 1024 * 1024],
   ['huge.txt', 65 * 1024 * 1024], ['slow.txt', 2 * 1024 * 1024],
 ] as const : []);
+const imageFixture = fixtureParams.get('file-images') === '1';
+const imageFiles = imageFixture ? ['picture.png', 'drawing.svg', 'broken.png'] : [];
+const imagePacket = (svg: boolean): ArrayBuffer => {
+  const data = svg ? new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="red"/></svg>')
+    : Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), c => c.charCodeAt(0));
+  const header = new TextEncoder().encode(JSON.stringify({ mime: svg ? 'image/svg+xml' : 'image/png', sourceFormat: svg ? 'svg' : 'png', width: svg ? 120 : 1, height: svg ? 80 : 1, firstFrameOnly: false }));
+  const result = new ArrayBuffer(8 + header.length + data.length); const bytes = new Uint8Array(result);
+  bytes.set([83, 66, 73, 49]); new DataView(result).setUint32(4, header.length, true); bytes.set(header, 8); bytes.set(data, 8 + header.length); return result;
+};
 const generatedLine = 'synthetic row '.padEnd(127, '.') + '\n';
 const fileVersion = (projectId: unknown, path: unknown) => `fixture:${projectId}:${path}:1`;
 const calls: { query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean; path?: string; version?: string; offset?: number; maxBytes?: number }[] = [];
@@ -90,14 +99,20 @@ mockIPC((command, payload = {}) => {
       { name: 'index.ts', path: 'src/index.ts', kind: 'file' },
     ] : [
       { name: 'src', path: 'src', kind: 'directory' },
-      ...['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', ...generatedFileSizes.keys()].map(name => ({ name, path: name, kind: 'file' })),
+      ...['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', ...generatedFileSizes.keys(), ...imageFiles].map(name => ({ name, path: name, kind: 'file' })),
       { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
     ], nextOffset: null };
     case 'inspect_workspace_file': {
       const path = args.path as string;
+      if (imageFiles.includes(path)) return { path, sizeBytes: 100, version: fileVersion(args.projectId, path), kind: 'image' };
       const sizeBytes = generatedFileSizes.get(path) ?? fileBytes.get(path)?.length;
       if (sizeBytes === undefined || !bootstrap.projects.some(project => project.id === args.projectId)) throw new Error('Unknown synthetic file');
       return { path, sizeBytes, version: fileVersion(args.projectId, path), kind: 'text' };
+    }
+    case 'read_workspace_image': {
+      if (!imageFiles.includes(args.path as string) || args.version !== fileVersion(args.projectId, args.path)) throw new Error('Unknown synthetic image');
+      if (args.path === 'broken.png') throw new Error('圖片內容無效');
+      return imagePacket(args.path === 'drawing.svg');
     }
     case 'read_workspace_file_chunk': {
       const path = args.path as string;

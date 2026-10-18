@@ -22,6 +22,7 @@ pub mod runtime;
 pub mod service;
 pub mod shells;
 mod workspace_files;
+mod workspace_images;
 
 #[cfg(feature = "desktop")]
 mod desktop;

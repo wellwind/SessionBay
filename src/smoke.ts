@@ -275,6 +275,8 @@ export async function runSmokeInteraction(): Promise<void> {
     if (fixtureRoot) {
       const { runLargeFileSmoke } = await import('./large-file-smoke');
       await runLargeFileSmoke(fixtureRoot);
+      const { runFileImageSmoke } = await import('./file-image-smoke');
+      await runFileImageSmoke(fixtureRoot);
     }
   }
   // Allow the final committed layout to reach the compositor before capture.

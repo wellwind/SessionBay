@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
-  testDir: './tests/browser', testMatch: ['monaco-lifecycle.spec.ts', 'large-files.spec.ts'],
+  testDir: './tests/browser', testMatch: ['monaco-lifecycle.spec.ts', 'large-files.spec.ts', 'file-image-preview.spec.ts'],
   timeout: 45_000, workers: 1,
   use: {
     browserName: 'chromium', channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? undefined : 'chrome',
