@@ -277,3 +277,15 @@ Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 op
 ## 檔案圖片閱讀
 
 PNG／JPEG／GIF／VP8 有損 WebP／靜態 SVG 的中央 tab 預覽正在實作，包含縮放與資源有界處理。以 Linux 實際驗證交付，未通過前不標為驗收完成。詳見 [圖片預覽](file-image-preview.md)。
+
+## Broker 生命週期與單次無 hooks 啟動（已確認，尚未實作）
+
+先完成目前工作台修正、broker 生命週期與單次無 hooks 啟動，再製作 Snap 測試包；Git 等大型新功能不插隊。詳見 [安全升級與驗收計畫](broker-lifecycle-plan.md)。
+
+- [ ] 持續 client lease、權威清理判定與無工作／無 client 延遲退出。
+- [ ] 明確確認的「結束所有工作並退出」，部分清理失敗如實回報。
+- [ ] 版本隔離 registry、完整 runtime owner routing、新工作切換與現代 broker drain。
+- [ ] Legacy 限制、共用資料單 writer／schema 過渡、更新與 rollback 驗收。
+- [ ] 已知 preflight 未啟動後的單次無 hooks 按鈕，保留原參數且不重送 unknown outcome。
+
+上述為後續實作，不等同已合併 #69 的未啟動錯誤分類與 hooks 預設啟用。

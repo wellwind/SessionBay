@@ -1,0 +1,86 @@
+# Broker 生命週期與安全升級計畫
+
+狀態：使用者已確認產品方向，以下新增功能尚未實作／驗收。#69 的啟動錯誤分類與 hooks 預設啟用已合併；不代表此計畫已完成。
+
+## 已確認行為
+
+- 關閉視窗只關閉介面。任何存活的 Shell／Agent 都保留；activity idle、等待輸入／權限不代表程序已結束。
+- 沒有任何存活工作，也沒有介面 client 時，短暫等待後自動退出 broker。
+- 提供「結束所有工作並退出」，明確確認後才停止 Agent、Shell 與 broker。
+- 更新後新工作交給新版 broker；既有工作仍由原 broker 持有，直到其工作結束後退出。
+- 不移轉活 PTY 的 owner、不以 PID 猜測接管、不自動重送結果不明的 Launch。
+- 先完成目前工作台修正、broker 生命週期與單次無 hooks 啟動，再製作 Snap 測試包；不在此插入 Git 工作台等大型功能。
+
+## 現況與缺口
+
+目前 GUI 關閉保存 workspace 並 detach renderer，broker 繼續持有 PTY。broker 使用固定 `runtime-broker-v1` endpoint 與 OS ownership lock，沒有閒置自退、持續 UI lease、版本 registry 或 drain 協定。250 ms accept timeout 只供維護，不能當自退計時；MAX_CLIENTS 是進行中的 IPC 數量，不能代表有幾個 UI。
+
+目前內部 Shutdown 能要求受管工作停止，但 GUI 尚無上述確認入口。runtime 的 failed 狀態也可能伴隨 ownership lost／cleanup error，不能單靠 List 的非 running 狀態判斷可安全退出。
+
+#69 在送出 Launch IPC 前辨識舊 broker 缺少活動能力，明確回報未啟動；它不自動 fallback、不停止舊工作，也沒有新增第二個 broker owner。
+
+## L1：單 broker 的安全生命週期
+
+- [ ] 協商式 UI client lease，涵蓋正常關閉、reload、crash 與逾期。
+- [ ] RuntimeManager 提供「無活工作且終止／清理已驗證」的權威判定。
+- [ ] 零有效 lease、零活工作、零 in-flight Launch／清理才開始延遲退出。
+- [ ] starting、stopping、unknown、ownership lost、cleanup error 均阻擋自退；activity 狀態完全不參與。
+- [ ] 計時到期與新 Launch admission 使用同一同步界線，先重驗條件再關閉入口；新 client／Launch 取消計時。
+- [ ] 「結束所有工作並退出」確認流程，先停止 admission，再清理受管程序；部分失敗明確回報，不假稱全停。
+
+## L2：版本隔離與 owner routing
+
+- [ ] 每個 broker 使用不可變 build identity 對應的獨立 endpoint、lock、metadata；generation 區分同版的每次執行。
+- [ ] Registry 僅作發現索引，以獨立 OS lock 和原子更新保護；不能當程序所有權證明。
+- [ ] 每個 runtime 保存 owner reference（instance、generation、runtime ID）；Attach、Write、Resize、Stop、Forget、activity、檔案能力皆回原 owner。
+- [ ] 透過 owner-authenticated IPC 驗證 endpoint／generation；socket 無回應但 lock 仍被持有時保留未知，不能判死。
+- [ ] 重複 pane/runtime ID、部分 broker 失聯及並發 GUI 啟動均不覆蓋其他 owner 的工作。
+- [ ] Broker 只寫自己的 runtime metadata；共享 workspace／settings／catalog 的 writer 與 schema 策略須在多版本啟用前定義。
+
+## L3：新工作切換與 drain
+
+- [ ] 驗證新版 broker 能力後，原子切換新工作的目標。
+- [ ] Launch intent 在第一次送出前固定 owner；遺失回覆只向同一 owner 查證，不切到另一個 broker 再啟動。
+- [ ] Resume 若已在舊 broker 存活，仍 focus／attach 原 runtime，不建立第二份 session。
+- [ ] 支援新協定的舊 broker 拒收新工作但維持既有互動；工作與 lease 清空後依 L1 退出。
+- [ ] 更新保留舊 broker／hook helper 需要的 executable；退休清理可驗證後才移除。
+
+## L4：Legacy 與資料遷移
+
+已執行中的舊二進位不會自動學會 registry、lease 或 drain。新版可使用已知舊 endpoint 與相容協定讀取／路由，但不能替它宣稱新能力。
+
+- [ ] Legacy 缺少原子 drain 與 client lease 時，不因一次 List 空就自動 Shutdown；舊 UI 可能同時 Launch。
+- [ ] 未知協定、無法驗證 owner、清理不明或 IPC timeout 都保持保守狀態，不 kill、不重送。
+- [ ] 舊 UI 不認識新鎖，不能宣稱兩代 UI 可安全共寫 settings.json／workspace.json／catalog.sqlite。需明確單 writer 過渡或隔離 schema store。
+- [ ] 不新增長期 terminal 輸出保存作為退出捷徑；metadata 不能恢復已失去的 PTY 所有權。
+- [ ] 更新中斷、rollback、可執行檔保留與 Windows 檔案鎖另行驗證；Linux 正確交付，不將其他平台未驗寫成通過。
+
+## F1：明確單次無 hooks 啟動
+
+這是獨立於版本升級的短期操作，尚未實作。
+
+- [ ] 只在 typed「舊 broker 缺 hooks 能力」的本地 preflight 拒絕後，提供「不啟用活動回報，繼續啟動」與取消。
+- [ ] Backend 保存有界、具原始期限的 rejected intent、broker generation、完整原 request／LaunchSpec。重複原請求不重新規劃。
+- [ ] 明確確認只移除本次 spec 的 hooks opt-in，其餘 executable、argv、cwd、env、權限旗標與產生的 pane ID 完全不變，不儲存長期偏好。
+- [ ] 同一 mutex 下由 rejected 原子轉成 send-once attempt；雙擊、Enter＋click、兩種命令競爭最多送一次 Launch。
+- [ ] unknown outcome 不再提供繼續啟動；只查證／恢復原 owner 的既有結果。新錯誤不得重新產生可重送狀態。
+- [ ] 過期、generation 改變、影響啟動的設定變更、導航／關閉／取消使原操作失效，不偷偷採用新參數。
+- [ ] 首版僅限 fresh 新 Agent。既有 resume 照原本 focus／attach；需要啟動程序的歷史／手動 resume 暫保留明確錯誤，不能清除 resume identity 冒充 fresh。
+- [ ] 不加 legacy wire 欄位，不呼叫 stop／forget／revoke，不修改全域 hooks；無活動來源維持 unknown。
+
+## 驗收門檻
+
+全部項目目前未驗，完成後才勾選：
+
+- [ ] idle Agent／shell prompt／權限等待在 GUI 關閉後繼續存活；重新開啟接回同一 runtime。
+- [ ] 零工作零 client 延遲退出；到期同時 Launch／lease refresh 不誤退。
+- [ ] cleanup error／lost ownership／不確定狀態阻止自退。
+- [ ] 確認 Stop all 正常成功與部分失敗均有正確結果；取消不停止程序。
+- [ ] 兩個 GUI 並發啟動只建立所需 owner；升級新舊並存、跨 owner resume、unknown legacy 安全。
+- [ ] Launch lost reply、跨 broker 切換、重複 intent 不產生第二份程序。
+- [ ] 單次無 hooks 精確保留 argv/cwd/permission，明確 false 設定與全域設定不變。
+- [ ] 單次操作取消／過期／導航／設定變更與晚到回覆不重新開啟視窗、不偷取焦點。
+- [ ] 更新中斷／rollback／retirement 不覆寫其他 broker 的 metadata 或共用資料。
+- [ ] Linux tests、真實瀏覽器與必要程序驗證；模型回合與 Mac／Windows 驗收另列證據。
+
+原始碼現況：`src-tauri/src/broker.rs`、`broker/client.rs`、`broker/transport.rs`、`runtime/unix.rs`、`fresh_launch.rs`、`service.rs`。本文件僅記錄已批准方向與待辦，不代表程式已新增這些能力。
