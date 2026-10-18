@@ -1563,4 +1563,49 @@ describe('guarded terminal output activity', () => {
     view.unmount();
     act(() => current({ type: 'output', runtimeId: 'runtime', sequence: 2, data: [68] }));
   });
+  it('routes structured reports without PTY ACKs, survives reconnect, and fences stale callbacks', async () => {
+    const view = render(<ActivityHarness />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    const old = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(old);
+    const writes = mocks.termWrite.mock.calls.length, acks = mocks.ack.mock.calls.length;
+    const report: TerminalEvent = { type: 'agentActivity', runtimeId: 'runtime', generation: 'generation-a', revision: 1, observation: 'busy', validForMs: 1000 };
+    act(() => old(report));
+    await waitFor(() => expect(screen.getByRole('img', { name: /Agent 最近回報：工作中/ })).toBeInTheDocument());
+    expect(mocks.termWrite).toHaveBeenCalledTimes(writes);
+    expect(mocks.ack).toHaveBeenCalledTimes(acks);
+    expect(screen.queryByRole('img', { name: /未讀輸出|有新輸出/ })).not.toBeInTheDocument();
+    act(() => {
+      old({ ...report, runtimeId: 'wrong-runtime', revision: 99, observation: 'idle' });
+      old({ type: 'disconnected', runtimeId: 'runtime', message: 'Offline' });
+      old({ ...report, revision: 2 });
+    });
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Agent 最近回報/ })).not.toBeInTheDocument());
+    expect(mocks.ack).toHaveBeenCalledTimes(acks);
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    const current = mocks.attach.mock.calls[1][1] as (event: TerminalEvent) => void;
+    completeSnapshot(current);
+    const reattachedWrites = mocks.termWrite.mock.calls.length, reattachedAcks = mocks.ack.mock.calls.length;
+    act(() => {
+      old({ ...report, revision: 99 });
+      current({ ...report, generation: 'generation-b', revision: 1, observation: 'turnStopRequested', validForMs: 300 });
+    });
+    await waitFor(() => expect(screen.getByRole('img', { name: /Agent 最近回報：收到回合停止請求/ })).toBeInTheDocument());
+    expect(screen.queryByRole('img', { name: /閒置|工作中/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Agent 最近回報/ })).not.toBeInTheDocument());
+    act(() => current({ ...report, generation: 'generation-b', revision: 2 }));
+    await waitFor(() => expect(screen.getByRole('img', { name: /Agent 最近回報：工作中/ })).toBeInTheDocument());
+    act(() => {
+      current({ type: 'exit', runtimeId: 'runtime', exitCode: 7 });
+      current({ ...report, generation: 'generation-b', revision: 3 });
+    });
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Agent 最近回報/ })).not.toBeInTheDocument());
+    view.unmount();
+    act(() => current({ ...report, generation: 'generation-b', revision: 4 }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(reattachedWrites);
+    expect(mocks.ack).toHaveBeenCalledTimes(reattachedAcks);
+    expect(mocks.launch).not.toHaveBeenCalled();
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
 });

@@ -117,3 +117,5 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 - [Agent 檔案輸入合成驗收](docs/file-input-validation.md)：區分暫存、CLI 辨識與模型真實接收。
 
 - [Caps Lock 中文組字候選修正](docs/capslock-ime.md)：交易隔離、合成回歸與尚待原生驗收的範圍。
+
+- [Agent 活動 opt-in 傳輸與驗收邊界](docs/agent-activity-transport.md)

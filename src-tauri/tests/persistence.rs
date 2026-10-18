@@ -85,6 +85,7 @@ fn until_text(
             UiEvent::Error { message, .. } | UiEvent::Disconnected { message, .. } => {
                 panic!("{message}")
             }
+            UiEvent::AgentActivity { .. } => {}
             UiEvent::Exit { .. } => panic!("process ended before marker"),
         }
     }
@@ -288,10 +289,21 @@ fn broker_process_crash_leaves_interrupted_records_and_never_adopts_a_pid() {
         .arg(temp.path())
         .spawn()
         .unwrap();
-    // File existence alone does not prove ownership: wait for its OS lock so
-    // the client cannot race this manually owned fixture by spawning a broker.
+    // This fresh directory has no metadata until Host::open persists it while
+    // holding the broker lock. Do not probe the newly created lock beforehand:
+    // our try_lock could win the startup race and make the broker exit.
+    let metadata = temp.path().join("runtime-broker-v1/sessions.json");
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
+        assert!(
+            broker.try_wait().unwrap().is_none(),
+            "fixture broker exited before acquiring ownership"
+        );
+        if !metadata.exists() {
+            assert!(Instant::now() < deadline, "broker metadata was not ready");
+            thread::sleep(Duration::from_millis(10));
+            continue;
+        }
         if let Ok(file) = std::fs::OpenOptions::new()
             .read(true)
             .write(true)

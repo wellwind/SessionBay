@@ -267,3 +267,43 @@ fn legacy_encoded_global_shell_launches_resolved_home_without_a_project() {
     assert!(records[0].project_id.is_none());
     assert_eq!(records[0].profile_id.as_deref(), Some("chosen-profile"));
 }
+
+#[test]
+fn activity_poll_negotiation_omits_every_new_field_for_legacy_hosts() {
+    for capabilities in [
+        None,
+        Some(serde_json::json!([])),
+        Some(serde_json::json!(["future"])),
+    ] {
+        let client = BrokerClient::from_hello(Path::new("/unused"), hello(capabilities)).unwrap();
+        assert!(!client.inner.activity_supported);
+        let request = Request::Poll {
+            generation: client.generation(),
+            runtime_id: "r".into(),
+            after: Some(0),
+            agent_activity: client.inner.activity_supported,
+            activity_after: None,
+        };
+        assert!(
+            serde_json::from_value::<LegacyRequest>(serde_json::to_value(request).unwrap()).is_ok()
+        );
+        assert!(client
+            .open_ordered_activity_publisher("r", crate::models::AgentKind::Claude, "session")
+            .is_err());
+    }
+    let client = BrokerClient::from_hello(
+        Path::new("/unused"),
+        hello(Some(serde_json::json!(["orderedAgentActivity"]))),
+    )
+    .unwrap();
+    assert!(client.inner.activity_supported);
+    let wire = serde_json::to_value(Request::Poll {
+        generation: client.generation(),
+        runtime_id: "r".into(),
+        after: Some(0),
+        agent_activity: true,
+        activity_after: None,
+    })
+    .unwrap();
+    assert!(serde_json::from_value::<LegacyRequest>(wire).is_err());
+}

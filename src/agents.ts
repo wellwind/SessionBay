@@ -9,10 +9,10 @@ export interface AgentCapability {
   executable: string;
   logo: string;
   bypassFlag: string;
-  /** Parser foundations only; this does not enable live activity status. */
+  /** Opt-in bridge API; ordinary Agent launches do not configure a publisher. */
   activity: {
     adapter: 'codexHooks' | 'claudeHooks' | 'grokHooks' | 'antigravityHooks' | 'openCodeV1Events';
-    transport: 'notImplemented';
+    transport: 'orderedBridgeOptIn';
   };
   history: {
     supported: true;

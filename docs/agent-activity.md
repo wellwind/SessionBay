@@ -1,5 +1,7 @@
 # Agent 活動 hook 基礎
 
+後續傳輸增量見 [opt-in ordered bridge](agent-activity-transport.md)；以下保留 #53 純 observation 基礎的範圍。
+
 ## 目前交付與未交付
 
 2026-10-17 的候選只提供 `agent_activity` 純函式 adapter、短期記憶體 observation reducer、共享 provider registry 契約，以及未知活動圖示清理。所有 provider 的 `activity.transport` 都是 `notImplemented`。**沒有 production 事件入口，也沒有真實 Agent busy／idle 顯示。** PTY 輸出與程序存活不能替代 hook。

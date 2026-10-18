@@ -339,6 +339,10 @@ export function TerminalPane({
       }
       active.id = event.runtimeId;
       activity?.bind(pane.id, active.lease, event.runtimeId);
+      if (event.type === 'agentActivity') {
+        if (pane.kind !== 'shell' && !active.ended && !active.disconnected) activity?.observe(pane.id, active.lease, event);
+        return;
+      }
       if (event.type === 'output' || event.type === 'snapshot') {
         if (event.sequence <= active.lastSequence) {
           if (event.sequence <= active.lastAcknowledged) ack(event);

@@ -123,6 +123,14 @@ fn socket_path(directory: &Path) -> io::Result<PathBuf> {
     Ok(parent.join("control.sock"))
 }
 
+#[cfg(windows)]
+fn windows_pipe_name(directory: &Path) -> io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let identity = windows::user_sid()?;
+    let digest = Sha256::digest(format!("{}\0{}", identity, directory.display()).as_bytes());
+    Ok(format!("sessionbay-runtime-v1-{digest:x}"))
+}
+
 fn name(directory: &Path) -> io::Result<Name<'static>> {
     #[cfg(unix)]
     {
@@ -134,10 +142,7 @@ fn name(directory: &Path) -> io::Result<Name<'static>> {
     #[cfg(windows)]
     {
         use interprocess::local_socket::{GenericNamespaced, ToNsName};
-        use sha2::{Digest, Sha256};
-        let identity = windows::user_sid()?;
-        let digest = Sha256::digest(format!("{}\0{}", identity, directory.display()).as_bytes());
-        format!("sessionbay-runtime-v1-{digest:x}")
+        windows_pipe_name(directory)?
             .to_ns_name::<GenericNamespaced>()
             .map(Name::into_owned)
     }
@@ -242,6 +247,86 @@ pub async fn flush_shutdown_reply(stream: &mut Stream) -> io::Result<()> {
     {
         stream.flush().await
     }
+}
+
+/// An activity owner always discards uncertain writes when it disappears,
+/// including cancellation inside an opening timeout. No secret is Debug-able.
+pub struct ActivityStream(Stream);
+impl ActivityStream {
+    pub fn new(stream: Stream) -> Self {
+        Self(stream)
+    }
+}
+impl std::ops::Deref for ActivityStream {
+    type Target = Stream;
+    fn deref(&self) -> &Stream {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for ActivityStream {
+    fn deref_mut(&mut self) -> &mut Stream {
+        &mut self.0
+    }
+}
+impl Drop for ActivityStream {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        {
+            let Stream::NamedPipe(pipe) = &self.0;
+            pipe.inner().assume_flushed();
+        }
+    }
+}
+
+/// Dedicated ordered bridges reuse the existing endpoint and peer authentication.
+pub async fn connect(directory: &Path) -> io::Result<ActivityStream> {
+    #[cfg(unix)]
+    let stream = Stream::connect(name(directory)?).await?;
+    #[cfg(windows)]
+    let stream = {
+        use interprocess::{
+            os::windows::named_pipe::{pipe_mode::Bytes, tokio::DuplexPipeStream},
+            ConnectWaitMode,
+        };
+        // Fail immediately if every pipe instance is busy; never create the
+        // crate's unbounded blocking connect task in a short-lived runtime.
+        let pipe = DuplexPipeStream::<Bytes>::connect_by_path_with_wait_mode(
+            format!(r"\\.\pipe\{}", windows_pipe_name(directory)?),
+            ConnectWaitMode::Timeout(Duration::ZERO),
+        )
+        .await?;
+        Stream::NamedPipe(pipe.into())
+    };
+    let stream = ActivityStream(stream);
+    authenticate(&stream)?;
+    Ok(stream)
+}
+pub fn discard_activity_stream(stream: ActivityStream) {
+    drop(stream);
+}
+
+/// Idle publishers are permitted; partial frames cannot retain a slot forever.
+pub async fn read_activity_frame(stream: &mut Stream, limit: usize) -> io::Result<Option<Vec<u8>>> {
+    let first = match tokio::time::timeout(Duration::from_millis(250), stream.read_u8()).await {
+        Ok(result) => result?,
+        Err(_) => return Ok(None),
+    };
+    tokio::time::timeout(REQUEST_TIMEOUT, async {
+        let mut rest = [0; 3];
+        stream.read_exact(&mut rest).await?;
+        let length = u32::from_be_bytes([first, rest[0], rest[1], rest[2]]) as usize;
+        if length == 0 || length > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Activity IPC frame exceeds limit",
+            ));
+        }
+        let mut bytes = vec![0; length];
+        stream.read_exact(&mut bytes).await?;
+        Ok(Some(bytes))
+    })
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "Activity IPC frame timed out"))?
 }
 
 #[cfg(all(test, windows))]

@@ -830,7 +830,7 @@ describe('fixed provider history capabilities', () => {
     expect([...agentKinds]).toEqual(manifest.providers.map((provider) => provider.id));
     for (const provider of manifest.providers) {
       expect(agentCapabilities[provider.id as AgentKind]).toEqual(provider);
-      expect(provider.activity.transport).toBe('notImplemented');
+      expect(provider.activity.transport).toBe('orderedBridgeOptIn');
       expect(provider.activity.adapter).toBe(provider.id === 'opencode' ? 'openCodeV1Events' : `${provider.id}Hooks`);
       expect(provider.launch.versionArgs).toEqual(provider.id === 'grok' ? ['version'] : ['--version']);
       expect(provider.launch.newArgs).toEqual([]);

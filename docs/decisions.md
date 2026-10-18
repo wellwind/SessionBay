@@ -683,3 +683,9 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 五工具共用 registry 宣告各自已審閱的 observation adapter，transport 一律為 `notImplemented`。本輪只交付純解析與記憶體 reducer，不安裝 hooks、不建立 listener、不修改使用者 Agent 設定，也不把此基礎描述為 live busy／idle 已完成。`Stop` 可被其他 hook 阻止或繼續，不能等同 idle；prompt、tool、permission hooks 只證明事件發生，不保證目前仍工作中或等待人類。
 
 工作分頁的已知狀態圖示移到名稱左側；未知／不支援不顯示問號，也不保留沒有輸出的點。保留專案分頁、已知退出／錯誤／斷線／連線中狀態、輸出提示與無障礙生命週期說明。後續傳輸、驗證與 opt-in 安裝界線見 [活動 hook 基礎](agent-activity.md)。
+
+## 2026-10-17：活動 observation 的 opt-in ordered bridge
+
+- 沿用 owner-authenticated broker IPC，以記憶體內 capability／runtime generation 綁定單一 ordered publisher；不新增 listener、永久憑證或修改 Agent 設定。
+- 獨立 activity cursor／revision／剩餘 TTL 傳到 App，不使用 PTY output ACK；未知、過期、失聯立即保守隱藏。
+- 真實 CLI callbacks 尚無可靠因果 bridge，預設全部關閉。合成 socket 與 actual-App seams 詳見 [傳輸設計](agent-activity-transport.md)，不等於真實 CLI／三平台 native 驗收。

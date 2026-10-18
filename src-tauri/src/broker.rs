@@ -1,11 +1,12 @@
 //! Detached runtime host. The desktop is a disposable client; only this process
 //! owns PTYs. Restoring metadata never grants authority over an old process ID.
+mod activity;
 mod client;
 mod output_batch;
 mod screen;
 mod transport;
 use crate::runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent};
-pub use client::BrokerClient;
+pub use client::{BrokerClient, OrderedActivityPublisher};
 use interprocess::local_socket::tokio::{prelude::*, Stream};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -19,12 +20,14 @@ use std::{
 use uuid::Uuid;
 
 pub const PROTOCOL: u32 = 1;
+const ACTIVITY_CAPABILITY: &str = "orderedAgentActivity";
 const HOME_DIRECTORY_CAPABILITY: &str = "homeDirectory";
 fn is_false(value: &bool) -> bool {
     !*value
 }
 const MAX_RECORDS: usize = 128;
 const MAX_CLIENTS: usize = 64;
+const MAX_ACTIVITY_PUBLISHERS: usize = 32;
 pub type UiEmitter = Arc<dyn Fn(UiEvent) -> Result<(), String> + Send + Sync>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -51,6 +54,13 @@ pub struct RuntimeRecord {
     rename_all_fields = "camelCase"
 )]
 pub enum UiEvent {
+    AgentActivity {
+        runtime_id: String,
+        generation: String,
+        revision: u64,
+        observation: Option<crate::agent_activity::Observation>,
+        valid_for_ms: u64,
+    },
     Snapshot {
         runtime_id: String,
         sequence: u64,
@@ -86,7 +96,7 @@ impl UiEvent {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(
     tag = "command",
     rename_all = "camelCase",
@@ -120,6 +130,31 @@ enum Request {
         generation: String,
         runtime_id: String,
         after: Option<u64>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        agent_activity: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        activity_after: Option<activity::Cursor>,
+    },
+    OpenOrderedActivity {
+        generation: String,
+        runtime_id: String,
+        provider: crate::models::AgentKind,
+        session_id: String,
+    },
+    PublishActivity {
+        generation: String,
+        runtime_id: String,
+        activity_generation: String,
+        capability: activity::Capability,
+        sequence: u64,
+        registered_event: String,
+        payload: Vec<u8>,
+    },
+    CloseActivity {
+        generation: String,
+        runtime_id: String,
+        activity_generation: String,
+        capability: activity::Capability,
     },
     Write {
         generation: String,
@@ -153,6 +188,9 @@ impl Request {
             | Self::Launch { generation, .. }
             | Self::FindResume { generation, .. }
             | Self::Poll { generation, .. }
+            | Self::OpenOrderedActivity { generation, .. }
+            | Self::PublishActivity { generation, .. }
+            | Self::CloseActivity { generation, .. }
             | Self::Write { generation, .. }
             | Self::Resize { generation, .. }
             | Self::Stop { generation, .. }
@@ -168,6 +206,10 @@ impl Request {
     rename_all_fields = "camelCase"
 )]
 enum Response {
+    ActivityOpened {
+        activity_generation: String,
+        capability: activity::Capability,
+    },
     Hello {
         protocol: u32,
         generation: String,
@@ -197,6 +239,8 @@ struct Host {
     directory: PathBuf,
     runtime: Arc<RuntimeManager>,
     entries: Mutex<HashMap<String, Entry>>,
+    activity: Mutex<HashMap<String, activity::State>>,
+    activity_permits: Arc<tokio::sync::Semaphore>,
     shutdown: std::sync::atomic::AtomicBool,
     shutdown_reply_complete: tokio::sync::Notify,
     persisted: Mutex<Vec<u8>>,
@@ -251,6 +295,8 @@ impl Host {
             directory,
             runtime: Arc::new(RuntimeManager::new()),
             entries: Mutex::new(entries),
+            activity: Mutex::new(HashMap::new()),
+            activity_permits: Arc::new(tokio::sync::Semaphore::new(MAX_ACTIVITY_PUBLISHERS)),
             shutdown: std::sync::atomic::AtomicBool::new(false),
             shutdown_reply_complete: tokio::sync::Notify::new(),
             persisted: Mutex::new(Vec::new()),
@@ -327,7 +373,10 @@ impl Host {
                 Ok(Response::Hello {
                     protocol: PROTOCOL,
                     generation: self.generation.clone(),
-                    capabilities: vec![HOME_DIRECTORY_CAPABILITY.into()],
+                    capabilities: vec![
+                        HOME_DIRECTORY_CAPABILITY.into(),
+                        ACTIVITY_CAPABILITY.into(),
+                    ],
                 })
             }
             Request::List { .. } => Ok(Response::Records {
@@ -385,11 +434,17 @@ impl Host {
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
                 let image_input = crate::image_input::supports_launch(&kind, &spec);
+                let host = Arc::downgrade(self);
                 let info = self.runtime.launch(
                     *spec,
                     cols,
                     rows,
                     Arc::new(move |event| {
+                        if let TerminalEvent::Exit { runtime_id, .. } = &event {
+                            if let Some(host) = host.upgrade() {
+                                host.close_runtime_activity(runtime_id);
+                            }
+                        }
                         let ack = match &event {
                             TerminalEvent::Output {
                                 runtime_id,
@@ -421,7 +476,14 @@ impl Host {
                     return Ok(Response::Runtime { info: Some(info) });
                 }
                 // An explicit restart replaces the older record for this pane.
-                entries.retain(|_, entry| entry.record.info.pane_id != info.pane_id);
+                let mut retired_activity = Vec::new();
+                entries.retain(|id, entry| {
+                    let keep = entry.record.info.pane_id != info.pane_id;
+                    if !keep {
+                        retired_activity.push(id.clone());
+                    }
+                    keep
+                });
                 entries.insert(
                     info.id.clone(),
                     Entry {
@@ -439,6 +501,9 @@ impl Host {
                     },
                 );
                 drop(entries);
+                for id in retired_activity {
+                    lock(&self.activity).remove(&id);
+                }
                 if let Err(error) = self.persist() {
                     // Launch must not claim durability when saving identity failed.
                     let _ = self.runtime.stop(&info.id);
@@ -447,11 +512,15 @@ impl Host {
                 Ok(Response::Runtime { info: Some(info) })
             }
             Request::Poll {
-                runtime_id, after, ..
+                runtime_id,
+                after,
+                agent_activity,
+                activity_after,
+                ..
             } => {
                 let entries = lock(&self.entries);
                 let entry = entries.get(&runtime_id).ok_or("Terminal not found")?;
-                let events = if let Some(screen) = &entry.screen {
+                let mut events = if let Some(screen) = &entry.screen {
                     lock(screen).poll(&runtime_id, after)?
                 } else {
                     let message = if entry.record.info.state == "interrupted" {
@@ -460,11 +529,25 @@ impl Host {
                         "This completed terminal's output was held in memory and is no longer available after the runtime broker restarted."
                     };
                     vec![UiEvent::Disconnected {
-                        runtime_id,
+                        runtime_id: runtime_id.clone(),
                         message: message.into(),
                     }]
                 };
+                drop(entries);
+                if agent_activity {
+                    if let Some(event) =
+                        self.poll_activity(&runtime_id, activity_after.as_ref(), Instant::now())
+                    {
+                        // Invalidation precedes the exit that ends the subscription.
+                        events.insert(0, event);
+                    }
+                }
                 Ok(Response::Events { events })
+            }
+            Request::OpenOrderedActivity { .. }
+            | Request::PublishActivity { .. }
+            | Request::CloseActivity { .. } => {
+                Err("Activity publishers require their dedicated authenticated stream".into())
             }
             Request::Write {
                 runtime_id, data, ..
@@ -505,6 +588,7 @@ impl Host {
                     return Err("Stop this terminal before closing its record".into());
                 }
                 lock(&self.entries).remove(&runtime_id);
+                lock(&self.activity).remove(&runtime_id);
                 self.persist()?;
                 Ok(Response::Ok)
             }
@@ -543,11 +627,7 @@ pub fn run(directory: PathBuf) -> Result<(), String> {
                         let host = Arc::clone(&host);
                         tokio::spawn(async move {
                             let _permit = permit;
-                            let _ = tokio::time::timeout(
-                                transport::REQUEST_TIMEOUT,
-                                serve(stream, host),
-                            )
-                            .await;
+                            let _ = serve(stream, host).await;
                         });
                     }
                 }
@@ -581,9 +661,13 @@ impl Drop for ShutdownReply<'_> {
 }
 async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
     transport::authenticate(&stream).map_err(|e| e.to_string())?;
-    let bytes = transport::read_frame(&mut stream, 1024 * 1024)
-        .await
-        .map_err(|e| e.to_string())?;
+    let bytes = tokio::time::timeout(
+        transport::REQUEST_TIMEOUT,
+        transport::read_frame(&mut stream, 1024 * 1024),
+    )
+    .await
+    .map_err(|_| "Runtime request timed out")?
+    .map_err(|e| e.to_string())?;
     // Launch/paste limits are stricter than a bounded screen response.
     let mut shutting_down = false;
     let response = if bytes.len() > 1024 * 1024 {
@@ -592,6 +676,9 @@ async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
         }
     } else {
         match serde_json::from_slice::<Request>(&bytes) {
+            Ok(request @ Request::OpenOrderedActivity { .. }) => {
+                return activity::serve_publisher(stream, host, request).await;
+            }
             Ok(request) => {
                 let shutdown = matches!(request, Request::Shutdown { .. });
                 match host.handle(request) {
@@ -611,14 +698,16 @@ async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
     // enclosing request timeout must release the main loop as well.
     let _completion = shutting_down.then(|| ShutdownReply(&host));
     let bytes = serde_json::to_vec(&response).map_err(|e| e.to_string())?;
-    transport::write_frame(&mut stream, &bytes)
-        .await
-        .map_err(|e| e.to_string())?;
-    if shutting_down {
-        transport::flush_shutdown_reply(&mut stream)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
+    tokio::time::timeout(transport::REQUEST_TIMEOUT, async {
+        transport::write_frame(&mut stream, &bytes).await?;
+        if shutting_down {
+            transport::flush_shutdown_reply(&mut stream).await?;
+        }
+        Ok::<_, std::io::Error>(())
+    })
+    .await
+    .map_err(|_| "Runtime response timed out")?
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -719,6 +808,8 @@ mod tests {
                     generation: host.generation.clone(),
                     runtime_id: info.id.clone(),
                     after: None,
+                    agent_activity: false,
+                    activity_after: None,
                 })
                 .unwrap();
             let Response::Events { events } = response else {
