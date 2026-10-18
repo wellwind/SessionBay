@@ -52,7 +52,7 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
   });
 }
 
-test('fresh output pulses locally, unread clears on visible foreground work, reduced motion is static', async ({ page }, info) => {
+test('only unread output without known status shows a static badge', async ({ page }, info) => {
   await page.goto('/tests/browser/agent-status.html');
   const tab = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
   const indicator = tab.locator('.runtime-activity');
@@ -65,7 +65,8 @@ test('fresh output pulses locally, unread clears on visible foreground work, red
   }, sequence);
   await emit(2);
   await expect(indicator).toHaveAttribute('title', /有新輸出.*未讀輸出/);
-  await expect(indicator.locator('.runtime-output-dot')).toHaveClass(/recent/);
+  await expect(indicator.locator('.runtime-output-dot')).toHaveClass('runtime-output-dot unread');
+  expect(await indicator.locator('.runtime-output-dot').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await indicator.locator('.runtime-output-dot').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
   await page.screenshot({ path: info.outputPath('output-activity-reduced-motion.png'), fullPage: true });
@@ -75,14 +76,16 @@ test('fresh output pulses locally, unread clears on visible foreground work, red
   await tab.click();
   await expect(indicator).toHaveCount(0);
   await emit(3);
-  await expect(indicator).toHaveAttribute('title', /有新輸出/);
-  await expect(indicator).not.toHaveAttribute('title', /未讀輸出/);
+  await expect(indicator).toHaveCount(0);
+  await expect(tab).toHaveAccessibleDescription(/有新輸出/);
+  await expect(tab).not.toHaveAccessibleDescription(/未讀輸出/);
   // Window-background semantics are deterministic without invoking a real Agent.
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
   await emit(4);
   await expect(indicator).toHaveAttribute('title', /未讀輸出/);
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(indicator).not.toHaveAttribute('title', /未讀輸出/);
+  await expect(indicator).toHaveCount(0);
+  await expect(tab).not.toHaveAccessibleDescription(/未讀輸出/);
 });
 
 for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom-200', 1600, 1000, 2]] as const) {
@@ -273,7 +276,8 @@ for (const width of [720, 1200]) {
         });
       }, ++sequence);
       for (const target of [row, workspace]) {
-        await expect(target.locator('.runtime-output-dot')).toBeVisible();
+        if (known) await expect(target.locator('.runtime-output-dot')).toHaveCount(0);
+        else await expect(target.locator('.runtime-output-dot')).toBeVisible();
         await expect(target).toHaveAccessibleDescription(/未讀輸出/);
       }
       expect(await geometry()).toEqual(before);
@@ -287,3 +291,44 @@ for (const width of [720, 1200]) {
     }
   });
 }
+
+
+test('known hook states keep their icon without a second output signal', async ({ page }, info) => {
+  await page.goto('/tests/browser/agent-status.html');
+  const row = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex', exact: true });
+  await row.click();
+  const workspace = page.locator('.workspace-tab-select').filter({ hasText: '已保留的 codex' });
+  let revision = 0;
+  let sequence = 1;
+  for (const [observation, label] of [
+    ['busy', '工作中'], ['idle', '閒置'], ['awaitingPermission', '等待權限確認'], ['awaitingInput', '等待輸入'],
+  ]) {
+    await page.evaluate(event => {
+      (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit(event);
+    }, { type: 'agentActivity', runtimeId: 'runtime-a', generation: 'quiet-hook', revision: ++revision, observation, validForMs: 30000 });
+    for (const target of [row, workspace]) {
+      await expect(target.locator('.runtime-activity > svg')).toBeVisible();
+      await expect(target).toHaveAccessibleDescription(new RegExp(`Agent 最近回報：${label}`));
+    }
+    await page.evaluate(sequence => {
+      window.dispatchEvent(new Event('blur'));
+      (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
+        type: 'output', runtimeId: 'runtime-a', sequence, data: [65],
+      });
+    }, ++sequence);
+    for (const target of [row, workspace]) {
+      await expect(target).toHaveAccessibleDescription(/有新輸出.*未讀輸出/);
+      await expect(target.locator('.runtime-output-dot')).toHaveCount(0);
+      await expect(target.locator('.runtime-activity > svg')).toBeVisible();
+    }
+    if (observation === 'busy') await page.screenshot({ path: info.outputPath('hook-busy-without-output-dot.png'), fullPage: true });
+    await expect(row).not.toHaveAccessibleDescription(/有新輸出/);
+    for (const target of [row, workspace]) {
+      await expect(target).toHaveAccessibleDescription(new RegExp(`Agent 最近回報：${label}`));
+      await expect(target.locator('.runtime-output-dot')).toHaveCount(0);
+      await expect(target.locator('.runtime-activity > svg')).toBeVisible();
+    }
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(row).not.toHaveAccessibleDescription(/未讀輸出/);
+  }
+});

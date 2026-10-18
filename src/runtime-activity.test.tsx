@@ -138,3 +138,36 @@ it('places known project-tree status after the name without a leading placeholde
   expect(screen.queryByRole('img')).not.toBeInTheDocument();
   expect(screen.getByRole('button')).toHaveAccessibleDescription(expect.stringContaining('已開啟'));
 });
+
+
+it('shows only known status icons, with a static unread badge as the unknown-state fallback', () => {
+  let store: RuntimeActivityStore | null = null;
+  function Producer() {
+    store = useRuntimeActivity();
+    useEffect(() => { store!.begin('p', 'quiet', 'r', false, false); return () => store!.remove('p', 'quiet'); }, []);
+    return null;
+  }
+  const view = render(<RuntimeActivityProvider><Producer /><RuntimeActivityIndicator tab={tab} panes={{ p: pane }} /></RuntimeActivityProvider>);
+  act(() => { store!.output('p', 'quiet', 'r', 1); vi.advanceTimersByTime(100); });
+  expect(view.container.querySelector('.runtime-output-dot')).toHaveClass('unread');
+  expect(view.container.querySelector('.runtime-output-dot')).not.toHaveClass('recent');
+  let revision = 0;
+  for (const observation of ['busy', 'idle', 'awaitingPermission', 'awaitingInput'] as const) {
+    act(() => {
+      store!.observe('p', 'quiet', { type: 'agentActivity', runtimeId: 'r', generation: 'quiet', revision: ++revision, observation, validForMs: 30000 });
+      vi.advanceTimersByTime(100);
+    });
+    expect(screen.getByRole('img').querySelector('svg')).not.toBeNull();
+    expect(view.container.querySelector('.runtime-output-dot')).toBeNull();
+    expect(screen.getByRole('img')).toHaveAttribute('aria-label', expect.stringContaining('未讀輸出'));
+  }
+  act(() => {
+    store!.observe('p', 'quiet', { type: 'agentActivity', runtimeId: 'r', generation: 'quiet', revision: ++revision, observation: null, validForMs: 0 });
+    vi.advanceTimersByTime(100);
+  });
+  expect(view.container.querySelector('.runtime-output-dot')).toHaveClass('unread');
+  act(() => { store!.setForeground(true); store!.visible('p', true); vi.advanceTimersByTime(100); });
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  expect(view.container.querySelector('.runtime-output-dot')).toBeNull();
+  expect(view.container).toHaveTextContent('有新輸出');
+});
