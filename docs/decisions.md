@@ -842,3 +842,11 @@ L1a 不啟用 broker 自退、不新增 lease wire 欄位或停止既有程序�
 後續待定：舊 UI 沒有 lease 時無法證明其關閉，建議只要本 generation 觀察到舊式未租約工作請求便保守禁自退；lease 時限、續期間隔與 idle grace 留待 L1b／L1c 決定，本 PR 不預設啟用。
 
 獨立 review 另修正 prune 的 poison 時序：不能先讀 `is_poisoned()` 再等待鎖，必須依實際 `lock()` Result 黏住不確定性。即使 recover poisoned guard 進行淘汰，也不能把 guard 當可信；新增 channel 排序的 concurrent poison／eviction 回歸。
+
+## 2026-10-18：L1b native UI lease 與保守協商
+
+新增 `uiOwnerLeaseV1` 能力與 Hello 回覆中的一次性 offer，不改 Hello request，舊 broker 不會收到不認識的 request 欄位或未協商的 lease 命令。每個 Hello offer 先保留 client 證據；新版 native Service 才能 redeem 自己的 offer，不能藉由另一個新 client 清除舊 UI。offer 30 秒，lease 60 秒、native worker 每 5 秒續期；續期 sequence 重送只回覆原期限，不延長。已釋放或過期的 lease 不能復活；generation 改變須重新建立連線，絕不自動重送 Launch。
+
+Service 明確持有非 Clone 的 lease guard，renderer reload／BrokerClient clone 或 drop 不釋放。正常 Service shutdown／guard drop 只停止續期並 best-effort Release，不送 Shutdown、Stop、Forget 或 revoke；worker 序列化 renew→release，避免釋放後續期。逾期、遺失協商回覆、容量耗盡、clock 回退都保守留下 generation-wide unknown pin；mutex poison 則拒絕提供可信生命週期證據；bounded offer／lease tombstone 不因時間或新 client 清除。這會讓曾經失聯的空 broker 保留至人工管理，代價明確優先於誤退。
+
+本 PR 完成 lease wire、native owner 與合成相容／競態驗證，但不接上 idle timer 或自退。lease 到期不能證明 UI 死亡，更不能證明工作清空；目前仍缺完整 broker admission、歷史 owner 與 job containment。新舊 broker 仍使用原 endpoint／ownership lock，遇舊 broker 僅相容連線，不建立第二個 owner、不替換／停止它。版本隔離及升級 drain 仍屬 L2–L4，不能把 lease 協商當完成升級。
