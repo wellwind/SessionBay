@@ -227,3 +227,63 @@ test('native terminal states stay distinct and visibly disclose their source', a
   });
   await expect(indicator).not.toHaveAttribute('aria-label', /終端回報/);
 });
+
+
+for (const width of [720, 1200]) {
+  test(`output badges preserve project row and workspace tab geometry at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/tests/browser/agent-status.html');
+    const row = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex', exact: true });
+    await row.click();
+    const workspace = page.locator('.workspace-tab-select').filter({ hasText: '已保留的 codex' });
+    const geometry = () => page.evaluate(() => {
+      const selectors = [
+        '.project-runtime-tabs button .project-runtime-name',
+        '.project-runtime-tabs button .project-runtime-pane-count',
+        '.workspace-tab',
+        '.workspace-tab-select > svg',
+        '.workspace-tab-name',
+      ];
+      return selectors.flatMap(selector => [...document.querySelectorAll(selector)].map(element => {
+        const { x, y, width, height } = element.getBoundingClientRect();
+        return { selector, x, y, width, height };
+      }));
+    });
+    let sequence = 1;
+    for (const known of [false, true]) {
+      if (known) {
+        await page.evaluate(() => {
+          (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
+            type: 'terminalStatus', runtimeId: 'runtime-a', generation: 'geometry', revision: 1, status: 'working',
+          });
+        });
+        await expect(row.locator('.runtime-activity > svg')).toBeVisible();
+        expect(await row.evaluate(element =>
+          element.querySelector('.runtime-activity')!.getBoundingClientRect().left >=
+          element.querySelector('.project-runtime-name')!.getBoundingClientRect().right)).toBe(true);
+        expect(await workspace.evaluate(element =>
+          element.querySelector('.runtime-activity')!.getBoundingClientRect().right <=
+          element.querySelector('.workspace-tab-name')!.getBoundingClientRect().left)).toBe(true);
+      }
+      const before = await geometry();
+      await page.evaluate(sequence => {
+        window.dispatchEvent(new Event('blur'));
+        (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
+          type: 'output', runtimeId: 'runtime-a', sequence, data: [65],
+        });
+      }, ++sequence);
+      for (const target of [row, workspace]) {
+        await expect(target.locator('.runtime-output-dot')).toBeVisible();
+        await expect(target).toHaveAccessibleDescription(/未讀輸出/);
+      }
+      expect(await geometry()).toEqual(before);
+      await page.screenshot({ path: info.outputPath(`output-overlay-${known ? 'known' : 'unknown'}-${width}.png`), fullPage: true });
+      await expect(row.locator('.runtime-activity')).not.toHaveAttribute('title', /有新輸出/);
+      expect(await geometry()).toEqual(before);
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await expect(row.locator('.runtime-output-dot')).toHaveCount(0);
+      await expect(workspace.locator('.runtime-output-dot')).toHaveCount(0);
+      expect(await geometry()).toEqual(before);
+    }
+  });
+}

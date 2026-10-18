@@ -20,8 +20,8 @@ export function ProjectRuntimeTabs({ tabs, panes, activeId, onFocus, id, project
           const target = ids.includes(tab.focusedPaneId) ? tab.focusedPaneId : ids[0];
           if (target) onFocus(target);
         }}>
-        <RuntimeActivityIndicator id={`${descriptionId}-${index}`} tab={tab} panes={panes} />
         <span className="project-runtime-name"><strong>{tab.name}</strong><small>{tabRuntimeSummary(tab, panes)}</small></span>
+        <RuntimeActivityIndicator id={`${descriptionId}-${index}`} tab={tab} panes={panes} />
         <span className="project-runtime-pane-count" aria-label={`${paneIds(tab.layout).length} 個面板`}>{paneIds(tab.layout).length}</span>
       </button>
     </li>)}
