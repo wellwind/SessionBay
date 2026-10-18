@@ -1,5 +1,11 @@
 # Session Bay 開發路線圖
 
+## 2026-10-18 發行與後續順序（最新）
+
+已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。新功能全部尚未完成；本節的最新順序優先於下方歷史排程：五工具 hook → Snap 可安裝測試包；並行 Quick Open／共用 panel、大檔後圖片；接著 Git G1–G4 → 完整 Release／Update → 永久刪除 → 遠端／Web／用量。Git 的完整八階工作包沿用既有規劃。
+
+目前功能 PR 以相關 Linux 驗證及 review 作交付門檻；發行特定 OS／架構仍需該目標實測，未驗平台不假稱通過。Windows #46 不在此次交付內。
+
 > 2026-10-16 實作更新：本次加入 Windows 原生支援；平台前提與待驗項目見[三平台支援](platform-support.md)。既有 macOS＋Linux P0 程式碼保留；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
 以完整工作恢復流程分階段交付。以下是工作順序與驗收門檻提案，尚未估算工期或指定發行日期。
 
