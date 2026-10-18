@@ -115,6 +115,10 @@ for (const theme of ['dark', 'light']) for (const width of [1200, 1440, 720]) {
     await sessionsButton(page).click();
     await expect(sessionsPanel(page)).toBeVisible();
     await expect(sessionsPanel(page).locator('.session-time').first()).toHaveCSS('white-space', 'nowrap');
+    const firstCard = sessionsPanel(page).locator('.session-card').first();
+    const cardBox = (await firstCard.boundingBox())!;
+    const metaBox = (await firstCard.locator('.session-card-meta').boundingBox())!;
+    expect(metaBox.y + metaBox.height).toBeLessThanOrEqual(cardBox.y + cardBox.height);
     await expect(navigator(page)).toBeVisible();
     await expect(page.locator('.xterm-screen')).toBeVisible();
     const expanded = await expectAdjacentSurfaces(page, 'sessions');
@@ -316,7 +320,7 @@ test('expanded filters stay scrollable above a usable session list at 700×550',
   await page.screenshot({ path: info.outputPath('activity-short-expanded-filters.png'), fullPage: true });
 });
 
-test('overview has no project rail or empty column and explicit global search stays independent', async ({ page }) => {
+test('overview has no project rail or empty column and explicit global search stays independent', async ({ page }, info) => {
   await page.goto('/tests/browser/workspace-focus-mode.html?activity=1');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
   await expect(navigator(page)).toBeVisible();
@@ -326,7 +330,9 @@ test('overview has no project rail or empty column and explicit global search st
   expect(overview.tools.width).toBe(0);
   expect(overview.main.left).toBe(overview.navigator.right);
   expect(overview.main.right).toBe(overview.body.right);
+  await page.screenshot({ path: info.outputPath('activity-project-overview-no-gutter.png'), fullPage: true });
   await navigator(page).getByRole('tab', { name: /^所有目錄/ }).click();
+  await page.screenshot({ path: info.outputPath('activity-directory-overview-no-gutter.png'), fullPage: true });
   await page.getByRole('button', { name: '搜尋所有工作階段', exact: true }).click();
   await expect(rail(page)).toBeHidden();
   await expect(page.locator('.project-work-content').getByRole('list', { name: 'Session 清單' })).toBeVisible();

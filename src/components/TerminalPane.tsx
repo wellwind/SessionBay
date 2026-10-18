@@ -267,6 +267,22 @@ export function TerminalPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
+    const terminal = term.current;
+    if (!visible || !terminal) return;
+    let pending = true;
+    // A hidden xterm renderer defers its rounded cell measurements until it
+    // paints again. Reconcile once after that first ready render, rather than
+    // repeatedly fitting output frames or guessing when its renderer resumes.
+    const rendered = terminal.onRender(() => {
+      if (!pending || !mounted.current || term.current !== terminal || !latest.current.visible ||
+          !attachment.current?.ready || !host.current?.clientWidth || !host.current.clientHeight) return;
+      pending = false;
+      rendered.dispose(); // fit can itself render; consume the one-shot first
+      fitNow();
+    });
+    return () => { pending = false; rendered.dispose(); };
+  }, [visible, fitNow]);
+  useEffect(() => {
     if (term.current) {
       term.current.options.fontSize = settings.fontSize;
       term.current.options.fontFamily = settings.fontFamily;

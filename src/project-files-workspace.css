@@ -60,3 +60,9 @@
 }
 .activity-history-browser .session-card-top { flex-wrap: wrap; gap: 4px 8px; }
 .activity-history-browser .session-time { white-space: nowrap; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* Compact metadata must fit the existing virtual row height in narrow tools. */
+.activity-history-browser .session-card > .session-card-select { padding: 10px; }
+.activity-history-browser .session-card h3 { font-size: 13px; line-height: 1.4; margin: 8px 0 4px; }
+.activity-history-browser .session-snippet { margin: 4px 0; line-height: 1.4; }
+.activity-history-browser .agent-badge { padding: 0; }
