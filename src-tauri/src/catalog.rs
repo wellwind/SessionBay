@@ -794,8 +794,11 @@ impl Catalog {
                     continue;
                 }
                 let path = Path::new(&path);
+                // Indexed paths retain the configured spelling (including ordinary Windows
+                // prefixes); both roots were verified to identify the same plain directory.
                 let relative = path
-                    .strip_prefix(root_path)
+                    .strip_prefix(Path::new(&configured_root))
+                    .or_else(|_| path.strip_prefix(root_path))
                     .ok()
                     .filter(|p| {
                         !p.as_os_str().is_empty()

@@ -2395,8 +2395,8 @@ fn removal_inspection_is_read_only_bound_to_trash_and_detects_append() {
     assert_eq!(inspection.session_id, session.id);
     assert_eq!(inspection.indexed_artifacts.len(), 1);
     assert_eq!(
-        inspection.indexed_artifacts[0].relative_path,
-        "sessions/a.jsonl"
+        Path::new(&inspection.indexed_artifacts[0].relative_path),
+        Path::new("sessions/a.jsonl")
     );
     #[cfg(unix)]
     assert_eq!(
@@ -2615,4 +2615,45 @@ fn removal_inspection_refuses_truncated_artifact_inventory() {
         conn.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived) SELECT source_id,path || ?1,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived FROM files WHERE session_id=?2 ORDER BY id LIMIT 1", rusqlite::params![format!(".synthetic-{i}"), session.id]).unwrap();
     }
     assert!(h.catalog.inspect_removal(&id).unwrap_err().contains("過多"));
+}
+
+#[test]
+fn removal_inspection_accepts_verified_configured_root_spelling() {
+    let h = Harness::new();
+    let mut source = h.source("removal-spelling", AgentKind::Codex);
+    let alias = h.root.join("alias");
+    fs::create_dir_all(&alias).unwrap();
+    source.root = alias
+        .join("..")
+        .join("removal-spelling")
+        .to_string_lossy()
+        .into_owned();
+    let path = h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect-spelling", "synthetic inspection"),
+    );
+    assert_ne!(
+        Path::new(&source.root),
+        fs::canonicalize(&source.root).unwrap()
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let original = fs::read(&path).unwrap();
+    let inspection = h.catalog.inspect_removal(&id).unwrap();
+    assert_eq!(inspection.indexed_artifacts.len(), 1);
+    assert_eq!(
+        Path::new(&inspection.indexed_artifacts[0].relative_path),
+        Path::new("sessions/a.jsonl")
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
 }
