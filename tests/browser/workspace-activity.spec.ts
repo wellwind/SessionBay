@@ -208,9 +208,18 @@ test('explicit session and file selection changes center while activity icons pr
   await expect(document).toBeVisible();
   await expect(document.locator('.view-line').first()).toBeVisible();
   await document.focus();
-  await page.keyboard.press('Control+End');
-  await expect.poll(() => document.locator('.lines-content').getAttribute('style')).toMatch(/top:\s*-/);
-  const fileScroll = await document.locator('.lines-content').getAttribute('style');
+  // Exercise retention away from the bottom: panel/layout changes can alter
+  // Monaco's viewport height and legitimately clamp a bottom scroll offset.
+  await page.keyboard.press('Control+Home');
+  for (let index = 0; index < 4; index += 1) await page.keyboard.press('PageDown');
+  const readOffsets = () => document.locator('.lines-content').evaluate(node => ({
+    top: Number.parseFloat((node as HTMLElement).style.top),
+    left: Number.parseFloat((node as HTMLElement).style.left),
+  }));
+  await expect.poll(async () => (await readOffsets()).top).toBeLessThan(-1000);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const fileScroll = await readOffsets();
+  const anchorText = await document.locator('.view-line').nth(10).innerText();
   await sessionsButton(page).click();
   await expect(document).toBeVisible();
   await expect(page.locator('.history-mount')).toBeHidden();
@@ -218,7 +227,11 @@ test('explicit session and file selection changes center while activity icons pr
   await expect(sessionsPanel(page)).toBeHidden();
   await expect(document).toBeVisible();
   await filesButton(page).click();
-  await expect.poll(() => document.locator('.lines-content').getAttribute('style')).toBe(fileScroll);
+  await expect.poll(async () => {
+    const restored = await readOffsets();
+    return Math.max(Math.abs(restored.top - fileScroll.top), Math.abs(restored.left - fileScroll.left));
+  }).toBeLessThanOrEqual(1);
+  await expect(document.locator('.view-line').filter({ hasText: anchorText }).first()).toBeInViewport();
   await page.locator('.workspace-tab-select').click();
   await expect(page.locator('.xterm-screen')).toBeVisible();
   await expectRuntimePreserved(page);
