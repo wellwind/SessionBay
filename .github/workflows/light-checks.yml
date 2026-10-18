@@ -29,6 +29,10 @@ jobs:
       - run: npm ci
       - name: Frontend checks
         run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: Official Claude offline plugin runtime (synthetic events, no model)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/sessionbay-claude-runtime" --ignore-scripts --no-audit --no-fund --save-exact --registry https://registry.npmjs.org @anthropic-ai/claude-code@2.1.302
+          CLAUDE_BINARY="$RUNNER_TEMP/sessionbay-claude-runtime/node_modules/@anthropic-ai/claude-code-linux-x64/claude" node scripts/test-claude-plugin-runtime.mjs
       - name: Verify sandbox-supported Chrome and install browser dependencies
         run: |
           command -v google-chrome

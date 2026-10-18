@@ -72,6 +72,7 @@ const sections = [
 function cloneSettings(settings: Settings): Settings {
   return {
     ...settings,
+    ...(settings.agentHooks ? { agentHooks: { ...settings.agentHooks } } : {}),
     ...(settings.agentEnabled ? { agentEnabled: { ...settings.agentEnabled } } : {}),
     profiles: settings.profiles.map((profile) => ({
       ...profile,
@@ -701,6 +702,16 @@ export function SettingsPanel({
                               <p className="settings-subtle-warning">{installation.error}</p>
                             )}
                             {!agentCapabilities[kind].history.supported && <p className="settings-help">支援啟動／指定對話 ID 恢復，尚不索引歷史。</p>}
+                            {(kind === 'codex' || kind === 'claude') && <>
+                              <label className="settings-field">
+                                <span><input className="checkbox" type="checkbox"
+                                  aria-label={`${agentNames[kind]} 真實活動 hooks`}
+                                  checked={draft.agentHooks?.[kind] === true}
+                                  onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> 啟用真實活動 hooks</span>
+                              </label>
+                              <p className="settings-help">僅套用 SessionBay 後續啟動的 {agentNames[kind]}，以本次啟動的原生狀態來源回報，不修改全域或專案設定。儲存關閉後立即撤銷現有活動回報；Agent 繼續運作。macOS／Linux 支援，Windows 尚待驗證。</p>
+                              <p className="settings-help">只傳遞 Session／回合識別與事件類型，不讀取 hook 提供的對話檔案，也不保存提示內容。無可靠事件或連線中斷時不推測狀態。{kind === 'codex' ? 'Codex 保留原互動介面，連接本次啟動專用 app-server；唯讀取得工作中、等待輸入／權限與閒置狀態，不另開模型回合。' : 'Claude Code 需要 2.1.287 以上，以本次啟動的 mod 觀測主回合開始／完成。工作中表示回合進行中；尚不能單獨區分等待權限或輸入。'}</p>
+                            </>}
                             <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>
                               <summary aria-label={`${agentNames[kind]} 參數與權限設定`}>
                                 <span>參數與權限</span><span>{draft.agentOptions[kind].bypassPermissions ? '高風險模式已開啟' : argumentSummary}</span>

@@ -32,6 +32,7 @@ struct Inner {
     generation: String,
     home_directory_supported: bool,
     activity_supported: bool,
+    provider_hooks_supported: bool,
     subscriptions: Mutex<HashMap<String, Arc<Subscription>>>,
 }
 /// Dropping this handle disconnects UI rendering only. It never stops the broker.
@@ -46,7 +47,7 @@ impl Drop for Inner {
         }
     }
 }
-fn exchange(directory: &Path, request: &Request) -> Result<Response, String> {
+pub(super) fn exchange(directory: &Path, request: &Request) -> Result<Response, String> {
     let bytes = serde_json::to_vec(request).map_err(|e| e.to_string())?;
     thread_local! {
         static IPC: Result<tokio::runtime::Runtime, String> = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string());
@@ -178,6 +179,9 @@ impl BrokerClient {
                     activity_supported: capabilities
                         .iter()
                         .any(|value| value == ACTIVITY_CAPABILITY),
+                    provider_hooks_supported: capabilities
+                        .iter()
+                        .any(|value| value == crate::provider_hooks::CAPABILITY),
                     subscriptions: Mutex::new(HashMap::new()),
                 }),
             }),
@@ -194,6 +198,29 @@ impl BrokerClient {
     }
     fn request(&self, request: Request) -> Result<Response, String> {
         exchange(&self.inner.directory, &request)
+    }
+    pub fn revoke_provider_hooks(&self, provider: crate::models::AgentKind) -> Result<(), String> {
+        if !self.inner.provider_hooks_supported {
+            return Ok(());
+        }
+        match self.request(Request::RevokeProviderHooks {
+            generation: self.generation(),
+            provider,
+        })? {
+            Response::Ok => Ok(()),
+            _ => Err("Invalid hook revoke response".into()),
+        }
+    }
+    fn check_provider_hooks(&self, spec: &LaunchSpec) -> Result<(), String> {
+        if spec.env.contains_key(crate::provider_hooks::OPT_IN)
+            && !self.inner.provider_hooks_supported
+        {
+            return Err(
+                "目前 broker 不支援真實 hooks；請先結束既有 Session，再重新啟動 SessionBay。"
+                    .into(),
+            );
+        }
+        Ok(())
     }
     /// The caller must already guarantee causal ordering upstream. This does
     /// not install, configure or enable real provider hooks.
@@ -242,6 +269,7 @@ impl BrokerClient {
         spec: LaunchSpec,
         request: &LaunchRequest,
     ) -> Result<RuntimeInfo, String> {
+        self.check_provider_hooks(&spec)?;
         match self.request(self.launch_request(spec, request))? {
             Response::Runtime { info: Some(info) } => Ok(info),
             _ => Err("Invalid runtime launch response".into()),
@@ -254,6 +282,7 @@ impl BrokerClient {
         lease: String,
         emit: UiEmitter,
     ) -> Result<RuntimeInfo, String> {
+        self.check_provider_hooks(&spec)?;
         let requested_pane = spec.pane_id.clone();
         let response = self.request(self.launch_request(spec, request))?;
         let info = match response {

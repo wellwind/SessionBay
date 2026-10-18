@@ -221,6 +221,20 @@
 
 - 提供 opt-in ordered publisher、runtime 綁定、短期 capability、重連／expiry 與 App observation 傳遞；詳見 [範圍與驗收邊界](agent-activity-transport.md)。
 - 尚未完成：真實 provider causal bridge、使用者 opt-in 安裝／撤銷流程及三平台 native QA。一般 Agent 啟動仍無自動 hooks。
+
+## 2026-10-18 真實 hook bridge
+
+Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。其餘三種 provider 不宣稱已接通。
+
+### 原生狀態實作與驗收
+
+- [x] Claude launch-local mod、Codex owned app-server read-only observer、source sequence／快照失效及 UI 進行中／等待／閒置圖示。
+- [x] 設定關閉撤銷現有來源，保留 Agent 執行；不修改使用者全域 hooks 或 notify。
+- [x] PR56 69e26df exact-head Linux CI；Claude 2.1.302 Linux 官方 plugin validate；Codex 0.159.2 Linux 官方 app-server initialize / 空 loaded-list（無模型請求）。
+- [ ] 整合最新 main 後 exact-head CI；真實 CLI 回合 Busy→Idle 與 GUI 驗收（無憑證的載入測試不等於回合驗收）。
+- [ ] macOS／Windows 原生驗收；依目前交付範圍不作 Linux 合併門檻。
+- [ ] Claude 回合內權限／輸入等待、其餘三工具及 Windows 的正式支援。
+
 - 專案內右側 Activity Bar：左側保留專案／所有目錄，歷史 Sessions／Files 共用右側工具面板，中央內容獨立；typed contribution、延遲掛載與 overflow 為未來功能保留擴充點。Git 等其他功能待實作後才加入。
 
 ## 2026-10-18 Git 工作台（已確認規劃，尚未實作）

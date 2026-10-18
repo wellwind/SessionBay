@@ -121,6 +121,10 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 - [Caps Lock 中文組字候選修正](docs/capslock-ime.md)：交易隔離、合成回歸與尚待原生驗收的範圍。
 
 - [Agent 活動 opt-in 傳輸與驗收邊界](docs/agent-activity-transport.md)
+
+- [真實 Provider 狀態](docs/provider-hooks.md)：launch-local opt-in、Claude mod、撤銷與驗證界線。
+- [Codex 原生狀態觀察器](docs/codex-state-observer.md)：互動 TUI、唯讀 app-server 與相容性限制。
+
 - [工作區 Activity Bar 與內部功能擴充](docs/activity-bar.md)
 
 - [大型文字檔閱讀](docs/large-file-reading.md)：分級開啟、取消、有界 IPC 與分段。

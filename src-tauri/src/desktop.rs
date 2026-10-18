@@ -55,7 +55,11 @@ fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
-    if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
+    if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1")
+        || std::env::var("SESSIONBAY_SMOKE_MANUAL").as_deref() == Ok("1")
+    {
+        // Keep the validated, empty-source test data directory while a person
+        // verifies real providers. Never run automated smoke clicks over them.
         return Ok(false);
     }
     // This probe creates only synthetic in-memory editor models, never reads files.

@@ -58,10 +58,15 @@ pub(super) struct State {
     sequence: u64,
     revision: u64,
     visible: Option<Observation>,
+    source_snapshot: Option<(Observation, Instant)>,
     recent: VecDeque<Instant>,
 }
 impl State {
-    fn new(runtime_id: &str, provider: AgentKind, session_id: &str) -> Result<Self, String> {
+    pub(super) fn new(
+        runtime_id: &str,
+        provider: AgentKind,
+        session_id: &str,
+    ) -> Result<Self, String> {
         let binding = Binding {
             runtime_id: runtime_id.into(),
             generation: Uuid::new_v4().to_string(),
@@ -75,8 +80,44 @@ impl State {
             sequence: 0,
             revision: 1,
             visible: None,
+            source_snapshot: None,
             recent: VecDeque::new(),
         })
+    }
+    pub(super) fn hook_generation(&self) -> &str {
+        &self.binding.generation
+    }
+    pub(super) fn invalidate_hook_observation(&mut self) {
+        self.tracker.invalidate();
+        self.visible = None;
+        self.advance();
+    }
+    pub(super) fn publish_hook(
+        &mut self,
+        event: &str,
+        payload: &[u8],
+        now: Instant,
+    ) -> Result<(), String> {
+        let capability = self
+            .capability
+            .as_ref()
+            .ok_or("Hook generation retired")?
+            .clone();
+        self.publish(&capability, self.sequence + 1, event, payload, now)
+    }
+    pub(super) fn publish_source(&mut self, observation: Observation, now: Instant) {
+        self.tracker.invalidate();
+        self.source_snapshot = (observation != Observation::Unknown).then_some((observation, now));
+        self.visible = self.source_snapshot.map(|(value, _)| value);
+        self.advance();
+    }
+    fn snapshot(&self, now: Instant) -> Option<(Observation, Duration)> {
+        if let Some((value, at)) = self.source_snapshot {
+            let age = now.saturating_duration_since(at);
+            return (age < agent_activity::OBSERVATION_TTL)
+                .then(|| (value, agent_activity::OBSERVATION_TTL - age));
+        }
+        self.tracker.snapshot(now)
     }
     fn advance(&mut self) {
         // The final safe integer is reserved for a closed, unknown observation.
@@ -86,18 +127,20 @@ impl State {
             self.revision = MAX_SAFE_REVISION;
             self.capability = None;
             self.tracker.close();
+            self.source_snapshot = None;
             self.visible = None;
         }
     }
     fn close(&mut self) {
         if self.capability.take().is_some() || self.visible.is_some() {
             self.tracker.close();
+            self.source_snapshot = None;
             self.visible = None;
             self.advance();
         }
     }
     fn refresh(&mut self, now: Instant) {
-        if self.visible.is_some() && self.tracker.observation(now).is_none() {
+        if self.visible.is_some() && self.snapshot(now).is_none() {
             self.visible = None;
             self.tracker.invalidate();
             self.advance();
@@ -110,7 +153,7 @@ impl State {
         }) {
             return None;
         }
-        let snapshot = self.tracker.snapshot(now);
+        let snapshot = self.snapshot(now);
         Some(UiEvent::AgentActivity {
             runtime_id: self.binding.runtime_id.clone(),
             generation: self.binding.generation.clone(),

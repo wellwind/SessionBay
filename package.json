@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run && node --test src-tauri/src/claude_state_mod.contract.mjs",
     "test:watch": "vitest",
     "lint": "eslint src",
     "tauri": "node scripts/tauri.mjs",

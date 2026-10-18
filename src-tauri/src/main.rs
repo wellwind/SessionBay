@@ -1,6 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if sessionbay_lib::codex_state::run_if_requested() {
+        return;
+    }
+    if sessionbay_lib::provider_hooks::run_callback_if_requested() {
+        return;
+    }
     if let Some(directory) = sessionbay_lib::broker::stop_arguments() {
         if let Err(error) = sessionbay_lib::broker::BrokerClient::stop_existing(&directory) {
             eprintln!("{error}");

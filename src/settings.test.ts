@@ -1310,3 +1310,29 @@ describe('history root directory selection', () => {
     expect(providerHistory('codex').getByLabelText('CODEX_HOME 資料目錄')).toHaveValue('/home/test/.codex');
   });
 });
+
+describe('launch-local activity hook opt-in', () => {
+  it('defaults off, saves explicitly, and keeps cancellation local to the draft', async () => {
+    const config = props();
+    const view = render(createElement(SettingsPanel, config));
+    selectAgent('codex');
+    const toggle = screen.getByRole('checkbox', { name: 'Codex 真實活動 hooks' });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(config.onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].agentHooks).toEqual({ codex: true });
+    view.unmount();
+    render(createElement(SettingsPanel, props()));
+    selectAgent('codex');
+    expect(screen.getByRole('checkbox', { name: 'Codex 真實活動 hooks' })).not.toBeChecked();
+  });
+  it('does not offer unverified providers a hook switch', () => {
+    render(createElement(SettingsPanel, props()));
+    for (const kind of ['grok', 'antigravity', 'opencode'] as const) {
+      selectAgent(kind);
+      expect(screen.queryByRole('checkbox', { name: /真實活動 hooks/ })).not.toBeInTheDocument();
+    }
+  });
+});
