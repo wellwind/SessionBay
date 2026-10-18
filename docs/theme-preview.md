@@ -10,6 +10,12 @@ UI 模式為深色、淺色或跟隨系統；12 個色系各有兩種模式，�
 
 命令面板另有「切換介面主題」「切換 Terminal 主題」：搜尋名稱後以方向鍵預覽，Enter 才保存；Escape、關閉或返回命令清單只移除預覽，不寫入設定。介面選項明列深／淺色，Terminal 選項獨立選擇。保存失敗還原到最新已保存外觀，保留目前選項與錯誤供 Enter 重試；這與設定編輯草稿失敗時保留草稿預覽的行為不同。重新移動選項可以再次預覽。
 
+## Monaco 文字預覽
+
+Files 的 Monaco 文字預覽同步目前介面模式與色系，含設定／命令面板即時預覽及取消還原；Terminal 色票仍獨立。背景、文字、行號、選取、搜尋與小工具使用共用 UI tokens；語法配色是 Session Bay 語意色改編，不是 VS Code TextMate 主題完整移植。語法／行號／括號在文件與選取背景維持至少 4.5:1。換色只更新 Monaco theme，不重建模型、不變更捲動、選取或焦點。
+
+新增 24 組純函式對比測試、屬性變更／還原／卸載觀察器測試，以及 Vite dev／production 真實 Monaco 原實例與選取保留截圖測試。此次結果以對應 PR 的 Linux CI 為準；原生 macOS／Windows／Linux WebView 尚未實測。
+
 ## Code Modern／Code 2026 來源與差異
 
 兩個名稱代表 Session Bay 的配色改編，不宣稱與 Microsoft／VS Code 有官方合作或完全相同的 UI。固定上游 [commit 3588843f05a21bfdeada83a9799d87f19de0fadd](https://github.com/microsoft/vscode/tree/3588843f05a21bfdeada83a9799d87f19de0fadd)，查閱日期 2026-10-16，不在執行時下載主題。

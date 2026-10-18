@@ -783,3 +783,9 @@ Cmd+P（非 macOS 的非終端區域為 Ctrl+P）在目前專案搜尋已開啟�
 右側工具由同一個可調寬外框承載，Sessions／Files 使用同一分隔線，按專案記住本次執行期間偏好；正常／Zen 共用寬度，收合不佔空間。所有圖示提供 hover／focus tooltip，顯示目前有效快捷鍵。Sessions／Files 預設 Mod+Shift+H／Mod+Shift+L，可改綁或停用；衝突時不顯示失效組合。無工作分頁預設 Sessions，關閉最後一個檔案及 Runtime 分頁亦回到歷史；尊重已明確收合工具的使用者。
 
 檔名搜尋不掃描內容，以既有安全 descriptor／handle 路徑政策讀取未展開子目錄，含隱藏檔，排除 .git、node_modules、target、dist、符號連結與多重硬連結。每次最多 50 結果／20,000 entries／32 層／250 ms cooperative budget；單次 filesystem call 不能保證硬性時間上限。上限內子集合按路徑排序，非完整全域排名；截斷會提示。Sessions 每次最多最近 40 筆，需以關鍵字縮小範圍。唯讀預覽沿用目前的大檔分級讀取與受限圖片策略，詳見 [大型文字檔閱讀](large-file-reading.md) 與 [圖片預覽](file-image-preview.md)；檔名搜尋不放寬各類型的資源與安全限制。
+
+## 2026-10-18：Monaco 預覽跟隨介面色系
+
+文字預覽從共用 UI tokens 產生 Monaco 主題，追蹤 data-theme 與 data-theme-palette。介面預覽、取消還原、系統亮暗變更只呼叫 defineTheme／setTheme，不重建 editor 或 model，也不重設選取、捲動或焦點。Terminal 色票維持獨立。
+
+12 色系的深／淺模式映射背景、文字、行號、選取、搜尋、輸入及 widget 顏色。語法規則使用 Session Bay 語意色並確保相對文件／選取背景至少 4.5:1，不繼承針對其他背景的語法色，也不宣稱完整複製 VS Code TextMate 主題。未知色系沿用 Bay fallback。新增數值對比及原實例保留回歸；原生 WebView 視覺驗收仍待實測。

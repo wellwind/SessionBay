@@ -12,6 +12,7 @@ export function emitPreviewError(error: unknown) { for (const listener of previe
 export const monaco = {
   Uri: { from: vi.fn(value => value) },
   editor: {
+    defineTheme: vi.fn<(name: string, data: unknown) => void>(),
     setTheme: vi.fn(),
     createModel: vi.fn((text: string) => { const model = { text, dispose: vi.fn() }; models.push(model); return model; }),
     create: vi.fn((container: HTMLElement, options: { model: { text: string }; ariaLabel: string }) => {
