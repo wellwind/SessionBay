@@ -289,3 +289,10 @@ PNG／JPEG／GIF／VP8 有損 WebP／靜態 SVG 的中央 tab 預覽正在實作
 - [ ] 已知 preflight 未啟動後的單次無 hooks 按鈕，保留原參數且不重送 unknown outcome。
 
 上述為後續實作，不等同已合併 #69 的未啟動錯誤分類與 hooks 預設啟用。
+
+## Terminal 檔名點開 tab（待實作，Snap 之後）
+
+- [ ] 將 Agent 終端輸出的檔案路徑連到中央檔案 tab，保留可靠 cwd、行欄定位、歧義選擇與後端安全路徑界線。
+- [ ] 修飾鍵點選、OSC8／URL 區分、跨平台路徑及不可信輸出驗收。
+
+排在目前工作台／broker 修復與 Snap 測試包之後，不插隊。完整需求與安全界線見 [Terminal 檔案路徑連結](terminal-file-links.md)。
