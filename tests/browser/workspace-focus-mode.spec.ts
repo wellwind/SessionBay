@@ -45,7 +45,7 @@ test.beforeEach(async ({ page }, testInfo) => {
 
 test('English Zen Mode search enters and exits focus mode', async ({ page }, testInfo) => {
   for (const [label, focused] of [['進入專注模式（Zen Mode）', 'true'], ['退出專注模式（Zen Mode）', 'false']]) {
-    if (focused === 'false') await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+    if (focused === 'false') await page.keyboard.press('Control+Shift+B');
     await page.getByRole('button', { name: /搜尋專案或執行命令/ }).click();
     await page.getByRole('combobox', { name: '搜尋命令或專案', exact: true }).fill('Zen Mode');
     const command = page.getByRole('option', { name: new RegExp(label) });
@@ -101,7 +101,7 @@ test('history, settings, theme and project navigation remain reachable without r
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
   await sameTerminal(page);
   await page.locator('.workspace-tab-select').click();
-  await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+  await page.keyboard.press('Control+Shift+B');
   await expect(page.locator('.app-topbar')).toBeVisible();
   await page.getByRole('button', { name: '設定與資料來源', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -111,10 +111,10 @@ test('history, settings, theme and project navigation remain reachable without r
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('button', { name: '收起完整控制列', exact: true }).click();
+  await page.keyboard.press('Control+Shift+B');
   await expect(page.locator('.app-topbar')).toBeHidden();
   await sameTerminal(page);
-  await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+  await page.keyboard.press('Control+Shift+B');
   await expect(page.locator('.sidebar')).toBeVisible();
   await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
@@ -196,11 +196,10 @@ for (const [normalOpen, zenOpen] of [[true, false], [false, true]]) {
     await expect(sessions).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
     if (zenOpen) await sessions.click();
-    await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+    await page.keyboard.press('Control+Shift+B');
     await expect(page.locator('.sidebar')).toBeVisible();
-    const hide = page.getByRole('button', { name: '收起完整控制列', exact: true });
-    await hide.focus();
-    await hide.click();
+    await page.locator('.xterm-helper-textarea').focus();
+    await page.keyboard.press('Control+Shift+B');
     await expect(page.locator('.app-topbar')).toBeHidden();
     await expect(page.locator('.sidebar')).toBeHidden();
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
@@ -369,4 +368,29 @@ test('default Zen shortcut toggles symmetrically without writing to PTY', async 
   await input.press('z');
   await expect.poll(() => page.evaluate(() => (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture.calls.filter(call => call.command === 'write_runtime').map(call => call.data).join(''))).toBe('\x0bz');
   await sameTerminal(page);
+});
+
+test('Zen has one icon-only toggle, no project control, and hover/focus tooltips', async ({ page }, info) => {
+  const toggle = page.locator('.workspace-tabs > .focus-mode-toggle');
+  for (const active of [false, true]) {
+    const label = active ? '退出專注模式' : '進入專注模式';
+    await expect(page.locator('.focus-mode-toggle')).toHaveCount(1);
+    await expect(page.locator('.focus-project-control')).toHaveCount(0);
+    await expect(toggle).toHaveAccessibleName(label);
+    await expect(toggle).toHaveAttribute('aria-pressed', String(active));
+    await expect(toggle).toHaveText('');
+    await expect(toggle.locator('svg')).toHaveCount(1);
+    await toggle.hover();
+    await expect(page.getByRole('tooltip', { name: label })).toBeVisible();
+    await page.mouse.move(0, 0);
+    await toggle.focus();
+    await expect(page.getByRole('tooltip', { name: label })).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`zen-icon-${active}.png`), fullPage: true });
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
+    await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', String(active));
+    await page.keyboard.press(active ? 'Space' : 'Enter');
+    await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', String(!active));
+    await sameTerminal(page);
+  }
 });

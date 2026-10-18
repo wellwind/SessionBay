@@ -4,22 +4,13 @@
 .app-shell.workspace-focus > .statusbar:not(.statusbar-important) {
   display: none;
 }
-.workspace-tabs > .focus-project-control,
-.workspace-tabs > .focus-mode-toggle {
-  flex-shrink: 0;
-  gap: 6px;
+.focus-mode-toggle {
+  min-width: 44px;
   min-height: 44px;
   color: var(--text);
 }
-.workspace-tabs > .focus-project-control {
-  max-width: 200px;
-}
-.focus-project-control span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .workspace-tabs > .focus-mode-toggle {
+  flex-shrink: 0;
   margin-left: auto;
   position: sticky;
   right: -1px;
@@ -28,9 +19,18 @@
   border-left: 1px solid var(--border);
   padding-inline: 10px;
 }
+.focus-mode-tooltip {
+  position: fixed;
+  z-index: 1000;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 18px;
+}
 .workspace-focus .workspace-tabs {
   flex-shrink: 0;
-}
-@media (max-width: 900px) {
-  .workspace-tabs > .focus-project-control { max-width: 130px; }
 }

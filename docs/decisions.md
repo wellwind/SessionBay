@@ -799,3 +799,7 @@ Cmd+P（非 macOS 的非終端區域為 Ctrl+P）在目前專案搜尋已開啟�
 文字預覽從共用 UI tokens 產生 Monaco 主題，追蹤 data-theme 與 data-theme-palette。介面預覽、取消還原、系統亮暗變更只呼叫 defineTheme／setTheme，不重建 editor 或 model，也不重設選取、捲動或焦點。Terminal 色票維持獨立。
 
 12 色系的深／淺模式映射背景、文字、行號、選取、搜尋、輸入及 widget 顏色。語法規則使用 Session Bay 語意色並確保相對文件／選取背景至少 4.5:1，不繼承針對其他背景的語法色，也不宣稱完整複製 VS Code TextMate 主題。未知色系沿用 Bay fallback。新增數值對比及原實例保留回歸；原生 WebView 視覺驗收仍待實測。
+
+## 2026-10-18：精簡 Zen 分頁列控制
+
+移除分頁列 ＋ 左側的專案名稱／完整控制列按鈕。正常與專注模式各只保留一個純圖示 Zen 切換，提供 hover／focus tooltip、可存取名稱與按下狀態；總覽的退出入口亦同。既有 Zen 與顯示／隱藏側欄快捷鍵、命令面板及 Runtime 生命週期保持不變。
