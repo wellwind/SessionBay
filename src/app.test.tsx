@@ -268,6 +268,8 @@ beforeEach(() => {
     id: `runtime-${request.paneId}`, paneId: `backend-${request.paneId}`,
     sessionId: null, state: 'running', cwd: request.cwd ?? '/synthetic/project', exitCode: null,
   }));
+  vi.mocked(api.launchFreshWithoutHooks).mockReset();
+  vi.mocked(api.cancelFresh).mockReset().mockResolvedValue(undefined);
   vi.mocked(api.runtimes).mockResolvedValue([]);
   vi.mocked(api.forget).mockResolvedValue(undefined);
   vi.mocked(api.settleLaunches).mockResolvedValue(undefined);
@@ -1047,12 +1049,68 @@ describe('fresh Agent backend-owned launch', () => {
     if (action === 'escape') fireEvent.keyDown(dialog, { key: 'Escape' });
     if (action === 'navigate') changePage('所有目錄');
     if (action === 'expire') await tick(10 * 60 * 1000);
-    if (action === 'reload') await act(async () => { await window.SessionBayReload?.(); });
+    if (action === 'reload') {
+      vi.spyOn(startup, 'reloadWindow').mockImplementation(() => undefined);
+      await act(async () => { await window.SessionBayReload?.(); });
+    }
     if (action === 'unmount') cleanup();
     await act(async () => {});
     expect(api.cancelFresh).toHaveBeenCalledWith(vi.mocked(api.launchFresh).mock.calls[0][0].paneId);
     expect(api.launchFreshWithoutHooks).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog', { name: '本次不啟用活動回報' })).not.toBeInTheDocument();
+  });
+
+  it.each(['navigate', 'close', 'reload', 'unmount'] as const)('still sends cancellation after confirming while backend admission is pending: %s', async action => {
+    const pending = pendingLaunch();
+    let admit!: () => void;
+    const admission = new Promise<void>(resolve => { admit = resolve; });
+    let cancelledBeforeConsume = false;
+    let launches = 0;
+    const cancelMock = vi.mocked(api.cancelFresh).mockImplementationOnce(async () => { cancelledBeforeConsume = true; });
+    vi.mocked(api.launchFreshWithoutHooks).mockImplementationOnce(async () => {
+      // Explicit barrier: release backend consume only after the navigation/close action.
+      await admission;
+      if (cancelledBeforeConsume) throw new Error('啟動請求已取消；未送出 Launch。');
+      launches++;
+      return record;
+    });
+    await submitFresh();
+    await act(async () => pending.reject(new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 這次未啟動 Agent')));
+    fireEvent.click(screen.getByRole('button', { name: '本次不啟用活動回報，繼續啟動' }));
+    await act(async () => {});
+    expect(api.launchFreshWithoutHooks).toHaveBeenCalledOnce();
+    expect(cancelMock).not.toHaveBeenCalled();
+    if (action === 'navigate') changePage('所有目錄');
+    if (action === 'close') await nativeClose();
+    if (action === 'reload') {
+      vi.spyOn(startup, 'reloadWindow').mockImplementation(() => undefined);
+      await act(async () => { await window.SessionBayReload?.(); });
+    }
+    if (action === 'unmount') cleanup();
+    await act(async () => { admit(); });
+    expect(cancelMock).toHaveBeenCalledWith(vi.mocked(api.launchFresh).mock.calls[0][0].paneId);
+    expect(launches).toBe(0);
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.launchFreshWithoutHooks).toHaveBeenCalledOnce();
+  });
+
+  it('preserves a consumed Agent when navigation cancels during its delayed confirmation reply', async () => {
+    const pending = pendingLaunch();
+    let reply!: (value: RuntimeInfo) => void;
+    vi.mocked(api.launchFreshWithoutHooks).mockReturnValueOnce(new Promise(resolve => { reply = resolve; }));
+    await submitFresh();
+    await act(async () => pending.reject(new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 這次未啟動 Agent')));
+    fireEvent.click(screen.getByRole('button', { name: '本次不啟用活動回報，繼續啟動' }));
+    await act(async () => {});
+    changePage('所有目錄');
+    vi.mocked(api.runtimes).mockResolvedValueOnce([record]);
+    await act(async () => reply(record));
+    expect(api.cancelFresh).toHaveBeenCalledWith(vi.mocked(api.launchFresh).mock.calls[0][0].paneId);
+    expect(workspaceSnapshot().panes[record.paneId].runtimeId).toBe(record.id);
+    expect(api.launchFreshWithoutHooks).toHaveBeenCalledOnce();
+    expect(api.launchFresh).toHaveBeenCalledOnce();
+    expect(api.stop).not.toHaveBeenCalled();
+    expect(api.forget).not.toHaveBeenCalled();
   });
 
   it('does not reopen confirmation after navigating before the refusal arrives', async () => {

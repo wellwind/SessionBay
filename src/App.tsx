@@ -209,7 +209,7 @@ export default function App() {
   const [launcher, setLauncher] = useState<Launcher | null>(null);
   const [freshLaunchPending, setFreshLaunchPending] = useState(false);
   const freshLaunchInFlight = useRef(false);
-  type HookSkip = { request: LaunchRequest; generation: number; message: string; settle: (confirmed: boolean) => void };
+  type HookSkip = { request: LaunchRequest; generation: number; message: string; confirming?: boolean; settle: (confirmed: boolean) => void };
   const [hookSkip, setHookSkip] = useState<HookSkip | null>(null);
   const hookSkipRef = useRef<HookSkip | null>(null);
   const cancelHookSkip = useCallback(() => {
@@ -222,8 +222,8 @@ export default function App() {
   }, []);
   const finishHookSkip = (confirmed: boolean) => {
     const pending = hookSkipRef.current;
-    if (!pending) return;
-    hookSkipRef.current = null; // Synchronous consume also blocks Enter + click.
+    if (!pending || pending.confirming) return;
+    pending.confirming = true; // Block duplicate activation, but retain cancellation until IPC settles.
     setHookSkip(null);
     const valid = pending.generation === launchContext.current.generation && mounted.current && !closingApp.current;
     if (!confirmed || !valid) void api.cancelFresh(pending.request.paneId).catch(() => {});
@@ -428,7 +428,7 @@ export default function App() {
     launchContext.current = { key: launchContextKey, launcher, generation: launchContext.current.generation + 1 };
   else launchContext.current.launcher = launcher;
   useEffect(() => {
-    if (hookSkipRef.current && hookSkipRef.current.generation !== launchContext.current.generation) finishHookSkip(false);
+    if (hookSkipRef.current && hookSkipRef.current.generation !== launchContext.current.generation) cancelHookSkip();
   });
   useEffect(() => cancelHookSkip, [cancelHookSkip]);
   useEffect(() => {
@@ -867,6 +867,8 @@ export default function App() {
             else notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${message}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
           }
         } finally {
+          // A confirmed intent remains cancellable while backend admission is pending.
+          hookSkipRef.current = null;
           freshLaunchInFlight.current = false;
           if (mounted.current) setFreshLaunchPending(false);
         }

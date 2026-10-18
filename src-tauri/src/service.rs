@@ -72,6 +72,7 @@ pub struct Service {
     pub file_staging: Mutex<Option<crate::file_input::FileStaging>>,
     pub image_staging: Mutex<Option<crate::image_input::ImageStaging>>,
     fresh_launches: Mutex<crate::fresh_launch::FreshLaunches>,
+    fresh_launch_control: Arc<crate::fresh_launch::FreshLaunchControl>,
     launch_provenance: Mutex<Option<crate::launch_provenance::LaunchProvenance>>,
     broker: Option<BrokerClient>,
     settings: Mutex<Settings>,
@@ -101,13 +102,17 @@ impl Service {
         let config = ConfigStore::open(directory)?;
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
+        let fresh_launch_control = Arc::new(crate::fresh_launch::FreshLaunchControl::default());
         let service = Arc::new(Self {
             catalog,
             config,
             runtime: RuntimeManager::new(),
             image_staging: Mutex::new(None),
             file_staging: Mutex::new(None),
-            fresh_launches: Mutex::new(Default::default()),
+            fresh_launches: Mutex::new(crate::fresh_launch::FreshLaunches::new(
+                fresh_launch_control.clone(),
+            )),
+            fresh_launch_control,
             launch_provenance: Mutex::new(None),
             broker,
             settings: Mutex::new(settings),
@@ -689,11 +694,7 @@ impl Service {
         self.launch_fresh_mode(request, false)
     }
     pub fn cancel_fresh(&self, intent: &str) -> Result<(), String> {
-        self.fresh_launches
-            .lock()
-            .map_err(|_| "Fresh launch lock failed")?
-            .cancel(intent);
-        Ok(())
+        self.fresh_launch_control.cancel(intent)
     }
     pub fn launch_fresh_without_hooks(
         &self,

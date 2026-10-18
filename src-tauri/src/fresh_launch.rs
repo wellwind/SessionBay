@@ -5,8 +5,52 @@ use crate::{
     runtime::{LaunchSpec, RuntimeInfo},
     service::LaunchRequest,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc, Mutex,
+    },
+};
 use uuid::Uuid;
+
+// Admission and cancellation compete independently of fresh/settings/catalog locks.
+const REJECTED: u8 = 0;
+const CONSUMED: u8 = 1;
+const CANCELLED: u8 = 2;
+#[derive(Default)]
+pub(crate) struct FreshLaunchControl {
+    entries: Mutex<HashMap<String, (u64, Arc<AtomicU8>)>>,
+}
+impl FreshLaunchControl {
+    fn register(&self, intent: &str, expires_at: u64, now: u64) -> Result<Arc<AtomicU8>, String> {
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|_| "Fresh admission lock failed")?;
+        entries.retain(|_, (expires, _)| *expires > now);
+        if let Some((_, state)) = entries.get(intent) {
+            return Ok(state.clone());
+        }
+        if entries.len() >= 128 {
+            return Err("Fresh admission capacity reached".into());
+        }
+        let state = Arc::new(AtomicU8::new(REJECTED));
+        entries.insert(intent.into(), (expires_at, state.clone()));
+        Ok(state)
+    }
+    pub(crate) fn cancel(&self, intent: &str) -> Result<(), String> {
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| "Fresh admission lock failed")?;
+        if let Some((_, state)) = entries.get(intent) {
+            let _ =
+                state.compare_exchange(REJECTED, CANCELLED, Ordering::AcqRel, Ordering::Acquire);
+        }
+        Ok(())
+    }
+}
 
 pub(crate) const NOT_STARTED: &str = "[SESSIONBAY_LAUNCH_NOT_STARTED] ";
 
@@ -42,19 +86,24 @@ struct Attempt {
     rejected: Option<String>,
     context: String,
     invalidated: bool,
+    admission: Arc<AtomicU8>,
 }
 #[derive(Default)]
 pub struct FreshLaunches {
     attempts: HashMap<(String, String), Attempt>,
     observed_now: u64,
+    controls: Arc<FreshLaunchControl>,
 }
 impl FreshLaunches {
-    pub(crate) fn cancel(&mut self, intent: &str) {
-        for ((_, key), attempt) in &mut self.attempts {
-            if key == intent && attempt.rejected.is_some() {
-                attempt.invalidated = true;
-            }
+    pub(crate) fn new(controls: Arc<FreshLaunchControl>) -> Self {
+        Self {
+            controls,
+            ..Default::default()
         }
+    }
+    #[cfg(test)]
+    fn cancel(&self, intent: &str) {
+        self.controls.cancel(intent).unwrap();
     }
     pub(crate) fn invalidate_rejected(&mut self) {
         for attempt in self.attempts.values_mut() {
@@ -216,6 +265,7 @@ impl FreshLaunches {
                     rejected,
                     context: context.into(),
                     invalidated: false,
+                    admission: self.controls.register(&intent.pane_id, expires_at, now)?,
                 },
             );
         }
@@ -226,6 +276,9 @@ impl FreshLaunches {
         if attempt.intent != serialized {
             return Err("Fresh launch intent was reused with different parameters".into());
         }
+        if attempt.admission.load(Ordering::Acquire) == CANCELLED {
+            return Err("啟動請求已取消；未送出 Launch。".into());
+        }
         let mut send = first;
         if attempt.invalidated || (attempt.rejected.is_some() && attempt.context != context) {
             attempt.invalidated = true;
@@ -235,6 +288,12 @@ impl FreshLaunches {
             if !without_hooks {
                 return Err(error.clone());
             }
+            // Cancellation can win even while this command waited for fresh/catalog locks.
+            // Once consumed, later cancellation must never stop or resend an Agent.
+            attempt
+                .admission
+                .compare_exchange(REJECTED, CONSUMED, Ordering::AcqRel, Ordering::Acquire)
+                .map_err(|_| "啟動請求已取消；未送出 Launch。")?;
             // Consume before any fallible IPC. Failure/unknown can never recreate a rejection.
             attempt.rejected = None;
             attempt.spec.env.remove(crate::provider_hooks::OPT_IN);
@@ -250,6 +309,12 @@ impl FreshLaunches {
         }
         // Send once only. A lost response may be recovered by authoritative List, never a second launch.
         let launch_error = if send {
+            if first {
+                attempt
+                    .admission
+                    .compare_exchange(REJECTED, CONSUMED, Ordering::AcqRel, Ordering::Acquire)
+                    .map_err(|_| "啟動請求已取消；未送出 Launch。")?;
+            }
             match broker.launch(attempt.spec.clone(), &attempt.request) {
                 Ok(info) => {
                     attempt.returned = Some(info);
@@ -616,7 +681,92 @@ mod tests {
                 )
                 .unwrap_err();
             assert!(!error.starts_with(NOT_STARTED));
+            cache.controls.cancel(&r.pane_id).unwrap();
         }
+        assert_eq!(broker.launches.get(), 1);
+    }
+    #[test]
+    fn cancellation_wins_while_confirmation_holds_fresh_and_waits_for_catalog_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("synthetic.sqlite");
+        let catalog = crate::catalog::Catalog::open(&path).unwrap();
+        let mut writer = rusqlite::Connection::open(&path).unwrap();
+        let transaction = writer
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        let broker = Fake::new();
+        broker.preflight_denied.set(true);
+        let mut cache = FreshLaunches::default();
+        let r = request("codex");
+        assert!(cache.launch(&r, &broker, plan, |_, _| Ok(())).is_err());
+        let controls = cache.controls.clone();
+        let state = Mutex::new((cache, broker));
+        let (entered, received) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let mut state = state.lock().unwrap();
+                entered.send(()).unwrap(); // Fresh is held; the external writer still excludes consume.
+                catalog.with_launch_revision(|_| {
+                    let (cache, broker) = &mut *state;
+                    cache.launch_with_context(
+                        &r,
+                        broker,
+                        |_| panic!("never replan"),
+                        |_, _| Ok(()),
+                        "",
+                        true,
+                    )
+                })
+            });
+            received
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            controls.cancel(&r.pane_id).unwrap(); // Must finish without fresh or catalog admission.
+            transaction.commit().unwrap();
+            assert!(worker.join().unwrap().unwrap_err().contains("已取消"));
+        });
+        assert_eq!(state.lock().unwrap().1.launches.get(), 0);
+    }
+    #[test]
+    fn cancellation_wins_while_confirmation_waits_for_fresh_but_never_revokes_a_consumed_attempt() {
+        let broker = Fake::new();
+        broker.preflight_denied.set(true);
+        let mut cache = FreshLaunches::default();
+        let r = request("codex");
+        assert!(cache.launch(&r, &broker, plan, |_, _| Ok(())).is_err());
+        let controls = cache.controls.clone();
+        let state = Mutex::new((cache, broker));
+        let guard = state.lock().unwrap();
+        let (entered, received) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                entered.send(()).unwrap();
+                let mut state = state.lock().unwrap();
+                let (cache, broker) = &mut *state;
+                cache.launch_with_context(&r, broker, plan, |_, _| Ok(()), "", true)
+            });
+            received
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            controls.cancel(&r.pane_id).unwrap();
+            drop(guard);
+            assert!(worker.join().unwrap().unwrap_err().contains("已取消"));
+        });
+        let mut state = state.lock().unwrap();
+        let (cache, broker) = &mut *state;
+        assert_eq!(broker.launches.get(), 0);
+        let next = request("codex");
+        assert!(cache.launch(&next, broker, plan, |_, _| Ok(())).is_err());
+        let confirmed = cache
+            .launch_with_context(&next, broker, plan, |_, _| Ok(()), "", true)
+            .unwrap();
+        controls.cancel(&next.pane_id).unwrap();
+        assert_eq!(
+            cache
+                .launch_with_context(&next, broker, plan, |_, _| Ok(()), "", true)
+                .unwrap(),
+            confirmed
+        );
         assert_eq!(broker.launches.get(), 1);
     }
     #[test]
