@@ -1517,27 +1517,21 @@ export default function App() {
                   <Pencil size={16} />
                 </button>}
               </div>
-              {(current || temporaryWorkspace) && <div className="project-path">
-                {current ? (
-                  <>
-                    <span title={current.path ?? ''}>
-                      {current.launchPath || current.path || '未分類 · 未記錄工作目錄'}
-                    </span>
-                    {current.launchPath && <span title={current.path ?? ''}>· 已重新定位</span>}
-                    <button
-                      onClick={() =>
-                        setPathDialog({
-                          project: current,
-                          path: current.launchPath || current.path || '',
-                        })
-                      }
-                    >
-                      重新定位
-                    </button>
-                  </>
-                ) : (
-                  '新 Terminal 從家目錄開始，使用預設 Shell Profile；不會加入任何專案。'
-                )}
+              {current && <div className="project-path">
+                <span title={current.path ?? ''}>
+                  {current.launchPath || current.path || '未分類 · 未記錄工作目錄'}
+                </span>
+                {current.launchPath && <span title={current.path ?? ''}>· 已重新定位</span>}
+                <button
+                  onClick={() =>
+                    setPathDialog({
+                      project: current,
+                      path: current.launchPath || current.path || '',
+                    })
+                  }
+                >
+                  重新定位
+                </button>
               </div>}
             </div>
             <div className="header-buttons">
@@ -2020,7 +2014,7 @@ export default function App() {
       )}
       {renameTarget && <RenameDialog key={`${renameTarget.kind}:${renameTarget.id}`}
         title={renameTarget.kind === 'tab' ? '重新命名分頁' : '重新命名專案'} name={renameTarget.name}
-        description={renameTarget.kind === 'tab' ? '只修改分頁顯示名稱，保留面板、程序與工作位置。' : '只修改顯示名稱，實際資料夾、路徑與對話歷史維持原樣。'}
+        description={renameTarget.kind === 'tab' ? undefined : '只修改顯示名稱，實際資料夾、路徑與對話歷史維持原樣。'}
         onClose={() => setRenameTarget(null)} onSave={async (name) => {
           if (renameTarget.kind === 'tab') {
             if (!stateRef.current.workspace.tabs.some((tab) => tab.id === renameTarget.id)) throw new Error('此分頁已關閉，請重新選擇。');

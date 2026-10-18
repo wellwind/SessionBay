@@ -64,6 +64,21 @@ describe('workspace organization transformations', () => {
 });
 
 describe('display names and transactional rename dialog', () => {
+  it('omits absent descriptions while retaining accessible length and validation hints', () => {
+    const view = render(<RenameDialog title="Rename" name="Old" onSave={vi.fn()} onClose={vi.fn()} />);
+    const input = screen.getByLabelText('顯示名稱');
+    expect(screen.getByRole('dialog').querySelector('.dialog-description')).toBeNull();
+    expect(input).toHaveAccessibleDescription('最多 200 個字元。');
+    expect(screen.queryByText(/可使用重複名稱/)).not.toBeInTheDocument();
+    for (const id of input.getAttribute('aria-describedby')!.split(' ')) {
+      expect(document.getElementById(id)).toBeInTheDocument();
+    }
+    fireEvent.change(input, { target: { value: 'a'.repeat(201) } });
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAccessibleDescription(`最多 200 個字元。 ${screen.getByRole('alert').textContent}`);
+    view.rerender(<RenameDialog title="Rename" name="Old" description="Only a label" onSave={vi.fn()} onClose={vi.fn()} />);
+    expect(screen.getByText('Only a label')).toHaveClass('dialog-description');
+  });
   it('validates blank, control and long names by Unicode character count', () => {
     for (const value of ['', '  ', 'a\nb', 'x\u007fy', 'a'.repeat(201), '😀'.repeat(201)]) expect(displayNameError(value)).toBeTruthy();
     for (const value of ['你好', '😀'.repeat(200), 'a'.repeat(200), '  same name  ']) expect(displayNameError(value)).toBeUndefined();

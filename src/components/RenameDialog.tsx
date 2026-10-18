@@ -6,7 +6,7 @@ import { Dialog } from './Dialog';
 export function RenameDialog({ title, name, description, onSave, onClose }: {
   title: string;
   name: string;
-  description: string;
+  description?: string;
   onSave: (name: string) => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -28,13 +28,13 @@ export function RenameDialog({ title, name, description, onSave, onClose }: {
         setError(errorMessage(cause));
       }).finally(() => { pending.current = false; setBusy(false); });
     }}>
-      <p className="dialog-description">{description}</p>
+      {description && <p className="dialog-description">{description}</p>}
       <label className="field-label" htmlFor={id}>顯示名稱
         <input id={id} value={draft} disabled={busy} aria-invalid={!!validation || !!error}
           aria-describedby={`${id}-help ${id}-error`} onFocus={(event) => event.currentTarget.select()}
           onChange={(event) => { setDraft(event.target.value); setError(''); }} />
       </label>
-      <p className="small-muted" id={`${id}-help`}>最多 200 個字元；可使用重複名稱，請由所在位置或路徑分辨。</p>
+      <p className="small-muted" id={`${id}-help`}>最多 200 個字元。</p>
       <p id={`${id}-error`} role={validation || error ? 'alert' : undefined} className="inline-warning">{validation || error}</p>
       <div className="dialog-actions">
         <button type="button" className="secondary" disabled={busy} onClick={close}>取消</button>
