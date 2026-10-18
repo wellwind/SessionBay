@@ -242,6 +242,13 @@ export interface WorkspaceFilePreview {
   text: string;
   sizeBytes: number;
 }
+export interface WorkspaceFileInfo {
+  path: string;
+  sizeBytes: number;
+  version: string;
+  kind: 'text' | 'binary';
+}
+export interface WorkspaceFileChunk { bytes: number[]; eof: boolean }
 
 export interface TrashedSession {
   id: string;
