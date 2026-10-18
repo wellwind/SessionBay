@@ -3,7 +3,8 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeQuiescence {
-    /// Every retained runtime completed with positive platform cleanup evidence.
+    /// No work was admitted, or every retained runtime has positive containment proof.
+    /// Current platform workers cannot produce that proof after executing work.
     Proven,
     /// At least one supervisor is still starting, running, draining, or stopping.
     Active,
@@ -22,10 +23,19 @@ impl Control {
 
 impl Registry {
     pub(super) fn prune_completed(&mut self) {
+        self.prune_completed_observed(|| {});
+    }
+
+    fn prune_completed_observed(&mut self, mut before_lock: impl FnMut()) {
         let mut uncertain = false;
         self.runtimes.retain(|_, runtime| {
-            let poisoned = runtime.control.is_poisoned();
-            let control = lock(&runtime.control);
+            // The observer runs after all pre-lock work. Poison may arise while
+            // acquisition is waiting, so only its actual Result is authoritative.
+            before_lock();
+            let (control, poisoned) = match runtime.control.lock() {
+                Ok(control) => (control, false),
+                Err(error) => (error.into_inner(), true),
+            };
             if poisoned || (control.done && !control.cleanup_proven()) {
                 uncertain = true;
             }
@@ -201,6 +211,42 @@ mod tests {
             Err(RuntimeQuiescence::Unverified)
         );
     }
+    #[test]
+    fn poison_while_pruning_waits_cannot_be_erased_by_eviction() {
+        let runtime = record("exited", true, true, None);
+        let (held, held_rx) = std::sync::mpsc::channel();
+        let (poison_now, poison_rx) = std::sync::mpsc::channel();
+        let (before_lock, before_lock_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let poison_runtime = runtime.clone();
+            let poisoner = scope.spawn(move || {
+                let _guard = poison_runtime.control.lock().unwrap();
+                held.send(()).unwrap();
+                poison_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                panic!("synthetic concurrent poison");
+            });
+            held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(!runtime.control.is_poisoned());
+            let mut registry = registry_with(runtime.clone());
+            let pruner = scope.spawn(move || {
+                registry.prune_completed_observed(|| {
+                    before_lock.send(()).unwrap();
+                });
+                registry
+            });
+            // The lock is unpoisoned when pruning reaches acquisition, and the
+            // producer still owns its guard. Poison can only happen afterwards.
+            before_lock_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            poison_now.send(()).unwrap();
+            assert!(poisoner.join().is_err());
+            let mut registry = pruner.join().unwrap();
+            assert!(registry.runtimes.is_empty());
+            assert!(registry.cleanup_uncertain);
+            assert_eq!(assess(&registry), RuntimeQuiescence::Unverified);
+            assert_eq!(seal(&mut registry), Err(RuntimeQuiescence::Unverified));
+        });
+    }
+
     #[test]
     fn a_launch_waiting_on_the_registry_cannot_cross_the_idle_seal() {
         let manager = RuntimeManager::new();

@@ -148,6 +148,8 @@ struct Control {
     stop_requested: bool,
     input_closed: bool,
     cleanup_error: Option<String>,
+    // Reserved for positive job-containment proof. A process-list scan, a reaped
+    // leader, or closed PTY is insufficient; current platform workers leave false.
     cleanup_verified: bool,
     done: bool,
 }

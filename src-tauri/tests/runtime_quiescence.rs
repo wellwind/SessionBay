@@ -20,12 +20,12 @@ fn shell(cwd: &Path, script: &str) -> LaunchSpec {
         pane_id: uuid::Uuid::new_v4().to_string(),
     }
 }
-fn wait_proven(manager: &RuntimeManager) {
+fn wait_unverified(manager: &RuntimeManager) {
     let deadline = Instant::now() + Duration::from_secs(5);
-    while manager.quiescence() != RuntimeQuiescence::Proven {
+    while manager.quiescence() != RuntimeQuiescence::Unverified {
         assert!(
             Instant::now() < deadline,
-            "cleanup did not become proven: {:?}",
+            "completed work did not remain unverified: {:?}",
             manager.quiescence()
         );
         thread::sleep(Duration::from_millis(5));
@@ -74,12 +74,11 @@ fn live_idle_prompt_blocks_seal_without_stopping_the_process() {
         }
     }
     assert!(String::from_utf8_lossy(&output).contains("received:proof"));
-    wait_proven(&manager);
-    manager.try_close_if_quiescent().unwrap();
-    assert!(manager
-        .launch(shell(temp.path(), "exit 0"), 80, 24, Arc::new(|_| Ok(())))
-        .unwrap_err()
-        .contains("shutting down"));
+    wait_unverified(&manager);
+    assert_eq!(
+        manager.try_close_if_quiescent(),
+        Err(RuntimeQuiescence::Unverified)
+    );
 }
 
 #[test]
@@ -121,8 +120,13 @@ fn exited_label_during_exit_callback_is_not_supervisor_completion() {
         Err(RuntimeQuiescence::Active)
     );
     release.send(()).unwrap();
-    wait_proven(&manager);
-    manager.try_close_if_quiescent().unwrap();
+    // Reaping the leader, closing PTY I/O and finishing the supervisor do not
+    // provide atomic containment evidence for a concurrently forking descendant.
+    wait_unverified(&manager);
+    assert_eq!(
+        manager.try_close_if_quiescent(),
+        Err(RuntimeQuiescence::Unverified)
+    );
 }
 
 #[test]
@@ -153,4 +157,21 @@ fn unproved_spawn_rollback_blocks_seal_even_with_an_empty_list() {
         .unwrap();
     manager.stop(&info.id).unwrap();
     assert_eq!(manager.quiescence(), RuntimeQuiescence::Unverified);
+}
+
+#[test]
+fn only_a_never_used_empty_manager_can_currently_seal_without_job_containment_proof() {
+    let temp = tempfile::tempdir().unwrap();
+    let manager = RuntimeManager::new();
+    assert_eq!(manager.quiescence(), RuntimeQuiescence::Proven);
+    manager.try_close_if_quiescent().unwrap();
+    assert!(manager
+        .launch(
+            shell(temp.path(), "exit 0"),
+            80,
+            24,
+            Arc::new(|_| panic!("sealed admission must not spawn"))
+        )
+        .unwrap_err()
+        .contains("shutting down"));
 }
