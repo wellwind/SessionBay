@@ -2,6 +2,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
   WorkspaceFilePage,
+  WorkspaceFileSearch,
   WorkspaceFilePreview,
   AgentKind,
   HistorySourceDiscovery,
@@ -51,6 +52,8 @@ export const api = {
   saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
   listWorkspaceFiles: (projectId: string, path: string, offset = 0, showHidden = false) =>
     call<WorkspaceFilePage>('list_workspace_files', { projectId, path, offset, showHidden }),
+  searchWorkspaceFiles: (projectId: string, query: string) =>
+    call<WorkspaceFileSearch>('search_workspace_files', { projectId, query }),
   readWorkspaceFile: (projectId: string, path: string) =>
     call<WorkspaceFilePreview>('read_workspace_file', { projectId, path }),
   projects: () => call<Project[]>('list_projects'),

@@ -80,6 +80,7 @@ mockIPC((command, payload = {}) => {
       ...['synthetic.txt', 'README.md', 'large.ts', '.config'].map(name => ({ name, path: name, kind: 'file' })),
       { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
     ], nextOffset: null };
+    case 'search_workspace_files': return { paths: ['src/index.ts', 'deep/unvisited.ts', 'README.md'].filter(path => String(args.query).trim() && path.toLowerCase().includes(String(args.query).toLowerCase())), truncated: false };
     case 'read_workspace_file': {
       const path = args.path as string;
       const text = path === 'large.ts'

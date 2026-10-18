@@ -1,7 +1,7 @@
 //! Read-only, catalog-scoped workspace preview. Never canonicalize and then open
 //! an untrusted path: every component is resolved relative to an owned directory
 //! descriptor, with symlink following disabled in the actual open operation.
-use crate::models::{WorkspaceFilePage, WorkspaceFilePreview};
+use crate::models::{WorkspaceFilePage, WorkspaceFilePreview, WorkspaceFileSearch};
 use std::path::Path;
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
@@ -66,6 +66,39 @@ pub(crate) fn list(
         return Err("目錄分頁位置超過上限，請重新整理".into());
     }
     platform::list(root, path, &parts, offset, show_hidden)
+}
+
+// Filename/path search includes hidden names, but never file contents or links.
+// The elapsed budget is cooperative between filesystem calls, not an I/O timeout.
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+const SEARCH_MAX_RESULTS: usize = 50;
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+const SEARCH_MAX_ENTRIES: usize = 20_000;
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+const SEARCH_MAX_DEPTH: usize = 32;
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+const SEARCH_MAX_DURATION: std::time::Duration = std::time::Duration::from_millis(250);
+
+pub(crate) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, String> {
+    if query.len() > 256 || query.chars().any(char::is_control) {
+        return Err("搜尋文字不可超過 256 bytes 或包含控制字元".into());
+    }
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return Ok(WorkspaceFileSearch {
+            paths: Vec::new(),
+            truncated: false,
+        });
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    {
+        platform::search(root, &query)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        let _ = root;
+        Err("此平台尚未支援安全遞迴檔名搜尋".into())
+    }
 }
 
 pub(crate) fn read(root: &Path, path: &str) -> Result<WorkspaceFilePreview, String> {
@@ -356,6 +389,113 @@ mod platform {
         })
     }
 
+    struct SearchState<'a> {
+        query: &'a str,
+        result: WorkspaceFileSearch,
+        seen: usize,
+        started: std::time::Instant,
+        max_entries: usize,
+        max_depth: usize,
+        duration: std::time::Duration,
+    }
+
+    impl SearchState<'_> {
+        fn exhausted(&mut self) -> bool {
+            if self.seen >= self.max_entries || self.started.elapsed() >= self.duration {
+                self.result.truncated = true;
+                return true;
+            }
+            false
+        }
+
+        fn visit(&mut self, directory: File, prefix: &str, depth: usize) -> Result<bool, String> {
+            let mut stream = DirectoryStream::new(directory)?;
+            loop {
+                if self.exhausted() {
+                    return Ok(false);
+                }
+                let Some(name) = stream.next_name()? else {
+                    return Ok(true);
+                };
+                if matches!(name.as_str(), "." | "..") {
+                    continue;
+                }
+                self.seen += 1;
+                if !valid_name(&name) {
+                    continue;
+                }
+                let path = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{prefix}/{name}")
+                };
+                if path.len() > MAX_PATH_BYTES {
+                    self.result.truncated = true;
+                    continue;
+                }
+                let name_c = c_name(name.as_bytes())?;
+                let Ok(stat) = stat_at(stream.descriptor(), &name_c) else {
+                    self.result.truncated = true;
+                    continue;
+                };
+                match stat.st_mode & libc::S_IFMT {
+                    libc::S_IFDIR => {
+                        if [".git", "node_modules", "target", "dist"].contains(&name.as_str()) {
+                            continue;
+                        }
+                        if depth >= self.max_depth {
+                            self.result.truncated = true;
+                            continue;
+                        }
+                        // Hold parent descriptors throughout depth-first traversal. No
+                        // path reopen, symlink following, or unbounded directory queue.
+                        match open_at(
+                            stream.descriptor(),
+                            &name_c,
+                            true,
+                            OpenStage::RelativeDirectory(depth + 1),
+                        ) {
+                            Ok(child) => {
+                                if !self.visit(child, &path, depth + 1)? {
+                                    return Ok(false);
+                                }
+                            }
+                            Err(_) => self.result.truncated = true,
+                        }
+                    }
+                    libc::S_IFREG
+                        if stat.st_nlink == 1 && path.to_lowercase().contains(self.query) =>
+                    {
+                        if self.result.paths.len() == SEARCH_MAX_RESULTS {
+                            self.result.truncated = true;
+                            return Ok(false);
+                        }
+                        self.result.paths.push(path);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub(super) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, String> {
+        let mut state = SearchState {
+            query,
+            result: WorkspaceFileSearch {
+                paths: Vec::new(),
+                truncated: false,
+            },
+            seen: 0,
+            started: std::time::Instant::now(),
+            max_entries: SEARCH_MAX_ENTRIES,
+            max_depth: SEARCH_MAX_DEPTH,
+            duration: SEARCH_MAX_DURATION,
+        };
+        state.visit(open_root(root)?, "", 0)?;
+        state.result.paths.sort_unstable();
+        Ok(state.result)
+    }
+
     fn read_from(
         directory: File,
         path: &str,
@@ -423,6 +563,34 @@ mod platform {
     mod tests {
         use super::*;
         use std::{fs, os::unix::fs::symlink};
+
+        #[test]
+        fn recursive_search_entry_and_time_budgets_are_enforced() {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            fs::write(root.join("one.txt"), "").unwrap();
+            fs::write(root.join("two.txt"), "").unwrap();
+            for (max_entries, duration) in
+                [(1, SEARCH_MAX_DURATION), (100, std::time::Duration::ZERO)]
+            {
+                let mut state = SearchState {
+                    query: "txt",
+                    result: WorkspaceFileSearch {
+                        paths: Vec::new(),
+                        truncated: false,
+                    },
+                    seen: 0,
+                    started: std::time::Instant::now(),
+                    max_entries,
+                    max_depth: SEARCH_MAX_DEPTH,
+                    duration,
+                };
+                assert!(!state.visit(open_root(&root).unwrap(), "", 0).unwrap());
+                assert!(state.result.truncated);
+                assert!(state.seen <= max_entries);
+                assert!(state.result.paths.len() <= 1);
+            }
+        }
 
         #[test]
         fn diagnostics_distinguish_errno_without_disclosing_error_payloads() {

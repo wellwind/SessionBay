@@ -830,3 +830,17 @@ it('remembers selected transcript and preview visibility independently for each 
     host.remove();
   }
 });
+
+
+it('consumes quick-open selection once and preserves later user choices across projects', async () => {
+  const alpha = session('alpha'); const beta = session('beta');
+  vi.mocked(api.sessions).mockResolvedValue({ catalogRevision: 'r', items: [alpha, beta], total: 2 });
+  const openRequest = { session: alpha, nonce: 1 };
+  const props = { projects: [project], projectId: project.id, refreshToken: 0, onResume: vi.fn(), onNew: vi.fn(), openRequest };
+  const view = render(<HistoryView {...props} />); await tick();
+  fireEvent.click(screen.getByText('Session beta').closest('button')!); await tick();
+  expect(api.transcript).toHaveBeenLastCalledWith('beta');
+  view.rerender(<HistoryView {...props} projectId="other" />); await tick();
+  view.rerender(<HistoryView {...props} />); await tick();
+  expect(api.transcript).toHaveBeenLastCalledWith('beta');
+});

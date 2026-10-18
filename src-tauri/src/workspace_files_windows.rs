@@ -261,6 +261,50 @@ pub(super) fn list(
     let mut entries = Vec::new();
     let mut seen = 0usize;
     let mut name_bytes = 0usize;
+    enumerate(&directory, |name| {
+        seen += 1;
+        name_bytes += name.len();
+        check_directory_budget(seen, name_bytes)?;
+        if show_hidden || !name.starts_with('.') {
+            let kind = open_at(&directory, &name, false)
+                .and_then(|file| inspect(&file))
+                .unwrap_or(WorkspaceEntryKind::Blocked);
+            entries.push((name, kind));
+        }
+        Ok(true)
+    })?;
+    entries.sort_unstable_by(|a, b| {
+        let rank = |kind| u8::from(kind != WorkspaceEntryKind::Directory);
+        rank(a.1).cmp(&rank(b.1)).then_with(|| a.0.cmp(&b.0))
+    });
+    let end = offset.saturating_add(PAGE_SIZE).min(entries.len());
+    let next_offset = (end < entries.len()).then_some(end);
+    let entries = entries
+        .into_iter()
+        .skip(offset)
+        .take(PAGE_SIZE)
+        .map(|(name, kind)| WorkspaceEntry {
+            path: if path.is_empty() {
+                name.clone()
+            } else {
+                format!("{path}/{name}")
+            },
+            name,
+            kind,
+        })
+        .collect();
+    Ok(WorkspaceFilePage {
+        entries,
+        next_offset,
+    })
+}
+
+// Enumerates the owned handle without reopening a pathname. Returning false
+// stops the native stream immediately, including within its bounded 64 KiB batch.
+fn enumerate(
+    directory: &File,
+    mut visit: impl FnMut(String) -> Result<bool, String>,
+) -> Result<bool, String> {
     // u64 storage provides the alignment required by FILE_ID_BOTH_DIR_INFO.
     let mut buffer = vec![0u64; 8192];
     loop {
@@ -317,16 +361,8 @@ pub(super) fn list(
                 })
                 .collect();
             let name = String::from_utf16(&units).map_err(|_| "目錄含有無效 Unicode 檔名")?;
-            if !matches!(name.as_str(), "." | "..") {
-                seen += 1;
-                name_bytes += name.len();
-                check_directory_budget(seen, name_bytes)?;
-                if show_hidden || !name.starts_with('.') {
-                    let kind = open_at(&directory, &name, false)
-                        .and_then(|file| inspect(&file))
-                        .unwrap_or(WorkspaceEntryKind::Blocked);
-                    entries.push((name, kind));
-                }
+            if !matches!(name.as_str(), "." | "..") && !visit(name)? {
+                return Ok(false);
             }
             let next = info.NextEntryOffset as usize;
             if next == 0 {
@@ -338,30 +374,83 @@ pub(super) fn list(
             position += next;
         }
     }
-    entries.sort_unstable_by(|a, b| {
-        let rank = |kind| u8::from(kind != WorkspaceEntryKind::Directory);
-        rank(a.1).cmp(&rank(b.1)).then_with(|| a.0.cmp(&b.0))
-    });
-    let end = offset.saturating_add(PAGE_SIZE).min(entries.len());
-    let next_offset = (end < entries.len()).then_some(end);
-    let entries = entries
-        .into_iter()
-        .skip(offset)
-        .take(PAGE_SIZE)
-        .map(|(name, kind)| WorkspaceEntry {
-            path: if path.is_empty() {
+    Ok(true)
+}
+
+struct SearchState<'a> {
+    query: &'a str,
+    result: WorkspaceFileSearch,
+    seen: usize,
+    started: std::time::Instant,
+}
+
+impl SearchState<'_> {
+    fn visit(&mut self, directory: File, prefix: &str, depth: usize) -> Result<bool, String> {
+        if self.started.elapsed() >= SEARCH_MAX_DURATION {
+            self.result.truncated = true;
+            return Ok(false);
+        }
+        enumerate(&directory, |name| {
+            if self.seen >= SEARCH_MAX_ENTRIES || self.started.elapsed() >= SEARCH_MAX_DURATION {
+                self.result.truncated = true;
+                return Ok(false);
+            }
+            self.seen += 1;
+            if !valid_name(&name) {
+                return Ok(true);
+            }
+            let path = if prefix.is_empty() {
                 name.clone()
             } else {
-                format!("{path}/{name}")
-            },
-            name,
-            kind,
+                format!("{prefix}/{name}")
+            };
+            if path.len() > MAX_PATH_BYTES {
+                self.result.truncated = true;
+                return Ok(true);
+            }
+            // open_at rejects every reparse point and inspect rejects aliases;
+            // only metadata is read, never file contents.
+            let Ok(child) = open_at(&directory, &name, false) else {
+                return Ok(true);
+            };
+            match inspect(&child) {
+                Ok(WorkspaceEntryKind::Directory) => {
+                    if [".git", "node_modules", "target", "dist"].contains(&name.as_str()) {
+                        return Ok(true);
+                    }
+                    if depth >= SEARCH_MAX_DEPTH {
+                        self.result.truncated = true;
+                    } else if !self.visit(child, &path, depth + 1)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(WorkspaceEntryKind::File) if path.to_lowercase().contains(self.query) => {
+                    if self.result.paths.len() == SEARCH_MAX_RESULTS {
+                        self.result.truncated = true;
+                        return Ok(false);
+                    }
+                    self.result.paths.push(path);
+                }
+                _ => {}
+            }
+            Ok(true)
         })
-        .collect();
-    Ok(WorkspaceFilePage {
-        entries,
-        next_offset,
-    })
+    }
+}
+
+pub(super) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, String> {
+    let mut state = SearchState {
+        query,
+        result: WorkspaceFileSearch {
+            paths: Vec::new(),
+            truncated: false,
+        },
+        seen: 0,
+        started: std::time::Instant::now(),
+    };
+    state.visit(open_root(root)?, "", 0)?;
+    state.result.paths.sort_unstable();
+    Ok(state.result)
 }
 
 fn check_directory_budget(seen: usize, name_bytes: usize) -> Result<(), String> {

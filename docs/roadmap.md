@@ -231,3 +231,5 @@
 - [ ] G8 PR／MR 建立、review、CI 狀態與合併。
 
 Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字內容 diff 不在範圍內。既有 worktree 的正確 Git 探測與非文字變更／衝突處置仍在基礎範圍。
+
+2026-10-18 候選：專案 Cmd+P 將已開分頁、未開 Sessions 預覽及有界遞迴檔名搜尋整合；右工具共用 resize 容器、可存取 tooltip 與自訂快捷鍵。Linux 自動化驗證隨 PR 記錄；macOS／Windows 原生互動未驗，不以交叉編譯代替。

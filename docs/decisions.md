@@ -713,3 +713,11 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 命令面板提供「重新載入視窗（Reload Window）」。重新載入前沿用關閉視窗的序列化保存流程，等待既有保存與面板清理，再以瀏覽器 reload 重新 bootstrap、接回 broker runtime。不呼叫 close／stop／launch。儲存失敗取消重新載入並顯示錯誤。
 
 模組載入失敗或 React 畫面崩潰時，最早載入的 dependency-free startup overlay 另提供同名按鈕。已有 App 時保留最後 committed 保存 handler；App 尚未載入時直接 reload，不覆寫尚未讀取的工作區。這是復原入口，不修復造成錯誤的根因。
+
+## 2026-10-18：專案快速開啟與共用工具面板
+
+Cmd+P（非 macOS 的非終端區域為 Ctrl+P）在目前專案搜尋已開啟的檔案／Agent／Terminal 分頁、未開啟的索引 Sessions 與專案相對檔案路徑。已開分頁以穩定身分聚焦，不重啟程序或複製分頁；歷史結果只預覽，接續仍須明確操作。保留 Cmd+Shift+P 命令面板、IME 與對話框防護；Linux／Windows 終端的 Ctrl+P 保留給 Shell。
+
+右側工具由同一個可調寬外框承載，Sessions／Files 使用同一分隔線，按專案記住本次執行期間偏好；正常／Zen 共用寬度，收合不佔空間。所有圖示提供 hover／focus tooltip，顯示目前有效快捷鍵。Sessions／Files 預設 Mod+Shift+H／Mod+Shift+L，可改綁或停用；衝突時不顯示失效組合。無工作分頁預設 Sessions，關閉最後一個檔案及 Runtime 分頁亦回到歷史；尊重已明確收合工具的使用者。
+
+檔名搜尋不掃描內容，以既有安全 descriptor／handle 路徑政策讀取未展開子目錄，含隱藏檔，排除 .git、node_modules、target、dist、符號連結與多重硬連結。每次最多 50 結果／20,000 entries／32 層／250 ms cooperative budget；單次 filesystem call 不能保證硬性時間上限。上限內子集合按路徑排序，非完整全域排名；截斷會提示。Sessions 每次最多最近 40 筆，需以關鍵字縮小範圍。唯讀預覽仍有 256 KiB 與檔案類型限制。

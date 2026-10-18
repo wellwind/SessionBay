@@ -47,7 +47,7 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     // Align inside the app-shell border rather than to the viewport edge.
     expect(rail.x + rail.width).toBe(body.x + body.width);
     await expect(page.locator('.sidebar')).toBeVisible();
-    const resize = page.getByRole('separator', { name: '調整目錄樹寬度' });
+    const resize = page.getByRole('separator', { name: '調整功能面板寬度' });
     await resize.focus();
     await page.keyboard.press('Home');
     await expect(resize).toHaveAttribute('aria-valuenow', '160');

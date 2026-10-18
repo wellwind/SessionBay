@@ -151,3 +151,19 @@ describe('native zoom API', () => {
     expect(native.setZoom).not.toHaveBeenCalled();
   });
 });
+
+describe('workspace filename search IPC contract', () => {
+  it('passes only project identity and query and preserves truncation', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const result = { paths: ['unloaded/nested/file.ts'], truncated: true };
+    vi.mocked(invoke).mockResolvedValue(result);
+    await expect(api.searchWorkspaceFiles('project-id', 'nested/file')).resolves.toEqual(result);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('search_workspace_files', {
+      projectId: 'project-id', query: 'nested/file',
+    });
+  });
+  it('does not try native search without a desktop connection', async () => {
+    await expect(api.searchWorkspaceFiles('project-id', 'needle')).rejects.toThrow('桌面執行環境未連線');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});

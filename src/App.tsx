@@ -88,6 +88,8 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
 import { AppearanceSaveQueue } from './appearance-save-queue';
+import { ProjectQuickSwitcher } from './components/ProjectQuickSwitcher';
+import { FileIcon } from './components/ExplorerTree';
 import { CommandPalette } from './components/CommandPalette';
 import { CommandThemePicker } from './components/CommandThemePicker';
 import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
@@ -131,6 +133,15 @@ export default function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
   const [trashOpen, setTrashOpen] = useState(false);
+  const quickRequestNonce = useRef(0);
+  const [quickRuntimeFocus, setQuickRuntimeFocus] = useState<{ paneId: string; nonce: number }>();
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [filePaths, setFilePaths] = useState<Record<string, string[]>>({});
+  const [fileOpenRequest, setFileOpenRequest] = useState<{ projectId: string; path: string; nonce: number }>();
+  const [historyOpenRequest, setHistoryOpenRequest] = useState<{ session: Session; nonce: number }>();
+  const onFileTabsChange = useCallback((projectId: string, paths: string[]) => {
+    setFilePaths(previous => ({ ...previous, [projectId]: paths }));
+  }, []);
   const [fileTabsHost, setFileTabsHost] = useState<HTMLDivElement | null>(null);
   const [fileSidebarHost, setFileSidebarHost] = useState<HTMLDivElement | null>(null);
   const [fileDocumentHost, setFileDocumentHost] = useState<HTMLDivElement | null>(null);
@@ -280,6 +291,8 @@ export default function App() {
   );
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
+  const manuallyClosedActivities = useRef(new Set<string>());
+  const hadProjectTabs = useRef<Record<string, boolean>>({});
   const activityMode = focusMode ? 'zen' : 'normal';
   if (current && !(current.id in initialProjectActivities.current)) initialProjectActivities.current[current.id] =
     workspace.tabs.some(tab => tab.projectId === current.id) ? null : 'sessions';
@@ -288,10 +301,24 @@ export default function App() {
     (projectActivities[current.id] ? null : focusMode ? null : defaultActivity) : null;
   const setActiveActivity = (id: string | null) => {
     if (!current) return;
+    if (id === null) manuallyClosedActivities.current.add(current.id);
+    else manuallyClosedActivities.current.delete(current.id);
     setProjectActivities(previous => ({ ...previous, [current.id]: {
       ...(previous[current.id] ?? { normal: defaultActivity, zen: null }), [activityMode]: id,
     } }));
   };
+  const currentProjectId = current?.id;
+  const hasProjectTabs = !!current && (workspace.tabs.some(tab => tab.projectId === current.id) || !!filePaths[current.id]?.length);
+  useEffect(() => {
+    if (!currentProjectId) return;
+    const hadTabs = hadProjectTabs.current[currentProjectId];
+    hadProjectTabs.current[currentProjectId] = hasProjectTabs;
+    if (hadTabs && !hasProjectTabs && !manuallyClosedActivities.current.has(currentProjectId)) {
+      setProjectActivities(previous => ({ ...previous, [currentProjectId]: { normal: 'sessions', zen: previous[currentProjectId]?.zen ?? null } }));
+      setView('history');
+    }
+  }, [currentProjectId, hasProjectTabs]);
+  useEffect(() => { setQuickOpen(false); }, [currentProjectId]);
   if (current) projectViews.current[current.id] = view;
   const historyVisible = !!current || allSessionsSearch;
   const historyEnabled = historyVisible;
@@ -625,6 +652,22 @@ export default function App() {
       exitCleanupPending.current.set(pane.runtimeId!, cleanup);
     }
   }, [workspace, notify]);
+  const consumedRuntimeFocus = useRef<typeof quickRuntimeFocus>(undefined);
+  useEffect(() => {
+    if (!quickRuntimeFocus || quickOpen || consumedRuntimeFocus.current === quickRuntimeFocus) return;
+    consumedRuntimeFocus.current = quickRuntimeFocus;
+    const owner = document.activeElement;
+    const frame = requestAnimationFrame(() => {
+      const latest = stateRef.current;
+      const tab = latest.workspace.tabs.find(item => item.id === activeWorkspaceTabId(latest.workspace, latest.selectedId));
+      if (latest.view !== 'workspace' || tab?.focusedPaneId !== quickRuntimeFocus.paneId ||
+        document.activeElement !== owner || document.querySelector('[role="dialog"]')) return;
+      const terminal = [...document.querySelectorAll<HTMLTextAreaElement>('.terminal-pane.focused .xterm-helper-textarea')]
+        .find(element => element.getClientRects().length > 0);
+      terminal?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [quickRuntimeFocus, quickOpen]);
   const focus = useCallback((id: string) => {
     const tab = stateRef.current.workspace.tabs.find((t) => paneIds(t.layout).includes(id));
     if (!tab) return;
@@ -950,6 +993,12 @@ export default function App() {
   );
   const conflicts = useMemo(() => shortcutConflicts(effectiveShortcuts), [effectiveShortcuts]);
   const commands: Command[] = [
+    { id: 'project-quick-open', label: '快速開啟專案分頁、Sessions 與檔案', disabled: !current,
+      run: () => setQuickOpen(true) },
+    { id: 'toggle-project-sessions', label: '顯示／隱藏專案 Sessions', disabled: !current,
+      run: () => setActiveActivity(activeActivity === 'sessions' ? null : 'sessions') },
+    { id: 'toggle-project-files', label: '顯示／隱藏專案 Files', disabled: !filesAvailable,
+      run: () => setActiveActivity(activeActivity === 'files' ? null : 'files') },
     {
       id: 'command-palette',
       label: '開啟命令面板',
@@ -1061,6 +1110,9 @@ export default function App() {
           c.shortcut && !c.disabled && !conflicts.has(c.id) && matchesShortcut(event, c.shortcut),
       );
       if (command) {
+        // Preserve the shell's previous-history chord on non-macOS terminals.
+        if (command.id === 'project-quick-open' && event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey &&
+          event.key.toLowerCase() === 'p' && event.target instanceof Element && event.target.matches('.xterm-helper-textarea')) return;
         if (command.id === 'toggle-focus-mode' && event.target instanceof Element &&
           event.target.closest('input, textarea, select, [contenteditable="true"]') &&
           !event.target.matches('.xterm-helper-textarea')) return;
@@ -1070,7 +1122,7 @@ export default function App() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => item.id === 'toggle-focus-mode');
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
@@ -1219,9 +1271,9 @@ export default function App() {
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
   const activities: ActivityContribution[] = [
-    { id: 'sessions', label: '歷史 Sessions', icon: History,
+    { id: 'sessions', label: '歷史 Sessions', icon: History, shortcut: conflicts.has('toggle-project-sessions') ? '' : effectiveShortcuts['toggle-project-sessions'],
       renderSidebar: () => <div className="activity-sessions-panel" ref={setHistorySidebarHost} /> },
-    { id: 'files', label: 'Files', icon: Files, buttonRef: filesToggle,
+    { id: 'files', label: 'Files', icon: Files, shortcut: conflicts.has('toggle-project-files') ? '' : effectiveShortcuts['toggle-project-files'], buttonRef: filesToggle,
       available: filesAvailable,
       renderSidebar: () => <div className="project-files-sidebar-host" ref={setFileSidebarHost} /> },
   ];
@@ -1559,6 +1611,7 @@ export default function App() {
                   style={{ display: view === 'history' ? undefined : 'none' }}
                 >
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
+                    openRequest={historyOpenRequest}
                     sidebarHost={current ? historySidebarHost : undefined}
                     scopeLabel={current?.name ?? '所有 Sessions'}
                     onSelectSession={() => { if (!current) setAllSessionsSearch(true); setView('history'); }}
@@ -1631,6 +1684,7 @@ export default function App() {
                 )}
                 </div>
                 {visitedFileProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <WorkspaceFiles key={id}
+                  onTabsChange={onFileTabsChange} openRequest={fileOpenRequest?.projectId === id ? fileOpenRequest : undefined}
                   sidebarSide="right" projectId={id} visible={current?.id === id} active={view === 'files' && current?.id === id}
                   sidebarVisible={current?.id === id && filesVisible} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
                   onActivate={() => setView('files')} onEmpty={() => {
@@ -1652,7 +1706,7 @@ export default function App() {
           )}
         </main>
         <div className="project-activity-tools" hidden={!current}>
-          <ActivityShell contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
+          <ActivityShell scopeKey={current?.id} contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
         </div>
       </div>
       <footer className={`statusbar${index.running || index.errors.length || index.cancelled || zoomError || themeSaving ? ' statusbar-important' : ''}`}>
@@ -1951,6 +2005,24 @@ export default function App() {
           </div>
         </Dialog>
       )}
+      {quickOpen && current && <Dialog title={`快速開啟 · ${current.name}`} onClose={() => setQuickOpen(false)}>
+        <ProjectQuickSwitcher projectId={current.id}
+          openedSessionIds={workspace.tabs.filter(tab => tab.projectId === current.id).flatMap(tab => paneIds(tab.layout).flatMap(id => [workspace.panes[id]?.sessionId ?? '', workspace.panes[id]?.resumeId ? `${workspace.panes[id].kind}:${workspace.panes[id].resumeId}` : ''].filter(Boolean)))}
+          opened={[
+            ...workspace.tabs.filter(tab => tab.projectId === current.id).map(tab => ({
+              id: `runtime:${tab.id}`, label: <>{workspace.panes[tab.focusedPaneId]?.kind && workspace.panes[tab.focusedPaneId].kind !== 'shell' ? <AgentIcon kind={workspace.panes[tab.focusedPaneId].kind as AgentKind} /> : <TerminalSquare size={15} aria-hidden="true" />}{tab.name}</>,
+              search: `${tab.name} ${paneIds(tab.layout).map(id => workspace.panes[id]?.title ?? '').join(' ')}`,
+              detail: <small>已開啟 · {paneIds(tab.layout).some(id => workspace.panes[id]?.kind !== 'shell') ? 'Agent' : 'Terminal'}</small>,
+              run: () => { setQuickOpen(false); focus(tab.focusedPaneId); setQuickRuntimeFocus({ paneId: tab.focusedPaneId, nonce: ++quickRequestNonce.current }); },
+            })),
+            ...(filePaths[current.id] ?? []).map(path => ({
+              id: `file:${path}`, label: <><FileIcon path={path} />{path}</>, search: path, detail: <small>已開啟 · 檔案</small>,
+              run: () => { setQuickOpen(false); setFileOpenRequest({ projectId: current.id, path, nonce: ++quickRequestNonce.current }); },
+            })),
+          ]}
+          onOpenFile={path => { setQuickOpen(false); setFileOpenRequest({ projectId: current.id, path, nonce: ++quickRequestNonce.current }); }}
+          onOpenSession={session => { setQuickOpen(false); setHistoryOpenRequest({ session, nonce: ++quickRequestNonce.current }); setView('history'); showSessions(); }} />
+      </Dialog>}
       {palette && (
         <Dialog title="命令面板" onClose={closePalette}>
           {paletteTheme && settings ? <CommandThemePicker key={paletteTheme} target={paletteTheme}

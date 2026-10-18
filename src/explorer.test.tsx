@@ -136,11 +136,8 @@ it('closes active last file only, scopes shortcuts, and supports keyboard resizi
   const tab = screen.getByRole('tab', { name: /b.txt/ }); tab.focus();
   fireEvent.keyDown(tab, { key: 'ArrowLeft', altKey: true });
   expect(screen.getAllByRole('tab')[0]).toBe(tab); expect(tab).toHaveFocus();
-  const separator = screen.getByRole('separator');
-  fireEvent.keyDown(separator, { key: 'ArrowRight' });
-  expect(separator).toHaveAttribute('aria-valuenow', '256');
-  fireEvent.keyDown(separator, { key: 'Home' });
-  expect(separator).toHaveAttribute('aria-valuenow', '160');
+  // Shared ActivityShell owns resizing; the Files contribution must not duplicate it.
+  expect(screen.queryByRole('separator')).not.toBeInTheDocument();
   fireEvent.keyDown(document.querySelector('[data-file-explorer]')!, { key: 'w', ctrlKey: true });
   expect(screen.getAllByRole('tab')).toHaveLength(1); expect(empty).not.toHaveBeenCalled();
   fireEvent.keyDown(document.querySelector('[data-file-explorer]')!, { key: 'w', metaKey: true });

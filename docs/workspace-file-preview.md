@@ -9,7 +9,7 @@
 - 單擊替換未固定的預覽 tab，雙擊固定，同專案相對路徑去重；上限 20 檔。每專案保留獨立目錄、開檔、快取及捲動位置，切換工作分頁、側欄與專注模式不清除。關閉 tab 釋放該檔快取；不持久化檔案內容，重開應用不恢復檔案 tabs。
 - 檔案 tabs 與 Runtime tabs 共用一列，但各自在自身群組內排序。檔案圖示與斜體預覽名稱可區別，雙擊檔案 tab 可固定；Alt＋左右方向鍵或拖曳可重排。拖曳只帶無路徑的內部 MIME，不能變成 Terminal 輸入。
 - Cmd／Ctrl＋數字、Ctrl＋PageUp／PageDown 等既有工作分頁捷徑包含檔案。Cmd＋W／原生關閉目前分頁在檔案檢視只關檔案，不影響 Runtime；Ctrl＋W 在檔案檢視亦適用，Terminal 原有 Ctrl＋W 不改。組字與對話框會阻擋關閉。
-- 目錄內 Esc 收合側欄並回 Files 開關；不關文件。目錄分隔線可拖曳、方向鍵調整，Home／End 到寬度上下限；不提供額外寬度選單。無圓角與額外最大化層。
+- 目錄內 Esc 收合側欄並回 Files 開關；不關文件。共用 ActivityShell 分隔線可拖曳、方向鍵調整，Home／End 到寬度上下限；不提供額外寬度選單。無圓角與額外最大化層。
 - 預覽使用可選取的純文字 `<pre><code>`，可搜尋及捲動長行。HTML／Markdown 不渲染、不執行；沒有編輯、儲存、刪除或外部開啟。
 
 ## 安全與容量
@@ -41,3 +41,8 @@ Windows 使用 `NtCreateFile(RootDirectory)` 單元件相對開啟及 `FILE_OPEN
 Files 文件、history 對話預覽與 workspace 是中央並列顯示狀態，獨立於 Activity Bar 的側欄選擇。App 擁有各專案 Files 的存續與共用 hosts；WorkspaceCanvas 僅保有 Terminal surface，檔案元件用 portal 放入同列 tabs、右側樹與主文件區，不以 portal 重新掛載 Terminal。分割拖曳仍以 Terminal surface 實際大小計算。
 
 Files 重整未改 Rust、IPC、權限、檔案根或 Runtime schema。2026-10-17 GitHub Actions 已通過新版 Files 8 項及專注模式 16 項瀏覽器回歸，並實際檢視正常／專注模式、深淺主題、窄寬視窗與零 Runtime 截圖；本機雲端 Chromium 啟動限制未繞過。上述瀏覽器及 Windows 舊版通過紀錄不代表重整版已完成原生驗收。整合 Session 清單漸進載入後仍須重新通過完整 CI。
+
+
+## 專案快速開啟
+
+Cmd+P／非終端區 Ctrl+P 同時搜尋已開分頁、索引中的歷史 Sessions 及未展開目錄的檔案路徑。檔名搜尋只讀目錄 metadata，不讀內容；隱藏檔納入，排除 .git、node_modules、target、dist、符號連結與多重硬連結。相對路徑包含比對不分大小寫。最多 50 筆結果、20,000 entries、32 層與 250 ms cooperative budget（不保證單次 filesystem call 的硬性超時），截斷會顯示範圍提示。結果為有界子集合的路徑排序；未保證全專案完整排名。既有檔案 tab 原位聚焦，未開檔案建立固定唯讀 tab；20 tabs 與 256 KiB 預覽限制不變。

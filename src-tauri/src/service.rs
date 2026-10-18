@@ -2,7 +2,10 @@ use crate::{
     broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
-    models::{AgentKind, IndexStatus, Project, WorkspaceFilePage, WorkspaceFilePreview},
+    models::{
+        AgentKind, IndexStatus, Project, WorkspaceFilePage, WorkspaceFilePreview,
+        WorkspaceFileSearch,
+    },
     runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent},
     workspace_files,
 };
@@ -132,6 +135,14 @@ impl Service {
     ) -> Result<WorkspaceFilePage, String> {
         let root = self.catalog.workspace_root(project_id)?;
         workspace_files::list(&root, path, offset, show_hidden)
+    }
+    pub fn search_workspace_files(
+        &self,
+        project_id: &str,
+        query: &str,
+    ) -> Result<WorkspaceFileSearch, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::search(&root, query)
     }
     pub fn read_workspace_file(
         &self,

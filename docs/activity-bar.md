@@ -8,6 +8,8 @@
 
 同次開啟期間，各專案保留中央檔案／Terminal／歷史檢視，以及各自正常／專注模式的工具選取。首次進入沒有工作分頁的專案預設開啟歷史；已有工作分頁則顯示 Terminal，工具收合。專注模式隱藏左側導航，右側工具預設收合，可明確展開；切回正常模式恢復正常工具狀態，中央工作不變。已訪問工具保留掛載，歷史的篩選、選取與分頁快取按專案保存。
 
+面板使用同一外框與左側分隔線，Sessions／Files／未來 contribution 不得自行設定不同寬度。拖曳或左右鍵每次 16px 調整，Home／End 到界限；每專案在本次開啟期間記住偏好，正常／Zen 共用，視窗變窄時夾限並保留原偏好。
+
 功能列可用 Tab、Enter／Space 操作；上下鍵、Home／End 移動焦點。高度不足時顯示「更多功能」選單，保留所選功能標記與可用性。選單支援上下鍵、Home／End 及 Escape 返回入口。
 
 ## 新增內部功能
@@ -18,6 +20,7 @@
 const contribution: ActivityContribution = {
   id: 'example', // 穩定且唯一，不使用顯示名稱當 identity。
   label: '範例',
+  shortcut: effectiveShortcut, // 可省略；傳入已檢查衝突的目前設定值。
   icon: ExampleIcon,
   available: true,
   badge: 3,
@@ -35,3 +38,5 @@ const contribution: ActivityContribution = {
 ## 驗證界線
 
 瀏覽器 fixture 使用合成專案與 Session，不讀取私人歷史。新增 UI 必須檢查 720／1200／1440 寬度、深淺主題、正常與專注模式、左導航／右工具收合後的 Terminal 邊界與總覽零空白佔位，以及短高度篩選。瀏覽器驗證不能替代原生 WebView、實體 IME 或跨平台驗收。
+
+快捷鍵預設 Sessions 為 Mod+Shift+H、Files 為 Mod+Shift+L，設定可變更或停用。圖示 hover／focus 顯示名稱及有效快捷鍵，Escape 關閉 tooltip；overflow 保留組合文字。無 Runtime 與檔案 tabs 時預設 Sessions；關閉最後分頁亦回歷史，但不強制重開使用者已明確收合的工具。

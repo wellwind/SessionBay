@@ -73,7 +73,9 @@ export function HistoryView({
   sidebarHost,
   scopeLabel,
   onSelectSession,
+  openRequest,
 }: {
+  openRequest?: { session: Session; nonce: number };
   sidebarHost?: HTMLDivElement | null;
   scopeLabel?: string;
   onSelectSession?: () => void;
@@ -151,10 +153,17 @@ export function HistoryView({
   const selection = selections[key] ?? null;
   const setSelected = (value: Session | null | ((previous: Session | null) => Session | null)) =>
     setSelections(previous => ({ ...previous, [key]: typeof value === 'function' ? value(previous[key] ?? null) : value }));
-  const selected = page.items.find(item => item.id === selection?.id) ?? page.items[0] ?? null;
+  const selected = page.items.find(item => item.id === selection?.id) ?? (openRequest && openRequest.session.projectId === projectId && selection?.id === openRequest.session.id ? selection : page.items[0]) ?? null;
   const [previews, setPreviews] = useState<Record<string, boolean>>({});
   const previewOpen = previews[key] ?? true;
   const setPreviewOpen = (open: boolean) => setPreviews(previous => ({ ...previous, [key]: open }));
+  const consumedOpenRequest = useRef<typeof openRequest>(undefined);
+  useEffect(() => {
+    if (!openRequest || consumedOpenRequest.current === openRequest || openRequest.session.projectId !== projectId) return;
+    consumedOpenRequest.current = openRequest;
+    setSelections(previous => ({ ...previous, [key]: openRequest.session }));
+    setPreviews(previous => ({ ...previous, [key]: true }));
+  }, [openRequest, projectId, key]);
   const [moreFilters, setMoreFilters] = useState(false);
   const [dateReset, setDateReset] = useState(0);
   const selectedSessionId = selected?.id;

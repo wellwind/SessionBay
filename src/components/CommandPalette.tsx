@@ -12,13 +12,14 @@ export interface PaletteOption {
   run: () => void;
 }
 
-export function CommandPalette({ options, query, onQueryChange }: {
+export function CommandPalette({ options, query, onQueryChange, label = '搜尋命令或專案', placeholder = '輸入命令或專案名稱…', listLabel = '命令與專案', emptyLabel = '沒有符合的命令或專案' }: {
+  label?: string; placeholder?: string; listLabel?: string; emptyLabel?: string;
   options: PaletteOption[]; query: string; onQueryChange: (query: string) => void;
 }) {
   const listId = useId();
   const composing = useRef(false);
   const [selection, setSelection] = useState<{ query: string; id: string } | null>(null);
-  const filtered = options.filter(option => option.search.toLowerCase().includes(query.toLowerCase()));
+  const filtered = options.filter(option => option.search.toLowerCase().includes(query.trim().toLowerCase()));
   const enabled = filtered.filter(option => !option.disabled);
   const selected = enabled.find(option => selection?.query === query && option.id === selection.id) ?? enabled[0];
   const activeId = selected ? `${listId}-${selected.id}` : undefined;
@@ -28,7 +29,7 @@ export function CommandPalette({ options, query, onQueryChange }: {
   return <div className="command-palette">
     <div className="palette-input search-field">
       <Search size={18} />
-      <input autoFocus role="combobox" aria-label="搜尋命令或專案" placeholder="輸入命令或專案名稱…"
+      <input autoFocus role="combobox" aria-label={label} placeholder={placeholder}
         aria-expanded="true" aria-controls={listId} aria-autocomplete="list"
         aria-activedescendant={activeId} aria-describedby={`${listId}-help`} value={query}
         onCompositionStart={() => { composing.current = true; }}
@@ -56,7 +57,7 @@ export function CommandPalette({ options, query, onQueryChange }: {
         }} />
     </div>
     <p id={`${listId}-help`} className="palette-help">↑／↓ 選取；Enter 執行；Escape 關閉</p>
-    <div role="listbox" aria-label="命令與專案" id={listId} className="palette-results">
+    <div role="listbox" aria-label={listLabel} id={listId} className="palette-results">
       {filtered.map(option => <button type="button" role="option" key={option.id} id={`${listId}-${option.id}`}
         tabIndex={-1} disabled={option.disabled} aria-disabled={option.disabled || undefined}
         aria-selected={option.id === selected?.id}
@@ -66,7 +67,7 @@ export function CommandPalette({ options, query, onQueryChange }: {
         onClick={() => { if (!option.disabled) option.run(); }}>
         <span>{option.label}</span>{option.detail}
       </button>)}
-      {!filtered.length && <p role="status">沒有符合的命令或專案</p>}
+      {!filtered.length && <p role="status">{emptyLabel}</p>}
     </div>
   </div>;
 }
