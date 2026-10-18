@@ -127,3 +127,14 @@ it('unknown descriptions preserve the visible tab name and its accessible name',
   expect(button.querySelector('.workspace-tab-name')).toHaveTextContent(/^Work$/);
   expect(button).toHaveAccessibleDescription(expect.stringContaining('已開啟'));
 });
+
+
+it('places known project-tree status after the name without a leading placeholder', async () => {
+  const { ProjectRuntimeTabs } = await import('./components/ProjectRuntimeTabs');
+  const view = render(<ProjectRuntimeTabs tabs={[tab]} panes={{ p: { ...pane, state: 'exited' } }} onFocus={vi.fn()} projectName="Project" />);
+  const name = view.container.querySelector('.project-runtime-name')!;
+  expect(name.compareDocumentPosition(screen.getByRole('img')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  view.rerender(<ProjectRuntimeTabs tabs={[tab]} panes={{ p: pane }} onFocus={vi.fn()} projectName="Project" />);
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  expect(screen.getByRole('button')).toHaveAccessibleDescription(expect.stringContaining('已開啟'));
+});

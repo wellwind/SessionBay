@@ -46,7 +46,7 @@ export function RuntimeActivityIndicator({ tab, panes, id }: { tab: WorkspaceTab
   const Icon = attention ? OctagonAlert : ended ? CheckCircle2 : connecting ? LoaderCircle : disconnected ? Unplug : permission ? Hand : input ? MessageCircle : busy ? LoaderCircle : idle ? CheckCircle2 : observation ? Activity : null;
   // Keep lifecycle descriptions available without inventing an unknown activity icon.
   if (!Icon && !recent && !unread) return <span id={id} className="organization-sr-only">{label}</span>;
-  return <span id={id} className={`runtime-activity${attention || permission || input ? ' attention' : ''}${busy && !attention && !disconnected && !permission && !input ? ' agent-working' : ''}`} role="img" aria-label={label} title={label}>
+  return <span id={id} className={`runtime-activity${!Icon ? ' output-only' : ''}${attention || permission || input ? ' attention' : ''}${busy && !attention && !disconnected && !permission && !input ? ' agent-working' : ''}`} role="img" aria-label={label} title={label}>
     {Icon && <Icon size={12} aria-hidden="true" className={(connecting || busy) && !attention && !ended && !disconnected && !permission && !input ? 'runtime-connecting' : undefined} />}
     {(recent || unread) && <span aria-hidden="true" className={`runtime-output-dot${recent ? ' recent' : ''}${unread ? ' unread' : ''}`} />}
   </span>;

@@ -28,9 +28,9 @@
 
 .project-runtime-tabs button.active:hover { background: var(--interaction-selected-hover, var(--surface-hover)); }
 .project-runtime-tabs button.active strong { color: var(--accent); }
-.runtime-activity { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; color: var(--muted); }
+.runtime-activity { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; color: var(--muted); }
 .runtime-activity.attention { color: var(--warning); }
-.runtime-activity .runtime-output-dot { display: block; flex: none; padding: 0; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .25; transition: opacity .35s ease; }
+.runtime-activity .runtime-output-dot { position: absolute; top: -2px; right: -2px; display: block; flex: none; padding: 0; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .25; transition: opacity .35s ease; }
 .runtime-output-dot.recent, .runtime-output-dot.unread { color: var(--accent); opacity: 1; }
 .runtime-output-dot.recent { animation: runtime-output-pulse 1s ease-in-out infinite; }
 .runtime-connecting { animation: runtime-connecting-spin 1s linear infinite; }
@@ -50,3 +50,8 @@
 .sidebar .project-search { flex-shrink: 0; }
 
 .runtime-activity.agent-working { color: var(--accent); }
+
+/* Output is an overlay, never an extra flex column or reserved gutter. */
+.project-runtime-tabs button, .workspace-tab-select { position: relative; }
+.runtime-activity.output-only { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; pointer-events: none; }
+.runtime-activity.output-only .runtime-output-dot { top: 0; right: 0; }
