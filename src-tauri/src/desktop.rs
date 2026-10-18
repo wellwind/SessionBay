@@ -3,9 +3,9 @@ use crate::{
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
     models::{
-        AgentKind, IndexStatus, Project, RemovalInspection, SessionPage, SessionQuery, TranscriptPage,
-        TrashPage, WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage, WorkspaceFilePreview,
-        WorkspaceFileSearch,
+        AgentKind, IndexStatus, Project, RemovalInspection, SessionPage, SessionQuery,
+        TranscriptPage, TrashPage, WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage,
+        WorkspaceFilePreview, WorkspaceFileSearch,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
