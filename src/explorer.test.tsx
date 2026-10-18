@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FilesTestHost as WorkspaceFiles } from './test/FilesTestHost';
 import { ExplorerEditor } from './components/ExplorerEditor';
-import { emptyFileTabs, fileTabsReducer, highlightLine, literalMatches } from './components/explorer-model';
+import { emptyFileTabs, fileTabsReducer, monacoLanguage } from './components/explorer-model';
 import { api } from './api';
+import { monaco, models, widgets, onPreviewError } from './test/monaco-preview-mock';
+vi.mock('./components/monaco-preview', () => ({ monaco, onPreviewError }));
 vi.mock('./api', () => ({ api: { listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn() }, errorMessage: String }));
 const files = ['a.ts', 'b.txt', 'c.json'];
 beforeEach(() => {
@@ -26,13 +28,11 @@ describe('bounded file tab state', () => {
     state = fileTabsReducer(state, { type: 'close', path: '18' });
     expect(state.active).toBe('second');
   });
-  it('never interprets markup/regex and bounds highlighting/search work', () => {
-    const source = '<script>"<&"</script> // comment';
-    expect(highlightLine(source, 'HTML').map(token => token.text).join('')).toBe(source);
-    expect(highlightLine('x'.repeat(10000), 'TypeScript')).toHaveLength(1);
-    expect(literalMatches('a.*\na.*', '.*')).toEqual([1, 5]);
-    expect(literalMatches('x'.repeat(250000), 'x')).toHaveLength(10000);
-    expect(literalMatches('a\nb', 'a\nb')).toEqual([0]);
+  it('maps language extensions and unknown content safely', () => {
+    expect(monacoLanguage('src/Page.tsx')).toBe('typescript');
+    expect(monacoLanguage('Windows\\SCRIPT.PS1')).toBe('powershell');
+    expect(monacoLanguage('Dockerfile')).toBe('dockerfile');
+    expect(monacoLanguage('unknown.data')).toBe('plaintext');
   });
 });
 it('pins on double click, keeps tabs separate, closes through focused native route', async () => {
@@ -44,7 +44,7 @@ it('pins on double click, keeps tabs separate, closes through focused native rou
   const tab = screen.getByRole('tab', { name: /b.txt/ }); tab.focus();
   act(() => { document.querySelector('[data-file-explorer]')!.dispatchEvent(new Event('explorer-close-file')); });
   expect(screen.queryByRole('tab', { name: /b.txt/ })).not.toBeInTheDocument();
-  expect(await screen.findByLabelText('唯讀內容：a.ts')).toHaveTextContent('content a.ts');
+  await waitFor(() => expect(screen.getByLabelText('唯讀內容：a.ts')).toHaveTextContent('content a.ts'));
   view.rerender(<WorkspaceFiles projectId="two" />);
   await screen.findByRole('button', { name: 'a.ts' });
   expect(screen.queryByRole('tab')).not.toBeInTheDocument();
@@ -81,21 +81,21 @@ it('navigates lazy tree and exposes keyboard context-copy with failure feedback'
   fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' }); expect(child).toHaveFocus();
   expect(api.readWorkspaceFile).not.toHaveBeenCalled();
 });
-it('virtualizes large text, searches all lines and copies exact full text safely', async () => {
+it('creates a read-only model, copies exact text and releases editor/model on close', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
-  const text = Array.from({ length: 10000 }, (_, index) => `const value = ${index};`).join('\n') + '\n<script>never()</script>';
-  const view = render(<ExplorerEditor path="large.ts" text={text} sizeBytes={text.length} position={{ top: 0, left: 0 }} onScroll={vi.fn()} searchRequest={0} />);
-  expect(view.container.querySelectorAll('[data-line]').length).toBeLessThan(100);
-  fireEvent.click(screen.getByRole('button', { name: '檔案內搜尋' }));
-  fireEvent.change(screen.getByRole('textbox', { name: /搜尋文字/ }), { target: { value: '9999' } });
-  expect(await screen.findByText('9999', { selector: 'mark' })).toHaveClass('current-match');
+  const text = '<script>never()</script>\n中文';
+  const save = vi.fn();
+  const view = render(<ExplorerEditor path="large.ts" text={text} sizeBytes={text.length} position={{ top: 60, left: 10 }} onScroll={save} searchRequest={0} />);
+  await waitFor(() => expect(screen.getByRole('button', { name: '檔案內搜尋' })).toBeEnabled());
+  expect(monaco.editor.create).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({ readOnly: true, domReadOnly: true, links: false }));
   expect(view.container.querySelector('script')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '複製檔案全文' }));
   await waitFor(() => expect(writeText).toHaveBeenCalledWith(text));
-  fireEvent.keyDown(screen.getByRole('textbox', { name: /搜尋文字/ }), { key: 'Escape' });
-  expect(screen.getByLabelText('唯讀內容：large.ts')).toHaveFocus();
-  expect(within(view.container).queryByRole('search')).not.toBeInTheDocument();
+  const model = models.at(-1)!; const widget = widgets.at(-1)!;
+  view.unmount();
+  expect(model.dispose).toHaveBeenCalledOnce(); expect(widget.dispose).toHaveBeenCalledOnce();
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ top: 60, left: 10, viewState: expect.any(Object) }));
 });
 it('keeps tree focus, preserves document when sidebar collapses, and restores it across views', async () => {
   const activate = vi.fn();
@@ -105,6 +105,7 @@ it('keeps tree focus, preserves document when sidebar collapses, and restores it
   const content = await screen.findByLabelText('唯讀內容：a.ts');
   expect(row).toHaveFocus(); expect(activate).toHaveBeenCalledOnce();
   content.scrollTop = 160; fireEvent.scroll(content);
+  await waitFor(() => expect(screen.getByRole('button', { name: '檔案內搜尋' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: '檔案內搜尋' }));
   fireEvent.change(screen.getByRole('textbox', { name: /搜尋文字/ }), { target: { value: 'content' } });
   view.rerender(<WorkspaceFiles projectId="one" sidebarVisible={false} />);

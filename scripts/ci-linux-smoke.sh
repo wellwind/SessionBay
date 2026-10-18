@@ -134,6 +134,7 @@ cleanup() { smoke_stop; rm -rf "$temporary"; }
 trap cleanup EXIT
 # Xvfb software compositing changes graphics only, never sandboxing.
 export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export SESSIONBAY_SMOKE_MONACO=1
 
 capture() {
   local name="$1" colors
@@ -177,9 +178,10 @@ for scenario in empty dark light; do
     done
     smoke_wait_marker interaction
   fi
+  smoke_wait_marker interaction monaco-worker-readonly-disposal
   smoke_alive
   smoke_stop
 done
 cp "$output/dark-app.log" "$output/app.log"
 cp "$output/sessionbay-projects-dark.png" "$output/sessionbay-linux.png"
-printf 'Native Linux WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nCaptured 10 real UI states: Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar in both themes.\nAll ready/interaction markers were required; snapshot markers were allowlisted and screenshots checked for nonblank paint.\nPNG visual review is still required. This does not verify IME, real CLI resume, terminal interaction, or macOS pixels.\n' | tee "$output/result.txt"
+printf 'Native Linux WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nCaptured 10 real UI states: Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar in both themes.\nAll ready/interaction markers were required; snapshot markers were allowlisted and screenshots checked for nonblank paint.\nMonaco bundled JSON worker replied under native WebKit CSP; readonly typing and model disposal passed in each scenario.\nPNG visual review is still required. This does not verify IME, real CLI resume, terminal interaction, or macOS pixels.\n' | tee "$output/result.txt"
