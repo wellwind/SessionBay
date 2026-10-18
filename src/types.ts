@@ -238,6 +238,10 @@ export interface WorkspaceFilePage {
   entries: WorkspaceFileEntry[];
   nextOffset: number | null;
 }
+export interface WorkspaceFileSearch {
+  paths: string[];
+  truncated: boolean;
+}
 export interface WorkspaceFilePreview {
   path: string;
   text: string;

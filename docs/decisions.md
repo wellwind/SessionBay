@@ -775,3 +775,11 @@ PNG／JPEG／GIF／WebP 依內容簽章辨識，由後端以有界來源大小�
 舊 broker 不支援 hooks 時，能力檢查在 Launch IPC 之前拒絕，屬於「確定未啟動」，不能顯示可能已在背景啟動或要求結束既有工作。Fresh launch 在保存不確定請求之前先做本地能力 preflight；只有真正送出後遺失回覆才走不重送／重新查詢流程。舊 broker 使用者可明確關閉該工具 hooks、儲存後手動新開無活動回報的 Agent。此 hotfix 不自動 fallback、停止舊 Agent 或切換 broker owner。
 
 尚無活動來源的平台（目前 Windows）保留啟用偏好，但只執行原本 CLI，不附加 hook route，活動維持未知；不能因預設 true 阻擋原有跨平台啟動。這在送出任何 launch 前決定，並非失敗後重試。
+
+## 2026-10-18：專案快速開啟與共用工具面板
+
+Cmd+P（非 macOS 的非終端區域為 Ctrl+P）在目前專案搜尋已開啟的檔案／Agent／Terminal 分頁、未開啟的索引 Sessions 與專案相對檔案路徑。已開分頁以穩定身分聚焦，不重啟程序或複製分頁；歷史結果只預覽，接續仍須明確操作。保留 Cmd+Shift+P 命令面板、IME 與對話框防護；Linux／Windows 終端的 Ctrl+P 保留給 Shell。
+
+右側工具由同一個可調寬外框承載，Sessions／Files 使用同一分隔線，按專案記住本次執行期間偏好；正常／Zen 共用寬度，收合不佔空間。所有圖示提供 hover／focus tooltip，顯示目前有效快捷鍵。Sessions／Files 預設 Mod+Shift+H／Mod+Shift+L，可改綁或停用；衝突時不顯示失效組合。無工作分頁預設 Sessions，關閉最後一個檔案及 Runtime 分頁亦回到歷史；尊重已明確收合工具的使用者。
+
+檔名搜尋不掃描內容，以既有安全 descriptor／handle 路徑政策讀取未展開子目錄，含隱藏檔，排除 .git、node_modules、target、dist、符號連結與多重硬連結。每次最多 50 結果／20,000 entries／32 層／250 ms cooperative budget；單次 filesystem call 不能保證硬性時間上限。上限內子集合按路徑排序，非完整全域排名；截斷會提示。Sessions 每次最多最近 40 筆，需以關鍵字縮小範圍。唯讀預覽沿用目前的大檔分級讀取與受限圖片策略，詳見 [大型文字檔閱讀](large-file-reading.md) 與 [圖片預覽](file-image-preview.md)；檔名搜尋不放寬各類型的資源與安全限制。

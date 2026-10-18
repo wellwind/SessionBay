@@ -208,9 +208,18 @@ test('explicit session and file selection changes center while activity icons pr
   await expect(document).toBeVisible();
   await expect(document.locator('.view-line').first()).toBeVisible();
   await document.focus();
-  await page.keyboard.press('Control+End');
-  await expect.poll(() => document.locator('.lines-content').getAttribute('style')).toMatch(/top:\s*-/);
-  const fileScroll = await document.locator('.lines-content').getAttribute('style');
+  // Exercise retention away from the bottom: panel/layout changes can alter
+  // Monaco's viewport height and legitimately clamp a bottom scroll offset.
+  await page.keyboard.press('Control+Home');
+  for (let index = 0; index < 4; index += 1) await page.keyboard.press('PageDown');
+  const readOffsets = () => document.locator('.lines-content').evaluate(node => ({
+    top: Number.parseFloat((node as HTMLElement).style.top),
+    left: Number.parseFloat((node as HTMLElement).style.left),
+  }));
+  await expect.poll(async () => (await readOffsets()).top).toBeLessThan(-1000);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const fileScroll = await readOffsets();
+  const anchorText = await document.locator('.view-line').nth(10).innerText();
   await sessionsButton(page).click();
   await expect(document).toBeVisible();
   await expect(page.locator('.history-mount')).toBeHidden();
@@ -218,7 +227,11 @@ test('explicit session and file selection changes center while activity icons pr
   await expect(sessionsPanel(page)).toBeHidden();
   await expect(document).toBeVisible();
   await filesButton(page).click();
-  await expect.poll(() => document.locator('.lines-content').getAttribute('style')).toBe(fileScroll);
+  await expect.poll(async () => {
+    const restored = await readOffsets();
+    return Math.max(Math.abs(restored.top - fileScroll.top), Math.abs(restored.left - fileScroll.left));
+  }).toBeLessThanOrEqual(1);
+  await expect(document.locator('.view-line').filter({ hasText: anchorText }).first()).toBeInViewport();
   await page.locator('.workspace-tab-select').click();
   await expect(page.locator('.xterm-screen')).toBeVisible();
   await expectRuntimePreserved(page);
@@ -389,4 +402,95 @@ test('a project without runtime or history opens Sessions and can browse Files w
   await expect(filesButton(page)).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByLabel('唯讀內容：README.md')).toBeVisible();
   expect((await calls(page)).filter(call => ['launch_runtime', 'stop_runtime', 'forget_runtime'].includes(call.command))).toEqual([]);
+});
+
+
+test('shared panel width survives feature/project switches and Zen, with accessible tooltips', async ({ page }, info) => {
+  await openWorkspace(page);
+  const shell = page.locator('.activity-panel-shell');
+  const resize = page.getByRole('separator', { name: '調整功能面板寬度' });
+  await resize.focus();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowLeft');
+  await expect(resize).toHaveAttribute('aria-valuenow', '176');
+  const handle = (await resize.boundingBox())!;
+  await page.mouse.move(handle.x + 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x - 142, handle.y + handle.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(resize).toHaveAttribute('aria-valuenow', '320');
+  const width = (await shell.boundingBox())!.width;
+  await expectAdjacentSurfaces(page, 'sessions');
+  await filesButton(page).click();
+  expect((await shell.boundingBox())!.width).toBe(width);
+  await expectAdjacentSurfaces(page, 'files');
+  await expect(page.getByRole('separator')).toHaveCount(1);
+  await filesButton(page).click();
+  await expect(shell).toBeHidden();
+  await sessionsButton(page).click();
+  expect((await shell.boundingBox())!.width).toBe(width);
+  await selectProject(page, 'Synthetic other');
+  await resize.focus();
+  await page.keyboard.press('Home');
+  await expect(resize).toHaveAttribute('aria-valuenow', '160');
+  await selectProject(page, 'Synthetic focus');
+  await expect(resize).toHaveAttribute('aria-valuenow', '320');
+  await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+  await sessionsButton(page).click();
+  expect((await shell.boundingBox())!.width).toBe(width);
+  await resize.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(resize).toHaveAttribute('aria-valuenow', '336');
+  await page.screenshot({ path: info.outputPath('shared-panel-zen-resized.png'), fullPage: true });
+  await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
+  await expect(resize).toHaveAttribute('aria-valuenow', '336');
+  await expectAdjacentSurfaces(page, 'sessions');
+  await filesButton(page).focus();
+  const tooltip = page.getByRole('tooltip');
+  await expect(tooltip).toContainText('Files');
+  await expect(tooltip.locator('kbd')).not.toBeEmpty();
+  await expect(tooltip).toBeInViewport();
+  await page.screenshot({ path: info.outputPath('shared-panel-normal-tooltip.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  await page.setViewportSize({ width: 720, height: 600 });
+  await expect(resize).toHaveAttribute('aria-valuenow', '280');
+  await expectAdjacentSurfaces(page, 'sessions');
+  await filesButton(page).click();
+  await expectAdjacentSurfaces(page, 'files');
+  await page.screenshot({ path: info.outputPath('shared-panel-narrow-files.png'), fullPage: true });
+  await page.setViewportSize({ width: 1200, height: 850 });
+  await expect(resize).toHaveAttribute('aria-valuenow', '336');
+  await expectRuntimePreserved(page);
+});
+
+test('quick-open focuses existing runtime and opens unloaded files and out-of-page Sessions without launching', async ({ page }, info) => {
+  await openWorkspace(page);
+  // Linux Ctrl+P remains shell history; invoke app quick-open from project chrome.
+  await filesButton(page).focus();
+  await page.keyboard.press('Control+p');
+  const picker = page.getByRole('dialog', { name: /快速開啟/ });
+  await expect(picker).toBeVisible();
+  await picker.getByRole('option', { name: /Focus shell/ }).click();
+  await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+  await filesButton(page).focus();
+  await page.keyboard.press('Control+p');
+  await picker.getByRole('combobox').press('Escape');
+  await expect(filesButton(page)).toBeFocused();
+  await page.waitForTimeout(50);
+  await expect(filesButton(page)).toBeFocused();
+  await page.keyboard.press('Control+p');
+  await picker.getByRole('combobox').fill('unvisited.ts ');
+  await expect(picker.getByRole('option', { name: /deep\/unvisited.ts/ })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('quick-open-unopened-file.png'), fullPage: true });
+  await picker.getByRole('combobox').press('Enter');
+  await expect(page.getByRole('tab', { name: /unvisited.ts/ })).toBeFocused();
+  await expect(page.getByLabel('唯讀內容：deep/unvisited.ts')).toBeVisible();
+  await page.keyboard.press('Control+p');
+  await picker.getByRole('combobox').fill('session 79');
+  await expect(picker.getByRole('option', { name: /Synthetic focus session 79/ })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('quick-open-unopened-session.png'), fullPage: true });
+  await picker.getByRole('combobox').press('Enter');
+  await expect(page.getByText('Synthetic transcript project-focus-session-79 message 59')).toBeVisible();
+  await expectRuntimePreserved(page);
 });

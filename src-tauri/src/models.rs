@@ -121,6 +121,13 @@ pub struct WorkspaceFilePage {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileSearch {
+    pub paths: Vec<String>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceFilePreview {
     pub path: String,
     pub text: String,

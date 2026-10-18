@@ -37,6 +37,8 @@ vi.mock('./api', () => ({
   api: {
     bootstrap: vi.fn(),
     listWorkspaceFiles: vi.fn(),
+    searchWorkspaceFiles: vi.fn().mockResolvedValue({ paths: [], truncated: false }),
+    sessions: vi.fn().mockResolvedValue({ items: [], total: 0, catalogRevision: "test" }),
     scan: vi.fn(),
     index: vi.fn(),
     projects: vi.fn(),
@@ -3476,4 +3478,34 @@ it('preserves persisted sidebar section preferences across focus controls reveal
   expect(localStorage.getItem('sessionbay.sidebar.v1')).toBe(preferences);
   expect(api.stop).not.toHaveBeenCalled();
   expect(api.launch).not.toHaveBeenCalled();
+});
+
+
+it('scopes quick-open to a project, preserves IME and leaves command palette separate', async () => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  const boot = bootstrap(); boot.projects[0].curated = true; vi.mocked(api.bootstrap).mockResolvedValue(boot); vi.mocked(api.projects).mockResolvedValue(boot.projects);
+  render(<App />); await tick();
+  fireEvent.keyDown(window, { key: 'p', ctrlKey: true });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  selectGroup(); await tick();
+  fireEvent.keyDown(window, { key: 'p', ctrlKey: true, isComposing: true });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  const files = screen.getByRole('button', { name: 'Files' }); files.focus();
+  fireEvent.keyDown(files, { key: 'p', ctrlKey: true }); await tick(200);
+  expect(screen.getByRole('dialog', { name: /快速開啟/ })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: /Terminal/ })).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' }); await tick();
+  expect(files).toHaveFocus();
+  fireEvent.keyDown(window, { key: 'P', ctrlKey: true, shiftKey: true });
+  expect(screen.getByRole('dialog', { name: '命令面板' })).toBeInTheDocument();
+});
+
+it.each([false, true])('shows Sessions after last runtime closes, respecting explicit dismissal=%s', async dismissed => {
+  vi.mocked(isDesktop).mockReturnValue(true);
+  const boot = bootstrap(); boot.projects[0].curated = true; vi.mocked(api.bootstrap).mockResolvedValue(boot); vi.mocked(api.projects).mockResolvedValue(boot.projects);
+  render(<App />); await tick(); selectGroup(); await tick();
+  expect(screen.getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', 'false');
+  if (dismissed) { fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' })); fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' })); }
+  fireEvent.click(screen.getByRole('button', { name: '關閉分頁 Terminal' })); await tick();
+  expect(screen.getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', String(!dismissed));
 });

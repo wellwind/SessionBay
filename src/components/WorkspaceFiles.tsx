@@ -12,6 +12,8 @@ import './explorer.css';
 import './project-files.css';
 
 export interface WorkspaceFilesProps {
+  openRequest?: { path: string; nonce: number };
+  onTabsChange?: (projectId: string, paths: string[]) => void;
   sidebarSide?: 'left' | 'right';
   projectId: string; visible: boolean; active: boolean; sidebarVisible: boolean;
   sidebarHost: HTMLElement | null; tabsHost: HTMLElement | null; documentHost: HTMLElement | null;
@@ -20,10 +22,9 @@ export interface WorkspaceFilesProps {
 export function WorkspaceFiles(props: WorkspaceFilesProps) {
   return <Explorer key={props.projectId} {...props} />;
 }
-function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVisible, sidebarHost, tabsHost, documentHost, onActivate, onEmpty, onHideSidebar }: WorkspaceFilesProps) {
+function Explorer({ openRequest, onTabsChange, sidebarSide = 'left', projectId, visible, active, sidebarVisible, sidebarHost, tabsHost, documentHost, onActivate, onEmpty, onHideSidebar }: WorkspaceFilesProps) {
   const [state, dispatch] = useReducer(fileTabsReducer, emptyFileTabs);
   const [revision, setRevision] = useState(0);
-  const [treeWidth, setTreeWidth] = useState(240);
   const [searchRequest, setSearchRequest] = useState(0);
   const [notice, setNotice] = useState('');
   const [menu, setMenu] = useState<{ path: string; x: number; y: number; target: HTMLElement }>();
@@ -33,7 +34,6 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
   const menuRef = useRef<HTMLDivElement>(null);
   const positions = useRef(new Map<string, ScrollPosition>());
   const latest = useRef({ visible, active, sidebarVisible, state }); latest.current = { visible, active, sidebarVisible, state };
-  const resize = useRef<{ x: number; width: number } | undefined>(undefined);
   const focusGeneration = useRef(0);
   useEffect(() => {
     const tracker = focusGeneration;
@@ -44,6 +44,20 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
   const open = (path: string, pinned = false) => {
     focusGeneration.current++; setNotice(''); setSearchRequest(0); dispatch({ type: 'open', path, pinned }); onActivate();
   };
+  useEffect(() => { onTabsChange?.(projectId, state.tabs.map(tab => tab.path)); }, [projectId, state.tabs, onTabsChange]);
+  useEffect(() => {
+    if (!openRequest) return;
+    open(openRequest.path, true);
+    const generation = focusGeneration.current;
+    const frame = requestAnimationFrame(() => {
+      if (generation !== focusGeneration.current || !latest.current.visible || !latest.current.active ||
+        document.querySelector('[role="dialog"], dialog[open]')) return;
+      tabRoot.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+    // Each request is a new user intent; callback changes must not reopen files.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest]);
   const closeFile = (path: string) => {
     const next = fileTabsReducer(state, { type: 'close', path });
     const owner = document.activeElement;
@@ -98,19 +112,13 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
     try { await navigator.clipboard.writeText(menu.path); setNotice('已複製專案相對路徑。'); setMenu(undefined); target.focus(); }
     catch { setNotice('無法存取剪貼簿，請選取下方路徑後複製。'); }
   };
-  const clampWidth = (width: number) => Math.max(160, Math.min(480, width));
   return <>
-    {sidebarHost && createPortal(<aside ref={sidebar} hidden={!visible || !sidebarVisible} className="project-files-sidebar explorer" data-side={sidebarSide} aria-label="專案檔案" style={{ width: treeWidth }} onKeyDown={event => { keys(event); if (event.key === 'Escape' && !menu) { event.preventDefault(); event.stopPropagation(); onHideSidebar(); } }}>
+    {sidebarHost && createPortal(<aside ref={sidebar} hidden={!visible || !sidebarVisible} className="project-files-sidebar explorer" data-side={sidebarSide} aria-label="專案檔案" onKeyDown={event => { keys(event); if (event.key === 'Escape' && !menu) { event.preventDefault(); event.stopPropagation(); onHideSidebar(); } }}>
       <div className="project-files-heading"><strong>檔案</strong><span />
         <button aria-label="重新整理檔案" title="重新讀取目錄與檔案" onClick={refresh}><RefreshCw size={15} /></button>
         <button aria-label="收合目錄樹" onClick={onHideSidebar}>{sidebarSide === 'right' ? <PanelRightClose size={15} /> : <PanelLeftClose size={15} />}</button></div>
       <div className="explorer-tree-pane"><ExplorerTree key={`${projectId}:${revision}`} projectId={projectId} showHidden selected={state.active} onOpen={open}
         onMenu={(path, target, x, y) => setMenu({ path, target, x: Math.min(x, window.innerWidth - 240), y: Math.min(y, window.innerHeight - 110) })} /></div>
-      <div role="separator" aria-label="調整目錄樹寬度" aria-orientation="vertical" aria-valuemin={160} aria-valuemax={480} aria-valuenow={treeWidth} tabIndex={0} className="project-files-resize"
-        onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); resize.current = { x: event.clientX, width: treeWidth }; }}
-        onPointerMove={event => { if (resize.current && event.currentTarget.hasPointerCapture(event.pointerId)) setTreeWidth(clampWidth(resize.current.width + (event.clientX - resize.current.x) * (sidebarSide === 'right' ? -1 : 1))); }}
-        onPointerUp={event => { resize.current = undefined; event.currentTarget.releasePointerCapture(event.pointerId); }} onPointerCancel={() => { resize.current = undefined; }}
-        onKeyDown={event => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); event.stopPropagation(); setTreeWidth(value => event.key === 'Home' ? 160 : event.key === 'End' ? 480 : clampWidth(value + (event.key === 'ArrowRight' ? 16 : -16) * (sidebarSide === 'right' ? -1 : 1))); } }} />
       {notice && <p className="explorer-notice" role="status">{notice}</p>}
       {menu && <div ref={menuRef} role="menu" aria-label="檔案操作" className="explorer-context" style={{ left: Math.max(0, menu.x), top: Math.max(0, menu.y) }} onKeyDown={event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); menu.target.focus(); setMenu(undefined); }

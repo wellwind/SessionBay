@@ -5,6 +5,7 @@ use crate::{
     models::{
         AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
         WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage, WorkspaceFilePreview,
+        WorkspaceFileSearch,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
@@ -157,6 +158,15 @@ async fn list_workspace_files(
         )
     })
     .await
+}
+#[tauri::command]
+async fn search_workspace_files(
+    state: AppState<'_>,
+    project_id: String,
+    query: String,
+) -> Result<WorkspaceFileSearch, String> {
+    let s = state.inner().clone();
+    blocking(move || s.search_workspace_files(&project_id, &query)).await
 }
 #[tauri::command]
 async fn read_workspace_file(
@@ -676,6 +686,7 @@ pub fn run() {
             save_settings,
             list_projects,
             list_workspace_files,
+            search_workspace_files,
             read_workspace_file,
             inspect_workspace_file,
             read_workspace_file_chunk,

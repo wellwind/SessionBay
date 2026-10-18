@@ -394,6 +394,114 @@ fn unsupported_platform_fails_closed_before_filesystem_access() {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+#[test]
+fn recursive_search_finds_unloaded_hidden_paths_without_reading_contents() {
+    let f = Fixture::new();
+    fs::create_dir_all(f.root.join("unloaded/deeper/.hidden")).unwrap();
+    fs::write(f.root.join("unloaded/deeper/.hidden/Needle.bin"), [0, 255]).unwrap();
+    fs::write(f.root.join("content-only.txt"), "Needle").unwrap();
+    for excluded in [".git", "node_modules", "target", "dist"] {
+        fs::create_dir_all(f.root.join(excluded)).unwrap();
+        fs::write(f.root.join(excluded).join("Needle.txt"), "excluded").unwrap();
+    }
+    let result = f
+        .service
+        .search_workspace_files(&f.project_id, "DEEPER/.hidden/needle")
+        .unwrap();
+    assert_eq!(result.paths, ["unloaded/deeper/.hidden/Needle.bin"]);
+    assert!(!result.truncated);
+    let result = f
+        .service
+        .search_workspace_files(&f.project_id, "needle")
+        .unwrap();
+    assert_eq!(result.paths, ["unloaded/deeper/.hidden/Needle.bin"]);
+    assert!(f
+        .service
+        .read_workspace_file(&f.project_id, &result.paths[0])
+        .is_err());
+    assert!(f
+        .service
+        .search_workspace_files("unknown", "needle")
+        .is_err());
+    assert!(f
+        .service
+        .search_workspace_files(&f.project_id, "../")
+        .unwrap()
+        .paths
+        .is_empty());
+    assert!(f
+        .service
+        .search_workspace_files(&f.project_id, " \t ")
+        .is_err());
+    assert!(f
+        .service
+        .search_workspace_files(&f.project_id, "   ")
+        .unwrap()
+        .paths
+        .is_empty());
+    assert!(f
+        .service
+        .search_workspace_files(&f.project_id, &"x".repeat(257))
+        .is_err());
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+#[test]
+fn recursive_search_caps_results_and_reports_depth_cutoff() {
+    let f = Fixture::new();
+    for i in 0..50 {
+        fs::write(f.root.join(format!("match-{i}.txt")), "").unwrap();
+    }
+    let exact = f
+        .service
+        .search_workspace_files(&f.project_id, "match-")
+        .unwrap();
+    assert_eq!(exact.paths.len(), 50);
+    assert!(!exact.truncated);
+    fs::write(f.root.join("match-50.txt"), "").unwrap();
+    let result = f
+        .service
+        .search_workspace_files(&f.project_id, "match-")
+        .unwrap();
+    assert_eq!(result.paths.len(), 50);
+    assert!(result.truncated);
+    let deep = f.root.join(vec!["sub"; 33].join("/"));
+    fs::create_dir_all(&deep).unwrap();
+    fs::write(deep.join("beyond-depth.txt"), "").unwrap();
+    let result = f
+        .service
+        .search_workspace_files(&f.project_id, "beyond-depth")
+        .unwrap();
+    assert!(result.paths.is_empty());
+    assert!(result.truncated);
+}
+
+#[cfg(unix)]
+#[test]
+fn recursive_search_never_follows_outside_links_or_hard_link_aliases() {
+    use std::os::unix::fs::symlink;
+    let f = Fixture::new();
+    let outside = f.base.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("secret.txt"), "private").unwrap();
+    symlink(&outside, f.root.join("linked-folder")).unwrap();
+    symlink(outside.join("secret.txt"), f.root.join("secret-link.txt")).unwrap();
+    fs::hard_link(outside.join("secret.txt"), f.root.join("secret-hard.txt")).unwrap();
+    let result = f
+        .service
+        .search_workspace_files(&f.project_id, "secret")
+        .unwrap();
+    assert!(result.paths.is_empty());
+    for path in [
+        "linked-folder/secret.txt",
+        "secret-link.txt",
+        "secret-hard.txt",
+    ] {
+        assert!(f.service.read_workspace_file(&f.project_id, path).is_err());
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod bounded_reads {
     use super::*;
     use sessionbay_lib::models::WorkspaceFileKind;

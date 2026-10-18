@@ -62,7 +62,7 @@ const sessions = bootstrap.projects.flatMap(project => Array.from({ length: proj
   cwd: project.path, updatedAt: '2026-10-17T12:00:00Z', timeSource: 'event',
   archived: false, parentId: null, partial: false, snippet: `Synthetic session ${index} only`,
 })));
-const fileBytes = new Map(['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', 'src/index.ts'].map(path => {
+const fileBytes = new Map(['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', 'src/index.ts', 'deep/unvisited.ts'].map(path => {
   const text = path === 'large.ts'
     ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(12000) + 'END_SENTINEL\n'
     : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
@@ -102,6 +102,7 @@ mockIPC((command, payload = {}) => {
       ...['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', ...generatedFileSizes.keys(), ...imageFiles].map(name => ({ name, path: name, kind: 'file' })),
       { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
     ], nextOffset: null };
+    case 'search_workspace_files': return { paths: ['src/index.ts', 'deep/unvisited.ts', 'README.md'].filter(path => String(args.query).trim() && path.toLowerCase().includes(String(args.query).toLowerCase())), truncated: false };
     case 'inspect_workspace_file': {
       const path = args.path as string;
       if (imageFiles.includes(path)) return { path, sizeBytes: 100, version: fileVersion(args.projectId, path), kind: 'image' };

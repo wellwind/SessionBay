@@ -66,6 +66,106 @@ describe('generic activity contributions', () => {
     expect(within(nav).getByRole('button', { name: 'files' })).toBeDisabled();
   });
 
+  it('shows label and configured shortcut on hover and focus, with Escape dismissal', () => {
+    const contributions = entries();
+    contributions[0].shortcut = '⌘1';
+    render(<Harness entries={contributions} />);
+    const sessions = screen.getByRole('button', { name: 'sessions' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    expect(sessions).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(sessions);
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent('sessions');
+    expect(tooltip).toHaveTextContent('⌘1');
+    expect(sessions).toHaveAttribute('aria-describedby', tooltip.id);
+    // The tooltip is inside the hover region, so it can be reached by the pointer.
+    expect(sessions).toContainElement(tooltip);
+    fireEvent.mouseLeave(sessions);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    act(() => sessions.focus());
+    expect(screen.getByRole('tooltip')).toHaveTextContent('⌘1');
+    fireEvent.mouseEnter(sessions);
+    fireEvent.mouseLeave(sessions);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.keyDown(sessions, { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    expect(sessions).toHaveFocus();
+    expect(sessions).not.toHaveAttribute('aria-describedby');
+    fireEvent.keyDown(sessions, { key: 'ArrowDown' });
+    const files = screen.getByRole('button', { name: 'files' });
+    expect(files).toHaveFocus();
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^files$/);
+    expect(screen.getByRole('tooltip').querySelector('kbd')).toBeNull();
+    act(() => files.blur());
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('shares one resizable width across retained panels and restores each project width', () => {
+    const contributions = entries();
+    const { rerender } = render(<ActivityShell contributions={contributions} activeId="sessions" scopeKey="first" onActiveChange={() => {}} />);
+    const separator = screen.getByRole('separator', { name: '調整功能面板寬度' });
+    const shell = document.getElementById(separator.getAttribute('aria-controls')!)!;
+    expect(shell).toHaveStyle({ width: '320px' });
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+    expect(separator).toHaveAttribute('aria-valuenow', '336');
+    const input = screen.getByLabelText('sessions value');
+    fireEvent.change(input, { target: { value: 'retained' } });
+    rerender(<ActivityShell contributions={contributions} activeId="files" scopeKey="first" onActiveChange={() => {}} />);
+    expect(shell).toHaveStyle({ width: '336px' });
+    expect(screen.getAllByRole('separator')).toHaveLength(1);
+    expect(screen.getByLabelText('files value').closest('.activity-panel-shell')).toBe(shell);
+    rerender(<ActivityShell contributions={contributions} activeId={null} scopeKey="first" onActiveChange={() => {}} />);
+    expect(shell).not.toBeVisible();
+    rerender(<ActivityShell contributions={contributions} activeId="sessions" scopeKey="second" onActiveChange={() => {}} />);
+    expect(shell).toHaveStyle({ width: '320px' });
+    fireEvent.keyDown(separator, { key: 'Home' });
+    expect(shell).toHaveStyle({ width: '160px' });
+    rerender(<ActivityShell contributions={contributions} activeId="sessions" scopeKey="first" onActiveChange={() => {}} />);
+    expect(shell).toHaveStyle({ width: '336px' });
+    expect(screen.getByLabelText('sessions value')).toBe(input);
+    expect(input).toHaveValue('retained');
+  });
+
+  it('clamps to the viewport without losing the preferred width', () => {
+    vi.stubGlobal('innerWidth', 1600);
+    try {
+      render(<Harness entries={entries()} />);
+      const separator = screen.getByRole('separator');
+      fireEvent.keyDown(separator, { key: 'End' });
+      expect(separator).toHaveAttribute('aria-valuenow', '640');
+      vi.stubGlobal('innerWidth', 600);
+      fireEvent(window, new Event('resize'));
+      expect(separator).toHaveAttribute('aria-valuenow', '226');
+      expect(separator).toHaveAttribute('aria-valuemax', '226');
+      vi.stubGlobal('innerWidth', 1600);
+      fireEvent(window, new Event('resize'));
+      expect(separator).toHaveAttribute('aria-valuenow', '640');
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('resizes with pointer capture and stops on cancellation', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    try {
+      render(<Harness entries={entries()} />);
+      const separator = screen.getByRole('separator');
+      separator.setPointerCapture = vi.fn();
+      separator.hasPointerCapture = vi.fn(() => true);
+      separator.releasePointerCapture = vi.fn();
+      fireEvent.pointerDown(separator, { clientX: 500 });
+      fireEvent.pointerMove(separator, { clientX: 460 });
+      expect(separator).toHaveAttribute('aria-valuenow', '360');
+      expect(separator).toHaveFocus();
+      fireEvent.pointerCancel(separator);
+      fireEvent.pointerMove(separator, { clientX: 400 });
+      expect(separator).toHaveAttribute('aria-valuenow', '360');
+      fireEvent.pointerDown(separator, { clientX: 460 });
+      fireEvent.pointerMove(separator, { clientX: 480 });
+      fireEvent.pointerUp(separator);
+      expect(separator).toHaveAttribute('aria-valuenow', '340');
+      expect(separator.releasePointerCapture).toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('puts extra contributions in a keyboard-operable overflow menu on short rails', () => {
     let height = 132;
     let resize = () => {};
@@ -75,13 +175,16 @@ describe('generic activity contributions', () => {
       observe() {} disconnect() {}
     });
     try {
-      render(<Harness entries={entries()} />);
+      const contributions = entries();
+      contributions[2].shortcut = 'Ctrl+3';
+      render(<Harness entries={contributions} />);
       const nav = screen.getByRole('navigation', { name: '工作區功能' });
       expect(within(nav).getAllByRole('button')).toHaveLength(3);
       const more = within(nav).getByRole('button', { name: '更多功能' });
       fireEvent.click(more);
       const menu = screen.getByRole('menu', { name: '更多工作區功能' });
       expect(within(menu).getByRole('menuitemradio', { name: 'search' })).toHaveFocus();
+      expect(within(within(menu).getByRole('menuitemradio', { name: 'search' })).getByText('Ctrl+3')).toBeVisible();
       fireEvent.keyDown(document.activeElement!, { key: 'End' });
       const synthetic = within(menu).getByRole('menuitemradio', { name: 'synthetic' });
       expect(synthetic).toHaveFocus();
