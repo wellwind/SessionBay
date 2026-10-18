@@ -6,3 +6,6 @@ declare module 'monaco-editor/language/json/monaco.contribution' {
     setDiagnosticsOptions(options: { validate: boolean; enableSchemaRequest: boolean; schemas: never[] }): void;
   };
 }
+declare module 'monaco-editor/base/common/errors' {
+  export const errorHandler: { unexpectedErrorHandler: (error: unknown) => void };
+}

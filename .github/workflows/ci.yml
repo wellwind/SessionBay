@@ -22,6 +22,9 @@ on:
           - linux
 permissions:
   contents: read
+concurrency:
+  group: desktop-${{ github.ref }}-${{ inputs.platform || 'linux' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 jobs:
   desktop:
     strategy:

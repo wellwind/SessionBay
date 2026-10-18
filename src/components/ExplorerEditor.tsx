@@ -10,26 +10,65 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
   onScroll: (position: ScrollPosition) => void; searchRequest: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
-  const instance = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const runEditor = useRef<(action: (widget: editor.IStandaloneCodeEditor) => unknown) => void>(() => {});
   const latest = useRef({ onScroll, position, searchRequest });
   latest.current = { onScroll, position, searchRequest };
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [retry, setRetry] = useState(0);
   const [copyStatus, setCopyStatus] = useState('');
-  const find = () => { void instance.current?.getAction('actions.find')?.run(); };
+  const find = () => runEditor.current(widget => widget.getAction('actions.find')?.run());
   useEffect(() => {
     let disposed = false;
-    let release: (() => void) | undefined;
+    let failed = false;
+    let initializing = false;
+    let released = false;
+    let widget: editor.IStandaloneCodeEditor | undefined;
+    let save: (() => void) | undefined;
+    const cleanups: (() => void)[] = [];
+    const safely = (cleanup: () => void) => {
+      try { cleanup(); } catch (error) { console.error('File preview cleanup failed', error); }
+    };
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (runEditor.current === run) runEditor.current = () => {};
+      // A failing disposer must not prevent the remaining resources being released.
+      for (const cleanup of cleanups.reverse()) safely(cleanup);
+      cleanups.length = 0;
+      widget = undefined;
+      save = undefined;
+    };
+    const own = (cleanup: () => void) => { if (released) safely(cleanup); else cleanups.push(cleanup); };
+    const fail = (error: unknown) => {
+      if (disposed || failed) return;
+      failed = true;
+      console.error('File preview failed', error);
+      // Monaco may report an unexpected error synchronously during construction.
+      // Finish acquiring each returned resource before disposing it.
+      if (!initializing) release();
+      setStatus('error');
+    };
+    const run = (action: (widget: editor.IStandaloneCodeEditor) => unknown) => {
+      if (disposed || failed || !widget) return;
+      try { void Promise.resolve(action(widget)).catch(fail); } catch (error) { fail(error); }
+    };
+    runEditor.current = run;
     setStatus('loading');
-    void import('./monaco-preview').then(({ monaco }) => {
+    void import('./monaco-preview').then(({ monaco, onPreviewError }) => {
       if (disposed || !container.current) return;
-      // Unique model ownership prevents collisions across projects with the same
-      // relative path. The extension remains visible to language tokenizers.
-      const uri = monaco.Uri.from({ scheme: 'sessionbay-preview', path: `/${++nextModel}/${path}` });
-      const model = monaco.editor.createModel(text, monacoLanguage(path), uri);
-      let widget: editor.IStandaloneCodeEditor;
+      initializing = true;
       try {
-        widget = monaco.editor.create(container.current, {
+        const host = container.current;
+        // Remove a partial widget's DOM even when its constructor/disposer throws.
+        own(() => host.replaceChildren());
+        own(onPreviewError(fail));
+        // Unique model ownership prevents collisions across projects with the same
+        // relative path. The extension remains visible to language tokenizers.
+        const uri = monaco.Uri.from({ scheme: 'sessionbay-preview', path: `/${++nextModel}/${path}` });
+        const model = monaco.editor.createModel(text, monacoLanguage(path), uri);
+        own(() => model.dispose());
+        if (failed || disposed) return;
+        widget = monaco.editor.create(host, {
           model, readOnly: true, domReadOnly: true, automaticLayout: true,
           ariaLabel: `程式碼：${path}`, fontSize: 13, lineHeight: 20,
           minimap: { enabled: false }, scrollBeyondLastLine: false,
@@ -39,35 +78,42 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
           unicodeHighlight: { ambiguousCharacters: false },
           padding: { top: 6, bottom: 6 },
         });
-      } catch (error) { model.dispose(); throw error; }
-      instance.current = widget;
-      const retained = latest.current.position;
-      const restore = () => {
-        if (retained.viewState) widget.restoreViewState(retained.viewState);
-        else widget.setScrollPosition({ scrollTop: retained.top, scrollLeft: retained.left });
-      };
-      restore();
-      // Restore again after the host and horizontal scrollbar have their final
-      // dimensions. Restoring during construction can clamp a near-bottom offset.
-      const restoreFrame = requestAnimationFrame(() => {
-        if (!disposed) { widget.layout(); restore(); }
-      });
-      const save = () => latest.current.onScroll({ top: widget.getScrollTop(), left: widget.getScrollLeft(), viewState: widget.saveViewState() });
-      const scroll = widget.onDidScrollChange(save);
-      const selection = widget.onDidChangeCursorSelection(save);
-      const updateTheme = () => monaco.editor.setTheme(document.documentElement.dataset.theme === 'light' ? 'vs' : 'vs-dark');
-      updateTheme();
-      const observer = new MutationObserver(updateTheme);
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-      release = () => {
-        cancelAnimationFrame(restoreFrame); save(); observer.disconnect(); scroll.dispose(); selection.dispose();
-        widget.dispose(); model.dispose();
-        if (instance.current === widget) instance.current = null;
-      };
-      setStatus('ready');
-      if (latest.current.searchRequest) void widget.getAction('actions.find')?.run();
-    }).catch(() => { if (!disposed) setStatus('error'); });
-    return () => { disposed = true; release?.(); };
+        const ownedWidget = widget;
+        own(() => ownedWidget.dispose());
+        if (failed || disposed) return;
+        const retained = latest.current.position;
+        const restore = () => {
+          if (retained.viewState) ownedWidget.restoreViewState(retained.viewState);
+          else ownedWidget.setScrollPosition({ scrollTop: retained.top, scrollLeft: retained.left });
+        };
+        restore();
+        // Restore again after the host and horizontal scrollbar have their final
+        // dimensions. Restoring during construction can clamp a near-bottom offset.
+        const restoreFrame = requestAnimationFrame(() => {
+          run(current => { current.layout(); restore(); });
+        });
+        own(() => cancelAnimationFrame(restoreFrame));
+        save = () => latest.current.onScroll({ top: ownedWidget.getScrollTop(), left: ownedWidget.getScrollLeft(), viewState: ownedWidget.saveViewState() });
+        const scroll = ownedWidget.onDidScrollChange(() => run(() => save?.()));
+        own(() => scroll.dispose());
+        const selection = ownedWidget.onDidChangeCursorSelection(() => run(() => save?.()));
+        own(() => selection.dispose());
+        const updateTheme = () => monaco.editor.setTheme(document.documentElement.dataset.theme === 'light' ? 'vs' : 'vs-dark');
+        updateTheme();
+        const observer = new MutationObserver(() => run(updateTheme));
+        own(() => observer.disconnect());
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+        if (failed || disposed) return;
+        setStatus('ready');
+        if (latest.current.searchRequest) run(current => current.getAction('actions.find')?.run());
+      } catch (error) { fail(error); }
+      finally { initializing = false; if (failed || disposed) release(); }
+    }).catch(fail);
+    return () => {
+      disposed = true;
+      if (!failed && save) safely(save);
+      release();
+    };
   }, [path, text, retry]);
   useEffect(() => { if (searchRequest) find(); }, [searchRequest]);
   return <div className="explorer-editor">
@@ -78,7 +124,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
       }}><Copy size={14} /></button>
       <button aria-label="檔案內搜尋" title="檔案內搜尋（Ctrl/Cmd+F）" disabled={status !== 'ready'} onClick={find}><Search size={14} /></button>
     </div>
-    <div className="explorer-monaco-host" aria-label={`唯讀內容：${path}`} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) instance.current?.focus(); }}>
+    <div className="explorer-monaco-host" aria-label={`唯讀內容：${path}`} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) runEditor.current(widget => widget.focus()); }}>
       <div ref={container} className="explorer-monaco" />
       {status === 'loading' && <p className="explorer-editor-message" role="status">載入編輯器中…</p>}
       {status === 'error' && <div className="explorer-editor-message" role="alert">無法載入編輯器。<button onClick={() => setRetry(value => value + 1)}>重試</button></div>}

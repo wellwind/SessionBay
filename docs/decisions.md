@@ -709,3 +709,7 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 ## 2026-10-18：Monaco 唯讀預覽
 
 中央 Files tabs 使用 Monaco Editor 0.57.0 取代逐行 regex 高亮；編輯器與語言定義延遲載入，worker 由 Vite 本機打包，CSP 僅新增 worker-src 'self'。保留後端 256 KiB、安全路徑與文字格式檢查，不新增寫檔 API。提供全文選取／搜尋、語法折疊與每檔案 view state；卸載時釋放 model/editor。僅詞法高亮與本機 JSON 支援，不宣稱 VS Code extension host 或完整語意診斷；JSON 遠端 schema 請求關閉。切換 Files 不重建 Terminal。
+
+### 2026-10-18：Monaco contribution 必須在第一次初始化前完整註冊
+
+Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會引入整套 editor contributions；精簡 API 建立模型後才載入會讓 `StandaloneServices` 的一次性 singleton snapshot 缺少 `ISuggestMemories`，下一個 editor 的 SuggestController 因而失敗。改在 lazy preview 模組內先載入官方 `features/register.all`；仍延後整個 preview 模組直到開檔，不靠停用 suggest 隱藏問題。Vite dev 與 production 都測非 JSON → JSON worker → 多次 TS/JSON 切換。Monaco library 的 delayed error 改送 file-preview 錯誤介面，React file boundary 隔離 render 失敗，不覆蓋全域 window error 監聽。

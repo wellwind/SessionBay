@@ -5,8 +5,8 @@ import { FilesTestHost as WorkspaceFiles } from './test/FilesTestHost';
 import { ExplorerEditor } from './components/ExplorerEditor';
 import { emptyFileTabs, fileTabsReducer, monacoLanguage } from './components/explorer-model';
 import { api } from './api';
-import { monaco, models, widgets } from './test/monaco-preview-mock';
-vi.mock('./components/monaco-preview', () => ({ monaco }));
+import { monaco, models, widgets, onPreviewError } from './test/monaco-preview-mock';
+vi.mock('./components/monaco-preview', () => ({ monaco, onPreviewError }));
 vi.mock('./api', () => ({ api: { listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn() }, errorMessage: String }));
 const files = ['a.ts', 'b.txt', 'c.json'];
 beforeEach(() => {

@@ -40,3 +40,7 @@ Windows 可將 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 設為已安裝 Edge 的執行�
 ### Monaco 原生 Linux worker 驗證
 
 `feat/monaco-file-preview` 分支的相關程式變更會額外觸發 Linux-only 桌面驗收；三平台手動 matrix 保留，另可選 linux。Linux runner 使用隔離 HOME 與合成資料，在 Tauri WebKit 的正式 CSP 下要求 bundled JSON worker 真實回覆（拒絕 main-thread fallback）、唯讀輸入不改內容、model dispose。每個 empty/dark/light scenario 必須出現 `monaco-worker-readonly-disposal` marker。此項不代表 macOS/Windows 原生驗收通過。
+
+### JSON 延遲 contribution 回歸
+
+`npx playwright test --config playwright.monaco.config.ts` 同時用 Vite dev（含 dependency prebundling）與 production build 的合成 App fixture，先開 README 初始化 editor，再啟動 JSON worker，來回開 TS/JSON 三輪；檢查沒有 page/console error、readonly 仍成立、terminal DOM 身分保留。不得把 UNKNOWN service 錯誤當可忽略 warning。原生 Linux smoke 也在 worker 回覆後建立第二個 editor 並等待 delayed contribution，library error 會讓 smoke 失敗。

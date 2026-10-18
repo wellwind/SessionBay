@@ -2,13 +2,14 @@ import { call } from './api';
 
 /** Native WebKit check: a real bundled worker must reply, not a main-thread fallback. */
 export async function runMonacoSmoke(): Promise<void> {
-  const { monaco, getJsonWorker } = await import('./components/monaco-preview');
+  const { monaco, getJsonWorker, onPreviewError } = await import('./components/monaco-preview');
   const environment = self.MonacoEnvironment;
   if (!environment?.getWorker) throw new Error('Monaco smoke: local worker factory missing');
   const originalFactory = environment.getWorker;
   let replies = 0;
   let errors = 0;
   const listeners: (() => void)[] = [];
+  const stopErrors = onPreviewError(() => { errors++; });
   environment.getWorker = async (id, label) => {
     const worker = await originalFactory(id, label);
     const replied = () => { if (label === 'json') replies++; };
@@ -51,7 +52,11 @@ export async function runMonacoSmoke(): Promise<void> {
         timeout = setTimeout(() => reject(new Error('Monaco smoke: worker timed out')), 15000);
       }),
     ]);
-    if (!replies || errors) throw new Error('Monaco smoke: worker failed or silently fell back');
+    editor.dispose();
+    editor = monaco.editor.create(host, { model, readOnly: true, domReadOnly: true });
+    editor.focus();
+    await new Promise<void>(resolve => setTimeout(resolve, 200));
+    if (!replies || errors) throw new Error('Monaco smoke: worker/contribution failed or silently fell back');
     editor.trigger('native-smoke', 'type', { text: 'MUST_NOT_INSERT' });
     if (model.getValue() !== text) throw new Error('Monaco smoke: readonly content changed');
   } finally {
@@ -61,6 +66,7 @@ export async function runMonacoSmoke(): Promise<void> {
     host.remove();
     environment.getWorker = originalFactory;
     listeners.forEach((remove) => remove());
+    stopErrors();
   }
   if (monaco.editor.getModel(uri)) throw new Error('Monaco smoke: model leaked');
   await call('frontend_diagnostic', { phase: 'interaction', message: 'monaco-worker-readonly-disposal' });

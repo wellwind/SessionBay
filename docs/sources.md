@@ -284,3 +284,5 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - 官方 ESM / Vite worker 整合：https://github.com/microsoft/monaco-editor/blob/main/docs/integrate-esm.md
 - 官方套件與 API：https://www.npmjs.com/package/monaco-editor 、https://microsoft.github.io/monaco-editor/typedoc/
 - 本次固定 monaco-editor 0.57.0，採 editor API、局部 contributions 與本機 worker；套件的 JSON defaults 明確關閉 schema request。未引入 CDN loader。
+
+- Monaco Editor 0.57.0 官方 npm 套件：`esm/vs/internal/common/workers.js`、`esm/vs/features/register.all.js`、`esm/vs/editor/standalone/browser/standaloneServices.js`。2026-10-18 核對 local package：JSON lazy workerManager 會晚載入全套 contributions，而 StandaloneServices 僅 initialize 時補 singleton；須在第一個 model/editor 前完成註冊。上游：https://github.com/microsoft/monaco-editor/tree/v0.57.0 。

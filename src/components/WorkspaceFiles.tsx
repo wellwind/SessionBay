@@ -5,6 +5,7 @@ import { Copy, PanelLeftClose, PanelRightClose, RefreshCw } from 'lucide-react';
 import { api, errorMessage } from '../api';
 import { ExplorerTree, FileIcon } from './ExplorerTree';
 import { ExplorerEditor } from './ExplorerEditor';
+import { FilePreviewBoundary } from './FilePreviewBoundary';
 import type { ScrollPosition } from './ExplorerEditor';
 import { ProjectFileTabs } from './ProjectFileTabs';
 import { emptyFileTabs, fileTabsReducer } from './explorer-model';
@@ -142,8 +143,10 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
       {!state.active ? <div className="explorer-empty"><FileIcon path="readme.txt" /><strong>開啟檔案閱讀</strong><p>單擊預覽，雙擊固定分頁。<br />只讀取原始文字，不執行內容。</p><small>專案目錄 · 每檔上限 256 KiB</small></div>
         : !documentData || documentData.path !== state.active ? <p role="status">讀取檔案中…</p>
           : documentData.error ? <div className="explorer-empty"><p role="alert">{documentData.error}</p><button onClick={refresh}>重新讀取檔案</button></div>
-            : <ExplorerEditor key={`${state.active}:${revision}`} path={state.active} text={documentData.text!} sizeBytes={documentData.sizeBytes!} searchRequest={searchRequest}
-              position={positions.current.get(state.active) ?? { top: 0, left: 0 }} onScroll={value => positions.current.set(state.active, value)} />}
+            : <FilePreviewBoundary key={`${state.active}:${revision}`} path={state.active}>
+              <ExplorerEditor path={state.active} text={documentData.text!} sizeBytes={documentData.sizeBytes!} searchRequest={searchRequest}
+                position={positions.current.get(state.active) ?? { top: 0, left: 0 }} onScroll={value => positions.current.set(state.active, value)} />
+            </FilePreviewBoundary>}
     </section>, documentHost)}
   </>;
 }

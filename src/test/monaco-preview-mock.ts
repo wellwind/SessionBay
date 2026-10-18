@@ -3,6 +3,12 @@ import { vi } from 'vitest';
 // find behavior are exercised by Playwright against real Monaco.
 export const models: { dispose: ReturnType<typeof vi.fn>; text: string }[] = [];
 export const widgets: { dispose: ReturnType<typeof vi.fn> }[] = [];
+export const previewErrors = new Set<(error: unknown) => void>();
+export const onPreviewError = vi.fn((listener: (error: unknown) => void) => {
+  previewErrors.add(listener);
+  return vi.fn(() => { previewErrors.delete(listener); });
+});
+export function emitPreviewError(error: unknown) { for (const listener of previewErrors) listener(error); }
 export const monaco = {
   Uri: { from: vi.fn(value => value) },
   editor: {
