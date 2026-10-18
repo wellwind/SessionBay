@@ -216,7 +216,10 @@ impl BrokerClient {
             _ => Err("Invalid hook revoke response".into()),
         }
     }
-    pub(crate) fn check_provider_hooks(&self, spec: &LaunchSpec) -> Result<(), LaunchPreflightError> {
+    pub(crate) fn check_provider_hooks(
+        &self,
+        spec: &LaunchSpec,
+    ) -> Result<(), LaunchPreflightError> {
         if spec.env.contains_key(crate::provider_hooks::OPT_IN)
             && !self.inner.provider_hooks_supported
         {

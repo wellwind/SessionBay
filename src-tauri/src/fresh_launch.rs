@@ -374,7 +374,10 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             error,
-            format!("{NOT_STARTED}{}", LaunchPreflightError::MissingProviderHooks)
+            format!(
+                "{NOT_STARTED}{}",
+                LaunchPreflightError::MissingProviderHooks
+            )
         );
         assert!(!error.contains("尚未確認"));
         assert_eq!(broker.launches.get(), 0);

@@ -351,7 +351,10 @@ fn legacy_hook_preflight_is_local_and_allows_explicit_opt_out() {
     let error = client
         .launch_unattached(spec.clone(), &request)
         .unwrap_err();
-    assert_eq!(error, LaunchPreflightError::MissingProviderHooks.to_string());
+    assert_eq!(
+        error,
+        LaunchPreflightError::MissingProviderHooks.to_string()
+    );
     // The subscribed path must reject locally too, before transport or attach.
     let subscribed_error = client
         .launch(
@@ -388,7 +391,8 @@ fn hooks_preflight_classifies_only_missing_capability_and_preserves_spec() {
         ),
     ] {
         let client =
-            BrokerClient::from_hello(Path::new("/unused-no-transport"), hello(capabilities)).unwrap();
+            BrokerClient::from_hello(Path::new("/unused-no-transport"), hello(capabilities))
+                .unwrap();
         assert_eq!(client.check_provider_hooks(&spec), expected);
         assert_eq!(serde_json::to_value(&spec).unwrap(), before);
         let mut opted_out = spec.clone();
