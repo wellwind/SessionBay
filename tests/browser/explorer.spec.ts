@@ -30,12 +30,25 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     // Closing Find removes a 27px view zone synchronously; Monaco paints its
     // new scroll offset on the next frame. Do not snapshot the stale DOM style.
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    const scroll = await editor.locator('.lines-content').getAttribute('style');
-    expect(scroll).toMatch(/top:\s*-/);
+    const scrollOffset = () => editor.locator('.lines-content').evaluate(node => ({
+      top: Number.parseFloat((node as HTMLElement).style.top),
+      left: Number.parseFloat((node as HTMLElement).style.left),
+    }));
+    const scroll = await scrollOffset();
+    expect(scroll.top).toBeLessThan(-1000);
+    expect(scroll.left).toBeLessThan(-1000);
+    const sentinel = editor.locator('.view-line').filter({ hasText: 'END_SENTINEL' });
+    await expect(sentinel).toBeInViewport();
     await tabs.getByRole('tab', { name: /README.md/ }).click();
     await expect(page.getByLabel('唯讀內容：README.md')).toContainText('<script>');
     await tabs.getByRole('tab', { name: /large.ts/ }).click();
-    await expect.poll(() => editor.locator('.lines-content').getAttribute('style')).toBe(scroll);
+    // Monaco rounds its restored viewport at narrow widths. Permit at most one
+    // CSS pixel on either axis, while still requiring the far-off search result.
+    await expect.poll(async () => {
+      const restored = await scrollOffset();
+      return Math.max(Math.abs(restored.top - scroll.top), Math.abs(restored.left - scroll.left));
+    }).toBeLessThanOrEqual(1);
+    await expect(sentinel).toBeInViewport();
     expect(await page.locator('.monaco-editor .view-line').count()).toBeLessThan(100);
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     await expect(page.getByRole('tree')).toBeHidden();
