@@ -799,3 +799,7 @@ Cmd+P（非 macOS 的非終端區域為 Ctrl+P）在目前專案搜尋已開啟�
 文字預覽從共用 UI tokens 產生 Monaco 主題，追蹤 data-theme 與 data-theme-palette。介面預覽、取消還原、系統亮暗變更只呼叫 defineTheme／setTheme，不重建 editor 或 model，也不重設選取、捲動或焦點。Terminal 色票維持獨立。
 
 12 色系的深／淺模式映射背景、文字、行號、選取、搜尋、輸入及 widget 顏色。語法規則使用 Session Bay 語意色並確保相對文件／選取背景至少 4.5:1，不繼承針對其他背景的語法色，也不宣稱完整複製 VS Code TextMate 主題。未知色系沿用 Bay fallback。新增數值對比及原實例保留回歸；原生 WebView 視覺驗收仍待實測。
+
+## 2026-10-18：Agent 面板右側只顯示可靠活動與必要生命週期
+
+正常存活的 Agent 不再顯示「執行中」、「已啟動，待確認 Session」或重複的「程序存活」徽章。右側只投影既有 store 的明確 busy／idle／retry、等待輸入／權限及原生終端狀態；事件型 observation、未知與過期資料留白，不由 PTY 輸出推測。終端來源保留「（終端回報）」；閒置不等於成功。啟動、重新附接、斷線、中斷、失敗、退出與還原布局提示優先，普通 Shell 維持原生命週期文字。訂閱隔離在小型文字元件，沿用既有 TTL、lease 與 runtime 隔離，不新增輪詢或 provider parsing。合成元件與瀏覽器測試不代替真實 Agent／原生跨平台驗收。

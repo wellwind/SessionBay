@@ -1,6 +1,7 @@
 import { isAgentHooksEnabled } from '../settings';
 import { fitTerminal } from '../terminal-fit';
 import { useRuntimeActivity } from './RuntimeActivity';
+import { PaneRuntimeStatus } from './PaneRuntimeStatus';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
 import './agent-status.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -668,7 +669,7 @@ export function TerminalPane({
           {/* Reserve the badge slot so pointerdown focus cannot move toolbar actions before click. */}
           <span className="focus-label" style={{ visibility: focused ? undefined : 'hidden' }} aria-hidden={!focused}>焦點</span>
           <span className={`runtime-dot ${pane.state}`} />
-          {isAgentPane(pane) && <span className={`agent-lifecycle ${pane.state}`} title={agentLifecycleText(pane.state)}>{agentLifecycleText(pane.state)}</span>}
+          {isAgentPane(pane) && pane.state !== 'running' && <span className={`agent-lifecycle ${pane.state}`} title={agentLifecycleText(pane.state)}>{agentLifecycleText(pane.state)}</span>}
         </div>
         <div className="pane-actions">
           <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
@@ -728,19 +729,7 @@ export function TerminalPane({
       </div>
       <div className="pane-meta">
         <span title={pane.cwd}>{pane.cwd || '未指定目錄'}</span>
-        <span>
-          {connecting ? (pane.state === 'starting' ? '正在啟動終端…' : '正在重新附接終端…') : pane.state === 'disconnected' ? '連線中斷 · 程序狀態待確認' : pane.state === 'interrupted' ? '背景程序已中斷' : pane.state === 'running'
-            ? pane.sessionId
-              ? '已啟動，待確認 Session'
-              : '執行中'
-            : pane.state === 'starting'
-              ? '啟動中…'
-              : pane.state === 'exited'
-                ? `已退出 · ${pane.exitCode ?? '未知結束碼'}`
-                : pane.state === 'failed'
-                  ? '啟動／執行失敗'
-                  : '已還原布局'}
-        </span>
+        <PaneRuntimeStatus pane={pane} connecting={connecting} />
       </div>
       {renameOpen && <RenameDialog title="重新命名面板" name={pane.title}
         description="只修改面板顯示名稱，保留執行中的程序、終端輸出與工作目錄。"
