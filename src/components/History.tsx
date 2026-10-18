@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowRight,
@@ -69,7 +70,13 @@ export function HistoryView({
   onHistoryChanged,
   curating = false,
   disabled = false,
+  sidebarHost,
+  scopeLabel,
+  onSelectSession,
 }: {
+  sidebarHost?: HTMLDivElement | null;
+  scopeLabel?: string;
+  onSelectSession?: () => void;
   projectId?: string;
   projects: Project[];
   refreshToken: number;
@@ -272,8 +279,7 @@ export function HistoryView({
     !!filters.before ||
     filters.children;
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
-  return (
-    <div className="history-view">
+  const controls = <>
       {undoId && <div className="history-undo" role="status">
         <p>已移入資源回收筒。</p>
         <div className="history-undo-actions">
@@ -323,7 +329,7 @@ export function HistoryView({
           className="icon-button"
           title={previewOpen ? '收合預覽' : '顯示預覽'}
           aria-label={previewOpen ? '收合預覽' : '顯示預覽'}
-          onClick={() => setPreviewOpen(!previewOpen)}
+          onClick={() => { setPreviewOpen(!previewOpen); if (!previewOpen) onSelectSession?.(); }}
         >
           <FileText size={17} />
         </button>
@@ -361,8 +367,8 @@ export function HistoryView({
       <div className="history-caption">
         <span>{loading ? '搜尋中…' : `${page.total} 個 Session`}</span>
       </div>
-      <div className={`history-columns ${previewOpen ? '' : 'preview-hidden'}`}>
-        <div className="session-column">
+    </>;
+  const sessionList = <div className="session-column">
           {error && !page.items.length ? (
             <div className="empty-state">
               <FileText size={32} />
@@ -408,6 +414,7 @@ export function HistoryView({
                     onClick={() => {
                       setSelected(session);
                       setPreviewOpen(true);
+                      onSelectSession?.();
                     }}
                   >
                     <div className="session-card-top">
@@ -439,8 +446,8 @@ export function HistoryView({
               )} />
           )}
 
-        </div>
-        {previewOpen && (
+        </div>;
+  const preview = previewOpen && (
           <section className="transcript-column" aria-label="對話預覽">
             {selected ? (
               <>
@@ -581,8 +588,15 @@ export function HistoryView({
               </div>
             )}
           </section>
-        )}
-      </div>
+        );
+  if (sidebarHost !== undefined) return <>
+    {sidebarHost && createPortal(<div className="history-view activity-history-browser"><div className="activity-history-controls">{scopeLabel && <h2 className="activity-history-heading">{scopeLabel}</h2>}{controls}</div>{sessionList}</div>, sidebarHost)}
+    <div className="history-view activity-history-preview">{preview}</div>
+  </>;
+  return <div className="history-view history-standalone">
+    {controls}
+    <div className={`history-columns ${previewOpen ? '' : 'preview-hidden'}`}>
+      {sessionList}{preview}
     </div>
-  );
+  </div>;
 }

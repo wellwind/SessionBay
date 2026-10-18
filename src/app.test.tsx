@@ -207,6 +207,8 @@ async function tick(ms = 0) {
   });
 }
 function changePage(name: '專案' | '所有目錄') {
+  const projects = screen.getByRole('navigation', { name: '工作區功能' }).querySelector<HTMLButtonElement>('[aria-label="專案"]')!;
+  if (projects.getAttribute('aria-expanded') !== 'true') fireEvent.click(projects);
   fireEvent.click(within(screen.getByRole('tablist', { name: '導覽頁面' })).getByRole('tab', { name: new RegExp(`^${name}(?:\\s+\\d+)?$`) }));
 }
 function selectGroup(name = 'Synthetic project', page: '專案' | '所有目錄' = '專案') {
@@ -668,7 +670,7 @@ describe('App curated project navigation', () => {
     render(<App />);
     await tick();
     changePage('所有目錄');
-    fireEvent.click(within(screen.getByRole('complementary', { name: '' })).getByRole('button', { name: '加入／建立專案' }));
+    fireEvent.click(within(screen.getByRole('complementary', { name: '專案導覽' })).getByRole('button', { name: '加入／建立專案' }));
     if (mode === 'create') fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
     fireEvent.change(screen.getByLabelText(mode === 'create' ? '上層目錄路徑' : '目錄路徑'), { target: { value: mode === 'create' ? '/synthetic' : '/synthetic/chosen' } });
     fireEvent.change(screen.getByLabelText(mode === 'create' ? '專案名稱（新資料夾名稱）' : '專案名稱（選填）'), { target: { value: 'Chosen folder' } });
@@ -690,7 +692,7 @@ describe('App curated project navigation', () => {
     vi.mocked(api.projects).mockRejectedValueOnce(new Error('Index refresh failed')).mockResolvedValue([...bootstrap().projects, added]);
     render(<App />);
     await tick();
-    fireEvent.click(within(screen.getByRole('complementary', { name: '' })).getByRole('button', { name: '加入／建立專案' }));
+    fireEvent.click(within(screen.getByRole('complementary', { name: '專案導覽' })).getByRole('button', { name: '加入／建立專案' }));
     fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
     fireEvent.change(screen.getByLabelText('上層目錄路徑'), { target: { value: '/synthetic' } });
     fireEvent.change(screen.getByLabelText('專案名稱（新資料夾名稱）'), { target: { value: 'new' } });
@@ -710,7 +712,7 @@ describe('App curated project navigation', () => {
     await tick();
     fireEvent.click(within(screen.getByRole('navigation', { name: '專案' })).getByRole('button', { name: /^Synthetic project/ }));
     for (const dismissal of ['cancel', 'escape']) {
-      fireEvent.click(within(screen.getByRole('complementary', { name: '' })).getByRole('button', { name: '加入／建立專案' }));
+      fireEvent.click(within(screen.getByRole('complementary', { name: '專案導覽' })).getByRole('button', { name: '加入／建立專案' }));
       expect(screen.getByLabelText('目錄路徑')).toHaveValue('');
       fireEvent.click(screen.getByRole('button', { name: '建立新專案' }));
       fireEvent.change(screen.getByLabelText('上層目錄路徑'), { target: { value: '/synthetic' } });
@@ -1766,7 +1768,7 @@ describe('shared launcher and scoped search controls', () => {
     await tick();
     expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
     expect(screen.getByRole('textbox', { name: '搜尋 Session' })).toHaveFocus();
-    expect(within(screen.getByRole('tablist', { name: '導覽頁面' })).getByRole('tab', { name: /^專案/ })).toHaveAttribute('aria-selected', 'true');
+    expect(within(screen.getByRole('tablist', { name: '導覽頁面', hidden: true })).getByRole('tab', { name: /^專案/, hidden: true })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByRole('heading', { name: '所有工作階段' })).not.toBeInTheDocument();
   });
   it('shows every registry provider in one scalable dropdown and blocks missing executables', async () => {
@@ -3047,8 +3049,8 @@ describe('sidebar organization persistence', () => {
     render(<App />); await tick();
     const save = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
     try {
-      fireEvent.click(screen.getByRole('button', { name: '專案' }));
-      expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' }));
+      expect(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
       expect(screen.getByText(/側欄偏好無法儲存/)).toBeInTheDocument();
       expect(api.stop).not.toHaveBeenCalled();
     } finally { save.mockRestore(); }
@@ -3056,16 +3058,16 @@ describe('sidebar organization persistence', () => {
   it('independently collapses sections and restores them without stopping a workspace', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const first = render(<App />); await tick();
-    fireEvent.click(screen.getByRole('button', { name: '專案' }));
-    expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' }));
+    expect(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('textbox', { name: '搜尋專案' })).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: '開啟中的工作區' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /開啟工作區 Synthetic/ })).not.toBeInTheDocument();
     expect(api.stop).not.toHaveBeenCalled(); expect(api.updateProject).not.toHaveBeenCalled();
     first.unmount(); render(<App />); await tick();
-    expect(screen.getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: /開啟工作區 Synthetic/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '專案' }));
+    fireEvent.click(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' }));
     expect(screen.getByRole('button', { name: /開啟工作區 Synthetic/ })).toBeInTheDocument();
   });
   it('restores manual order after reload without changing project records or runtime state', async () => {
@@ -3179,16 +3181,50 @@ describe('workspace focus presentation', () => {
       expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
       fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
       expect(document.querySelector('.app-shell')).not.toHaveClass('workspace-focus');
-      expect(screen.getByRole('button', { name: '隱藏側欄' })).toBeInTheDocument();
+      expect(document.querySelector('.sidebar')?.closest('[hidden]') === null).toBe(sidebarOpen);
       fireEvent.click(screen.getByRole('button', { name: '收起完整控制列' }));
       fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
       expect(document.querySelector('.app-shell')).not.toHaveClass('workspace-focus');
     }
-    expect(!!document.querySelector('.sidebar')).toBe(sidebarOpen);
+    expect(document.querySelector('.sidebar')?.closest('[hidden]') === null).toBe(sidebarOpen);
     expect(screen.getByTestId('workspace-canvas')).toBe(canvas);
     expect(workspaceSnapshot()).toEqual(initial);
     expect(native.canvasMounted).toHaveBeenCalledTimes(mounts);
     expect(native.canvasUnmounted).toHaveBeenCalledTimes(unmounts);
+    expect(api.saveWorkspace).toHaveBeenCalledTimes(saves);
+    expect(api.launch).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+
+  it('switches and collapses activities without changing the active terminal or serialized workspace', async () => {
+    render(<App />);
+    await tick();
+    selectGroup();
+    const canvas = screen.getByTestId('workspace-canvas');
+    const before = workspaceSnapshot();
+    const mounts = native.canvasMounted.mock.calls.length;
+    const saves = vi.mocked(api.saveWorkspace).mock.calls.length;
+    const navigation = screen.getByRole('navigation', { name: '工作區功能' });
+    expect(within(navigation).getAllByRole('button').map(button => button.getAttribute('aria-label')))
+      .toEqual(['歷史 Sessions', 'Files', '專案']);
+    const sessions = within(navigation).getByRole('button', { name: '歷史 Sessions' });
+    const files = within(navigation).getByRole('button', { name: 'Files' });
+    fireEvent.click(sessions);
+    expect(sessions).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(files);
+    expect(files).toHaveAttribute('aria-pressed', 'true');
+    expect(sessions).toHaveAttribute('aria-pressed', 'false');
+    expect(document.getElementById('activity-sessions-panel')).toHaveAttribute('hidden');
+    expect(document.getElementById('activity-files-panel')).not.toHaveAttribute('hidden');
+    fireEvent.click(files);
+    expect(files).toHaveAttribute('aria-pressed', 'false');
+    expect(document.getElementById('activity-files-panel')).toHaveAttribute('hidden');
+    fireEvent.click(sessions);
+    expect(document.getElementById('activity-sessions-panel')).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('workspace-canvas')).toBe(canvas);
+    expect(canvas).toBeVisible();
+    expect(workspaceSnapshot()).toEqual(before);
+    expect(native.canvasMounted).toHaveBeenCalledTimes(mounts);
     expect(api.saveWorkspace).toHaveBeenCalledTimes(saves);
     expect(api.launch).not.toHaveBeenCalled();
     expect(api.stop).not.toHaveBeenCalled();
@@ -3201,7 +3237,7 @@ describe('workspace focus presentation', () => {
     fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
     expect(fireEvent.keyDown(window, { key: 'Escape' })).toBe(true);
     expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
-    fireEvent.click(screen.getByRole('button', { name: '歷史 Session' }));
+    fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' }));
     expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
     fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
     fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));

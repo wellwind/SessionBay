@@ -168,7 +168,7 @@ it('restores ordinary focus-mode toggles, but rejects stale generations and navi
   expect(focus).toHaveBeenCalledTimes(2);
   fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
   const beforeNavigation = frames.shift()!;
-  fireEvent.click(screen.getByRole('button', { name: '歷史 Session' }));
+  fireEvent.click(screen.getByRole('tab', { name: /目錄/ }));
   act(() => beforeNavigation(0));
   expect(focus).toHaveBeenCalledTimes(2);
   expect(cancel).toHaveBeenCalled();
@@ -191,10 +191,9 @@ it('invalidates deferred focus restoration after unmount', async () => {
   expect(cancel).toHaveBeenCalled();
 });
 
-it(' closing temporarily revealed sidebar returns keyboard focus to the terminal', async () => {
+it('hiding temporarily revealed controls returns keyboard focus without changing the project panel', async () => {
   const input = await ready();
   vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
-  fireEvent.click(screen.getByRole('button', { name: '隱藏側欄' }));
   const frames: FrameRequestCallback[] = [];
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
   const enter = screen.getByRole('button', { name: '進入專注模式' });
@@ -202,11 +201,11 @@ it(' closing temporarily revealed sidebar returns keyboard focus to the terminal
   act(() => frames.splice(0).forEach(callback => callback(0)));
   expect(input).toHaveFocus();
   fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
-  const hide = screen.getByRole('button', { name: '隱藏側欄' });
+  const hide = screen.getByRole('button', { name: '收起完整控制列' });
   act(() => hide.focus()); fireEvent.click(hide);
-  expect(hide.isConnected).toBe(false);
   act(() => frames.splice(0).forEach(callback => callback(0)));
   expect(input).toHaveFocus();
+  expect(document.querySelector('#activity-projects-panel')).toBeVisible();
 });
 
 it.each([undefined, '', 'Mod+Shift+Z'])('shows the Zen Mode settings label without changing binding %s', async binding => {
@@ -245,7 +244,7 @@ it('finds Zen Mode entry and exit in the command palette and restores terminal f
 });
 
 
-it.each([true, false])('does not restore a hidden/removed sidebar owner over newer search (initial sidebar %s)', async sidebarOpen => {
+it.each([true, false])('does not restore revealed controls over newer search (initial project panel %s)', async sidebarOpen => {
   const input = await ready();
   vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
   if (!sidebarOpen) fireEvent.click(screen.getByRole('button', { name: '隱藏側欄' }));
@@ -254,7 +253,7 @@ it.each([true, false])('does not restore a hidden/removed sidebar owner over new
   fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
   act(() => frames.splice(0).forEach(callback => callback(0)));
   fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
-  const hide = screen.getByRole('button', { name: '隱藏側欄' });
+  const hide = screen.getByRole('button', { name: '收起完整控制列' });
   act(() => hide.focus()); fireEvent.click(hide);
   fireEvent.click(screen.getByRole('button', { name: '搜尋終端文字' }));
   const search = screen.getByRole('textbox', { name: '終端搜尋' });
@@ -264,7 +263,7 @@ it.each([true, false])('does not restore a hidden/removed sidebar owner over new
   expect(bridge.write).not.toHaveBeenCalled();
 });
 
-it('CSS-hidden connected sidebar owner restores neutral focus', async () => {
+it('CSS-hidden connected topbar owner restores neutral focus', async () => {
   const input = await ready();
   vi.spyOn(input, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
   const frames: FrameRequestCallback[] = [];
@@ -273,8 +272,9 @@ it('CSS-hidden connected sidebar owner restores neutral focus', async () => {
   act(() => enter.focus()); fireEvent.click(enter);
   act(() => frames.splice(0).forEach(callback => callback(0)));
   fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
-  const hide = screen.getByRole('button', { name: '隱藏側欄' });
-  act(() => hide.focus()); fireEvent.click(hide);
+  const hide = screen.getByRole('button', { name: /搜尋專案或執行命令/ });
+  act(() => hide.focus());
+  fireEvent.click(screen.getByRole('button', { name: '收起完整控制列' }));
   expect(hide.isConnected).toBe(true);
   expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
   // jsdom does not implement focus loss after ancestor display:none; model the browser's CSS blur.

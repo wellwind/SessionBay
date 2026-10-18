@@ -5,7 +5,8 @@ for (const width of [1200, 720]) {
     await page.goto('/tests/browser/workspace-focus-mode.html');
     await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
     await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
-    await expect(page.getByRole('button', { name: '隱藏 Files 側欄', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('button', { name: '.config', exact: true })).toBeVisible();
     await expect(page.getByRole('checkbox', { name: /隱藏/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '最大化檔案區' })).toHaveCount(0);
@@ -47,6 +48,7 @@ test('file tabs belong to the project across runtime switches and closing files 
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
   await expect(page.locator('.xterm')).toHaveCount(2);
   await page.evaluate(() => Object.assign(window, { savedTerminals: [...document.querySelectorAll('.xterm')] }));
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
   await page.getByRole('button', { name: 'README.md', exact: true }).dblclick();
   const tabs = page.locator('.project-file-tabs-host');
   await expect(tabs.getByRole('tab')).toHaveCount(1);
@@ -74,6 +76,7 @@ test('split drag uses only terminal surface beside the project sidebar', async (
   await page.getByRole('region', { name: 'Focus shell 終端面板', exact: true }).getByRole('button', { name: '左右分割', exact: true }).click();
   await page.getByRole('button', { name: '開始工作', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
   await page.getByRole('button', { name: 'README.md', exact: true }).click();
   await expect(page.locator('.xterm-screen:visible')).toHaveCount(0);
   await page.locator('.workspace-tab-select').filter({ hasText: 'Focus shell' }).click();

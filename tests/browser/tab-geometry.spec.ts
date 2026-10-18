@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
 const geometry = (page: Page) => page.locator('.workspace-tabs').evaluate(container => {
-  const elements = [...container.querySelectorAll(':scope > .history-tab, :scope > .workspace-tab')];
+  const elements = [...container.querySelectorAll(':scope > .workspace-tab')];
   return elements.map((element, index) => {
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
@@ -29,7 +29,8 @@ for (const theme of ['dark', 'light']) for (const palette of ['bay', 'code-moder
     await writeFile(testInfo.outputPath('geometry.json'), JSON.stringify({ before, active, keyboard }, null, 2));
     expect(active.map(({ x, width }) => ({ x, width }))).toEqual(before.map(({ x, width }) => ({ x, width })));
     expect(keyboard).toEqual(active);
-    expect(active.slice(1).map(item => item.gap)).toEqual([0, 0]);
+    expect(active).toHaveLength(2);
+    expect(active.slice(1).map(item => item.gap)).toEqual([0]);
     expect(active.every(item => item.transform === 'none')).toBe(true);
     const first = await page.locator('.workspace-tab-select').first().boundingBox();
     const last = await page.locator('.workspace-tab').last().boundingBox();
