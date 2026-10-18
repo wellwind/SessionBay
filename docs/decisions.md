@@ -1,5 +1,11 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-18 已知狀態與未讀提示避免重複
+
+- 已知 hook／終端／生命週期狀態只顯示既有狀態圖示，不疊加輸出藍點；工作中的 spinner 保留。
+- 僅在沒有已知狀態圖示且有未讀輸出時顯示靜態角落藍點；已讀的新輸出不另顯示提示，移除藍點脈動動畫。
+- 未讀、新輸出與來源狀態仍保留可存取描述；事件接收、狀態映射、有效期及已讀清除邏輯不變。
+
 ## 2026-10-18 輸出提示不影響排列
 
 - 新輸出／未讀提示改為角落覆蓋標記，不佔 flex 欄位、不新增左側預留空間；有已知狀態時附在狀態圖示角落，沒有已知狀態時附在按鈕右上角。
@@ -799,6 +805,20 @@ Cmd+P（非 macOS 的非終端區域為 Ctrl+P）在目前專案搜尋已開啟�
 文字預覽從共用 UI tokens 產生 Monaco 主題，追蹤 data-theme 與 data-theme-palette。介面預覽、取消還原、系統亮暗變更只呼叫 defineTheme／setTheme，不重建 editor 或 model，也不重設選取、捲動或焦點。Terminal 色票維持獨立。
 
 12 色系的深／淺模式映射背景、文字、行號、選取、搜尋、輸入及 widget 顏色。語法規則使用 Session Bay 語意色並確保相對文件／選取背景至少 4.5:1，不繼承針對其他背景的語法色，也不宣稱完整複製 VS Code TextMate 主題。未知色系沿用 Bay fallback。新增數值對比及原實例保留回歸；原生 WebView 視覺驗收仍待實測。
+
+
+## 2026-10-18：F1 單次略過 hooks
+
+Fresh Agent 僅在 typed 本地能力 preflight 明確零 Launch 拒絕後，顯示「本次不啟用活動回報，繼續啟動」。後端保存原 request、canonical spec、broker generation、原期限與設定／catalog 版本；重複原請求不重新規劃。確認在 fresh mutex 下單次 consume，只移除 hooks opt-in，保留 executable、argv、cwd、env、權限及 pane identity。結果未知只查證原 broker，不能再次 Launch。
+
+取消、導航、關閉、新 launcher、設定或 catalog 版本變動、過期及 generation 變動使確認失效。設定寫入遵守 fresh→settings 鎖序，已失效 intent 不因設定改回而復活。fresh launch 在 catalog immediate reservation 內比對 revision 並 consume，避免背景 scan／專案設定 commit 插入確認邊界；保留鎖期間 catalog writer 可能短暫等待，不修改 catalog 資料。確認框獨立於一般破壞性確認，避免自身切換誤增 launchContext generation。歷史／手動 resume 不提供 fallback；不清除 resume identity、不寫全域 hooks、不 revoke 既有工作。測試限合成資料與假 Agent，平台驗證另記。
+
+
+## 2026-10-18：F1 取消截止點是後端 consume
+
+獨立 review 發現 UI 點擊確認就清除 intent，加上取消共用 fresh mutex，使確認等待 catalog writer 時無法及時取消。確認送出後仍保留 in-flight ref，直到 IPC 結束；導航、關閉、reload、unmount 仍送取消。後端以獨立、有界且沿用原期限的 admission registry 保存原子狀態，不需取得 fresh／settings／catalog 鎖即可取消；cancel 與 consume 使用 CAS 排序。取消先成功則零 Launch，consume 先成功則後續取消不停止、不重送既有或結果未知的 Agent。此截止點依後端原子狀態判定，不依點擊時間或假定 IPC 速度。
+
+新增確定性 barrier 測試：外部持有 catalog write transaction，確認取得 fresh 後取消，再釋放 writer，驗證零 Launch；另驗證等待 fresh、consume 後取消及 UI 延遲確認／回覆。保留原 fresh→catalog→settings 鎖序，沒有為取消反轉鎖序。
 
 ## 2026-10-18：Agent 面板右側只顯示可靠活動與必要生命週期
 
