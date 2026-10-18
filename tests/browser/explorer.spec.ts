@@ -103,10 +103,18 @@ test('Monaco local workers, readonly selection, theme and model disposal', async
     const selected = model.getValueInRange(widget.getSelection());
     // Trigger the real JSON worker while schemas remain disabled.
     const jsonModel = monaco.editor.createModel('{"answer":42}', 'json', monaco.Uri.parse('sessionbay-preview:/test.json'));
-    // A detached model alone does not request rich language activation.
-    // colorize awaits the lazy JSON tokenizer before requesting its worker.
-    await monaco.editor.colorize(jsonModel.getValue(), 'json', {});
-    const worker = await getJsonWorker();
+    // Language activation loads jsonMode asynchronously. The public getter can
+    // reject until setupMode runs; wait for that specific initialization state.
+    let worker;
+    const deadline = performance.now() + 5000;
+    while (!worker && performance.now() < deadline) {
+      try { worker = await getJsonWorker(); }
+      catch (error) {
+        if (error !== 'JSON not registered!') throw error;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    }
+    if (!worker) throw new Error('JSON language did not activate within 5s');
     const proxy = await worker(jsonModel.uri);
     const diagnostics = await proxy.doValidation(jsonModel.uri.toString());
     jsonModel.dispose();
