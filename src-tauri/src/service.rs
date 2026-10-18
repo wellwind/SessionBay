@@ -2,7 +2,10 @@ use crate::{
     broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
-    models::{AgentKind, IndexStatus, Project, WorkspaceFilePage, WorkspaceFilePreview},
+    models::{
+        AgentKind, IndexStatus, Project, WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage,
+        WorkspaceFilePreview,
+    },
     runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent},
     workspace_files,
 };
@@ -140,6 +143,25 @@ impl Service {
     ) -> Result<WorkspaceFilePreview, String> {
         let root = self.catalog.workspace_root(project_id)?;
         workspace_files::read(&root, path)
+    }
+    pub fn inspect_workspace_file(
+        &self,
+        project_id: &str,
+        path: &str,
+    ) -> Result<WorkspaceFileInfo, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::inspect(&root, path)
+    }
+    pub fn read_workspace_file_chunk(
+        &self,
+        project_id: &str,
+        path: &str,
+        version: &str,
+        offset: u64,
+        max_bytes: usize,
+    ) -> Result<WorkspaceFileChunk, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::read_chunk(&root, path, version, offset, max_bytes)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;

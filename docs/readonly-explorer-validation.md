@@ -44,3 +44,7 @@ Windows 可將 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 設為已安裝 Edge 的執行�
 ### JSON 延遲 contribution 回歸
 
 `npx playwright test --config playwright.monaco.config.ts` 同時用 Vite dev（含 dependency prebundling）與 production build 的合成 App fixture，先開 README 初始化 editor，再啟動 JSON worker，來回開 TS/JSON 三輪；檢查沒有 page/console error、readonly 仍成立、terminal DOM 身分保留。不得把 UNKNOWN service 錯誤當可忽略 warning。原生 Linux smoke 也在 worker 回覆後建立第二個 editor 並等待 delayed contribution，library error 會讓 smoke 失敗。
+
+## 大檔分級閱讀（2026-10-18）
+
+新增 inspect/chunk IPC、取消、版本與UTF-8邊界／cache測試；Linux dev／production與原生WebKit的1 MiB、21 MiB、65 MiB合成驗證以此PR最新CI為準。歷史oversize拒絕結果只適用舊read API，不能代表新Files介面。

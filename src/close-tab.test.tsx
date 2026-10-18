@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { defaultAgentOptions } from './agents';
+import { clearFileCache } from './components/file-reader';
 import type { Bootstrap, Settings, RuntimeRecord, Workspace, TerminalEvent } from './types';
 
 const bridge = vi.hoisted(() => ({
@@ -10,7 +11,7 @@ const bridge = vi.hoisted(() => ({
   launch: vi.fn(), attach: vi.fn(), detach: vi.fn(), write: vi.fn(), resize: vi.fn(), ack: vi.fn(),
   stop: vi.fn(), forget: vi.fn(), settleLaunches: vi.fn(), close: vi.fn(), detect: vi.fn(),
   saveSettings: vi.fn(), setWorkspaceZoom: vi.fn(), reset: vi.fn(), dispose: vi.fn(),
-  listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn(),
+  listWorkspaceFiles: vi.fn(), inspectWorkspaceFile: vi.fn(), readWorkspaceFileChunk: vi.fn(),
 }));
 vi.mock('./api', () => ({ api: bridge, isDesktop: () => true,
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error) }));
@@ -70,10 +71,17 @@ function fixture(): Bootstrap {
 }
 beforeEach(() => {
   const data = fixture();
+  clearFileCache();
   bridge.bootstrap.mockResolvedValue(data); bridge.scan.mockResolvedValue(data.index); bridge.index.mockResolvedValue(data.index); bridge.projects.mockResolvedValue(data.projects);
   bridge.runtimes.mockResolvedValue(data.runtimes); bridge.attach.mockResolvedValue(record);
   bridge.listWorkspaceFiles.mockResolvedValue({ entries: [], nextOffset: null });
-  bridge.readWorkspaceFile.mockImplementation(async (_id, path) => ({ path, text: `content ${path}`, sizeBytes: 12 }));
+  bridge.inspectWorkspaceFile.mockImplementation(async (_id, path) => ({ path, sizeBytes: new TextEncoder().encode(`content ${path}`).length, version: `fixture:${path}`, kind: 'text' }));
+  bridge.readWorkspaceFileChunk.mockImplementation(async (_id, path, version, offset, maxBytes) => {
+    expect(version).toBe(`fixture:${path}`);
+    const bytes = new TextEncoder().encode(`content ${path}`);
+    const chunk = bytes.slice(offset, offset + maxBytes);
+    return { bytes: Array.from(chunk), eof: offset + chunk.length === bytes.length };
+  });
   bridge.saveSettings.mockImplementation(async (settings: Settings) => settings);
   for (const mock of [bridge.saveWorkspace, bridge.detach, bridge.write, bridge.resize, bridge.ack, bridge.stop, bridge.forget, bridge.settleLaunches, bridge.close, bridge.setWorkspaceZoom]) mock.mockResolvedValue(undefined);
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
@@ -132,7 +140,6 @@ describe('Cmd+W closes only the current workspace tab', () => {
   it('routes captured Cmd+W and native close from file controls without touching runtimes', async () => {
     setup([shell()]);
     bridge.listWorkspaceFiles.mockResolvedValue({ entries: [{ name: 'safe.ts', path: 'safe.ts', kind: 'file' }], nextOffset: null });
-    bridge.readWorkspaceFile.mockResolvedValue({ path: 'safe.ts', text: 'const safe = true;', sizeBytes: 18 });
     await openWorkspace();
     const terminal = screen.getByRole('textbox', { name: 'Integration terminal input' });
     fireEvent.click(screen.getByRole('button', { name: 'Files' }));
@@ -351,7 +358,7 @@ describe('project Files workspace integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'pane-b 1' }));
     expect(file).toHaveAttribute('aria-selected', 'false');
     fireEvent.click(file);
-    expect(screen.getByLabelText('唯讀內容：a.ts')).toBeVisible();
+    expect(await screen.findByLabelText('唯讀內容：a.ts')).toBeVisible();
     expect(screen.getAllByRole('textbox', { name: 'Integration terminal input', hidden: true })).toEqual(terminals);
     expect(bridge.dispose).not.toHaveBeenCalled(); expect(bridge.detach).not.toHaveBeenCalled();
     expect(bridge.stop).not.toHaveBeenCalled(); expect(bridge.write).not.toHaveBeenCalled();

@@ -1,4 +1,6 @@
-# 唯讀 Explorer 後續設計
+# 唯讀 Explorer 設計演進
+
+現行中央 Files 與 Monaco 見本文末尾；早期側欄／256 KiB 規格為歷史紀錄。最新 [大型文字檔閱讀](large-file-reading.md) 取代小檔限制。
 
 基於已驗證 PR17 `8fca54c` 的獨立後續功能，不修改 Windows／Unix reader 或 IPC 契約。
 
@@ -48,7 +50,7 @@
 
 - Monaco 0.57.0 唯讀 editor，支援跨可視範圍全文選取、內建搜尋（大小寫／整字／regex）與折疊；保留精確複製全文入口。
 - 語言依副檔名選擇；TypeScript/JavaScript、Rust、Python、JSON、Markdown、CSS、HTML 等由官方 tokenizer 處理。未知格式為純文字；Vue/Svelte 暫用 HTML、TOML 暫用 INI，並非完整框架語言服務。
-- 沿用中央 Files tabs 與可調右側 panel；沒有新工具列或獨立視窗。檔案切換保存選取、捲動和折疊 view state；關閉檔案釋放 model，文字快取上限與安全讀取保持不變。
-- 延遲載入 editor 與語言模組。worker、字型及程式均由應用程式本機提供，不使用 CDN、不讀遠端 schema。Monaco 本體約 3 MB（gzip 約 0.8 MB）延遲 chunk；JSON 模式另延遲載入。
+- 沿用中央 Files tabs 與可調右側 panel；沒有新工具列或獨立視窗。檔案切換保存選取、捲動和折疊 view state；關閉檔案釋放 model，大型文字透過 metadata 預檢與有界 chunks 載入；小檔 cache 有全域上限，安全路徑政策保持不變。
+- 延遲載入 editor 與語言模組。worker、字型及程式均由應用程式本機提供，不使用 CDN、不讀遠端 schema。Monaco 本體約 4 MB（gzip 約 1 MB）延遲 chunk；JSON 模式另延遲載入。
 - 預覽配合全站 dark/light 切換 Monaco vs-dark/vs，檔案本身不執行；不載入專案擴充套件、不新增寫檔、Git 或語意分析伺服器。
 - 驗收：開啟多行 TS/JSON/Markdown、Ctrl/Cmd+F 找檔尾、選取複製、折疊後換檔再回來、切深淺色、嘗試輸入不得改檔、關檔後 Terminal 身分與程序不變。
