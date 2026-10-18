@@ -36,3 +36,7 @@ Windows 可將 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 設為已安裝 Edge 的執行�
 新增真實 browser case：本機 JSON worker、readonly 輸入拒絕、全文選取、深淺色、關閉後 model 釋放；既有大檔搜尋／回復捲動與 Terminal DOM 身分案例改用 Monaco。
 
 本機 Linux Chromium 啟動被執行環境 sandbox 阻擋（socket permission；正式升權也失敗），因此不記錄為通過。完整 Linux CI 瀏覽器結果以 PR 檢查與 artifacts 為準。Vitest contract mock 僅測 React lifecycle，不當作 Monaco 真實驗收。原生 macOS／Windows WebView 未在此次本機驗證。
+
+### Monaco 原生 Linux worker 驗證
+
+`feat/monaco-file-preview` 分支的相關程式變更會額外觸發 Linux-only 桌面驗收；三平台手動 matrix 保留，另可選 linux。Linux runner 使用隔離 HOME 與合成資料，在 Tauri WebKit 的正式 CSP 下要求 bundled JSON worker 真實回覆（拒絕 main-thread fallback）、唯讀輸入不改內容、model dispose。每個 empty/dark/light scenario 必須出現 `monaco-worker-readonly-disposal` marker。此項不代表 macOS/Windows 原生驗收通過。

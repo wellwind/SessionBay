@@ -1,16 +1,25 @@
 name: Desktop acceptance (manual)
 # Complete acceptance is intentionally manual; a skipped/unrun matrix is not a pass.
 on:
+  push:
+    branches: ['feat/monaco-file-preview']
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'scripts/ci-linux-smoke.sh'
+      - '.github/workflows/ci.yml'
+      - 'package*.json'
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Acceptance scope (Windows-only is not three-OS acceptance)'
+        description: 'Acceptance scope (single-OS is not three-OS acceptance)'
         type: choice
         required: true
         default: all
         options:
           - all
           - windows
+          - linux
 permissions:
   contents: read
 jobs:
@@ -20,7 +29,8 @@ jobs:
       matrix:
         # Missing inputs keep the full matrix; input never becomes a shell command or runner name.
         include: >-
-          ${{ fromJSON(inputs.platform == 'windows' &&
+          ${{ fromJSON((github.event_name == 'push' || inputs.platform == 'linux') &&
+            '[{"os":"ubuntu-24.04","bundle":"deb"}]' || inputs.platform == 'windows' &&
             '[{"os":"windows-2022","bundle":"nsis"}]' ||
             '[{"os":"ubuntu-24.04","bundle":"deb"},{"os":"macos-15","bundle":"app"},{"os":"macos-15-intel","bundle":"app"},{"os":"windows-2022","bundle":"nsis"}]') }}
     runs-on: ${{ matrix.os }}
