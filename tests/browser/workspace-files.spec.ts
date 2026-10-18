@@ -36,14 +36,16 @@ for (const width of [1200, 720]) {
       const preview = document.querySelector('[data-file-explorer]')!.getBoundingClientRect();
       const panel = document.querySelector('#activity-files-panel')!.getBoundingClientRect();
       const rail = document.querySelector('.workspace-activity-bar')!.getBoundingClientRect();
+      const body = document.querySelector('.app-body')!.getBoundingClientRect();
       return { filesLeft: files.left, filesRight: files.right, workRight: work.right, workWidth: work.width,
-        panelRight: panel.right, railLeft: rail.left, railRight: rail.right, railWidth: rail.width,
+        panelRight: panel.right, railLeft: rail.left, railRight: rail.right, railWidth: rail.width, bodyRight: body.right,
         top: preview.top - work.top, bottom: work.bottom - preview.bottom, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
     });
     expect(geometry.workRight).toBeLessThanOrEqual(geometry.filesLeft);
     expect(geometry.filesRight).toBeLessThanOrEqual(geometry.railLeft);
     expect(geometry.panelRight).toBeCloseTo(geometry.railLeft, 3);
-    expect(geometry.railRight).toBe(geometry.viewport);
+    // The app shell has an outer border; tools align with the inner workspace edge.
+    expect(geometry.railRight).toBe(geometry.bodyRight);
     expect(geometry.railWidth).toBe(44);
     expect(geometry.workWidth).toBeGreaterThan(0);
     expect(Math.abs(geometry.top)).toBeLessThan(1);

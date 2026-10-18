@@ -41,9 +41,16 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     const work = (await page.locator('.project-work-content').boundingBox())!;
     const panel = (await pane.boundingBox())!;
     const rail = (await page.getByRole('navigation', { name: '工作區功能' }).boundingBox())!;
+    const body = (await page.locator('.app-body').boundingBox())!;
+    console.log('right-tools-geometry', await page.evaluate(() => Object.fromEntries(
+      ['.app-body', '.project-activity-tools', '#activity-files-panel', '.workspace-activity-bar'].map(selector => {
+        const element = document.querySelector(selector)!; const box = element.getBoundingClientRect(); const css = getComputedStyle(element);
+        return [selector, { left: box.left, right: box.right, width: box.width, borderLeft: css.borderLeftWidth, borderRight: css.borderRightWidth, flex: css.flex }];
+      }))));
     expect(work.x + work.width).toBeLessThanOrEqual(panel.x);
     expect(panel.x + panel.width).toBeLessThanOrEqual(rail.x);
-    expect(rail.x + rail.width).toBe(width);
+    // Align inside the app-shell border rather than to the viewport edge.
+    expect(rail.x + rail.width).toBe(body.x + body.width);
     await expect(page.locator('.sidebar')).toBeVisible();
     const resize = page.getByRole('separator', { name: '調整目錄樹寬度' });
     await resize.focus();

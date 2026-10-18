@@ -53,3 +53,8 @@
 
 .project-files-sidebar[data-side="right"] { border-right: 0; }
 .project-files-sidebar[data-side="right"] .project-files-resize { right: auto; left: -2px; }
+.sidebar .navigation-tabs > button { gap: 4px; font-size: 12px; white-space: nowrap; }
+.sidebar .navigation-tabs > button > svg { flex-shrink: 0; width: 14px; }
+@media (max-width: 900px) {
+  .sidebar .navigation-tabs > button > svg, .sidebar .navigation-tabs > button > span { display: none; }
+}

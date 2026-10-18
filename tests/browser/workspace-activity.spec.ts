@@ -59,6 +59,17 @@ async function geometry(page: Page) {
 async function expectAdjacentSurfaces(page: Page, panel?: 'sessions' | 'files') {
   const value = await geometry(page);
   const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThan(1);
+  // Both outside edges belong to the app body, inside the shell border.
+  if (value.navigator.width) {
+    near(value.navigator.left, value.body.left);
+    const navigationTabs = navigator(page).locator('.navigation-tabs').getByRole('tab');
+    for (const tab of await navigationTabs.all()) {
+      await expect(tab).toHaveCSS('white-space', 'nowrap');
+      const bounds = (await tab.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(value.navigator.left);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(value.navigator.right);
+    }
+  }
   near(value.main.left, value.navigator.width ? value.navigator.right : value.body.left);
   near(value.content.left, value.main.left);
   if (value.header.width) near(value.header.left, value.content.left);
