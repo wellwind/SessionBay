@@ -1,6 +1,29 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import ts from 'typescript'
 import { register } from './claude_state_mod.js'
+
+test('engine-handle helper calls target module-level functions', () => {
+  // Regression guard for the native compiler rejection. This checks only the
+  // known static rule; it does not substitute for `claude plugin validate`.
+  const source = ts.createSourceFile('register.js',
+    readFileSync(new URL('./claude_state_mod.js', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  const helpers = new Set(source.statements.filter(ts.isFunctionDeclaration)
+    .map(node => node.name?.text))
+  let checked = 0
+  function visit(node) {
+    if (ts.isCallExpression(node) && node.arguments.some(arg => ts.isIdentifier(arg) && arg.text === '$')) {
+      assert(ts.isIdentifier(node.expression), 'engine handle must not escape to a dynamic call')
+      assert(helpers.has(node.expression.text), `${node.expression.text} must be module-level`)
+      checked += 1
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  assert(checked > 0)
+})
 
 function harness(options = {}) {
   const hooks = new Map()
