@@ -29,7 +29,7 @@ for (const width of [800, 1200]) for (const theme of ['dark', 'light']) {
     await page.screenshot({ path: testInfo.outputPath('membership.png'), fullPage: true });
     await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
     await expect(star).toBeHidden();
-    await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+    await page.keyboard.press('ControlOrMeta+Shift+B');
     await expect(star).toBeVisible();
   });
 }

@@ -107,7 +107,7 @@ for (const [label, width, height, scale] of [['short', 1000, 500, 1], ['css-zoom
       if (revealed) {
         await tab.scrollIntoViewIfNeeded(); await tab.click();
         await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
-        await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+        await page.keyboard.press('ControlOrMeta+Shift+B');
       }
       for (const control of [search, tab, addProject]) {
         await control.evaluate(element => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
