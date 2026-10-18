@@ -4,7 +4,7 @@ use crate::{
     history_sources::{self, HistorySourceDiscovery},
     models::{
         AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
-        WorkspaceFilePage, WorkspaceFilePreview,
+        WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage, WorkspaceFilePreview,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
@@ -165,6 +165,28 @@ async fn read_workspace_file(
 ) -> Result<WorkspaceFilePreview, String> {
     let s = state.inner().clone();
     blocking(move || s.read_workspace_file(&project_id, &path)).await
+}
+#[tauri::command]
+async fn inspect_workspace_file(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+) -> Result<WorkspaceFileInfo, String> {
+    let s = state.inner().clone();
+    blocking(move || s.inspect_workspace_file(&project_id, &path)).await
+}
+#[tauri::command]
+async fn read_workspace_file_chunk(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+    version: String,
+    offset: u64,
+    max_bytes: usize,
+) -> Result<WorkspaceFileChunk, String> {
+    let s = state.inner().clone();
+    blocking(move || s.read_workspace_file_chunk(&project_id, &path, &version, offset, max_bytes))
+        .await
 }
 #[tauri::command]
 async fn add_project(
@@ -642,6 +664,8 @@ pub fn run() {
             list_projects,
             list_workspace_files,
             read_workspace_file,
+            inspect_workspace_file,
+            read_workspace_file_chunk,
             add_project,
             create_project,
             update_project,

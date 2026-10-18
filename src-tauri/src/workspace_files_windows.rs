@@ -31,7 +31,7 @@ use windows_sys::{
 // GetDriveTypeW's fixed local disk result (Windows SDK winbase.h).
 const DRIVE_FIXED: u32 = 3;
 
-fn fs_error(error: io::Error) -> String {
+pub(super) fn fs_error(error: io::Error) -> String {
     match error.kind() {
         io::ErrorKind::NotFound => "檔案或目錄已不存在，請重新整理".into(),
         io::ErrorKind::PermissionDenied => "沒有權限讀取此檔案或目錄".into(),
@@ -216,13 +216,65 @@ pub(super) fn read(
     read_from(open_root(root)?, path, parts)
 }
 
-fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFilePreview, String> {
+fn open_file_from(directory: File, parts: &[&str]) -> Result<File, String> {
     let (name, parents) = parts.split_last().ok_or("請選擇一般文字檔案")?;
     let directory = descend(directory, parents)?;
-    let mut file = open_at(&directory, name, false)?;
+    let file = open_at(&directory, name, false)?;
     if inspect(&file)? != WorkspaceEntryKind::File {
         return Err("只能預覽一般檔案".into());
     }
+    Ok(file)
+}
+
+pub(super) fn open_file(root: &Path, parts: &[&str]) -> Result<File, String> {
+    open_file_from(open_root(root)?, parts)
+}
+
+pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
+    if inspect(file)? != WorkspaceEntryKind::File {
+        return Err("只能預覽一般檔案".into());
+    }
+    let mut identity = MaybeUninit::<FILE_ID_INFO>::uninit();
+    let mut basic = MaybeUninit::<FILE_BASIC_INFO>::uninit();
+    // SAFETY: the handle stays live and both correctly sized/aligned structures
+    // are read only when the corresponding information query succeeds.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileIdInfo,
+            identity.as_mut_ptr().cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    } == 0
+        || unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileBasicInfo,
+                basic.as_mut_ptr().cast(),
+                size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        } == 0
+    {
+        return Err(fs_error(io::Error::last_os_error()));
+    }
+    // SAFETY: both successful queries initialized the entire structures.
+    let (identity, basic) = unsafe { (identity.assume_init(), basic.assume_init()) };
+    let size_bytes = file.metadata().map_err(fs_error)?.len();
+    Ok(FileSnapshot {
+        size_bytes,
+        version: opaque_version(&format!(
+            "windows:{}:{:?}:{}:{}:{}",
+            identity.VolumeSerialNumber,
+            identity.FileId.Identifier,
+            size_bytes,
+            basic.LastWriteTime,
+            basic.ChangeTime,
+        )),
+    })
+}
+
+fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFilePreview, String> {
+    let mut file = open_file_from(directory, parts)?;
     if file.metadata().map_err(fs_error)?.len() > MAX_FILE_BYTES as u64 {
         return Err("檔案過大：文字預覽上限為 256 KiB".into());
     }

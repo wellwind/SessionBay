@@ -5,14 +5,25 @@ import { FilesTestHost as WorkspaceFiles } from './test/FilesTestHost';
 import { ExplorerEditor } from './components/ExplorerEditor';
 import { emptyFileTabs, fileTabsReducer, monacoLanguage } from './components/explorer-model';
 import { api } from './api';
+import { clearFileCache } from './components/file-reader';
+import type { WorkspaceFileInfo } from './types';
 import { monaco, models, widgets, onPreviewError } from './test/monaco-preview-mock';
 vi.mock('./components/monaco-preview', () => ({ monaco, onPreviewError }));
-vi.mock('./api', () => ({ api: { listWorkspaceFiles: vi.fn(), readWorkspaceFile: vi.fn() }, errorMessage: String }));
+vi.mock('./api', () => ({ api: { listWorkspaceFiles: vi.fn(), inspectWorkspaceFile: vi.fn(), readWorkspaceFileChunk: vi.fn() }, errorMessage: String }));
 const files = ['a.ts', 'b.txt', 'c.json'];
+const fileBytes = (path: string) => new TextEncoder().encode(`content ${path}`);
+const fileInfo = (path: string): WorkspaceFileInfo => ({ path, sizeBytes: fileBytes(path).length, version: `fixture:${path}`, kind: 'text' });
 beforeEach(() => {
   vi.clearAllMocks();
+  clearFileCache();
   vi.mocked(api.listWorkspaceFiles).mockImplementation(async (_project, path) => ({ entries: path ? [{ name: 'nested.txt', path: 'src/nested.txt', kind: 'file' }] : [{ name: 'src', path: 'src', kind: 'directory' }, ...files.map(name => ({ name, path: name, kind: 'file' as const }))], nextOffset: null }));
-  vi.mocked(api.readWorkspaceFile).mockImplementation(async (_project, path) => ({ path, text: `content ${path}`, sizeBytes: 12 }));
+  vi.mocked(api.inspectWorkspaceFile).mockImplementation(async (_project, path) => fileInfo(path));
+  vi.mocked(api.readWorkspaceFileChunk).mockImplementation(async (_project, path, version, offset, maxBytes) => {
+    expect(version).toBe(fileInfo(path).version);
+    const bytes = fileBytes(path);
+    const chunk = bytes.slice(offset, offset + maxBytes);
+    return { bytes: Array.from(chunk), eof: offset + chunk.length === bytes.length };
+  });
 });
 describe('bounded file tab state', () => {
   it('replaces preview, preserves pinned tabs, caps memory and reorders without changing active', () => {
@@ -51,16 +62,17 @@ it('pins on double click, keeps tabs separate, closes through focused native rou
   expect(api.listWorkspaceFiles).toHaveBeenLastCalledWith('two', '', 0, true);
 });
 it('late responses cannot resurrect a closed preview and refresh failure clears cached text', async () => {
-  let resolve!: (value: { path: string; text: string; sizeBytes: number }) => void;
-  vi.mocked(api.readWorkspaceFile).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  let resolve!: (value: WorkspaceFileInfo) => void;
+  vi.mocked(api.inspectWorkspaceFile).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   render(<WorkspaceFiles projectId="one" />);
   fireEvent.click(await screen.findByRole('button', { name: 'a.ts' }));
   fireEvent.click(screen.getByRole('button', { name: '關閉檔案 a.ts' }));
-  await act(async () => resolve({ path: 'a.ts', text: 'closed secret', sizeBytes: 13 }));
-  expect(screen.queryByText('closed secret')).not.toBeInTheDocument();
+  await act(async () => resolve(fileInfo('a.ts')));
+  expect(api.readWorkspaceFileChunk).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('唯讀內容：a.ts')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'b.txt' }));
   await screen.findByLabelText('唯讀內容：b.txt');
-  vi.mocked(api.readWorkspaceFile).mockRejectedValueOnce(new Error('reparse denied'));
+  vi.mocked(api.inspectWorkspaceFile).mockRejectedValueOnce(new Error('reparse denied'));
   fireEvent.click(screen.getByRole('button', { name: '重新整理檔案' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('reparse denied');
   expect(screen.queryByText('content b.txt')).not.toBeInTheDocument();
@@ -79,14 +91,15 @@ it('navigates lazy tree and exposes keyboard context-copy with failure feedback'
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('無法存取剪貼簿'));
   expect(screen.getByLabelText('專案相對路徑')).toHaveValue('src/nested.txt');
   fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' }); expect(child).toHaveFocus();
-  expect(api.readWorkspaceFile).not.toHaveBeenCalled();
+  expect(api.inspectWorkspaceFile).not.toHaveBeenCalled();
+  expect(api.readWorkspaceFileChunk).not.toHaveBeenCalled();
 });
 it('creates a read-only model, copies exact text and releases editor/model on close', async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
   const text = '<script>never()</script>\n中文';
   const save = vi.fn();
-  const view = render(<ExplorerEditor path="large.ts" text={text} sizeBytes={text.length} position={{ top: 60, left: 10 }} onScroll={save} searchRequest={0} />);
+  const view = render(<ExplorerEditor path="large.ts" text={text} sizeBytes={new TextEncoder().encode(text).length} position={{ top: 60, left: 10 }} onScroll={save} searchRequest={0} />);
   await waitFor(() => expect(screen.getByRole('button', { name: '檔案內搜尋' })).toBeEnabled());
   expect(monaco.editor.create).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({ readOnly: true, domReadOnly: true, links: false }));
   expect(view.container.querySelector('script')).toBeNull();
@@ -97,25 +110,32 @@ it('creates a read-only model, copies exact text and releases editor/model on cl
   expect(model.dispose).toHaveBeenCalledOnce(); expect(widget.dispose).toHaveBeenCalledOnce();
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ top: 60, left: 10, viewState: expect.any(Object) }));
 });
-it('keeps tree focus, preserves document when sidebar collapses, and restores it across views', async () => {
+it('keeps tree focus, preserves the visible document, and restores a disposed hidden editor from cache', async () => {
   const activate = vi.fn();
   const view = render(<WorkspaceFiles projectId="one" onActivate={activate} />);
   const row = await screen.findByRole('button', { name: 'a.ts' });
   row.focus(); fireEvent.keyDown(row, { key: 'Enter' });
   const content = await screen.findByLabelText('唯讀內容：a.ts');
   expect(row).toHaveFocus(); expect(activate).toHaveBeenCalledOnce();
-  content.scrollTop = 160; fireEvent.scroll(content);
   await waitFor(() => expect(screen.getByRole('button', { name: '檔案內搜尋' })).toBeEnabled());
+  const widget = vi.mocked(monaco.editor.create).mock.results.at(-1)!.value;
+  const model = models.at(-1)!;
+  widget.setScrollPosition({ scrollTop: 160, scrollLeft: 10 });
   fireEvent.click(screen.getByRole('button', { name: '檔案內搜尋' }));
   fireEvent.change(screen.getByRole('textbox', { name: /搜尋文字/ }), { target: { value: 'content' } });
   view.rerender(<WorkspaceFiles projectId="one" sidebarVisible={false} />);
   expect(content).toBeVisible(); expect(screen.queryByRole('tree')).not.toBeInTheDocument();
   view.rerender(<WorkspaceFiles projectId="one" active={false} />);
-  expect(content).not.toBeVisible(); expect(screen.getByRole('tab')).toHaveAttribute('aria-selected', 'false');
+  expect(content).not.toBeInTheDocument(); expect(screen.getByRole('tab')).toHaveAttribute('aria-selected', 'false');
+  expect(widget.dispose).toHaveBeenCalledOnce(); expect(model.dispose).toHaveBeenCalledOnce();
   view.rerender(<WorkspaceFiles projectId="one" />);
-  expect(screen.getByLabelText('唯讀內容：a.ts')).toBe(content);
-  expect(screen.getByRole('textbox', { name: /搜尋文字/ })).toHaveValue('content');
-  expect(api.readWorkspaceFile).toHaveBeenCalledTimes(1);
+  const restored = await screen.findByLabelText('唯讀內容：a.ts');
+  await waitFor(() => expect(screen.getByRole('button', { name: '檔案內搜尋' })).toBeEnabled());
+  expect(restored).not.toBe(content);
+  const nextWidget = vi.mocked(monaco.editor.create).mock.results.at(-1)!.value;
+  expect(nextWidget.restoreViewState).toHaveBeenCalledWith({ viewState: { scrollTop: 160 } });
+  expect(api.inspectWorkspaceFile).toHaveBeenCalledTimes(2);
+  expect(api.readWorkspaceFileChunk).toHaveBeenCalledTimes(1);
 });
 it('does not activate runtime-hidden file tabs on close or consume runtime Cmd+W', async () => {
   const activate = vi.fn(); const empty = vi.fn();
@@ -154,11 +174,13 @@ it('retains independent visited project tabs and ignores native close on hidden 
   view.rerender(<><WorkspaceFiles projectId="one" visible={false} /><WorkspaceFiles projectId="two" /></>);
   fireEvent.click(await screen.findByRole('button', { name: 'b.txt' }));
   await screen.findByLabelText('唯讀內容：b.txt');
-  expect(first).not.toBeVisible();
+  expect(first).not.toBeInTheDocument();
   view.rerender(<><WorkspaceFiles projectId="one" /><WorkspaceFiles projectId="two" visible={false} /></>);
-  expect(first).toBeVisible(); expect(screen.getByRole('tab', { name: /a.ts/ })).toBeInTheDocument();
+  expect(await screen.findByLabelText('唯讀內容：a.ts')).toBeVisible();
+  expect(screen.getByRole('tab', { name: /a.ts/ })).toBeInTheDocument();
   expect(screen.queryByRole('tab', { name: /b.txt/ })).not.toBeInTheDocument();
-  expect(api.readWorkspaceFile).toHaveBeenCalledTimes(2);
+  expect(api.inspectWorkspaceFile).toHaveBeenCalledTimes(3);
+  expect(api.readWorkspaceFileChunk).toHaveBeenCalledTimes(2);
 });
 it('drags only an opaque internal tab marker, never source or paths', async () => {
   render(<WorkspaceFiles projectId="one" />);

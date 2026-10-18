@@ -304,3 +304,11 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - 本次固定 monaco-editor 0.57.0，採 editor API、局部 contributions 與本機 worker；套件的 JSON defaults 明確關閉 schema request。未引入 CDN loader。
 
 - Monaco Editor 0.57.0 官方 npm 套件：`esm/vs/internal/common/workers.js`、`esm/vs/features/register.all.js`、`esm/vs/editor/standalone/browser/standaloneServices.js`。2026-10-18 核對 local package：JSON lazy workerManager 會晚載入全套 contributions，而 StandaloneServices 僅 initialize 時補 singleton；須在第一個 model/editor 前完成註冊。上游：https://github.com/microsoft/monaco-editor/tree/v0.57.0 。
+
+### 2026-10-18：大檔分級閱讀
+
+- [VS Code large-file optimization warning](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/codeEditor/browser/largeFileOptimizations.ts)：大型文件會降低特性，避免 tokenization、folding、word highlight 等昂貴工作。Session Bay 採較保守的 IPC 與 model 大小界限，不宣稱與完整 VS Code 記憶體能力相等。
+- [VS Code text model](https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/model/textModel.ts)：大小／行數判斷與 tokenization／sync 退化是參考方向；本專案門檻為自己的資源政策。
+## 發行與 Snap 更新政策（2026-10-18 查閱）
+
+- [Snap Manage updates](https://snapcraft.io/docs/how-to-guides/manage-snaps/manage-updates/)：Store 預設自動更新；snapd 2.58+ 單套件無期限 hold 與 targeted refresh；本機測試安裝與 Store 行為不同。應用不能以自己的確認框保證阻止 snapd；產品規劃與未完成驗收見[發行與更新](release-update-plan.md)。
