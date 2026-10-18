@@ -106,6 +106,10 @@ export function terminalFileLinkProvider(terminal: Terminal, context: () => stri
         if (event.button !== 0 || !fileLinkModifier(event) || !active() || context() !== captured) return;
         const current = terminal.buffer.active.getLine(y - 1);
         if (!current || current.isWrapped || terminal.buffer.active.getLine(y)?.isWrapped || current.translateToString(false) !== original) return;
+        for (let x = cells[match.start].start - 1; x < cells[match.end - 1].end; x++) {
+          const cell = current.getCell(x);
+          if (!cell || cell.isUnderline() || cell.isInvisible()) return;
+        }
         event.preventDefault();
         const target = parseTerminalFileTarget(match.text);
         const quoted = /^[([]?["'`]/.test(match.text);

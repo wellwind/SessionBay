@@ -101,3 +101,14 @@ it('does not expose a path truncated by the provider cell budget', () => {
   const terminal = { buffer: { active: { getLine: (y: number) => y === 0 ? current : undefined } } } as unknown as Terminal;
   terminalFileLinkProvider(terminal, () => '', vi.fn(), vi.fn(), () => true).provideLinks(1, result => expect(result).toBeUndefined());
 });
+
+it('revalidates link attributes at activation when visible text has not changed', () => {
+  const current = line('/project/file.ts');
+  const terminal = { buffer: { active: { getLine: (y: number) => y === 0 ? current : undefined } } } as unknown as Terminal;
+  const open = vi.fn(); const provider = terminalFileLinkProvider(terminal, () => '', open, vi.fn(), () => true);
+  provider.provideLinks(1, links => {
+    current.getCell(current.length - 1).isUnderline = () => 1;
+    links![0].activate(new MouseEvent('click', { ctrlKey: true }), links![0].text);
+  });
+  expect(open).not.toHaveBeenCalled();
+});
