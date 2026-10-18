@@ -395,6 +395,19 @@ impl Catalog {
         read_revision(&self.connect()?)
     }
 
+    /// Serialize confirmation admission with catalog writers, including background scans.
+    /// Read-only Launch planning may use other connections while this reservation is held.
+    pub(crate) fn with_launch_revision<T>(
+        &self,
+        action: impl FnOnce(u64) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(error)?;
+        action(read_revision(&tx)?)
+    }
+
     fn connect(&self) -> Result<Connection, String> {
         let conn = Connection::open(&self.path).map_err(error)?;
         conn.busy_timeout(Duration::from_secs(5)).map_err(error)?;
@@ -3491,6 +3504,35 @@ fn read_revision(conn: &Connection) -> Result<u64, String> {
 #[cfg(test)]
 mod revision_snapshot_tests {
     use super::*;
+
+    #[test]
+    fn launch_revision_reservation_blocks_catalog_commit_until_admission_finishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("synthetic.sqlite");
+        let catalog = Catalog::open(&path).unwrap();
+        let writer = Connection::open(&path).unwrap();
+        writer.busy_timeout(Duration::ZERO).unwrap();
+        let revision = catalog.revision().unwrap();
+        catalog
+            .with_launch_revision(|observed| {
+                assert_eq!(observed, revision);
+                let error = writer
+                    .execute("INSERT INTO projects(id,name) VALUES('p','Synthetic')", [])
+                    .unwrap_err();
+                assert_eq!(
+                    error.sqlite_error_code(),
+                    Some(rusqlite::ErrorCode::DatabaseBusy)
+                );
+                // Existing planning readers remain usable while writer admission is reserved.
+                assert!(catalog.projects()?.is_empty());
+                Ok(())
+            })
+            .unwrap();
+        writer
+            .execute("INSERT INTO projects(id,name) VALUES('p','Synthetic')", [])
+            .unwrap();
+        assert!(catalog.revision().unwrap() > revision);
+    }
 
     #[test]
     fn batch_revision_count_and_rows_share_one_snapshot_without_blocking_a_writer() {

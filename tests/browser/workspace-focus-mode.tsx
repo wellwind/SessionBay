@@ -158,6 +158,19 @@ mockIPC((command, payload = {}) => {
       if (!edgeFixture && !temporaryFixture) throw new Error('Launch is disabled in the default fixture');
       return { executable: '/synthetic/shell', args: [], cwd: '/synthetic/focus' };
     }
+    case 'launch_fresh_runtime': {
+      if (!fixtureParams.has('hook-skip')) throw new Error('Fresh launch disabled');
+      throw new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 目前背景 broker 尚不支援真實活動 hooks；這次未啟動 Agent，既有工作不受影響。');
+    }
+    case 'launch_fresh_without_hooks': {
+      if (!fixtureParams.has('hook-skip')) throw new Error('Confirmation disabled');
+      const request = args.request as LaunchRequest;
+      const record: RuntimeRecord = { ...runtime, id: 'runtime-synthetic-fresh', paneId: 'pane-synthetic-fresh',
+        kind: request.kind, profileId: request.profileId ?? null, projectId: request.projectId ?? null, cwd: request.cwd! };
+      runtimes.push(record);
+      return record;
+    }
+    case 'cancel_fresh_launch': return;
     case 'launch_runtime':
     case 'attach_runtime': {
       if (command === 'launch_runtime') {
