@@ -215,12 +215,12 @@ impl BrokerClient {
             _ => Err("Invalid hook revoke response".into()),
         }
     }
-    fn check_provider_hooks(&self, spec: &LaunchSpec) -> Result<(), String> {
+    pub(crate) fn check_provider_hooks(&self, spec: &LaunchSpec) -> Result<(), String> {
         if spec.env.contains_key(crate::provider_hooks::OPT_IN)
             && !self.inner.provider_hooks_supported
         {
             return Err(
-                "目前 broker 不支援真實 hooks；請先結束既有 Session，再重新啟動 SessionBay。"
+                "目前背景 broker 尚不支援真實活動 hooks；這次未啟動 Agent，既有工作不受影響。請到「設定 → 來源與工具」關閉此工具的「啟用真實活動 hooks」並儲存，再手動建立新工作（暫無活動回報）。不必停止既有 Agent，也不會自動重試。"
                     .into(),
             );
         }

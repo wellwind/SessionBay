@@ -1,3 +1,4 @@
+import { isAgentHooksEnabled } from '../settings';
 import { fitTerminal } from '../terminal-fit';
 import { useRuntimeActivity } from './RuntimeActivity';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
@@ -293,9 +294,9 @@ export function TerminalPane({
     // Colors never resize, reset, refocus or reconnect a running terminal.
     if (term.current) term.current.options.theme = terminalTheme(settings.terminalTheme);
   }, [settings.terminalTheme]);
-  const previousHookOptIn = useRef(pane.kind !== 'shell' && settings.agentHooks?.[pane.kind] === true);
+  const previousHookOptIn = useRef(pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind));
   useEffect(() => {
-    const enabled = pane.kind !== 'shell' && settings.agentHooks?.[pane.kind] === true;
+    const enabled = pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind);
     if (previousHookOptIn.current && !enabled) activity?.revokeAgent(pane.id);
     previousHookOptIn.current = enabled;
   }, [settings.agentHooks, pane.kind, pane.id, activity]);

@@ -42,6 +42,10 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
     fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
     let service = Service::open(temp.path().join("app")).unwrap();
     let mut settings = service.settings().unwrap();
+    // Owned synthetic stubs use the direct runtime, without a hook broker.
+    for kind in AgentKind::ALL {
+        settings.agent_hooks.insert(kind.as_str().into(), false);
+    }
     settings.sources = vec![
         HistorySource {
             id: "codex-test".into(),
@@ -303,6 +307,10 @@ fn provider_live_state_is_explicit_and_only_affects_future_launch_plans() {
     let temp = tempfile::tempdir().unwrap();
     let service = Service::open(temp.path().join("app")).unwrap();
     let mut settings = service.settings().unwrap();
+    // Owned synthetic stubs use the direct runtime, without a hook broker.
+    for kind in AgentKind::ALL {
+        settings.agent_hooks.insert(kind.as_str().into(), false);
+    }
     settings.sources.clear();
     settings.executables.claude = "/bin/sh".into();
     service.save_settings(settings.clone()).unwrap();

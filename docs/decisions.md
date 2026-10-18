@@ -759,3 +759,11 @@ Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會
 移除中央 Files 預覽的 256 KiB 開檔限制。先以安全開啟的檔案 handle 取得 metadata／版本及最多 64 KiB 文字樣本，再循序讀取最多 256 KiB 的 IPC chunks；每次都檢查路徑政策、檔案身分與版本。一般文字至 20 MiB 正常閱讀；20–64 MiB 需使用者確認，採純文字效能模式；超過 64 MiB 或 300,000 行則以最多約 1 MiB／300,000 行區段閱讀，區段搜尋／複製不宣稱全文。超長行降級並揭露繪製限制。這些是 Session Bay 的資源政策，並非 VS Code 無上限讀取的複製。
 
 切換檔案／離開檔案區／取消會停止後續讀取，已送出的單一 chunk 仍可完成但不提交過時結果；active file 才建立 Monaco model。跨工作區共享有限 LRU 小檔 cache，不保留多個大型全文 model；文字讀取仍不接受 binary 或非 UTF-8，不放寬 traversal、symlink、hardlink／reparse 保護。原有小檔 API 留給舊呼叫者，不再作為 Files 的開檔路徑。一般檔案寫入尚未授權，也未實作。
+
+## 2026-10-18：hooks 預設啟用與舊 broker 的未啟動分類
+
+五工具活動 hooks 預設啟用；舊設定缺欄位或缺個別工具 key 補 true，明確 false 保留。過去版本若已把預設 false 存入檔案，無法辨識它是否來自使用者選擇，因此不覆寫。使用者仍可隨時關閉；不寫全域 provider 設定。
+
+舊 broker 不支援 hooks 時，能力檢查在 Launch IPC 之前拒絕，屬於「確定未啟動」，不能顯示可能已在背景啟動或要求結束既有工作。Fresh launch 在保存不確定請求之前先做本地能力 preflight；只有真正送出後遺失回覆才走不重送／重新查詢流程。舊 broker 使用者可明確關閉該工具 hooks、儲存後手動新開無活動回報的 Agent。此 hotfix 不自動 fallback、停止舊 Agent 或切換 broker owner。
+
+尚無活動來源的平台（目前 Windows）保留啟用偏好，但只執行原本 CLI，不附加 hook route，活動維持未知；不能因預設 true 阻擋原有跨平台啟動。這在送出任何 launch 前決定，並非失敗後重試。

@@ -181,6 +181,10 @@ fn setup() -> (
         enabled: true,
     };
     let mut settings = service.settings().unwrap();
+    // Owned synthetic stubs use the direct runtime, without a hook broker.
+    for kind in AgentKind::ALL {
+        settings.agent_hooks.insert(kind.as_str().into(), false);
+    }
     settings.sources = vec![source.clone()];
     settings.executables.opencode = common::noop_executable(tmp.path());
     service.save_settings(settings).unwrap();

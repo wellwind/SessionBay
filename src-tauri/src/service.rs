@@ -217,7 +217,7 @@ impl Service {
         settings.validate()?;
         if let Some(broker) = &self.broker {
             for kind in AgentKind::ALL {
-                if settings.agent_hooks.get(kind.as_str()) != Some(&true) {
+                if !settings.is_agent_hooks_enabled(kind) {
                     broker.revoke_provider_hooks(kind)?;
                 }
             }
@@ -520,10 +520,10 @@ impl Service {
             }
         }
         if let Some(kind) = agent {
-            if settings.agent_hooks.get(kind.as_str()) == Some(&true) {
-                if !crate::provider_hooks::supported(kind) {
-                    return Err("此工具／平台尚未支援 launch-local hooks".into());
-                }
+            // Preferences remain enabled on platforms without a live source, but
+            // must not prevent the original CLI from launching there. No launch
+            // has been sent and no retry/fallback occurs; activity stays unknown.
+            if settings.is_agent_hooks_enabled(kind) && crate::provider_hooks::supported(kind) {
                 env.insert(crate::provider_hooks::OPT_IN.into(), "live".into());
             }
         }

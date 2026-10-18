@@ -21,6 +21,7 @@ import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Sett
 import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions, isAgentEnabled } from '../agents';
 import type { HistoryAgentKind } from '../agents';
+import { isAgentHooksEnabled, normalizedAgentHooks } from '../settings';
 import { isAbsoluteFilesystemPath } from '../paths';
 import { Select, SearchableSelect } from './controls';
 import { AgentIcon } from './AgentIcon';
@@ -72,7 +73,7 @@ const sections = [
 function cloneSettings(settings: Settings): Settings {
   return {
     ...settings,
-    ...(settings.agentHooks ? { agentHooks: { ...settings.agentHooks } } : {}),
+    agentHooks: normalizedAgentHooks(settings),
     ...(settings.agentEnabled ? { agentEnabled: { ...settings.agentEnabled } } : {}),
     profiles: settings.profiles.map((profile) => ({
       ...profile,
@@ -706,7 +707,7 @@ export function SettingsPanel({
                               <label className="settings-field">
                                 <span><input className="checkbox" type="checkbox"
                                   aria-label={`${agentNames[kind]} 真實活動 hooks`}
-                                  checked={draft.agentHooks?.[kind] === true}
+                                  checked={isAgentHooksEnabled(draft, kind)}
                                   onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> 啟用真實活動 hooks</span>
                               </label>
                               <p className="settings-help">僅套用 SessionBay 後續啟動的 {agentNames[kind]}，以本次啟動的原生狀態來源回報，不修改全域或專案設定。儲存關閉後立即撤銷現有活動回報；Agent 繼續運作。Linux 已有測試；macOS 原生驗證待補，Windows 尚未啟用。</p>

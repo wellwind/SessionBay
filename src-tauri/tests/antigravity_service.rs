@@ -111,6 +111,10 @@ fn antigravity_native_resume_child_helper() {
     for manual_first in [false, true] {
         let service = Service::open(home.join(format!("app-{manual_first}"))).unwrap();
         let mut settings = service.settings().unwrap();
+        // Owned synthetic stubs use the direct runtime, without a hook broker.
+        for kind in AgentKind::ALL {
+            settings.agent_hooks.insert(kind.as_str().into(), false);
+        }
         settings.sources = vec![HistorySource {
             id: "synthetic-native-antigravity".into(),
             kind: AgentKind::Antigravity,

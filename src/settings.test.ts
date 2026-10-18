@@ -17,6 +17,7 @@ import {
 import type { SettingsPanelProps } from './components/SettingsPanel';
 import { shortcutDefaults } from './commands';
 import type { AgentKind, Settings, ShellCandidate } from './types';
+import { defaultAgentHooks, isAgentHooksEnabled, normalizedAgentHooks } from './settings';
 
 function validSettings(): Settings {
   return {
@@ -33,6 +34,7 @@ function validSettings(): Settings {
     ],
     sources: [{ id: 'source-a', kind: 'codex', root: '/home/test/.codex', enabled: true }],
     agentOptions: defaultAgentOptions(),
+    agentHooks: defaultAgentHooks(),
     executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
     shortcuts: { ...shortcutDefaults },
   };
@@ -1311,28 +1313,83 @@ describe('history root directory selection', () => {
   });
 });
 
-describe('launch-local activity hook opt-in', () => {
-  it.each(['codex', 'claude', 'opencode', 'grok', 'antigravity'] as const)('%s defaults off, saves explicitly, and keeps cancellation local to the draft', async (kind) => {
+describe('launch-local activity hook defaults', () => {
+  it('normalizes absent and partial maps while preserving every explicit opt-out', () => {
+    expect(defaultAgentHooks()).toEqual({ codex: true, claude: true, opencode: true, grok: true, antigravity: true });
+    expect(normalizedAgentHooks({})).toEqual(defaultAgentHooks());
+    expect(normalizedAgentHooks({ agentHooks: {} })).toEqual(defaultAgentHooks());
+    for (const kind of agentKinds) {
+      const settings = { agentHooks: { [kind]: false } };
+      expect(normalizedAgentHooks(settings)).toEqual({ ...defaultAgentHooks(), [kind]: false });
+      expect(isAgentHooksEnabled(settings, kind)).toBe(false);
+      expect(isAgentHooksEnabled({}, kind)).toBe(true);
+    }
+    const disabled = Object.fromEntries(agentKinds.map((kind) => [kind, false]));
+    expect(normalizedAgentHooks({ agentHooks: disabled })).toEqual(disabled);
+  });
+
+  it.each([undefined, {}])('shows missing legacy hooks as enabled and saves all defaults: %s', async (agentHooks) => {
+    const settings = { ...validSettings(), agentHooks };
+    const original = structuredClone(settings);
+    const config = props({ settings });
+    render(createElement(SettingsPanel, config));
+    for (const kind of agentKinds) {
+      selectAgent(kind);
+      expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).toBeChecked();
+    }
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledExactlyOnceWith({ ...settings, agentHooks: defaultAgentHooks() }));
+    expect(settings).toEqual(original);
+  });
+
+  it.each(agentKinds)('%s defaults on, saves explicit disable, and keeps cancellation local to the draft', async (kind) => {
     const config = props();
     const view = render(createElement(SettingsPanel, config));
     selectAgent(kind);
     const toggle = screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` });
-    expect(toggle).not.toBeChecked();
+    expect(toggle).toBeChecked();
     fireEvent.click(toggle);
+    expect(toggle).not.toBeChecked();
     expect(config.onSave).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
     await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
-    expect(vi.mocked(config.onSave).mock.calls[0][0].agentHooks).toEqual({ [kind]: true });
+    const saved = vi.mocked(config.onSave).mock.calls[0][0];
+    expect(saved.agentHooks).toEqual({ ...defaultAgentHooks(), [kind]: false });
     view.unmount();
-    render(createElement(SettingsPanel, props()));
+    const reopened = props({ settings: saved });
+    const reopenedView = render(createElement(SettingsPanel, reopened));
     selectAgent(kind);
     expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` }));
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '捨棄變更' }));
+    expect(reopened.onClose).toHaveBeenCalledOnce();
+    expect(reopened.onSave).not.toHaveBeenCalled();
+    expect(saved.agentHooks?.[kind]).toBe(false);
+    reopenedView.unmount();
+    render(createElement(SettingsPanel, props({ settings: saved })));
+    selectAgent(kind);
+    expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).not.toBeChecked();
+  });
+
+  it('preserves a partial saved opt-out while defaulting other providers on', async () => {
+    const config = props({ settings: { ...validSettings(), agentHooks: { claude: false } } });
+    render(createElement(SettingsPanel, config));
+    for (const kind of agentKinds) {
+      selectAgent(kind);
+      const toggle = screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` });
+      if (kind === 'claude') expect(toggle).not.toBeChecked();
+      else expect(toggle).toBeChecked();
+    }
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledOnce());
+    expect(vi.mocked(config.onSave).mock.calls[0][0].agentHooks).toEqual({ ...defaultAgentHooks(), claude: false });
   });
   it('explains terminal writer trust for native terminal status', () => {
     render(createElement(SettingsPanel, props()));
     for (const kind of ['grok', 'antigravity'] as const) {
       selectAgent(kind);
-      expect(screen.getByRole('checkbox', { name: /真實活動 hooks/ })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: /真實活動 hooks/ })).toBeChecked();
       expect(screen.getByText(/任意終端寫入者/)).toBeInTheDocument();
     }
   });

@@ -124,7 +124,10 @@ pub struct Settings {
     pub agent_options: AgentOptions,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub agent_enabled: HashMap<String, bool>,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(
+        default = "default_agent_hooks",
+        deserialize_with = "deserialize_agent_hooks"
+    )]
     pub agent_hooks: HashMap<String, bool>,
     pub shortcuts: HashMap<String, String>,
     pub onboarding_complete: bool,
@@ -179,7 +182,7 @@ impl Default for Settings {
             executables: Executables::default(),
             agent_options: AgentOptions::default(),
             agent_enabled: HashMap::new(),
-            agent_hooks: HashMap::new(),
+            agent_hooks: default_agent_hooks(),
             shortcuts,
             onboarding_complete: false,
         }
@@ -196,6 +199,23 @@ fn default_app_zoom() -> u16 {
 
 fn default_theme_palette() -> String {
     "bay".into()
+}
+
+fn default_agent_hooks() -> HashMap<String, bool> {
+    AgentKind::ALL
+        .into_iter()
+        .map(|kind| (kind.as_str().into(), true))
+        .collect()
+}
+
+fn deserialize_agent_hooks<'de, D>(deserializer: D) -> Result<HashMap<String, bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let saved = HashMap::<String, bool>::deserialize(deserializer)?;
+    let mut hooks = default_agent_hooks();
+    hooks.extend(saved);
+    Ok(hooks)
 }
 
 // Preserve future catalog IDs so a theme addition cannot reset unrelated settings.
@@ -216,6 +236,12 @@ impl Settings {
             .get(kind.as_str())
             .copied()
             .unwrap_or(true)
+    }
+
+    /// New providers and legacy settings default to launch-local activity hooks.
+    /// An explicitly saved false always remains an opt-out.
+    pub fn is_agent_hooks_enabled(&self, kind: AgentKind) -> bool {
+        self.agent_hooks.get(kind.as_str()).copied().unwrap_or(true)
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -859,6 +885,91 @@ mod tests {
         settings.validate().unwrap();
         assert_eq!(settings.shortcuts["next-pane"], "Mod+Alt+ArrowDown");
     }
+
+    #[test]
+    fn agent_hooks_default_to_enabled_for_every_provider() {
+        let settings = Settings::default();
+        assert_eq!(settings.agent_hooks.len(), AgentKind::ALL.len());
+        for kind in AgentKind::ALL {
+            assert_eq!(settings.agent_hooks.get(kind.as_str()), Some(&true));
+            assert!(settings.is_agent_hooks_enabled(kind));
+        }
+    }
+
+    #[test]
+    fn legacy_agent_hooks_fill_missing_values_without_changing_other_settings() {
+        for hooks in [None, Some(serde_json::json!({}))] {
+            let mut old = serde_json::to_value(Settings::default()).unwrap();
+            old.as_object_mut().unwrap().remove("agentHooks");
+            if let Some(hooks) = hooks {
+                old["agentHooks"] = hooks;
+            }
+            old["fontSize"] = 21.into();
+            old["executables"]["codex"] = "synthetic-custom-codex".into();
+            let migrated: Settings = serde_json::from_value(old).unwrap();
+            assert_eq!(migrated.agent_hooks, default_agent_hooks());
+            assert_eq!(migrated.font_size, 21);
+            assert_eq!(migrated.executables.codex, "synthetic-custom-codex");
+            migrated.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn agent_hooks_partial_settings_preserve_each_explicit_opt_out_and_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ConfigStore::open(dir.path().join("app")).unwrap();
+        for disabled in AgentKind::ALL {
+            let mut saved = serde_json::to_value(Settings::default()).unwrap();
+            saved["agentHooks"] = serde_json::json!({disabled.as_str(): false});
+            let settings: Settings = serde_json::from_value(saved).unwrap();
+            for kind in AgentKind::ALL {
+                assert_eq!(settings.is_agent_hooks_enabled(kind), kind != disabled);
+                assert_eq!(settings.agent_hooks[kind.as_str()], kind != disabled);
+            }
+            store.save_settings(&settings).unwrap();
+            let (loaded, warnings) = store.load_settings();
+            assert!(warnings.is_empty());
+            assert_eq!(loaded.agent_hooks, settings.agent_hooks);
+            assert_eq!(
+                serde_json::to_value(&loaded).unwrap()["agentHooks"][disabled.as_str()],
+                false
+            );
+        }
+    }
+
+    #[test]
+    fn agent_hooks_preserve_all_explicit_opt_outs_and_handle_in_memory_missing_keys() {
+        let mut settings = Settings::default();
+        settings.agent_hooks.clear();
+        for kind in AgentKind::ALL {
+            assert!(settings.is_agent_hooks_enabled(kind));
+            settings.agent_hooks.insert(kind.as_str().into(), false);
+        }
+        let loaded: Settings =
+            serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.agent_hooks, settings.agent_hooks);
+        for kind in AgentKind::ALL {
+            assert!(!loaded.is_agent_hooks_enabled(kind));
+        }
+    }
+
+    #[test]
+    fn agent_hooks_reject_non_boolean_values_and_unknown_provider_ids() {
+        for value in [
+            serde_json::json!({"codex":"false"}),
+            serde_json::json!({"codex":0}),
+            serde_json::Value::Null,
+        ] {
+            let mut settings = serde_json::to_value(Settings::default()).unwrap();
+            settings["agentHooks"] = value;
+            assert!(serde_json::from_value::<Settings>(settings).is_err());
+        }
+        let mut settings = serde_json::to_value(Settings::default()).unwrap();
+        settings["agentHooks"] = serde_json::json!({"future-agent":true});
+        let settings: Settings = serde_json::from_value(settings).unwrap();
+        assert!(settings.validate().is_err());
+    }
+
     #[test]
     fn legacy_agent_enablement_defaults_to_enabled_and_keeps_other_settings() {
         let mut old = serde_json::to_value(Settings::default()).unwrap();

@@ -127,8 +127,9 @@ export interface Settings {
   fontSize: number;
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
-  /** Missing providers remain enabled; unknown keys survive settings round trips. */
+  /** Missing providers default to launch-local hooks; explicit false preserves opt-out. */
   agentHooks?: Partial<Record<AgentKind, boolean>>;
+  /** Missing providers remain enabled; unknown keys survive settings round trips. */
   agentEnabled?: Record<string, boolean>;
   defaultAgent: AgentKind;
   defaultProfileId: string;
