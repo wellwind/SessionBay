@@ -1,7 +1,7 @@
 //! Current-backend fresh launch evidence for older compatible PTY brokers.
 //! A caller intent key is never a runtime/pane identity or attachment capability.
 use crate::{
-    broker::{BrokerClient, RuntimeRecord},
+    broker::{BrokerClient, LaunchPreflightError, RuntimeRecord},
     runtime::{LaunchSpec, RuntimeInfo},
     service::LaunchRequest,
 };
@@ -11,13 +11,13 @@ use uuid::Uuid;
 pub(crate) const NOT_STARTED: &str = "[SESSIONBAY_LAUNCH_NOT_STARTED] ";
 
 pub(crate) trait FreshBroker {
-    fn preflight(&self, spec: &LaunchSpec) -> Result<(), String>;
+    fn preflight(&self, spec: &LaunchSpec) -> Result<(), LaunchPreflightError>;
     fn generation(&self) -> String;
     fn list(&self) -> Result<Vec<RuntimeRecord>, String>;
     fn launch(&self, spec: LaunchSpec, request: &LaunchRequest) -> Result<RuntimeInfo, String>;
 }
 impl FreshBroker for BrokerClient {
-    fn preflight(&self, spec: &LaunchSpec) -> Result<(), String> {
+    fn preflight(&self, spec: &LaunchSpec) -> Result<(), LaunchPreflightError> {
         self.check_provider_hooks(spec)
     }
     fn generation(&self) -> String {
@@ -281,9 +281,9 @@ mod tests {
         }
     }
     impl FreshBroker for Fake {
-        fn preflight(&self, _: &LaunchSpec) -> Result<(), String> {
+        fn preflight(&self, _: &LaunchSpec) -> Result<(), LaunchPreflightError> {
             if self.preflight_denied.get() {
-                Err("old broker lacks hooks".into())
+                Err(LaunchPreflightError::MissingProviderHooks)
             } else {
                 Ok(())
             }
@@ -372,7 +372,13 @@ mod tests {
                 panic!("no provenance before launch")
             })
             .unwrap_err();
-        assert!(error.starts_with(NOT_STARTED));
+        assert_eq!(
+            error,
+            format!(
+                "{NOT_STARTED}{}",
+                LaunchPreflightError::MissingProviderHooks
+            )
+        );
         assert!(!error.contains("尚未確認"));
         assert_eq!(broker.launches.get(), 0);
         assert!(cache.attempts.is_empty());

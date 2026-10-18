@@ -3,6 +3,8 @@
 mod activity;
 mod client;
 mod output_batch;
+mod preflight;
+pub(crate) use preflight::LaunchPreflightError;
 mod provider_hooks;
 pub use provider_hooks::{send_provider_callback, send_provider_state};
 mod screen;
