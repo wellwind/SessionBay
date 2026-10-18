@@ -2,10 +2,9 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Copy, PanelLeftClose, PanelRightClose, RefreshCw } from 'lucide-react';
-import { api, errorMessage } from '../api';
 import { ExplorerTree, FileIcon } from './ExplorerTree';
-import { ExplorerEditor } from './ExplorerEditor';
-import { FilePreviewBoundary } from './FilePreviewBoundary';
+import { FileDocument } from './FileDocument';
+import { clearFileCache } from './file-reader';
 import type { ScrollPosition } from './ExplorerEditor';
 import { ProjectFileTabs } from './ProjectFileTabs';
 import { emptyFileTabs, fileTabsReducer } from './explorer-model';
@@ -18,7 +17,6 @@ export interface WorkspaceFilesProps {
   sidebarHost: HTMLElement | null; tabsHost: HTMLElement | null; documentHost: HTMLElement | null;
   onActivate: () => void; onEmpty: () => void; onHideSidebar: () => void;
 }
-interface DocumentData { path: string; text?: string; sizeBytes?: number; error?: string }
 export function WorkspaceFiles(props: WorkspaceFilesProps) {
   return <Explorer key={props.projectId} {...props} />;
 }
@@ -27,14 +25,12 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
   const [revision, setRevision] = useState(0);
   const [treeWidth, setTreeWidth] = useState(240);
   const [searchRequest, setSearchRequest] = useState(0);
-  const [documentData, setDocument] = useState<DocumentData>();
   const [notice, setNotice] = useState('');
   const [menu, setMenu] = useState<{ path: string; x: number; y: number; target: HTMLElement }>();
   const sidebar = useRef<HTMLElement>(null);
   const documentRoot = useRef<HTMLElement>(null);
   const tabRoot = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const documents = useRef(new Map<string, DocumentData>());
   const positions = useRef(new Map<string, ScrollPosition>());
   const latest = useRef({ visible, active, sidebarVisible, state }); latest.current = { visible, active, sidebarVisible, state };
   const resize = useRef<{ x: number; width: number } | undefined>(undefined);
@@ -86,23 +82,8 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
   };
   useEffect(() => {
     const paths = new Set(state.tabs.map(tab => tab.path));
-    for (const path of documents.current.keys()) if (!paths.has(path)) documents.current.delete(path);
     for (const path of positions.current.keys()) if (!paths.has(path)) positions.current.delete(path);
   }, [state.tabs]);
-  useEffect(() => {
-    let cancelled = false;
-    const path = state.active;
-    setDocument(undefined);
-    if (!path) return;
-    const cached = documents.current.get(path);
-    if (cached) { setDocument(cached); return; }
-    void api.readWorkspaceFile(projectId, path).then(result => {
-      if (!cancelled) { const value = { path, text: result.text, sizeBytes: result.sizeBytes }; documents.current.set(path, value); setDocument(value); }
-    }, cause => {
-      if (!cancelled) { const value = { path, error: errorMessage(cause) }; documents.current.set(path, value); setDocument(value); }
-    });
-    return () => { cancelled = true; };
-  }, [projectId, state.active, revision]);
   useEffect(() => {
     if (!menu || !visible || !sidebarVisible) return;
     menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
@@ -110,7 +91,7 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
     window.addEventListener('pointerdown', dismiss);
     return () => window.removeEventListener('pointerdown', dismiss);
   }, [menu, visible, sidebarVisible]);
-  const refresh = () => { documents.current.clear(); setDocument(undefined); setRevision(value => value + 1); };
+  const refresh = () => { clearFileCache(projectId); setRevision(value => value + 1); };
   const copyPath = async () => {
     if (!menu) return;
     const target = menu.target;
@@ -140,13 +121,10 @@ function Explorer({ sidebarSide = 'left', projectId, visible, active, sidebarVis
     </div>, tabsHost)}
     {documentHost && createPortal(<section ref={documentRoot} hidden={!visible || !active} className="project-files-document explorer" data-file-explorer={visible && active ? '' : undefined} aria-label="工作區檔案預覽" onKeyDown={keys}>
       {state.notice && <p role="status">{state.notice}</p>}
-      {!state.active ? <div className="explorer-empty"><FileIcon path="readme.txt" /><strong>開啟檔案閱讀</strong><p>單擊預覽，雙擊固定分頁。<br />只讀取原始文字，不執行內容。</p><small>專案目錄 · 每檔上限 256 KiB</small></div>
-        : !documentData || documentData.path !== state.active ? <p role="status">讀取檔案中…</p>
-          : documentData.error ? <div className="explorer-empty"><p role="alert">{documentData.error}</p><button onClick={refresh}>重新讀取檔案</button></div>
-            : <FilePreviewBoundary key={`${state.active}:${revision}`} path={state.active}>
-              <ExplorerEditor path={state.active} text={documentData.text!} sizeBytes={documentData.sizeBytes!} searchRequest={searchRequest}
-                position={positions.current.get(state.active) ?? { top: 0, left: 0 }} onScroll={value => positions.current.set(state.active, value)} />
-            </FilePreviewBoundary>}
+      {!state.active ? <div className="explorer-empty"><FileIcon path="readme.txt" /><strong>開啟檔案閱讀</strong></div>
+        : visible && active && <FileDocument key={`${state.active}:${revision}`} projectId={projectId} path={state.active} searchRequest={searchRequest}
+          position={positions.current.get(state.active) ?? { top: 0, left: 0 }} onScroll={value => positions.current.set(state.active, value)} />}
+
     </section>, documentHost)}
   </>;
 }

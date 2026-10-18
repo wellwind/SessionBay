@@ -242,5 +242,9 @@ Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字
 ### Monaco 唯讀預覽
 
 - [x] 實作延遲載入 Monaco、唯讀模型、全文搜尋／選取／折疊、每檔案 view state、本機 workers 與 CSP。
-- [ ] Linux 真實瀏覽器整合驗證與 review 後合併（以 PR 證據更新）。
+- [x] Linux 真實瀏覽器與 Tauri WebKit、review 通過，已合併 [#60](https://github.com/wellwind/SessionBay/pull/60)。
 - [ ] macOS／Windows 原生 WebView 驗收（非此次 Linux 交付阻礙）。
+
+## 大型文字檔閱讀
+
+中央 Files 已實作 metadata 預檢與分塊讀取、取消、確認與分段模式；Linux dev／production browser、Tauri WebKit、Rust tests／Clippy 與 build 已在 [#66](https://github.com/wellwind/SessionBay/pull/66) 通過；尚未宣稱三平台原生驗收。詳見 [大檔閱讀](large-file-reading.md)。

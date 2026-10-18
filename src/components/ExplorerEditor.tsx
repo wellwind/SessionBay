@@ -5,9 +5,10 @@ import { fileLanguage, monacoLanguage } from './explorer-model';
 
 export interface ScrollPosition { top: number; left: number; viewState?: editor.ICodeEditorViewState | null }
 let nextModel = 0;
-export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, searchRequest }: {
+export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, searchRequest, lightweight = false, partial = false, lineCount }: {
   path: string; text: string; sizeBytes: number; position: ScrollPosition;
   onScroll: (position: ScrollPosition) => void; searchRequest: number;
+  lightweight?: boolean; partial?: boolean; lineCount?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const runEditor = useRef<(action: (widget: editor.IStandaloneCodeEditor) => unknown) => void>(() => {});
@@ -65,16 +66,19 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
         // Unique model ownership prevents collisions across projects with the same
         // relative path. The extension remains visible to language tokenizers.
         const uri = monaco.Uri.from({ scheme: 'sessionbay-preview', path: `/${++nextModel}/${path}` });
-        const model = monaco.editor.createModel(text, monacoLanguage(path), uri);
+        const model = monaco.editor.createModel(text, lightweight ? 'plaintext' : monacoLanguage(path), uri);
         own(() => model.dispose());
         if (failed || disposed) return;
         widget = monaco.editor.create(host, {
           model, readOnly: true, domReadOnly: true, automaticLayout: true,
           ariaLabel: `程式碼：${path}`, fontSize: 13, lineHeight: 20,
           minimap: { enabled: false }, scrollBeyondLastLine: false,
-          folding: true, showFoldingControls: 'mouseover',
+          folding: !lightweight, showFoldingControls: 'mouseover',
           renderValidationDecorations: 'off', links: false,
-          stickyScroll: { enabled: false }, wordWrap: 'off', stopRenderingLineAfter: -1,
+          stickyScroll: { enabled: false }, wordWrap: 'off', stopRenderingLineAfter: lightweight ? 10000 : -1,
+          matchBrackets: lightweight ? 'never' : 'always',
+          bracketPairColorization: { enabled: !lightweight },
+          occurrencesHighlight: 'off', selectionHighlight: !lightweight,
           unicodeHighlight: { ambiguousCharacters: false },
           padding: { top: 6, bottom: 6 },
         });
@@ -114,12 +118,12 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
       if (!failed && save) safely(save);
       release();
     };
-  }, [path, text, retry]);
+  }, [path, text, retry, lightweight]);
   useEffect(() => { if (searchRequest) find(); }, [searchRequest]);
   return <div className="explorer-editor">
     <div className="explorer-document-bar"><span title={path}>{path.split('/').join(' › ')}</span>
-      <button aria-label="複製檔案全文" title="複製全文" onClick={async () => {
-        try { await navigator.clipboard.writeText(text); setCopyStatus('已複製全文'); }
+      <button aria-label={partial ? '複製目前區段' : '複製檔案全文'} title={partial ? '複製區段' : '複製全文'} onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopyStatus(partial ? '已複製目前區段' : '已複製全文'); }
         catch { setCopyStatus('剪貼簿不可用，請選取文字後複製'); }
       }}><Copy size={14} /></button>
       <button aria-label="檔案內搜尋" title="檔案內搜尋（Ctrl/Cmd+F）" disabled={status !== 'ready'} onClick={find}><Search size={14} /></button>
@@ -129,6 +133,6 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
       {status === 'loading' && <p className="explorer-editor-message" role="status">載入編輯器中…</p>}
       {status === 'error' && <div className="explorer-editor-message" role="alert">無法載入編輯器。<button onClick={() => setRetry(value => value + 1)}>重試</button></div>}
     </div>
-    <div className="explorer-status"><span>唯讀 · {fileLanguage(path)}</span><span>{text.split('\n').length.toLocaleString()} 行 · {sizeBytes.toLocaleString()} bytes</span><span role="status">{copyStatus}</span></div>
+    <div className="explorer-status"><span>唯讀 · {lightweight ? '純文字（效能模式）' : fileLanguage(path)}</span><span>{(lineCount ?? text.split('\n').length).toLocaleString()} 行 · {sizeBytes.toLocaleString()} bytes</span><span role="status">{copyStatus}</span></div>
   </div>;
 }
