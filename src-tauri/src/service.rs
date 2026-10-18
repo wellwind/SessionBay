@@ -921,6 +921,11 @@ mod tests {
         }];
         settings.executables.codex = executable.to_string_lossy().into_owned();
         settings.executables.grok = settings.executables.codex.clone();
+        // This fixture tests reattachment, not provider hooks; the synthetic CLI
+        // intentionally implements only a long-running process, not --version.
+        for kind in [AgentKind::Codex, AgentKind::Grok] {
+            settings.agent_hooks.insert(kind.as_str().into(), false);
+        }
         service.save_settings(settings.clone()).unwrap();
         service
             .catalog
