@@ -15,6 +15,7 @@ pub mod launch_options;
 pub mod launch_provenance;
 pub mod models;
 pub mod opencode;
+pub mod opencode_state;
 pub mod provider_hooks;
 pub mod providers;
 pub mod runtime;

@@ -463,6 +463,7 @@ impl Host {
                 // observer wraps the executable; never trust arbitrary wrappers.
                 let image_input = crate::image_input::supports_launch(&kind, &spec);
                 let hook_mode = spec.env.remove(crate::provider_hooks::OPT_IN);
+                let mut hook_expected_session = resume_id.clone();
                 let hook_launch = if matches!(hook_mode.as_deref(), Some("1" | "live")) {
                     let provider = crate::models::AgentKind::parse(&kind)?;
                     let helper = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -484,6 +485,17 @@ impl Host {
                             }
                             crate::models::AgentKind::Claude => {
                                 crate::claude_state::prepare(&mut spec, &helper)?
+                            }
+                            crate::models::AgentKind::OpenCode => {
+                                let native = crate::opencode_state::expected_session(&spec)?;
+                                if resume_id
+                                    .as_ref()
+                                    .is_some_and(|id| native.as_ref() != Some(id))
+                                {
+                                    return Err("OpenCode resume metadata differs from native launch identity".into());
+                                }
+                                hook_expected_session = native;
+                                crate::opencode_state::prepare(&mut spec, &helper)?
                             }
                             _ => return Err("Live state provider unsupported".into()),
                         }
@@ -540,6 +552,7 @@ impl Host {
                     .inspect_err(|_| {
                         if let Some((launch, _)) = &hook_launch {
                             crate::claude_state::cleanup(launch);
+                            crate::opencode_state::cleanup(launch);
                         }
                     })?;
                 let mut entries = lock(&self.entries);
@@ -547,6 +560,7 @@ impl Host {
                     // Runtime reuse did not spawn the newly prepared source.
                     if let Some((launch, _)) = &hook_launch {
                         crate::claude_state::cleanup(launch);
+                        crate::opencode_state::cleanup(launch);
                     }
                     return Ok(Response::Runtime { info: Some(info) });
                 }
@@ -563,9 +577,10 @@ impl Host {
                     leases.insert(
                         launch.clone(),
                         provider_hooks::Lease {
+                            launch: launch.clone(),
                             runtime_id: info.id.clone(),
                             provider: *provider,
-                            expected_session: resume_id.clone(),
+                            expected_session: hook_expected_session,
                             session: None,
                             activity_generation: None,
                             ended: false,
@@ -598,6 +613,8 @@ impl Host {
                 }
                 if let Err(error) = self.persist() {
                     // Launch must not claim durability when saving identity failed.
+                    // Revoke staging even if stopping the process itself fails.
+                    self.revoke_runtime_hooks(&info.id);
                     let _ = self.runtime.stop(&info.id);
                     return Err(error);
                 }

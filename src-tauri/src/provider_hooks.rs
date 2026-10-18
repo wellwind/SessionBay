@@ -29,7 +29,13 @@ impl StateReport {
             || self.sequence > 9_007_199_254_740_991
             || !matches!(
                 self.observation,
-                Busy | Idle | AwaitingInput | AwaitingPermission | Failed | Interrupted | Unknown
+                Busy | Retry
+                    | Idle
+                    | AwaitingInput
+                    | AwaitingPermission
+                    | Failed
+                    | Interrupted
+                    | Unknown
             )
         {
             return Err("Invalid provider state metadata".into());
@@ -41,7 +47,11 @@ impl StateReport {
 pub const CAPABILITY: &str = "launchLocalStateV2";
 
 pub fn supported(kind: AgentKind) -> bool {
-    cfg!(unix) && matches!(kind, AgentKind::Codex | AgentKind::Claude)
+    cfg!(unix)
+        && matches!(
+            kind,
+            AgentKind::Codex | AgentKind::Claude | AgentKind::OpenCode
+        )
 }
 
 // Provider command-hook APIs require shell strings. Quote only the trusted
@@ -51,6 +61,12 @@ fn quote(value: &str) -> String {
 }
 
 pub fn configure(spec: &mut LaunchSpec, kind: AgentKind, helper: &Path) -> Result<(), String> {
+    if kind == AgentKind::OpenCode {
+        return Err(
+            "OpenCode requires launch-local live state; legacy command hooks are unsupported"
+                .into(),
+        );
+    }
     if !supported(kind) {
         return Err("此工具／平台尚未支援 launch-local hooks".into());
     }
@@ -306,6 +322,26 @@ mod tests {
         assert!(Callback::parse("Stop", &vec![b' '; MAX_RAW_INPUT + 1]).is_err());
     }
     #[test]
+    fn opencode_is_live_only_and_legacy_configure_is_atomic() {
+        assert_eq!(supported(AgentKind::OpenCode), cfg!(unix));
+        let mut spec = LaunchSpec {
+            executable: "opencode".into(),
+            args: vec!["--session".into(), "ses_root".into()],
+            cwd: "/tmp".into(),
+            env: Default::default(),
+            session_id: None,
+            resume_key: None,
+            pane_id: "p".into(),
+        };
+        let before = serde_json::to_string(&spec).unwrap();
+        assert!(
+            configure(&mut spec, AgentKind::OpenCode, Path::new("/helper"))
+                .unwrap_err()
+                .contains("live state")
+        );
+        assert_eq!(serde_json::to_string(&spec).unwrap(), before);
+    }
+    #[test]
     fn registration_is_launch_local_and_never_bypasses_trust() {
         for kind in [AgentKind::Claude, AgentKind::Codex] {
             let mut spec = LaunchSpec {
@@ -341,6 +377,8 @@ mod state_report_tests {
             sequence: 1,
             observation: Observation::Busy,
         };
+        assert!(report.validate().is_ok());
+        report.observation = Observation::Retry;
         assert!(report.validate().is_ok());
         report.observation = Observation::PromptSubmitted;
         assert!(report.validate().is_err());
