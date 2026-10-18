@@ -1,5 +1,11 @@
 # Session Bay 開發路線圖
 
+## 2026-10-18 發行與後續順序（最新）
+
+已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。新功能全部尚未完成；本節的最新順序優先於下方歷史排程：五工具 hook → Snap 可安裝測試包；並行 Quick Open／共用 panel、大檔後圖片；接著 Git G1–G4 → 完整 Release／Update → 永久刪除 → 遠端／Web／用量。Git 的完整八階工作包沿用既有規劃。
+
+目前功能 PR 以相關 Linux 驗證及 review 作交付門檻；發行特定 OS／架構仍需該目標實測，未驗平台不假稱通過。Windows #46 不在此次交付內。
+
 > 2026-10-16 實作更新：本次加入 Windows 原生支援；平台前提與待驗項目見[三平台支援](platform-support.md)。既有 macOS＋Linux P0 程式碼保留；以下仍保留規劃與驗收目標。實際通過項目、效能及未驗證平台見 [MVP 驗收紀錄](mvp-validation.md)，不能由檔案存在推定所有任務已完成。
 以完整工作恢復流程分階段交付。以下是工作順序與驗收門檻提案，尚未估算工期或指定發行日期。
 
@@ -236,9 +242,9 @@ Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字
 ### Monaco 唯讀預覽
 
 - [x] 實作延遲載入 Monaco、唯讀模型、全文搜尋／選取／折疊、每檔案 view state、本機 workers 與 CSP。
-- [ ] Linux 真實瀏覽器整合驗證與 review 後合併（以 PR 證據更新）。
+- [x] Linux 真實瀏覽器與 Tauri WebKit、review 通過，已合併 [#60](https://github.com/wellwind/SessionBay/pull/60)。
 - [ ] macOS／Windows 原生 WebView 驗收（非此次 Linux 交付阻礙）。
 
 ## 大型文字檔閱讀
 
-中央 Files 已實作 metadata 預檢與分塊讀取、取消、確認與分段模式；Linux 驗證結果見實作 PR，尚未宣稱三平台原生驗收。詳見 [大檔閱讀](large-file-reading.md)。
+中央 Files 已實作 metadata 預檢與分塊讀取、取消、確認與分段模式；Linux dev／production browser、Tauri WebKit、Rust tests／Clippy 與 build 已在 [#66](https://github.com/wellwind/SessionBay/pull/66) 通過；尚未宣稱三平台原生驗收。詳見 [大檔閱讀](large-file-reading.md)。
