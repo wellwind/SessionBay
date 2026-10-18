@@ -121,10 +121,44 @@ pub struct WorkspaceFilePage {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileSearch {
+    pub paths: Vec<String>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceFilePreview {
     pub path: String,
     pub text: String,
     pub size_bytes: usize,
+}
+
+/// A bounded sample classifies content; callers must still validate text while streaming.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspaceFileKind {
+    Text,
+    Binary,
+    Image,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileInfo {
+    pub path: String,
+    pub size_bytes: u64,
+    /// Opaque identity and revision. A changed file requires a new inspection.
+    pub version: String,
+    pub kind: WorkspaceFileKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileChunk {
+    /// Raw bytes preserve multibyte characters across arbitrary chunk boundaries.
+    pub bytes: Vec<u8>,
+    pub eof: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

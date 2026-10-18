@@ -95,3 +95,35 @@ describe('bounded output activity metadata', () => {
   });
 
 });
+
+it('hides unknown activity and dormant output dots but retains accessible lifecycle details', () => {
+  const view = render(<RuntimeActivityIndicator id="activity-description" tab={tab} panes={{ p: pane }} />);
+  expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  expect(view.container.querySelector('svg, .runtime-output-dot')).toBeNull();
+  expect(document.getElementById('activity-description')).toHaveTextContent('已開啟');
+  expect(view.container.textContent).not.toContain('活動未知');
+  for (const state of ['failed', 'interrupted', 'disconnected', 'exited'] as const) {
+    view.rerender(<RuntimeActivityIndicator tab={tab} panes={{ p: { ...pane, state } }} />);
+    expect(screen.getByRole('img')).toBeInTheDocument();
+    expect(view.container.querySelector('.runtime-output-dot')).toBeNull();
+  }
+});
+
+it('keeps known status before the workspace tab name and preserves its description', async () => {
+  const { WorkspaceTabs } = await import('./components/WorkspaceTabs');
+  const view = render(<WorkspaceTabs tabs={[tab]} panes={{ p: { ...pane, state: 'exited' } }} onSelect={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} onReorder={vi.fn()} />);
+  const button = screen.getByRole('button', { name: 'Work 1' });
+  const indicator = screen.getByRole('img');
+  const name = view.container.querySelector('.workspace-tab-name')!;
+  expect(indicator.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(button).toHaveAccessibleDescription(expect.stringContaining('已結束'));
+});
+
+
+it('unknown descriptions preserve the visible tab name and its accessible name', async () => {
+  const { WorkspaceTabs } = await import('./components/WorkspaceTabs');
+  render(<WorkspaceTabs tabs={[tab]} panes={{ p: pane }} onSelect={vi.fn()} onRename={vi.fn()} onClose={vi.fn()} onReorder={vi.fn()} />);
+  const button = screen.getByRole('button', { name: 'Work 1' });
+  expect(button.querySelector('.workspace-tab-name')).toHaveTextContent(/^Work$/);
+  expect(button).toHaveAccessibleDescription(expect.stringContaining('已開啟'));
+});

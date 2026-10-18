@@ -2,7 +2,10 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
   WorkspaceFilePage,
+  WorkspaceFileSearch,
   WorkspaceFilePreview,
+  WorkspaceFileInfo,
+  WorkspaceFileChunk,
   AgentKind,
   HistorySourceDiscovery,
   Bootstrap,
@@ -52,8 +55,16 @@ export const api = {
   saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
   listWorkspaceFiles: (projectId: string, path: string, offset = 0, showHidden = false) =>
     call<WorkspaceFilePage>('list_workspace_files', { projectId, path, offset, showHidden }),
+  searchWorkspaceFiles: (projectId: string, query: string) =>
+    call<WorkspaceFileSearch>('search_workspace_files', { projectId, query }),
   readWorkspaceFile: (projectId: string, path: string) =>
     call<WorkspaceFilePreview>('read_workspace_file', { projectId, path }),
+  inspectWorkspaceFile: (projectId: string, path: string) =>
+    call<WorkspaceFileInfo>('inspect_workspace_file', { projectId, path }),
+  readWorkspaceImage: (projectId: string, path: string, version: string) =>
+    call<ArrayBuffer>('read_workspace_image', { projectId, path, version }),
+  readWorkspaceFileChunk: (projectId: string, path: string, version: string, offset: number, maxBytes: number) =>
+    call<WorkspaceFileChunk>('read_workspace_file_chunk', { projectId, path, version, offset, maxBytes }),
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
   createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),

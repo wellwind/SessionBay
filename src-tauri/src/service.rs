@@ -2,7 +2,10 @@ use crate::{
     broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
     config::{self, ConfigStore, Installation, Settings},
-    models::{AgentKind, IndexStatus, Project, WorkspaceFilePage, WorkspaceFilePreview},
+    models::{
+        AgentKind, IndexStatus, Project, WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage,
+        WorkspaceFilePreview, WorkspaceFileSearch,
+    },
     runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent},
     workspace_files,
 };
@@ -133,6 +136,14 @@ impl Service {
         let root = self.catalog.workspace_root(project_id)?;
         workspace_files::list(&root, path, offset, show_hidden)
     }
+    pub fn search_workspace_files(
+        &self,
+        project_id: &str,
+        query: &str,
+    ) -> Result<WorkspaceFileSearch, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::search(&root, query)
+    }
     pub fn read_workspace_file(
         &self,
         project_id: &str,
@@ -140,6 +151,34 @@ impl Service {
     ) -> Result<WorkspaceFilePreview, String> {
         let root = self.catalog.workspace_root(project_id)?;
         workspace_files::read(&root, path)
+    }
+    pub fn inspect_workspace_file(
+        &self,
+        project_id: &str,
+        path: &str,
+    ) -> Result<WorkspaceFileInfo, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::inspect(&root, path)
+    }
+    pub fn read_workspace_file_chunk(
+        &self,
+        project_id: &str,
+        path: &str,
+        version: &str,
+        offset: u64,
+        max_bytes: usize,
+    ) -> Result<WorkspaceFileChunk, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        workspace_files::read_chunk(&root, path, version, offset, max_bytes)
+    }
+    pub fn read_workspace_image(
+        &self,
+        project_id: &str,
+        path: &str,
+        version: &str,
+    ) -> Result<Vec<u8>, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        crate::workspace_images::read(&root, path, version)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;
@@ -192,6 +231,14 @@ impl Service {
                     .map_err(|_| "請先取消索引並等待完成，再修改來源設定")?,
             )
         };
+        settings.validate()?;
+        if let Some(broker) = &self.broker {
+            for kind in AgentKind::ALL {
+                if !settings.is_agent_hooks_enabled(kind) {
+                    broker.revoke_provider_hooks(kind)?;
+                }
+            }
+        }
         self.config.save_settings(&settings)?;
         *current = settings.clone();
         Ok(settings)
@@ -489,6 +536,14 @@ impl Service {
                 env.insert("PATH".into(), path.to_string_lossy().into_owned());
             }
         }
+        if let Some(kind) = agent {
+            // Preferences remain enabled on platforms without a live source, but
+            // must not prevent the original CLI from launching there. No launch
+            // has been sent and no retry/fallback occurs; activity stays unknown.
+            if settings.is_agent_hooks_enabled(kind) && crate::provider_hooks::supported(kind) {
+                env.insert(crate::provider_hooks::OPT_IN.into(), "live".into());
+            }
+        }
         Ok(LaunchSpec {
             executable: executable.to_string_lossy().into_owned(),
             args,
@@ -518,6 +573,9 @@ impl Service {
             }
         }
         let spec = self.plan_launch(request)?;
+        if spec.env.contains_key(crate::provider_hooks::OPT_IN) {
+            return Err("真實 hooks 需要 persistent broker 啟動".into());
+        }
         self.runtime.launch(spec, request.cols, request.rows, emit)
     }
 
@@ -880,6 +938,11 @@ mod tests {
         }];
         settings.executables.codex = executable.to_string_lossy().into_owned();
         settings.executables.grok = settings.executables.codex.clone();
+        // This fixture tests reattachment, not provider hooks; the synthetic CLI
+        // intentionally implements only a long-running process, not --version.
+        for kind in [AgentKind::Codex, AgentKind::Grok] {
+            settings.agent_hooks.insert(kind.as_str().into(), false);
+        }
         service.save_settings(settings.clone()).unwrap();
         service
             .catalog

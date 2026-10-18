@@ -1,14 +1,18 @@
 # 工作區檔案預覽
 
+> 最新預覽策略：以下早期純文字、256 KiB 與快取說明保留作歷史紀錄，由 [大型文字檔閱讀](large-file-reading.md) 與 [圖片預覽](file-image-preview.md) 的目前策略取代。僅目前可見的檔案建立文字 model／圖片資源；離開檔案區會取消後續讀取並釋放預覽資源，返回時依保留的檔案與 view state 還原。小檔文字使用跨工作區有界 LRU cache，不保留多個大型全文 model。Terminal 元件與 Runtime 身分仍維持不變。
+
 ## 操作與範圍
 
-在專案工作分頁的分頁列選「檔案預覽」。左側 Terminal 持續執行，右側可展開目錄並選擇文字／程式碼檔案；沒有工作分頁時不顯示入口，臨時 Terminal 不提供 HOME 檔案瀏覽。
+進入 catalog 專案後，可從工作區右側 Activity Bar 的第二個圖示開啟 Files 側欄，無需先開 Terminal／Agent。第一個圖示為歷史 Sessions，再點目前功能可收合；正常與專注模式皆可使用。選檔後主工作區顯示獨立的唯讀檔案 tab，原 Terminal 持續執行、保留元件與 Runtime，只暫時隱藏；點原工作分頁即可切回。臨時 Terminal 不提供 HOME 檔案瀏覽。
 
 - 根目錄是 catalog 專案原始路徑，不是重新指定的啟動位置 launchPath。只存在於歷史的無本機路徑專案會顯示錯誤。
-- 檔案樹一次只讀使用者展開的目錄；每頁 200 項，更多內容由「載入更多檔案」明確取得。node_modules 等不會自行展開。隱藏檔案預設不列出，可勾選顯示。
-- 選取、展開、是否開啟面板各分頁獨立，關閉分頁會釋放；不寫入工作區設定，不保存檔案內容。重新整理會重讀目前選檔並重建目錄。
-- Tab 可依序到達目錄／檔案／更多按鈕及內容；Enter／Space 操作按鈕，Esc 關閉側面板並回到入口。沒有自動將焦點送入 Terminal。
-- 預覽使用可選取的純文字 `<pre><code>`，可捲動長行。HTML／Markdown 不渲染、不執行；沒有編輯、儲存、刪除或外部開啟。
+- 檔案樹一次只讀使用者展開的目錄；每頁 200 項，更多內容由「載入更多檔案」明確取得。node_modules 等不會自行展開。隱藏檔案預設列出，沒有額外勾選列。
+- 單擊替換未固定的預覽 tab，雙擊固定，同專案相對路徑去重；上限 20 檔。每專案保留獨立目錄、開檔、快取及捲動位置，切換工作分頁、側欄與專注模式不清除。關閉 tab 釋放該檔快取；不持久化檔案內容，重開應用不恢復檔案 tabs。
+- 檔案 tabs 與 Runtime tabs 共用一列，但各自在自身群組內排序。檔案圖示與斜體預覽名稱可區別，雙擊檔案 tab 可固定；Alt＋左右方向鍵或拖曳可重排。拖曳只帶無路徑的內部 MIME，不能變成 Terminal 輸入。
+- Cmd／Ctrl＋數字、Ctrl＋PageUp／PageDown 等既有工作分頁捷徑包含檔案。Cmd＋W／原生關閉目前分頁在檔案檢視只關檔案，不影響 Runtime；Ctrl＋W 在檔案檢視亦適用，Terminal 原有 Ctrl＋W 不改。組字與對話框會阻擋關閉。
+- 目錄內 Esc 收合側欄並回 Files 開關；不關文件。共用 ActivityShell 分隔線可拖曳、方向鍵調整，Home／End 到寬度上下限；不提供額外寬度選單。無圓角與額外最大化層。
+- 預覽使用可選取的純文字 `<pre><code>`，可搜尋及捲動長行。HTML／Markdown 不渲染、不執行；沒有編輯、儲存、刪除或外部開啟。
 
 ## 安全與容量
 
@@ -20,9 +24,9 @@ Windows 使用 `NtCreateFile(RootDirectory)` 單元件相對開啟及 `FILE_OPEN
 
 ## 驗證
 
-- 前端合成測試涵蓋分頁獨立、Terminal 不卸載、Esc 焦點、延遲回覆不覆蓋新選擇、隱藏項目、明確翻頁、連結停用及讀取錯誤。
+- 前端合成測試涵蓋專案獨立、零 Terminal 瀏覽、共用分頁捷徑、Terminal 不卸載、Esc 焦點、延遲回覆不覆蓋新選擇、隱藏項目、明確翻頁、連結停用及讀取錯誤。
 - Rust 使用合成暫存目錄驗證路徑、根目錄來源、symlink、特殊檔案與大小／文字限制；不讀取開發機的真實專案或使用者歷史。
-- `npm run test:files` 使用真正 WorkspaceCanvas／TerminalPane／xterm，注入合成 API，於 1200／720 px 驗證並產生截圖。可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安裝 Chromium；不停用 sandbox。
+- `npm run test:files` 使用真正 App／WorkspaceCanvas／TerminalPane／xterm，注入合成 API，於 1200／720 px 驗證並產生截圖。可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安裝 Chromium；不停用 sandbox。
 - 2026-10-17 Windows ARM64：前端 819 測試、typecheck、lint、build 與 sandbox 開啟的 headless Edge 1200／720 px 合成瀏覽器測試通過。這些測試不等於 Tauri native GUI 或 macOS／Linux 驗收。
 - Windows 後端合成 fixture 涵蓋 junction 葉節點／祖先／專案根、多重硬連結、路徑驗證、根 handle 別名檢查、替換／寫入鎖定、UTF-8／二進位／256 KiB、分頁、原始 catalog 根與多批次原生列舉。檔案 symlink 建立因錯誤 1314（缺少權限）未執行，不變更 OS 設定；junction fixture 必跑。
 
@@ -36,4 +40,11 @@ Windows 使用 `NtCreateFile(RootDirectory)` 單元件相對開啟及 `FILE_OPEN
 
 ## 最新 main 整合
 
-檔案入口放在既有工作區分頁列，保留單面板滿版與專注模式；歷史頁不顯示入口。分割拖曳以 Terminal surface 的實際大小計算，預覽側欄不會改變拖曳比例基準。Terminal 的活動可見性、圖片輸入、分頁排序、Trash、來源設定與工具啟用語意沿用 main。
+Files 文件、history 對話預覽與 workspace 是中央並列顯示狀態，獨立於 Activity Bar 的側欄選擇。App 擁有各專案 Files 的存續與共用 hosts；WorkspaceCanvas 僅保有 Terminal surface，檔案元件用 portal 放入同列 tabs、右側樹與主文件區，不以 portal 重新掛載 Terminal。分割拖曳仍以 Terminal surface 實際大小計算。
+
+Files 重整未改 Rust、IPC、權限、檔案根或 Runtime schema。2026-10-17 GitHub Actions 已通過新版 Files 8 項及專注模式 16 項瀏覽器回歸，並實際檢視正常／專注模式、深淺主題、窄寬視窗與零 Runtime 截圖；本機雲端 Chromium 啟動限制未繞過。上述瀏覽器及 Windows 舊版通過紀錄不代表重整版已完成原生驗收。整合 Session 清單漸進載入後仍須重新通過完整 CI。
+
+
+## 專案快速開啟
+
+Cmd+P／非終端區 Ctrl+P 同時搜尋已開分頁、索引中的歷史 Sessions 及未展開目錄的檔案路徑。檔名搜尋只讀目錄 metadata，不讀內容；隱藏檔納入，排除 .git、node_modules、target、dist、符號連結與多重硬連結。相對路徑包含比對不分大小寫。最多 50 筆結果、20,000 entries、32 層與 250 ms cooperative budget（不保證單次 filesystem call 的硬性超時），截斷會顯示範圍提示。結果為有界子集合的路徑排序；未保證全專案完整排名。既有檔案 tab 原位聚焦，未開檔案建立固定唯讀 tab；20 tabs 上限不變；文字預覽依大小採一般、確認或分段閱讀，圖片依受限解碼策略顯示，詳見 [大型文字檔閱讀](large-file-reading.md) 與 [圖片預覽](file-image-preview.md)。

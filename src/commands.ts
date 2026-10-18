@@ -7,6 +7,9 @@ export interface Command {
 }
 export const shortcutDefaults: Record<string, string> = {
   'command-palette': 'Mod+Shift+P',
+  'project-quick-open': 'Mod+P',
+  'toggle-project-sessions': 'Mod+Shift+H',
+  'toggle-project-files': 'Mod+Shift+L',
   'new-terminal': 'Mod+Shift+T',
   'new-agent': 'Mod+Shift+A',
   'search-sessions': 'Mod+Shift+F',

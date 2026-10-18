@@ -1,6 +1,6 @@
 //! Built-in provider metadata shared with the frontend; not a runtime plugin loader.
 //! Parser implementations and reviewed custom-argument policies remain explicit Rust code.
-use crate::models::AgentKind;
+use crate::{agent_activity::ActivityAdapter, models::AgentKind};
 use serde::Deserialize;
 use std::{
     collections::HashSet,
@@ -49,6 +49,19 @@ pub struct LaunchCapability {
     pub cwd_args: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ActivityTransport {
+    OrderedBridgeOptIn,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActivityCapability {
+    pub adapter: ActivityAdapter,
+    pub transport: ActivityTransport,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderDefinition {
@@ -60,6 +73,7 @@ pub struct ProviderDefinition {
     pub history: HistoryCapability,
     pub resume: ResumeCapability,
     pub launch: LaunchCapability,
+    pub activity: ActivityCapability,
 }
 
 impl ProviderDefinition {
@@ -131,6 +145,16 @@ impl Manifest {
         for provider in &manifest.providers {
             if !ids.insert(provider.id) {
                 return Err("Duplicate built-in provider ID".into());
+            }
+            let expected_activity = match provider.id {
+                AgentKind::Codex => ActivityAdapter::CodexHooks,
+                AgentKind::Claude => ActivityAdapter::ClaudeHooks,
+                AgentKind::Grok => ActivityAdapter::GrokHooks,
+                AgentKind::Antigravity => ActivityAdapter::AntigravityHooks,
+                AgentKind::OpenCode => ActivityAdapter::OpenCodeV1Events,
+            };
+            if provider.activity.adapter != expected_activity {
+                return Err("Activity adapter does not match its reviewed provider".into());
             }
             let history = &provider.history;
             if history.supported != history.parser_id.is_some()
@@ -340,6 +364,15 @@ mod tests {
         ] {
             let mut value = original.clone();
             value["providers"][0][field] = invalid;
+            assert!(Manifest::parse(&value.to_string()).is_err());
+        }
+        for invalid in [
+            serde_json::json!({"adapter":"claudeHooks","transport":"orderedBridgeOptIn"}),
+            serde_json::json!({"adapter":"codexHooks","transport":"enabled"}),
+            serde_json::json!({"adapter":"unknown","transport":"orderedBridgeOptIn"}),
+        ] {
+            let mut value = original.clone();
+            value["providers"][0]["activity"] = invalid;
             assert!(Manifest::parse(&value.to_string()).is_err());
         }
         for invalid in ["", "../outside", "/absolute"] {

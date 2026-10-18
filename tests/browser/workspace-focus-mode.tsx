@@ -1,9 +1,8 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Channel } from '@tauri-apps/api/core';
 import { defaultAgentOptions } from '../../src/agents';
-import type { Bootstrap, LaunchRequest, RuntimeRecord, TerminalEvent, Workspace } from '../../src/types';
+import type { Bootstrap, LaunchRequest, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
 import '../../src/styles.css';
 import '../../src/workbench.css';
 
@@ -38,6 +37,7 @@ const bootstrap: Bootstrap = {
 };
 const edgeFixture = new URLSearchParams(location.search).has('edge');
 const fixtureParams = new URLSearchParams(location.search);
+const temporaryFixture = fixtureParams.has('temporary');
 if (fixtureParams.get('theme') === 'light') bootstrap.settings.theme = 'light';
 if (['bay', 'code-modern', 'code-2026'].includes(fixtureParams.get('palette') ?? ''))
   bootstrap.settings.themePalette = fixtureParams.get('palette')!;
@@ -52,18 +52,85 @@ if (edgeFixture) {
   workspace.panes[hidden.paneId] = { ...workspace.panes['pane-focus'], id: hidden.paneId,
     title: 'Hidden shell', runtimeId: hidden.id };
 }
-const calls: { command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number }[] = [];
+const activityFixture = fixtureParams.has('activity');
+if (activityFixture) bootstrap.projects.forEach(project => { project.sessionCount = 80; project.agents = ['codex', 'claude']; });
+if (fixtureParams.has('empty')) Object.assign(bootstrap.projects[1], { sessionCount: 0, agents: [] });
+const sessions = bootstrap.projects.flatMap(project => Array.from({ length: project.sessionCount }, (_, index): Session => ({
+  id: `${project.id}-session-${index}`, title: `${project.name} session ${index}`,
+  sourceId: 'synthetic-source', kind: index % 2 === 0 ? 'codex' : 'claude',
+  externalId: `synthetic-external-${project.id}-${index}`, projectId: project.id,
+  cwd: project.path, updatedAt: '2026-10-17T12:00:00Z', timeSource: 'event',
+  archived: false, parentId: null, partial: false, snippet: `Synthetic session ${index} only`,
+})));
+const fileBytes = new Map(['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', 'src/index.ts', 'deep/unvisited.ts'].map(path => {
+  const text = path === 'large.ts'
+    ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(12000) + 'END_SENTINEL\n'
+    : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
+    : path === 'settings.json' ? '{\n  "synthetic": true,\n  "count": 42\n}\n'
+    : path === 'src/index.ts' ? 'export const greeting = () => {\n  const message = "Synthetic";\n  return message;\n};\n' : 'synthetic preview only';
+  return [path, new TextEncoder().encode(text)];
+}));
+const generatedFileSizes = new Map<string, number>(fixtureParams.get('large-files') === '1' ? [
+  ['medium.txt', 1024 * 1024], ['big.txt', 21 * 1024 * 1024],
+  ['huge.txt', 65 * 1024 * 1024], ['slow.txt', 2 * 1024 * 1024],
+] as const : []);
+const imageFixture = fixtureParams.get('file-images') === '1';
+const imageFiles = imageFixture ? ['picture.png', 'drawing.svg', 'broken.png'] : [];
+const imagePacket = (svg: boolean): ArrayBuffer => {
+  const data = svg ? new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="red"/></svg>')
+    : Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='), c => c.charCodeAt(0));
+  const header = new TextEncoder().encode(JSON.stringify({ mime: svg ? 'image/svg+xml' : 'image/png', sourceFormat: svg ? 'svg' : 'png', width: svg ? 120 : 1, height: svg ? 80 : 1, firstFrameOnly: false }));
+  const result = new ArrayBuffer(8 + header.length + data.length); const bytes = new Uint8Array(result);
+  bytes.set([83, 66, 73, 49]); new DataView(result).setUint32(4, header.length, true); bytes.set(header, 8); bytes.set(data, 8 + header.length); return result;
+};
+const generatedLine = 'synthetic row '.padEnd(127, '.') + '\n';
+const fileVersion = (projectId: unknown, path: unknown) => `fixture:${projectId}:${path}:1`;
+const calls: { query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean; path?: string; version?: string; offset?: number; maxBytes?: number }[] = [];
 Object.assign(window, { isTauri: true, focusFixture: { calls } });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
-  calls.push({ command, ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
+  calls.push({ command, ...(['inspect_workspace_file', 'read_workspace_file_chunk'].includes(command) ? { path: args.path as string, version: args.version as string | undefined, offset: args.offset as number | undefined, maxBytes: args.maxBytes as number | undefined } : {}), ...(command === 'query_sessions' ? { query: args.query as SessionQuery } : {}), ...(command === 'read_transcript' ? { sessionId: args.sessionId as string } : {}), ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
   switch (command) {
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
     case 'list_projects': return bootstrap.projects;
-    case 'list_workspace_files': return { entries: [{ name: 'synthetic.txt', path: 'synthetic.txt', kind: 'file' }], nextOffset: null };
-    case 'read_workspace_file': return { path: 'synthetic.txt', text: 'synthetic preview only', sizeBytes: 22 };
+    case 'list_workspace_files': return { entries: args.path ? [
+      { name: 'index.ts', path: 'src/index.ts', kind: 'file' },
+    ] : [
+      { name: 'src', path: 'src', kind: 'directory' },
+      ...['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json', ...generatedFileSizes.keys(), ...imageFiles].map(name => ({ name, path: name, kind: 'file' })),
+      { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
+    ], nextOffset: null };
+    case 'search_workspace_files': return { paths: ['src/index.ts', 'deep/unvisited.ts', 'README.md'].filter(path => String(args.query).trim() && path.toLowerCase().includes(String(args.query).toLowerCase())), truncated: false };
+    case 'inspect_workspace_file': {
+      const path = args.path as string;
+      if (imageFiles.includes(path)) return { path, sizeBytes: 100, version: fileVersion(args.projectId, path), kind: 'image' };
+      const sizeBytes = generatedFileSizes.get(path) ?? fileBytes.get(path)?.length;
+      if (sizeBytes === undefined || !bootstrap.projects.some(project => project.id === args.projectId)) throw new Error('Unknown synthetic file');
+      return { path, sizeBytes, version: fileVersion(args.projectId, path), kind: 'text' };
+    }
+    case 'read_workspace_image': {
+      if (!imageFiles.includes(args.path as string) || args.version !== fileVersion(args.projectId, args.path)) throw new Error('Unknown synthetic image');
+      if (args.path === 'broken.png') throw new Error('圖片內容無效');
+      return imagePacket(args.path === 'drawing.svg');
+    }
+    case 'read_workspace_file_chunk': {
+      const path = args.path as string;
+      const bytes = fileBytes.get(path);
+      const sizeBytes = generatedFileSizes.get(path) ?? bytes?.length;
+      const offset = args.offset as number, maxBytes = args.maxBytes as number;
+      if (sizeBytes === undefined || !bootstrap.projects.some(project => project.id === args.projectId)
+        || args.version !== fileVersion(args.projectId, args.path)) throw new Error('Synthetic file version changed');
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > sizeBytes
+        || !Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > 256 * 1024) throw new Error('Invalid synthetic file range');
+      // Generate only the requested range, even for the 65 MiB fixture.
+      const length = Math.min(maxBytes, sizeBytes - offset);
+      const chunk = bytes ? Array.from(bytes.subarray(offset, offset + length))
+        : Array.from({ length }, (_, index) => generatedLine.charCodeAt((offset + index) % generatedLine.length));
+      const result = { bytes: chunk, eof: offset + length === sizeBytes };
+      return path === 'slow.txt' ? new Promise(resolve => setTimeout(() => resolve(result), 100)) : result;
+    }
     case 'update_project': {
       const project = bootstrap.projects.find(item => item.id === args.projectId)!;
       for (const field of ['name', 'curated', 'launchPath'] as const)
@@ -71,19 +138,33 @@ mockIPC((command, payload = {}) => {
       return project;
     }
     case 'list_runtimes': return runtimes;
-    case 'query_sessions': return { catalogRevision: 'fixture', items: [], total: 0 };
+    case 'query_sessions': {
+      const query = args.query as SessionQuery;
+      const filtered = activityFixture ? sessions.filter(session =>
+        (!query.projectId || session.projectId === query.projectId) &&
+        (!query.kind || session.kind === query.kind) &&
+        (!query.query || session.title.toLowerCase().includes(query.query.toLowerCase()))) : [];
+      const offset = query.offset ?? 0;
+      return { catalogRevision: 'fixture', items: filtered.slice(offset, offset + (query.limit ?? 40)), total: filtered.length };
+    }
+    case 'read_transcript': return {
+      messages: Array.from({ length: 60 }, (_, index) => ({ role: index % 2 === 0 ? 'user' : 'assistant',
+        text: `Synthetic transcript ${args.sessionId} message ${index}`, timestamp: null, line: index + 1 })),
+      hasMore: false, beforeLine: null, stale: false, warning: null,
+    };
     case 'detect_installations': case 'detect_shells': return [];
     case 'save_settings': bootstrap.settings = args.settings as Bootstrap['settings']; return bootstrap.settings;
     case 'preview_launch': {
-      if (!edgeFixture) throw new Error('Launch is disabled in the default fixture');
+      if (!edgeFixture && !temporaryFixture) throw new Error('Launch is disabled in the default fixture');
       return { executable: '/synthetic/shell', args: [], cwd: '/synthetic/focus' };
     }
     case 'launch_runtime':
     case 'attach_runtime': {
       if (command === 'launch_runtime') {
-        if (!edgeFixture) throw new Error('Launch is disabled in the default fixture');
+        if (!edgeFixture && !temporaryFixture) throw new Error('Launch is disabled in the default fixture');
         const request = args.request as LaunchRequest;
-        runtimes.push({ ...runtime, id: `runtime-${request.paneId}`, paneId: request.paneId });
+        runtimes.push({ ...runtime, id: `runtime-${request.paneId}`, paneId: request.paneId,
+          projectId: request.projectId ?? null, cwd: request.cwd || '/synthetic/home' });
       }
       const target = command === 'launch_runtime' ? runtimes.at(-1)!
         : runtimes.find(item => item.id === args.runtimeId)!;
@@ -108,5 +189,6 @@ mockIPC((command, payload = {}) => {
     default: throw new Error(`Unexpected synthetic fixture IPC: ${command}`);
   }
 }, { shouldMockEvents: true });
-const { default: App } = await import('../../src/App');
-createRoot(document.getElementById('root')!).render(<App />);
+void import('../../src/App').then(({ default: App }) => {
+  createRoot(document.getElementById('root')!).render(<App />);
+});

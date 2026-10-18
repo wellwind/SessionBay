@@ -1,19 +1,25 @@
 //! Current-backend fresh launch evidence for older compatible PTY brokers.
 //! A caller intent key is never a runtime/pane identity or attachment capability.
 use crate::{
-    broker::{BrokerClient, RuntimeRecord},
+    broker::{BrokerClient, LaunchPreflightError, RuntimeRecord},
     runtime::{LaunchSpec, RuntimeInfo},
     service::LaunchRequest,
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
+pub(crate) const NOT_STARTED: &str = "[SESSIONBAY_LAUNCH_NOT_STARTED] ";
+
 pub(crate) trait FreshBroker {
+    fn preflight(&self, spec: &LaunchSpec) -> Result<(), LaunchPreflightError>;
     fn generation(&self) -> String;
     fn list(&self) -> Result<Vec<RuntimeRecord>, String>;
     fn launch(&self, spec: LaunchSpec, request: &LaunchRequest) -> Result<RuntimeInfo, String>;
 }
 impl FreshBroker for BrokerClient {
+    fn preflight(&self, spec: &LaunchSpec) -> Result<(), LaunchPreflightError> {
+        self.check_provider_hooks(spec)
+    }
     fn generation(&self) -> String {
         self.generation()
     }
@@ -129,6 +135,11 @@ impl FreshLaunches {
                 );
             }
             spec.cwd = spec.cwd.canonicalize().map_err(|e| e.to_string())?;
+            // This local capability check cannot send Launch or spawn an Agent.
+            // Reject before caching an uncertain attempt; do not fall back or retry.
+            broker
+                .preflight(&spec)
+                .map_err(|error| format!("{NOT_STARTED}{error}"))?;
             let prior = broker.list()?;
             if prior.iter().any(|r| r.info.pane_id == request.pane_id) {
                 return Err("Fresh pane identity collision".into());
@@ -252,6 +263,7 @@ mod tests {
         deny: bool,
         change_generation: bool,
         reuse_prior: bool,
+        preflight_denied: Cell<bool>,
     }
     impl Fake {
         fn new() -> Self {
@@ -264,10 +276,18 @@ mod tests {
                 deny: false,
                 change_generation: false,
                 reuse_prior: false,
+                preflight_denied: Cell::new(false),
             }
         }
     }
     impl FreshBroker for Fake {
+        fn preflight(&self, _: &LaunchSpec) -> Result<(), LaunchPreflightError> {
+            if self.preflight_denied.get() {
+                Err(LaunchPreflightError::MissingProviderHooks)
+            } else {
+                Ok(())
+            }
+        }
         fn generation(&self) -> String {
             self.generation.borrow().clone()
         }
@@ -340,6 +360,32 @@ mod tests {
             resume_key: None,
             pane_id: r.pane_id.clone(),
         })
+    }
+    #[test]
+    fn preflight_rejection_is_known_not_started_and_does_not_cache_an_attempt() {
+        let broker = Fake::new();
+        broker.preflight_denied.set(true);
+        let mut cache = FreshLaunches::default();
+        let r = request("codex");
+        let error = cache
+            .launch(&r, &broker, plan, |_, _| {
+                panic!("no provenance before launch")
+            })
+            .unwrap_err();
+        assert_eq!(
+            error,
+            format!(
+                "{NOT_STARTED}{}",
+                LaunchPreflightError::MissingProviderHooks
+            )
+        );
+        assert!(!error.contains("尚未確認"));
+        assert_eq!(broker.launches.get(), 0);
+        assert!(cache.attempts.is_empty());
+        // Only an explicit later caller action with a now-compatible plan may launch.
+        broker.preflight_denied.set(false);
+        cache.launch(&r, &broker, plan, |_, _| Ok(())).unwrap();
+        assert_eq!(broker.launches.get(), 1);
     }
     #[test]
     fn old_broker_new_codex_and_claude_get_verified_evidence() {

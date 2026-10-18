@@ -34,6 +34,7 @@ vi.mock('@xterm/xterm', () => ({ Terminal: class {
     this.textarea.addEventListener('keydown', event => { this.handler(event); });
     host.append(this.textarea);
   }
+  onRender() { return { dispose() {} }; }
   onData(callback: (value: string) => void) { this.data = callback; return { dispose() {} }; }
   input(value: string) { this.data(value); }
   write(_data: unknown, done?: () => void) { done?.(); }

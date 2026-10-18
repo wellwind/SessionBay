@@ -3,8 +3,9 @@ use crate::{
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
     models::{
-        AgentKind, IndexStatus, Project, RemovalInspection, SessionPage, SessionQuery,
-        TranscriptPage, TrashPage, WorkspaceFilePage, WorkspaceFilePreview,
+        AgentKind, IndexStatus, Project, RemovalInspection, SessionPage, SessionQuery, TranscriptPage,
+        TrashPage, WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage, WorkspaceFilePreview,
+        WorkspaceFileSearch,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
@@ -55,8 +56,17 @@ fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
-    if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1") {
+    if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1")
+        || std::env::var("SESSIONBAY_SMOKE_MANUAL").as_deref() == Ok("1")
+    {
+        // Keep the validated, empty-source test data directory while a person
+        // verifies real providers. Never run automated smoke clicks over them.
         return Ok(false);
+    }
+    // This probe uses only synthetic editor models and explicitly seeded file
+    // fixtures; it never opens real user projects or history.
+    if phase == "monaco-probe" {
+        return Ok(std::env::var("SESSIONBAY_SMOKE_MONACO").as_deref() == Ok("1"));
     }
     if phase == "terminal-probe" || phase == "files-probe" {
         let flag = if phase == "files-probe" {
@@ -150,6 +160,15 @@ async fn list_workspace_files(
     .await
 }
 #[tauri::command]
+async fn search_workspace_files(
+    state: AppState<'_>,
+    project_id: String,
+    query: String,
+) -> Result<WorkspaceFileSearch, String> {
+    let s = state.inner().clone();
+    blocking(move || s.search_workspace_files(&project_id, &query)).await
+}
+#[tauri::command]
 async fn read_workspace_file(
     state: AppState<'_>,
     project_id: String,
@@ -157,6 +176,40 @@ async fn read_workspace_file(
 ) -> Result<WorkspaceFilePreview, String> {
     let s = state.inner().clone();
     blocking(move || s.read_workspace_file(&project_id, &path)).await
+}
+#[tauri::command]
+async fn inspect_workspace_file(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+) -> Result<WorkspaceFileInfo, String> {
+    let s = state.inner().clone();
+    blocking(move || s.inspect_workspace_file(&project_id, &path)).await
+}
+#[tauri::command]
+async fn read_workspace_file_chunk(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+    version: String,
+    offset: u64,
+    max_bytes: usize,
+) -> Result<WorkspaceFileChunk, String> {
+    let s = state.inner().clone();
+    blocking(move || s.read_workspace_file_chunk(&project_id, &path, &version, offset, max_bytes))
+        .await
+}
+#[tauri::command]
+async fn read_workspace_image(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+    version: String,
+) -> Result<tauri::ipc::Response, String> {
+    let s = state.inner().clone();
+    blocking(move || s.read_workspace_image(&project_id, &path, &version))
+        .await
+        .map(tauri::ipc::Response::new)
 }
 #[tauri::command]
 async fn add_project(
@@ -641,7 +694,11 @@ pub fn run() {
             save_settings,
             list_projects,
             list_workspace_files,
+            search_workspace_files,
             read_workspace_file,
+            inspect_workspace_file,
+            read_workspace_file_chunk,
+            read_workspace_image,
             add_project,
             create_project,
             update_project,

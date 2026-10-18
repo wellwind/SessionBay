@@ -4,19 +4,20 @@ test('real App mouse tab reorder persists without changing active tab or other p
   await page.goto('/tests/browser/workspace-tabs.html');
   await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab b', exact: true }).click();
   const tabs = page.locator('.workspace-tab-select');
-  await expect(tabs).toHaveText(['Tab a1', 'Tab b1', 'Tab c1']);
+  // Assert visible names independently of screen-reader-only lifecycle descriptions.
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab a', 'Tab b', 'Tab c']);
   await tabs.nth(2).dragTo(tabs.nth(0), { targetPosition: { x: 2, y: 12 } });
-  await expect(tabs).toHaveText(['Tab c1', 'Tab a1', 'Tab b1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab c', 'Tab a', 'Tab b']);
   await expect(page.locator('.workspace-tab.active .workspace-tab-name')).toHaveText('Tab b');
   await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem('workspace-test') || '{}').tabs?.map((tab: { id: string }) => tab.id))).toEqual(['c', 'other', 'a', 'global-a', 'b', 'global-b']);
   await page.screenshot({ path: info.outputPath('workspace-tabs-reordered.png') });
   await page.reload();
   await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab b', exact: true }).click();
-  await expect(tabs).toHaveText(['Tab c1', 'Tab a1', 'Tab b1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab c', 'Tab a', 'Tab b']);
   await expect(page.locator('.workspace-tab.active .workspace-tab-name')).toHaveText('Tab b');
   await tabs.nth(0).focus();
   await page.keyboard.press('Alt+ArrowRight');
-  await expect(tabs).toHaveText(['Tab a1', 'Tab c1', 'Tab b1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab a', 'Tab c', 'Tab b']);
   await expect(tabs.nth(1)).toBeFocused();
 });
 
@@ -34,27 +35,27 @@ test('pointer cancellation never saves, plain clicks and close stay distinct, gl
   await expect.poll(async () => (await tabs.nth(1).boundingBox())!.x).toBeLessThan(siblingBefore.x - 20);
   expect((await tabs.nth(0).boundingBox())!.x).toBeCloseTo(to.x, 0);
   await page.screenshot({ path: info.outputPath('workspace-tabs-during-drag.png') });
-  await expect(tabs).toHaveText(['Tab a1', 'Tab b1', 'Tab c1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab a', 'Tab b', 'Tab c']);
   const before = await page.evaluate(() => localStorage.getItem('workspace-test'));
   await page.waitForTimeout(500); // exceeds App's save debounce while the pointer is held
   expect(await page.evaluate(() => localStorage.getItem('workspace-test'))).toBe(before);
   await page.keyboard.press('Escape');
   await page.mouse.up();
-  await expect(tabs).toHaveText(['Tab a1', 'Tab b1', 'Tab c1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab a', 'Tab b', 'Tab c']);
   await expect(page.locator('.workspace-tab.active .workspace-tab-name')).toHaveText('Tab b');
   await tabs.nth(0).click();
   await expect(page.locator('.workspace-tab.active .workspace-tab-name')).toHaveText('Tab a');
   await page.getByRole('button', { name: '關閉分頁 Tab c', exact: true }).click();
-  await expect(tabs).toHaveText(['Tab a1', 'Tab b1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab a', 'Tab b']);
   await page.getByRole('button', { name: '開啟工作區 臨時 Terminal Tab global-a', exact: true }).click();
-  await expect(tabs).toHaveText(['Tab global-a1', 'Tab global-b1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab global-a', 'Tab global-b']);
   await tabs.nth(1).dragTo(tabs.nth(0), { targetPosition: { x: 2, y: 12 } });
-  await expect(tabs).toHaveText(['Tab global-b1', 'Tab global-a1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab global-b', 'Tab global-a']);
   await expect(page.locator('.workspace-tab.active .workspace-tab-name')).toHaveText('Tab global-a');
   await expect.poll(async () => page.evaluate(() => JSON.parse(localStorage.getItem('workspace-test') || '{}').tabs?.filter((tab: { projectId: string | null }) => tab.projectId === null).map((tab: { id: string }) => tab.id))).toEqual(['global-b', 'global-a']);
   await page.reload();
   await page.getByRole('button', { name: '開啟工作區 臨時 Terminal Tab global-a', exact: true }).click();
-  await expect(tabs).toHaveText(['Tab global-b1', 'Tab global-a1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab global-b', 'Tab global-a']);
 });
 
 
@@ -135,7 +136,7 @@ test('lifted source cannot hide the real Focus Exit control from drop validation
   await expect(page.locator('.reorder-dragging')).toHaveCount(1);
   await page.screenshot({ path: info.outputPath('workspace-tabs-real-focus-exit-covered.png') });
   await page.mouse.up();
-  await expect(tabs).toHaveText(['Tab a1', 'Tab b1', 'Tab c1']);
+  await expect(tabs.locator('.workspace-tab-name')).toHaveText(['Tab a', 'Tab b', 'Tab c']);
   expect(await page.evaluate(() => localStorage.getItem('workspace-test'))).toBe(saved);
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
   await exit.focus(); await page.keyboard.press('Enter');
@@ -152,7 +153,9 @@ for (const width of [800, 1200]) test(`tab strip edge spacing and overflow at ${
     await strip.evaluate(element => { element.scrollLeft = 0; });
     const edges = await strip.evaluate(element => {
       const rect = element.getBoundingClientRect();
-      const first = element.firstElementChild!.getBoundingClientRect();
+      // WorkspaceTabs starts with clipped accessibility-only spans; measure the
+      // first real flex item (the project control in Zen, otherwise a tab).
+      const first = element.querySelector(':scope > .focus-project-control, :scope > .workspace-tab')!.getBoundingClientRect();
       return { left: first.left - rect.left, padding: getComputedStyle(element).paddingInline };
     });
     expect(edges).toEqual({ left: 0, padding: '0px' });

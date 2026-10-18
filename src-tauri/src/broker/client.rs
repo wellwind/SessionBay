@@ -1,6 +1,7 @@
+use super::LaunchPreflightError;
 use super::{
     lock, transport, Request, Response, RuntimeInfo, RuntimeRecord, UiEmitter, UiEvent,
-    HOME_DIRECTORY_CAPABILITY, PROTOCOL,
+    ACTIVITY_CAPABILITY, HOME_DIRECTORY_CAPABILITY, PROTOCOL, TERMINAL_STATUS_CAPABILITY,
 };
 use crate::{runtime::LaunchSpec, service::LaunchRequest};
 use std::{
@@ -31,6 +32,9 @@ struct Inner {
     directory: PathBuf,
     generation: String,
     home_directory_supported: bool,
+    activity_supported: bool,
+    terminal_status_supported: bool,
+    provider_hooks_supported: bool,
     subscriptions: Mutex<HashMap<String, Arc<Subscription>>>,
 }
 /// Dropping this handle disconnects UI rendering only. It never stops the broker.
@@ -45,7 +49,7 @@ impl Drop for Inner {
         }
     }
 }
-fn exchange(directory: &Path, request: &Request) -> Result<Response, String> {
+pub(super) fn exchange(directory: &Path, request: &Request) -> Result<Response, String> {
     let bytes = serde_json::to_vec(request).map_err(|e| e.to_string())?;
     thread_local! {
         static IPC: Result<tokio::runtime::Runtime, String> = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string());
@@ -174,13 +178,22 @@ impl BrokerClient {
                     home_directory_supported: capabilities
                         .iter()
                         .any(|value| value == HOME_DIRECTORY_CAPABILITY),
+                    activity_supported: capabilities
+                        .iter()
+                        .any(|value| value == ACTIVITY_CAPABILITY),
+                    terminal_status_supported: capabilities
+                        .iter()
+                        .any(|value| value == TERMINAL_STATUS_CAPABILITY),
+                    provider_hooks_supported: capabilities
+                        .iter()
+                        .any(|value| value == crate::provider_hooks::CAPABILITY),
                     subscriptions: Mutex::new(HashMap::new()),
                 }),
             }),
             _ => Err("Incompatible runtime broker response".into()),
         }
     }
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(crate) fn existing_for_test(parent: &Path) -> Result<Self, String> {
         let directory = transport::private_directory(parent).map_err(|error| error.to_string())?;
         Self::existing(&directory)
@@ -190,6 +203,42 @@ impl BrokerClient {
     }
     fn request(&self, request: Request) -> Result<Response, String> {
         exchange(&self.inner.directory, &request)
+    }
+    pub fn revoke_provider_hooks(&self, provider: crate::models::AgentKind) -> Result<(), String> {
+        if !self.inner.provider_hooks_supported {
+            return Ok(());
+        }
+        match self.request(Request::RevokeProviderHooks {
+            generation: self.generation(),
+            provider,
+        })? {
+            Response::Ok => Ok(()),
+            _ => Err("Invalid hook revoke response".into()),
+        }
+    }
+    pub(crate) fn check_provider_hooks(
+        &self,
+        spec: &LaunchSpec,
+    ) -> Result<(), LaunchPreflightError> {
+        if spec.env.contains_key(crate::provider_hooks::OPT_IN)
+            && !self.inner.provider_hooks_supported
+        {
+            return Err(LaunchPreflightError::MissingProviderHooks);
+        }
+        Ok(())
+    }
+    /// The caller must already guarantee causal ordering upstream. This does
+    /// not install, configure or enable real provider hooks.
+    pub fn open_ordered_activity_publisher(
+        &self,
+        runtime_id: &str,
+        provider: crate::models::AgentKind,
+        provider_session_id: &str,
+    ) -> Result<OrderedActivityPublisher, String> {
+        if !self.inner.activity_supported {
+            return Err("The runtime broker does not support ordered activity publishers".into());
+        }
+        OrderedActivityPublisher::open(self, runtime_id, provider, provider_session_id)
     }
     pub fn list(&self) -> Result<Vec<RuntimeRecord>, String> {
         match self.request(Request::List {
@@ -225,6 +274,8 @@ impl BrokerClient {
         spec: LaunchSpec,
         request: &LaunchRequest,
     ) -> Result<RuntimeInfo, String> {
+        self.check_provider_hooks(&spec)
+            .map_err(|error| error.to_string())?;
         match self.request(self.launch_request(spec, request))? {
             Response::Runtime { info: Some(info) } => Ok(info),
             _ => Err("Invalid runtime launch response".into()),
@@ -237,6 +288,8 @@ impl BrokerClient {
         lease: String,
         emit: UiEmitter,
     ) -> Result<RuntimeInfo, String> {
+        self.check_provider_hooks(&spec)
+            .map_err(|error| error.to_string())?;
         let requested_pane = spec.pane_id.clone();
         let response = self.request(self.launch_request(spec, request))?;
         let info = match response {
@@ -300,15 +353,19 @@ impl BrokerClient {
         drop(subscriptions);
         let directory = self.inner.directory.clone();
         let generation = self.generation();
+        let activity_supported = self.inner.activity_supported;
+        let terminal_status_supported = self.inner.terminal_status_supported;
         let id = info.id.clone();
         thread::Builder::new()
             .name(format!("attach-{}", id.chars().take(8).collect::<String>()))
             .spawn(move || {
                 let result = (|| {
                     let mut after = None;
+                    let mut activity_after = None;
                     while !subscription.cancelled.load(Ordering::Acquire) {
                         let response = exchange(&directory, &Request::Poll {
                             generation: generation.clone(), runtime_id: id.clone(), after,
+                            agent_activity: activity_supported, terminal_status: terminal_status_supported, activity_after: activity_after.clone(),
                         })?;
                         let events = match response {
                             Response::Events { events } => events,
@@ -336,6 +393,9 @@ impl BrokerClient {
                                 }
                                 after = Some(sequence);
                             } else {
+                                if let UiEvent::AgentActivity { generation, revision, .. } | UiEvent::TerminalStatus { generation, revision, .. } = &event {
+                                    activity_after = Some(super::activity::Cursor { generation: generation.clone(), revision: *revision });
+                                }
                                 let done = matches!(event, UiEvent::Exit { .. } | UiEvent::Disconnected { .. });
                                 emit(event)?;
                                 if done { return Ok(()); }
@@ -431,3 +491,166 @@ impl BrokerClient {
 #[cfg(test)]
 #[path = "legacy_v1_tests.rs"]
 mod legacy_v1_tests;
+
+/// Non-clone, in-memory lease for an explicitly ordered upstream bridge. `&mut`
+/// serializes calls; it does not establish causality for concurrent CLI hooks.
+/// Credentials are never exposed by this handle or its debug formatting.
+pub struct OrderedActivityPublisher {
+    ipc: Option<tokio::runtime::Runtime>,
+    stream: Option<transport::ActivityStream>,
+    broker_generation: String,
+    runtime_id: String,
+    activity_generation: String,
+    capability: super::activity::Capability,
+    sequence: u64,
+}
+impl OrderedActivityPublisher {
+    fn open(
+        client: &BrokerClient,
+        runtime_id: &str,
+        provider: crate::models::AgentKind,
+        session_id: &str,
+    ) -> Result<Self, String> {
+        let ipc = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| error.to_string())?;
+        let request = Request::OpenOrderedActivity {
+            generation: client.generation(),
+            runtime_id: runtime_id.into(),
+            provider,
+            session_id: session_id.into(),
+        };
+        let opened = ipc.block_on(async {
+            tokio::time::timeout(transport::REQUEST_TIMEOUT, async {
+                let mut stream = transport::connect(&client.inner.directory)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let response = match Self::exchange(&mut stream, &request).await {
+                    Ok(response) => response,
+                    Err(error) => {
+                        transport::discard_activity_stream(stream);
+                        return Err(error);
+                    }
+                };
+                Ok::<_, String>((stream, response))
+            })
+            .await
+            .map_err(|_| "Activity publisher open timed out".to_owned())?
+        });
+        let (stream, response) = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                ipc.shutdown_background();
+                return Err(error);
+            }
+        };
+        match response {
+            Response::ActivityOpened {
+                activity_generation,
+                capability,
+            } => Ok(Self {
+                ipc: Some(ipc),
+                stream: Some(stream),
+                broker_generation: client.generation(),
+                runtime_id: runtime_id.into(),
+                activity_generation,
+                capability,
+                sequence: 0,
+            }),
+            _ => {
+                transport::discard_activity_stream(stream);
+                ipc.shutdown_background();
+                Err("Invalid activity publisher response".into())
+            }
+        }
+    }
+    async fn exchange(
+        stream: &mut interprocess::local_socket::tokio::Stream,
+        request: &Request,
+    ) -> Result<Response, String> {
+        let bytes = serde_json::to_vec(request).map_err(|_| "Cannot encode activity request")?;
+        transport::write_frame(stream, &bytes)
+            .await
+            .map_err(|error| error.to_string())?;
+        let bytes = transport::read_frame(stream, 4096)
+            .await
+            .map_err(|error| error.to_string())?;
+        match serde_json::from_slice(&bytes).map_err(|_| "Invalid activity response")? {
+            Response::Error { message } => Err(message),
+            response => Ok(response),
+        }
+    }
+    fn discard(&mut self) {
+        if let Some(stream) = self.stream.take() {
+            transport::discard_activity_stream(stream);
+        }
+    }
+    fn send(&mut self, request: Request) -> Result<(), String> {
+        let stream = self.stream.as_mut().ok_or("Activity publisher is closed")?;
+        let result = self
+            .ipc
+            .as_ref()
+            .ok_or("Activity publisher is closed")?
+            .block_on(async {
+                tokio::time::timeout(transport::REQUEST_TIMEOUT, Self::exchange(stream, &request))
+                    .await
+                    .map_err(|_| {
+                        "Activity publish timed out; reopen the ordered bridge".to_owned()
+                    })?
+            })
+            .and_then(|response| match response {
+                Response::Ok => Ok(()),
+                _ => Err("Invalid activity acknowledgement".into()),
+            });
+        // Never retry uncertain results or leave them lingering on Windows pipes.
+        if result.is_err() {
+            self.discard();
+        }
+        result
+    }
+    pub fn publish(&mut self, registered_event: &str, payload: &[u8]) -> Result<(), String> {
+        if payload.len() > crate::agent_activity::MAX_PAYLOAD_BYTES
+            || registered_event.is_empty()
+            || registered_event.len() > 512
+            || registered_event.chars().any(char::is_control)
+        {
+            self.discard();
+            return Err("Invalid activity event or payload size".into());
+        }
+        self.sequence = self
+            .sequence
+            .checked_add(1)
+            .ok_or("Activity sequence exhausted")?;
+        self.send(Request::PublishActivity {
+            generation: self.broker_generation.clone(),
+            runtime_id: self.runtime_id.clone(),
+            activity_generation: self.activity_generation.clone(),
+            capability: self.capability.clone(),
+            sequence: self.sequence,
+            registered_event: registered_event.into(),
+            payload: payload.into(),
+        })
+    }
+    /// Explicit close waits for invalidation; dropping closes the stream without blocking.
+    pub fn close(mut self) -> Result<(), String> {
+        let result = self.send(Request::CloseActivity {
+            generation: self.broker_generation.clone(),
+            runtime_id: self.runtime_id.clone(),
+            activity_generation: self.activity_generation.clone(),
+            capability: self.capability.clone(),
+        });
+        self.discard();
+        result
+    }
+}
+impl Drop for OrderedActivityPublisher {
+    fn drop(&mut self) {
+        self.discard();
+        // Windows pipe connects may use blocking tasks; cancellation must never
+        // make dropping an owned runtime wait indefinitely for those tasks.
+        if let Some(ipc) = self.ipc.take() {
+            ipc.shutdown_background();
+        }
+    }
+}

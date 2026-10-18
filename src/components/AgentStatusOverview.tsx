@@ -19,7 +19,6 @@ export function AgentStatusOverview({ workspace, projects, onFocus }: {
   return <details className="agent-status-overview" open>
     <summary>Agent 狀態 <span>{total.live} 存活 / {total.opened} 已開啟</span></summary>
     <div className="agent-status-content">
-      <p className="agent-status-help">僅計工作區 Agent，不含 Shell 或歷史。存活不代表忙碌；活動未知。</p>
       {scopes.map((scope) => {
         const group = groups.find((item) => item.projectId === scope.id);
         const counts = group?.counts ?? countAgentStatuses([]);

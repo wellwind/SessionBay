@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Command as CommandIcon,
   Folder,
+  Files,
   FolderPlus,
   Star,
   Trash2,
@@ -87,12 +88,18 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
 import { AppearanceSaveQueue } from './appearance-save-queue';
+import { ProjectQuickSwitcher } from './components/ProjectQuickSwitcher';
+import { FileIcon } from './components/ExplorerTree';
 import { CommandPalette } from './components/CommandPalette';
 import { CommandThemePicker } from './components/CommandThemePicker';
 import type { ThemePatch, ThemeTarget } from './components/CommandThemePicker';
 import type { Appearance } from './themes';
 import { useUiTheme } from './use-ui-theme';
+import { ActivityShell } from './components/ActivityShell';
+import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
+import { WorkspaceFiles } from './components/WorkspaceFiles';
+import './project-files-workspace.css';
 interface Launcher {
   resumeId?: string;
   kind: 'shell' | AgentKind;
@@ -126,13 +133,31 @@ export default function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
   const [trashOpen, setTrashOpen] = useState(false);
-  const [fileToolbarHost, setFileToolbarHost] = useState<HTMLDivElement | null>(null);
+  const quickRequestNonce = useRef(0);
+  const [quickRuntimeFocus, setQuickRuntimeFocus] = useState<{ paneId: string; nonce: number }>();
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [filePaths, setFilePaths] = useState<Record<string, string[]>>({});
+  const [fileOpenRequest, setFileOpenRequest] = useState<{ projectId: string; path: string; nonce: number }>();
+  const [historyOpenRequest, setHistoryOpenRequest] = useState<{ session: Session; nonce: number }>();
+  const onFileTabsChange = useCallback((projectId: string, paths: string[]) => {
+    setFilePaths(previous => ({ ...previous, [projectId]: paths }));
+  }, []);
+  const [fileTabsHost, setFileTabsHost] = useState<HTMLDivElement | null>(null);
+  const [fileSidebarHost, setFileSidebarHost] = useState<HTMLDivElement | null>(null);
+  const [fileDocumentHost, setFileDocumentHost] = useState<HTMLDivElement | null>(null);
+  const [visitedFileProjects, setVisitedFileProjects] = useState<string[]>([]);
+  const [projectActivities, setProjectActivities] = useState<Record<string, { normal: string | null; zen: string | null }>>({});
+  const projectViews = useRef<Record<string, 'history' | 'workspace' | 'files'>>({});
+  const initialProjectActivities = useRef<Record<string, string | null>>({});
+  const [historySidebarHost, setHistorySidebarHost] = useState<HTMLDivElement | null>(null);
+  const filesToggle = useRef<HTMLButtonElement>(null);
+  const projectsToggle = useRef<HTMLButtonElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
   const lastHistoryProject = useRef<string | null | undefined>(undefined);
-  const [view, setView] = useState<'history' | 'workspace'>('history');
+  const [view, setView] = useState<'history' | 'workspace' | 'files'>('history');
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -266,8 +291,38 @@ export default function App() {
   );
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
+  const manuallyClosedActivities = useRef(new Set<string>());
+  const hadProjectTabs = useRef<Record<string, boolean>>({});
+  const activityMode = focusMode ? 'zen' : 'normal';
+  if (current && !(current.id in initialProjectActivities.current)) initialProjectActivities.current[current.id] =
+    workspace.tabs.some(tab => tab.projectId === current.id) ? null : 'sessions';
+  const defaultActivity = current ? initialProjectActivities.current[current.id] : null;
+  const activeActivity = current ? projectActivities[current.id]?.[activityMode] ??
+    (projectActivities[current.id] ? null : focusMode ? null : defaultActivity) : null;
+  const setActiveActivity = (id: string | null) => {
+    if (!current) return;
+    if (id === null) manuallyClosedActivities.current.add(current.id);
+    else manuallyClosedActivities.current.delete(current.id);
+    setProjectActivities(previous => ({ ...previous, [current.id]: {
+      ...(previous[current.id] ?? { normal: defaultActivity, zen: null }), [activityMode]: id,
+    } }));
+  };
+  const currentProjectId = current?.id;
+  const hasProjectTabs = !!current && (workspace.tabs.some(tab => tab.projectId === current.id) || !!filePaths[current.id]?.length);
+  useEffect(() => {
+    if (!currentProjectId) return;
+    const hadTabs = hadProjectTabs.current[currentProjectId];
+    hadProjectTabs.current[currentProjectId] = hasProjectTabs;
+    if (hadTabs && !hasProjectTabs && !manuallyClosedActivities.current.has(currentProjectId)) {
+      setProjectActivities(previous => ({ ...previous, [currentProjectId]: { normal: 'sessions', zen: previous[currentProjectId]?.zen ?? null } }));
+      setView('history');
+    }
+  }, [currentProjectId, hasProjectTabs]);
+  useEffect(() => { setQuickOpen(false); }, [currentProjectId]);
+  if (current) projectViews.current[current.id] = view;
   const historyVisible = !!current || allSessionsSearch;
-  if (historyVisible) lastHistoryProject.current = selectedId ?? null;
+  const historyEnabled = historyVisible;
+  if (historyEnabled) lastHistoryProject.current = current?.id ?? null;
   const launchProjectId = current && !current.workspaceOnly ? current.id : undefined;
   useEffect(() => {
     setLaunchPreview(null);
@@ -285,12 +340,21 @@ export default function App() {
     }, 150);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [launcher, launchProjectId, settings]);
+  useEffect(() => {
+    if (current && !current.workspaceOnly) setVisitedFileProjects((ids) => ids.includes(current.id) ? ids : [...ids, current.id]);
+  }, [current]);
+  const filesAvailable = !!current && !current.workspaceOnly;
+  const filesVisible = filesAvailable && activeActivity === 'files';
+  const showSessions = () => setActiveActivity('sessions');
+  const hideFilesSidebar = () => {
+    setActiveActivity(null);
+    filesToggle.current?.focus({ preventScroll: true });
+  };
   const activeTabId = activeWorkspaceTabId(workspace, selectedId);
   const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   const focusPane = activeTab ? workspace.panes[activeTab.focusedPaneId] : undefined;
   const focusAvailable = !!current || temporaryWorkspace;
   const compactWorkspace = focusMode && focusAvailable && !focusControlsOpen;
-  const revealSidebar = focusMode && focusControlsOpen;
   const restoreWorkspaceFocus = () => {
     const owner = document.activeElement;
     const paletteOwner = !!owner?.closest('.palette-input, .palette-results');
@@ -349,15 +413,24 @@ export default function App() {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || composing.current || event.keyCode === 229 || document.querySelector('[role="dialog"]')) return;
       const current = stateRef.current;
+      if (current.view === 'files' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
+        event.preventDefault(); event.stopPropagation();
+        if (!event.repeat) requestCloseTab.current();
+        return;
+      }
       const tabs = current.workspace.tabs.filter((tab) => tab.projectId === current.selectedId);
-      const active = current.view === 'workspace' ? tabs.findIndex((tab) => tab.id === activeWorkspaceTabId(current.workspace, current.selectedId)) : -1;
-      const index = workspaceTabIndex(event, tabs.length, active);
-      const reserved = index !== null || (tabs.length > 0 && workspaceTabIndex(event, 9, 0) !== null);
+      const fileButtons = [...document.querySelectorAll<HTMLButtonElement>('.project-file-tabs-host [role="tab"]')].filter((button) => !button.closest('[hidden]'));
+      const active = current.view === 'workspace' ? tabs.findIndex((tab) => tab.id === activeWorkspaceTabId(current.workspace, current.selectedId))
+        : current.view === 'files' ? tabs.length + fileButtons.findIndex((button) => button.getAttribute('aria-selected') === 'true') : -1;
+      const count = tabs.length + fileButtons.length;
+      const index = workspaceTabIndex(event, count, active);
+      const reserved = index !== null || (count > 0 && workspaceTabIndex(event, 9, 0) !== null);
       if (!reserved) return;
       // Capture before xterm's textarea keydown so reserved tab keys never reach PTY.
       event.preventDefault();
       event.stopPropagation();
       if (index === null) return; // A reserved number beyond the open tabs is a no-op, never PTY input.
+      if (index >= tabs.length) { fileButtons[index - tabs.length]?.click(); fileButtons[index - tabs.length]?.focus(); return; }
       setWorkspace((workspace) => selectWorkspaceTab(workspace, tabs[index]));
       setView('workspace');
       setMaximizedId(null);
@@ -473,28 +546,48 @@ export default function App() {
     const timer = setTimeout(() => setToast(''), 10000);
     return () => clearTimeout(timer);
   }, [toast]);
+  const persistCurrentWorkspace = useCallback(async () => {
+    if (stateRef.current.boot) {
+      await saveQueue.current;
+      // Forget and layout persistence form one close operation. Project
+      // successful cleanups into the snapshot even before React commits.
+      const snapshotNow = () => serializeWorkspace([...cleanedExits.current.values()]
+        .reduce(closeSuccessfulExit, [...closedPaneSnapshots.current.values()]
+          .reduce(closeConfirmedPane, stateRef.current.workspace)));
+      for (;;) {
+        await Promise.all([...exitCleanupPending.current.values(), ...pendingPaneClosures.current].map((task) => task.catch(() => undefined)));
+        const snapshot = snapshotNow();
+        const signature = JSON.stringify(snapshot);
+        if (signature !== persistedWorkspace.current) {
+          await api.saveWorkspace(snapshot);
+          persistedWorkspace.current = signature;
+        }
+        if (!exitCleanupPending.current.size && !pendingPaneClosures.current.size && JSON.stringify(snapshotNow()) === signature) break;
+      }
+    }
+  }, []);
+  const reloadWindow = useCallback(async () => {
+    if (closingApp.current) throw new Error('視窗正在儲存或關閉，請稍後再試。');
+    closingApp.current = true;
+    try {
+      await persistCurrentWorkspace();
+      startup.reloadWindow();
+    } catch (error) {
+      closingApp.current = false;
+      setWorkspace((current) => ({ ...current }));
+      throw new Error(`重新載入已取消，工作區儲存失敗：${errorMessage(error)}`);
+    }
+  }, [persistCurrentWorkspace]);
+  useEffect(() => {
+    // Keep the last committed handler after a fatal React unmount so the
+    // dependency-free startup fallback can still persist the latest workspace.
+    window.SessionBayReload = reloadWindow;
+  }, [reloadWindow]);
   const closeApplication = useCallback(() => {
     const action = async () => {
       closingApp.current = true;
       try {
-        if (stateRef.current.boot) {
-          await saveQueue.current;
-          // Forget and layout persistence form one close operation. Project
-          // successful cleanups into the snapshot even before React commits.
-          const snapshotNow = () => serializeWorkspace([...cleanedExits.current.values()]
-            .reduce(closeSuccessfulExit, [...closedPaneSnapshots.current.values()]
-              .reduce(closeConfirmedPane, stateRef.current.workspace)));
-          for (;;) {
-            await Promise.all([...exitCleanupPending.current.values(), ...pendingPaneClosures.current].map((task) => task.catch(() => undefined)));
-            const snapshot = snapshotNow();
-            const signature = JSON.stringify(snapshot);
-            if (signature !== persistedWorkspace.current) {
-              await api.saveWorkspace(snapshot);
-              persistedWorkspace.current = signature;
-            }
-            if (!exitCleanupPending.current.size && !pendingPaneClosures.current.size && JSON.stringify(snapshotNow()) === signature) break;
-          }
-        }
+        await persistCurrentWorkspace();
         nativeCloseSealed.current = true;
         await api.close();
       } catch (error) {
@@ -505,7 +598,7 @@ export default function App() {
       }
     };
     if (!closingApp.current) void action().catch(notify);
-  }, [notify]);
+  }, [notify, persistCurrentWorkspace]);
   useEffect(() => {
     if (!desktop) return;
     let disposed = false;
@@ -559,6 +652,22 @@ export default function App() {
       exitCleanupPending.current.set(pane.runtimeId!, cleanup);
     }
   }, [workspace, notify]);
+  const consumedRuntimeFocus = useRef<typeof quickRuntimeFocus>(undefined);
+  useEffect(() => {
+    if (!quickRuntimeFocus || quickOpen || consumedRuntimeFocus.current === quickRuntimeFocus) return;
+    consumedRuntimeFocus.current = quickRuntimeFocus;
+    const owner = document.activeElement;
+    const frame = requestAnimationFrame(() => {
+      const latest = stateRef.current;
+      const tab = latest.workspace.tabs.find(item => item.id === activeWorkspaceTabId(latest.workspace, latest.selectedId));
+      if (latest.view !== 'workspace' || tab?.focusedPaneId !== quickRuntimeFocus.paneId ||
+        document.activeElement !== owner || document.querySelector('[role="dialog"]')) return;
+      const terminal = [...document.querySelectorAll<HTMLTextAreaElement>('.terminal-pane.focused .xterm-helper-textarea')]
+        .find(element => element.getClientRects().length > 0);
+      terminal?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [quickRuntimeFocus, quickOpen]);
   const focus = useCallback((id: string) => {
     const tab = stateRef.current.workspace.tabs.find((t) => paneIds(t.layout).includes(id));
     if (!tab) return;
@@ -699,8 +808,12 @@ export default function App() {
               ? info.state as Pane['state'] : 'disconnected',
             exitCode: info.exitCode });
         } catch (error) {
-          if (mounted.current && !closingApp.current)
-            notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${errorMessage(error)}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
+          if (mounted.current && !closingApp.current) {
+            const message = errorMessage(error);
+            const notStarted = '[SESSIONBAY_LAUNCH_NOT_STARTED] ';
+            if (!confirmedLaunch && message.startsWith(notStarted)) notify(message.slice(notStarted.length));
+            else notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${message}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
+          }
         } finally {
           freshLaunchInFlight.current = false;
           if (mounted.current) setFreshLaunchPending(false);
@@ -849,8 +962,12 @@ export default function App() {
   const requestCloseTab = useRef(() => {});
   requestCloseTab.current = () => {
     if (closingApp.current || closeTabPending.current || composing.current || document.querySelector('[role="dialog"]')) return;
-    if (closeFocusedExplorer()) return;
     const current = stateRef.current;
+    if (current.view === 'files') {
+      document.querySelector<HTMLElement>('[data-file-explorer]')?.dispatchEvent(new Event('explorer-close-file'));
+      return;
+    }
+    if (closeFocusedExplorer()) return;
     if (current.view !== 'workspace') return;
     const tab = current.workspace.tabs.find((item) => item.id === activeWorkspaceTabId(current.workspace, current.selectedId));
     if (!tab) return;
@@ -880,6 +997,12 @@ export default function App() {
   );
   const conflicts = useMemo(() => shortcutConflicts(effectiveShortcuts), [effectiveShortcuts]);
   const commands: Command[] = [
+    { id: 'project-quick-open', label: '快速開啟專案分頁、Sessions 與檔案', disabled: !current,
+      run: () => setQuickOpen(true) },
+    { id: 'toggle-project-sessions', label: '顯示／隱藏專案 Sessions', disabled: !current,
+      run: () => setActiveActivity(activeActivity === 'sessions' ? null : 'sessions') },
+    { id: 'toggle-project-files', label: '顯示／隱藏專案 Files', disabled: !filesAvailable,
+      run: () => setActiveActivity(activeActivity === 'files' ? null : 'files') },
     {
       id: 'command-palette',
       label: '開啟命令面板',
@@ -918,6 +1041,7 @@ export default function App() {
           setAllSessionsSearch(true);
         }
         setView('history');
+        showSessions();
         setTimeout(() => document.getElementById('session-search')?.focus(), 0);
       },
     },
@@ -964,6 +1088,8 @@ export default function App() {
       },
       disabled: !focusPane,
     },
+    { id: 'reload-window', label: '重新載入視窗（Reload Window）',
+      run: () => { void reloadWindow().catch(notify); } },
     ...(['ui', 'terminal'] as const).map(target => ({
       id: `theme-${target}`,
       label: target === 'ui' ? '切換介面主題' : '切換 Terminal theme',
@@ -973,8 +1099,8 @@ export default function App() {
     { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式（Zen Mode）' : '進入專注模式（Zen Mode）',
       disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
-      if (focusMode) setFocusControlsOpen((value) => !value);
-      else setSidebarOpen((value) => !value);
+      if (focusMode) setFocusControlsOpen(value => !value);
+      else setSidebarOpen(previous => !previous);
     } },
   ].map((command) => ({ ...command, shortcut: effectiveShortcuts[command.id] ?? '' }));
   const commandRef = useRef(commands);
@@ -988,6 +1114,9 @@ export default function App() {
           c.shortcut && !c.disabled && !conflicts.has(c.id) && matchesShortcut(event, c.shortcut),
       );
       if (command) {
+        // Preserve the shell's previous-history chord on non-macOS terminals.
+        if (command.id === 'project-quick-open' && event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey &&
+          event.key.toLowerCase() === 'p' && event.target instanceof Element && event.target.matches('.xterm-helper-textarea')) return;
         if (command.id === 'toggle-focus-mode' && event.target instanceof Element &&
           event.target.closest('input, textarea, select, [contenteditable="true"]') &&
           !event.target.matches('.xterm-helper-textarea')) return;
@@ -997,7 +1126,7 @@ export default function App() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => item.id === 'toggle-focus-mode');
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
@@ -1136,7 +1265,7 @@ export default function App() {
   const selectProject = (project: Project) => {
     setSelectedId(project.id);
     setAllSessionsSearch(false);
-    setView('history');
+    setView(projectViews.current[project.id] ?? (workspace.tabs.some(tab => tab.projectId === project.id) ? 'workspace' : 'history'));
     setMaximizedId(null);
   };
   const navigationName = navigation === 'projects' ? '專案' : '所有目錄';
@@ -1145,18 +1274,14 @@ export default function App() {
   const activeCount = Object.values(workspace.panes).filter(
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
-  return (
-    <RuntimeActivityProvider><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
-      <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
-      <header className="app-topbar">
-        <div className="brand">
-          <div className="brand-mark">
-            <Anchor size={22} />
-          </div>
-          <span>
-            Session Bay<span className="brand-tag">WORKSPACE</span>
-          </span>
-        </div>
+  const activities: ActivityContribution[] = [
+    { id: 'sessions', label: '歷史 Sessions', icon: History, shortcut: conflicts.has('toggle-project-sessions') ? '' : effectiveShortcuts['toggle-project-sessions'],
+      renderSidebar: () => <div className="activity-sessions-panel" ref={setHistorySidebarHost} /> },
+    { id: 'files', label: 'Files', icon: Files, shortcut: conflicts.has('toggle-project-files') ? '' : effectiveShortcuts['toggle-project-files'], buttonRef: filesToggle,
+      available: filesAvailable,
+      renderSidebar: () => <div className="project-files-sidebar-host" ref={setFileSidebarHost} /> },
+  ];
+  const projectNavigation = <aside className="sidebar" hidden={!sidebarOpen || compactWorkspace} aria-label="專案導覽">
         <div className="navigation-tabs" role="tablist" aria-label="導覽頁面">
             {(['projects', 'directories'] as const).map((page) => <button key={page} type="button"
               id={`navigation-${page}`} role="tab" aria-selected={navigation === page}
@@ -1175,47 +1300,20 @@ export default function App() {
               <span>{page === 'projects' ? projectCount : directoryCount}</span>
             </button>)}
           </div>
-        <button className="global-search" onClick={() => runCommand('command-palette')}>
-          <Search size={15} />
-          <span>搜尋專案或執行命令</span>
-          <kbd>⌘ / Ctrl ⇧ P</kbd>
-        </button>
-        <div className="topbar-actions">
-          {focusMode && !focusAvailable && <button onClick={toggleFocusMode} aria-label="退出專注模式"><Minimize2 size={16} />退出專注</button>}
-          <button className="secondary temporary-terminal-button" disabled={!boot || !desktop}
-            title="在家目錄開啟臨時 Terminal，不建立專案" aria-label="開啟臨時 Terminal"
-            onClick={() => openTemporaryTerminal()}>
-            <TerminalSquare size={16} aria-hidden="true" /><span>臨時 Terminal</span>
-          </button>
-          <span className="local-badge">
-            <span className="tiny-dot" />
-            本機優先
-          </span>
-          <button className="icon-button theme-quick-trigger" aria-label="快速切換主題" title="快速切換主題"
-            disabled={!settings || settingsOpen || themeSaving || palette}
-            onClick={() => { setThemeSaveError(''); setQuickThemeOpen(true); }}>
-            <Palette size={19} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="設定與資料來源"
-            title="設定與資料來源"
-            disabled={!boot || themeSaving || palette || quickThemeOpen}
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SettingsIcon size={19} />
-          </button>
-        </div>
-      </header>
-      <div className="app-body">
-        {(sidebarOpen || revealSidebar) && (
-          <aside className="sidebar">
+
             <div className="sidebar-heading">
               <span>工作總覽</span>
               <button
                 className="icon-button"
                 aria-label="隱藏側欄"
-                onClick={() => { if (revealSidebar) { setFocusControlsOpen(false); restoreWorkspaceFocus(); } else setSidebarOpen(false); }}
+                onClick={event => {
+                  const owner = event.currentTarget;
+                  setSidebarOpen(false);
+                  requestAnimationFrame(() => {
+                    if ((document.activeElement === owner || document.activeElement === document.body) &&
+                      !document.querySelector('[role="dialog"], dialog[open]')) projectsToggle.current?.focus({ preventScroll: true });
+                  });
+                }}
               >
                 <PanelLeftClose size={16} />
               </button>
@@ -1286,15 +1384,56 @@ export default function App() {
                 </nav>
               </section>
             )}
-          </aside>
-        )}
+          </aside>;
+  return (
+    <RuntimeActivityProvider><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
+      <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
+      <header className="app-topbar">
+        <div className="brand">
+          <div className="brand-mark">
+            <Anchor size={22} />
+          </div>
+          <span>
+            Session Bay<span className="brand-tag">WORKSPACE</span>
+          </span>
+        </div>
+        <button className="global-search" onClick={() => runCommand('command-palette')}>
+          <Search size={15} />
+          <span>搜尋專案或執行命令</span>
+          <kbd>⌘ / Ctrl ⇧ P</kbd>
+        </button>
+        <div className="topbar-actions">
+          {focusMode && !focusAvailable && <button onClick={toggleFocusMode} aria-label="退出專注模式"><Minimize2 size={16} />退出專注</button>}
+          <button className="secondary temporary-terminal-button" disabled={!boot || !desktop}
+            title="在家目錄開啟臨時 Terminal，不建立專案" aria-label="開啟臨時 Terminal"
+            onClick={() => openTemporaryTerminal()}>
+            <TerminalSquare size={16} aria-hidden="true" /><span>臨時 Terminal</span>
+          </button>
+          <button className="icon-button theme-quick-trigger" aria-label="快速切換主題" title="快速切換主題"
+            disabled={!settings || settingsOpen || themeSaving || palette}
+            onClick={() => { setThemeSaveError(''); setQuickThemeOpen(true); }}>
+            <Palette size={19} />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="設定與資料來源"
+            title="設定與資料來源"
+            disabled={!boot || themeSaving || palette || quickThemeOpen}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <SettingsIcon size={19} />
+          </button>
+        </div>
+      </header>
+      <div className="app-body">
+        {projectNavigation}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
             <div className="project-heading">
               <nav className="breadcrumb" aria-label="目前位置">
-                {!sidebarOpen && !revealSidebar && (
+                {!sidebarOpen && (
                   <button
-                    className="icon-button"
+                    className="icon-button" ref={projectsToggle}
                     aria-label="顯示側欄"
                     onClick={() => setSidebarOpen(true)}
                   >
@@ -1350,7 +1489,7 @@ export default function App() {
             <div className="header-buttons">
               <button className="icon-button" title="資源回收筒" aria-label="資源回收筒" disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
-                onClick={() => { setAllSessionsSearch((value) => !value); setView('history'); }}>
+                onClick={() => { setAllSessionsSearch((value) => !value); setView('history');  }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
                 {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
               </button>}
@@ -1436,13 +1575,6 @@ export default function App() {
                   onClick={() => { setFocusControlsOpen((value) => !value); if (focusControlsOpen) restoreWorkspaceFocus(); }}>
                   <Layers3 size={16} aria-hidden="true" /><span>{current?.name ?? '臨時 Terminal'}</span>
                 </button>}
-                {!temporaryWorkspace && <button
-                  className={view === 'history' ? 'active history-tab' : 'history-tab'}
-                  onClick={() => setView('history')}
-                >
-                  <History size={14} />
-                  歷史 Session
-                </button>}
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
                   onSelect={(tab) => {
@@ -1453,6 +1585,7 @@ export default function App() {
                   onRename={(tab) => setRenameTarget({ kind: 'tab', id: tab.id, name: tab.name })}
                   onClose={(tab) => removePanes(paneIds(tab.layout))}
                   onReorder={(id, targetId, after) => setWorkspace((w) => reorderWorkspaceTab(w, id, targetId, after))} />
+                <div className="project-file-tabs-host" ref={setFileTabsHost} />
                 {(current || temporaryWorkspace) && (
                   <button
                     className="icon-button"
@@ -1462,7 +1595,6 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
-                <div className="workspace-files-toolbar-host" ref={setFileToolbarHost} />
                 {focusAvailable && <button ref={focusToggle} className="focus-mode-toggle" aria-pressed={focusMode}
                   aria-label={focusMode ? '退出專注模式' : '進入專注模式'}
                   title={focusMode ? '退出專注模式' : '進入專注模式（保留分頁與面板）'} onClick={toggleFocusMode}>
@@ -1470,7 +1602,9 @@ export default function App() {
                   <span>{focusMode ? '退出專注' : '專注'}</span>
                 </button>}
               </div>}
-              <div className="main-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
+              <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
+                <div className="project-work-content">
+                <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
                 {temporaryWorkspace && !activeTab && <div className="empty-state">
                   <TerminalSquare size={30} aria-hidden="true" /><h2>目前沒有臨時 Terminal</h2>
                   <p>隨時從家目錄開啟新的命令列，不需要建立專案。</p>
@@ -1481,8 +1615,12 @@ export default function App() {
                   style={{ display: view === 'history' ? undefined : 'none' }}
                 >
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
+                    openRequest={historyOpenRequest}
+                    sidebarHost={current ? historySidebarHost : undefined}
+                    scopeLabel={current?.name ?? '所有 Sessions'}
+                    onSelectSession={() => { if (!current) setAllSessionsSearch(true); setView('history'); }}
                     projectId={lastHistoryProject.current ?? undefined}
-                    disabled={!historyVisible}
+                    disabled={!historyEnabled}
                     projects={projects}
                     refreshToken={refreshToken}
                     onHistoryChanged={refresh}
@@ -1497,7 +1635,6 @@ export default function App() {
                 </div>
                 {settings && (
                   <WorkspaceCanvas
-                    fileToolbarHost={fileToolbarHost}
                     workspace={workspace}
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
@@ -1549,10 +1686,32 @@ export default function App() {
                     }}
                   />
                 )}
+                </div>
+                {visitedFileProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <WorkspaceFiles key={id}
+                  onTabsChange={onFileTabsChange} openRequest={fileOpenRequest?.projectId === id ? fileOpenRequest : undefined}
+                  sidebarSide="right" projectId={id} visible={current?.id === id} active={view === 'files' && current?.id === id}
+                  sidebarVisible={current?.id === id && filesVisible} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
+                  onActivate={() => setView('files')} onEmpty={() => {
+                    setView(activeTab ? 'workspace' : 'history');
+                    const owner = document.activeElement;
+                    if (!filesVisible && owner?.closest('.project-file-tabs-group, [data-file-explorer]')) {
+                      let superseded = false;
+                      const moved = () => { superseded = true; };
+                      document.addEventListener('focusin', moved, { once: true });
+                      requestAnimationFrame(() => {
+                        document.removeEventListener('focusin', moved);
+                        if (!superseded && stateRef.current.selectedId === id && stateRef.current.view === (activeTab ? 'workspace' : 'history') && !document.querySelector('[role="dialog"], dialog[open]') &&
+                          (document.activeElement === owner || document.activeElement === document.body)) filesToggle.current?.focus({ preventScroll: true });
+                      });
+                    }
+                  }} onHideSidebar={hideFilesSidebar} />)}
               </div>
             </>
           )}
         </main>
+        <div className="project-activity-tools" hidden={!current}>
+          <ActivityShell scopeKey={current?.id} contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
+        </div>
       </div>
       <footer className={`statusbar${index.running || index.errors.length || index.cancelled || zoomError || themeSaving ? ' statusbar-important' : ''}`}>
         <div>
@@ -1595,7 +1754,7 @@ export default function App() {
         </div>
         <div>
           <span>{activeCount} 個執行中程序</span>
-          {visibleSettings && <span role="status" aria-live="polite" title={workspaceZoomShortcutHelp}>工作台 {appliedZoom ?? 100}%{zoomError ? ' · 縮放套用失敗' : appliedZoom !== zoomPercent ? ' · 套用中' : ''}{themeSaving ? ' · 儲存中' : ''}</span>}
+          {visibleSettings && <span role="status" aria-live="polite" title={`調整介面與 Terminal 顯示大小。${workspaceZoomShortcutHelp}`}>縮放 {appliedZoom ?? 100}%{zoomError ? ' · 縮放套用失敗' : appliedZoom !== zoomPercent ? ' · 套用中' : ''}{themeSaving ? ' · 儲存中' : ''}</span>}
           <span className="status-separator">│</span>
           <span>
             {focusPane && view === 'workspace'
@@ -1738,9 +1897,6 @@ export default function App() {
               }
             }}
           >
-            <p className="dialog-description">
-              在 {current?.name} 開始工作。Agent 沿用 CLI 本身的登入與權限設定。
-            </p>
             <div className="launch-kind-switch" role="group" aria-label="工作類型">
               <button type="button" aria-pressed={launcher.kind === 'shell'}
                 onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined })}>
@@ -1795,7 +1951,6 @@ export default function App() {
             </div>
             {launcher.kind !== 'shell' && settings.agentOptions?.[launcher.kind]?.bypassPermissions &&
               <p className="inline-warning">已啟用高風險權限模式。預設 {bypassFlags[launcher.kind]}；實際參數以上方預覽為準。Agent 可能不詢問就讀寫或刪除檔案。</p>}
-            <p className="small-muted">外部程序狀態未知。Session Bay 只管理自己啟動的程序。</p>
             {freshLaunchPending && <p className="small-muted" role="status">上一個 Agent 仍在啟動，請稍候再建立新的 Agent 工作。</p>}
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
@@ -1854,6 +2009,24 @@ export default function App() {
           </div>
         </Dialog>
       )}
+      {quickOpen && current && <Dialog title={`快速開啟 · ${current.name}`} onClose={() => setQuickOpen(false)}>
+        <ProjectQuickSwitcher projectId={current.id}
+          openedSessionIds={workspace.tabs.filter(tab => tab.projectId === current.id).flatMap(tab => paneIds(tab.layout).flatMap(id => [workspace.panes[id]?.sessionId ?? '', workspace.panes[id]?.resumeId ? `${workspace.panes[id].kind}:${workspace.panes[id].resumeId}` : ''].filter(Boolean)))}
+          opened={[
+            ...workspace.tabs.filter(tab => tab.projectId === current.id).map(tab => ({
+              id: `runtime:${tab.id}`, label: <>{workspace.panes[tab.focusedPaneId]?.kind && workspace.panes[tab.focusedPaneId].kind !== 'shell' ? <AgentIcon kind={workspace.panes[tab.focusedPaneId].kind as AgentKind} /> : <TerminalSquare size={15} aria-hidden="true" />}{tab.name}</>,
+              search: `${tab.name} ${paneIds(tab.layout).map(id => workspace.panes[id]?.title ?? '').join(' ')}`,
+              detail: <small>已開啟 · {paneIds(tab.layout).some(id => workspace.panes[id]?.kind !== 'shell') ? 'Agent' : 'Terminal'}</small>,
+              run: () => { setQuickOpen(false); focus(tab.focusedPaneId); setQuickRuntimeFocus({ paneId: tab.focusedPaneId, nonce: ++quickRequestNonce.current }); },
+            })),
+            ...(filePaths[current.id] ?? []).map(path => ({
+              id: `file:${path}`, label: <><FileIcon path={path} />{path}</>, search: path, detail: <small>已開啟 · 檔案</small>,
+              run: () => { setQuickOpen(false); setFileOpenRequest({ projectId: current.id, path, nonce: ++quickRequestNonce.current }); },
+            })),
+          ]}
+          onOpenFile={path => { setQuickOpen(false); setFileOpenRequest({ projectId: current.id, path, nonce: ++quickRequestNonce.current }); }}
+          onOpenSession={session => { setQuickOpen(false); setHistoryOpenRequest({ session, nonce: ++quickRequestNonce.current }); setView('history'); showSessions(); }} />
+      </Dialog>}
       {palette && (
         <Dialog title="命令面板" onClose={closePalette}>
           {paletteTheme && settings ? <CommandThemePicker key={paletteTheme} target={paletteTheme}
@@ -1871,7 +2044,7 @@ export default function App() {
                 .slice(0, 20).map(project => ({
                   id: `project-${project.id}`, label: <><Folder size={14} />{project.name}</>,
                   search: `${project.name} ${project.path}`, detail: <small>{project.path || '未分類'}</small>,
-                  run: () => { setSelectedId(project.id); setView('history'); closePalette(); },
+                  run: () => { selectProject(project); closePalette(); },
                 })),
             ]} />}
         </Dialog>

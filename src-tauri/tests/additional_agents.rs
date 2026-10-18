@@ -406,6 +406,10 @@ fn manual_and_indexed_resume_share_atomic_provider_identity_without_fake_catalog
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     let service = Service::open(temp.path().join("app")).unwrap();
     let mut settings = service.settings().unwrap();
+    // Owned synthetic stubs use the direct runtime, without a hook broker.
+    for kind in AgentKind::ALL {
+        settings.agent_hooks.insert(kind.as_str().into(), false);
+    }
     settings.executables.grok = executable.to_string_lossy().into_owned();
     settings.executables.antigravity = settings.executables.grok.clone();
     settings.sources = vec![HistorySource {

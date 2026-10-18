@@ -34,6 +34,10 @@
           "--cd",
           "{cwd}"
         ]
+      },
+      "activity": {
+        "adapter": "codexHooks",
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -66,6 +70,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "claudeHooks",
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -98,6 +106,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "grokHooks",
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -130,6 +142,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "antigravityHooks",
+        "transport": "orderedBridgeOptIn"
       }
     },
     {
@@ -162,6 +178,10 @@
           "{resumeId}"
         ],
         "cwdArgs": []
+      },
+      "activity": {
+        "adapter": "openCodeV1Events",
+        "transport": "orderedBridgeOptIn"
       }
     }
   ]

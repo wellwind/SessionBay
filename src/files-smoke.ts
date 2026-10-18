@@ -41,12 +41,13 @@ export async function runFilesSmoke(): Promise<void> {
     .find(element => element.getBoundingClientRect().width > 0 && !!element.querySelector('.xterm-screen'));
   await waitFor(() => !!visibleTerminal(), 'visible terminal did not mount');
   const terminal = visibleTerminal()!;
-  const toggle = document.querySelector<HTMLButtonElement>('.workspace-files-toolbar button');
+  const toggle = document.querySelector<HTMLButtonElement>('.workspace-activity[aria-label="Files"]');
   click(toggle);
-  await waitFor(() => !!document.querySelector('.workspace-file-tree button[title="hello.txt"]'), 'native directory IPC did not render');
-  click(document.querySelector<HTMLButtonElement>('.workspace-file-tree button[title="hello.txt"]'));
-  await waitFor(() => document.querySelector('.workspace-file-preview pre')?.textContent === 'SESSIONBAY_SYNTHETIC_PREVIEW\n<literal>安全文字</literal>\n', 'native text IPC did not render literal content');
-  if (document.querySelector('.workspace-file-preview literal') || !terminal.isConnected || terminal !== visibleTerminal())
+  await waitFor(() => toggle?.getAttribute('aria-expanded') === 'true', 'Files activity did not open its sidebar');
+  await waitFor(() => !!document.querySelector('.project-files-sidebar button[title="hello.txt"]'), 'native directory IPC did not render');
+  click(document.querySelector<HTMLButtonElement>('.project-files-sidebar button[title="hello.txt"]'));
+  await waitFor(() => document.querySelector('[aria-label="唯讀內容：hello.txt"]')?.textContent?.includes('<literal>安全文字</literal>') === true, 'native text IPC did not render literal content');
+  if (document.querySelector('[data-file-explorer] literal') || !terminal.isConnected || !!visibleTerminal())
     throw new Error('Files smoke: content executed or terminal remounted');
   const denied = async (path: string) => {
     try { await api.readWorkspaceFile(project.id, path); } catch { return; }
@@ -56,12 +57,14 @@ export async function runFilesSmoke(): Promise<void> {
   const page = await api.listWorkspaceFiles(project.id, '');
   if (page.entries.find(e => e.name === 'hardlink.txt')?.kind !== 'blocked')
     throw new Error('Files smoke: hardlink was not blocked in listing');
-  document.querySelector('.workspace-files-pane')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  await waitFor(() => toggle?.getAttribute('aria-expanded') === 'false', 'Escape did not close preview');
-  if (document.activeElement !== toggle || !terminal.isConnected || terminal !== visibleTerminal())
-    throw new Error('Files smoke: Escape focus or terminal identity changed');
+  click(toggle);
+  await waitFor(() => toggle?.getAttribute('aria-expanded') === 'false', 'sidebar did not close');
+  if (!document.querySelector('[data-file-explorer]') || !terminal.isConnected)
+    throw new Error('Files smoke: sidebar toggle removed document or terminal');
+  click(document.querySelector<HTMLButtonElement>('.workspace-tab-select'));
+  await waitFor(() => terminal === visibleTerminal(), 'runtime tab did not restore original terminal');
   const runtimes = await api.runtimes();
   if (runtimes.length !== 1 || runtimes[0].kind !== 'shell' || runtimes[0].state !== 'running')
     throw new Error('Files smoke: expected exactly one running isolated shell');
-  await call('frontend_diagnostic', { phase: 'interaction', message: 'files:list-text-literal-deny-traversal-binary-hardlink-oversize-escape' });
+  await call('frontend_diagnostic', { phase: 'interaction', message: 'files:list-text-literal-deny-traversal-binary-hardlink-oversize-sidebar-runtime-identity' });
 }

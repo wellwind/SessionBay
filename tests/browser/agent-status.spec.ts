@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
 for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650 }]) {
@@ -7,7 +8,7 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await expect(page.locator('.agent-status-overview')).toHaveCount(0);
     const project = page.locator('.project-group').filter({ has: page.getByRole('button', { name: /^工作台介面 / }) });
     await expect(project).toContainText('3 分頁 · 2 Agent');
-    await expect(project).toContainText('活動未知');
+    await expect(project).not.toContainText('活動未知');
     await expect(project.locator('.project-count')).toHaveText('99');
     const tab = project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
     await tab.scrollIntoViewIfNeeded();
@@ -36,9 +37,16 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('已結束');
+    const workspaceTab = page.locator('.workspace-tab-select').filter({ has: page.locator('.runtime-activity') });
+    expect(await workspaceTab.first().evaluate(element => {
+      const indicator = element.querySelector('.runtime-activity')!.getBoundingClientRect();
+      const name = element.querySelector('.workspace-tab-name')!.getBoundingClientRect();
+      return indicator.right <= name.left;
+    })).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('known-status-left-no-unknown.png'), fullPage: true });
     const global = page.getByRole('button', { name: /開啟工作區 臨時 Terminal 已保留的 grok/ });
     await global.click();
-    await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('程序存活 · 活動未知');
+    await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('程序存活');
     await expect(page.locator('.sidebar-bottom')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '設定與資料來源' })).toBeEnabled();
   });
@@ -48,8 +56,8 @@ test('fresh output pulses locally, unread clears on visible foreground work, red
   await page.goto('/tests/browser/agent-status.html');
   const tab = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
   const indicator = tab.locator('.runtime-activity');
-  await expect(indicator).not.toHaveAttribute('title', /有新輸出/);
-  await expect(indicator.locator('.runtime-connecting')).toHaveCount(0);
+  await expect(indicator).toHaveCount(0);
+  await expect(tab.locator('.lucide-circle-help, .runtime-output-dot')).toHaveCount(0);
   const emit = async (sequence: number) => page.evaluate(sequence => {
     (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
       type: 'output', runtimeId: 'runtime-a', sequence, data: [65],
@@ -65,7 +73,7 @@ test('fresh output pulses locally, unread clears on visible foreground work, red
   await expect(indicator).toHaveAttribute('title', /未讀輸出/);
   await page.bringToFront();
   await tab.click();
-  await expect(indicator).not.toHaveAttribute('title', /未讀輸出/);
+  await expect(indicator).toHaveCount(0);
   await emit(3);
   await expect(indicator).toHaveAttribute('title', /有新輸出/);
   await expect(indicator).not.toHaveAttribute('title', /未讀輸出/);
@@ -151,4 +159,71 @@ test('successful Agent exit removes only its tab, while abnormal Agent and origi
   await expect(project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 Shell' })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { agentStatusFixture: { operations: string[] } }).agentStatusFixture.operations))
     .toEqual(['forget:runtime-a']);
+});
+
+// Rust serde and the actual App consume this same synthetic wire contract.
+test('ordered observations propagate without PTY activity and expire conservatively', async ({ page }, info) => {
+  await page.goto('/tests/browser/agent-status.html');
+  const project = page.locator('.project-group').filter({ has: page.getByRole('button', { name: /^工作台介面 / }) });
+  const tab = project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
+  await tab.click();
+  await expect(page.locator('.runtime-connecting')).toHaveCount(0);
+  const event = JSON.parse(readFileSync(new URL('../../fixtures/agent-activity/busy-event.json', import.meta.url), 'utf8'));
+  const emit = async (patch: Record<string, unknown>) => page.evaluate(value => {
+    (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit(value);
+  }, { ...event, ...patch });
+  await emit({ validForMs: 3000 });
+  const sidebarStatus = tab.locator('.runtime-activity');
+  const workspaceStatus = page.locator('.workspace-tab').filter({ hasText: '已保留的 codex' }).locator('.runtime-activity');
+  await expect(sidebarStatus).toHaveAttribute('aria-label', /Agent 最近回報：工作中/);
+  await expect(workspaceStatus).toHaveAttribute('aria-label', /Agent 最近回報：工作中/);
+  await expect(sidebarStatus.locator('.runtime-output-dot')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('structured-report-left.png') });
+  await emit({ revision: 2, observation: 'turnStopRequested', validForMs: 800 });
+  await expect(sidebarStatus).toHaveAttribute('aria-label', /收到回合停止請求/);
+  await expect(sidebarStatus).not.toHaveAttribute('aria-label', /閒置/);
+  await emit({ revision: 1, observation: 'idle', validForMs: 30000 });
+  await expect(sidebarStatus).toHaveCount(0);
+  await emit({ generation: 'next-generation', revision: 0, observation: null, validForMs: 0 });
+  await emit({ revision: 99, validForMs: 30000 });
+  await expect(sidebarStatus).toHaveCount(0);
+  await emit({ generation: 'next-generation', revision: 1, validForMs: 3000 });
+  await expect(sidebarStatus).toHaveAttribute('aria-label', /Agent 最近回報/);
+  await emit({ type: 'disconnected', runtimeId: 'runtime-a', message: 'Synthetic connection loss' });
+  await emit({ generation: 'next-generation', revision: 2, validForMs: 30000 });
+  await expect(sidebarStatus).not.toHaveAttribute('aria-label', /Agent 最近回報/);
+  expect(await page.evaluate(() => (window as unknown as { agentStatusFixture: { operations: string[] } }).agentStatusFixture.operations)).toEqual([]);
+});
+
+// Synthetic wire events exercise the real App; these are not model-turn evidence.
+test('native terminal states stay distinct and visibly disclose their source', async ({ page }, info) => {
+  await page.goto('/tests/browser/agent-status.html');
+  const tab = page.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
+  await tab.click();
+  await expect(page.locator('.runtime-connecting')).toHaveCount(0);
+  const indicator = tab.locator('.runtime-activity');
+  let revision = 0;
+  const emit = async (status: string) => page.evaluate(event => {
+    (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit(event);
+  }, { type: 'terminalStatus', runtimeId: 'runtime-a', generation: 'native-terminal', revision: ++revision, status });
+  for (const [status, label] of [
+    ['working', '工作中'], ['permission', '等待權限'], ['question', '等待輸入'],
+    ['authentication', '等待登入'], ['idle', '閒置'], ['done', '已完成'],
+  ]) {
+    await emit(status);
+    await expect(indicator).toHaveAttribute('aria-label', new RegExp(`${label}（終端回報）`));
+    await expect(page.locator('body')).not.toContainText('活動未知');
+    await expect(indicator).not.toHaveAttribute('aria-label', /活動未知/);
+    await expect(indicator.locator('.runtime-output-dot')).toHaveCount(0);
+    if (status === 'idle') await expect(indicator).not.toHaveAttribute('aria-label', /已完成/);
+    if (status === 'working' || status === 'done') {
+      await page.screenshot({ path: info.outputPath(`native-terminal-${status}.png`), fullPage: true });
+    }
+  }
+  await page.evaluate(() => {
+    (window as unknown as { agentStatusFixture: { emit: (event: unknown) => void } }).agentStatusFixture.emit({
+      type: 'disconnected', runtimeId: 'runtime-a', message: 'Synthetic connection loss',
+    });
+  });
+  await expect(indicator).not.toHaveAttribute('aria-label', /終端回報/);
 });

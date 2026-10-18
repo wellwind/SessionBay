@@ -31,7 +31,7 @@ use windows_sys::{
 // GetDriveTypeW's fixed local disk result (Windows SDK winbase.h).
 const DRIVE_FIXED: u32 = 3;
 
-fn fs_error(error: io::Error) -> String {
+pub(super) fn fs_error(error: io::Error) -> String {
     match error.kind() {
         io::ErrorKind::NotFound => "檔案或目錄已不存在，請重新整理".into(),
         io::ErrorKind::PermissionDenied => "沒有權限讀取此檔案或目錄".into(),
@@ -216,13 +216,65 @@ pub(super) fn read(
     read_from(open_root(root)?, path, parts)
 }
 
-fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFilePreview, String> {
+fn open_file_from(directory: File, parts: &[&str]) -> Result<File, String> {
     let (name, parents) = parts.split_last().ok_or("請選擇一般文字檔案")?;
     let directory = descend(directory, parents)?;
-    let mut file = open_at(&directory, name, false)?;
+    let file = open_at(&directory, name, false)?;
     if inspect(&file)? != WorkspaceEntryKind::File {
         return Err("只能預覽一般檔案".into());
     }
+    Ok(file)
+}
+
+pub(super) fn open_file(root: &Path, parts: &[&str]) -> Result<File, String> {
+    open_file_from(open_root(root)?, parts)
+}
+
+pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
+    if inspect(file)? != WorkspaceEntryKind::File {
+        return Err("只能預覽一般檔案".into());
+    }
+    let mut identity = MaybeUninit::<FILE_ID_INFO>::uninit();
+    let mut basic = MaybeUninit::<FILE_BASIC_INFO>::uninit();
+    // SAFETY: the handle stays live and both correctly sized/aligned structures
+    // are read only when the corresponding information query succeeds.
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle(),
+            FileIdInfo,
+            identity.as_mut_ptr().cast(),
+            size_of::<FILE_ID_INFO>() as u32,
+        )
+    } == 0
+        || unsafe {
+            GetFileInformationByHandleEx(
+                file.as_raw_handle(),
+                FileBasicInfo,
+                basic.as_mut_ptr().cast(),
+                size_of::<FILE_BASIC_INFO>() as u32,
+            )
+        } == 0
+    {
+        return Err(fs_error(io::Error::last_os_error()));
+    }
+    // SAFETY: both successful queries initialized the entire structures.
+    let (identity, basic) = unsafe { (identity.assume_init(), basic.assume_init()) };
+    let size_bytes = file.metadata().map_err(fs_error)?.len();
+    Ok(FileSnapshot {
+        size_bytes,
+        version: opaque_version(&format!(
+            "windows:{}:{:?}:{}:{}:{}",
+            identity.VolumeSerialNumber,
+            identity.FileId.Identifier,
+            size_bytes,
+            basic.LastWriteTime,
+            basic.ChangeTime,
+        )),
+    })
+}
+
+fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFilePreview, String> {
+    let mut file = open_file_from(directory, parts)?;
     if file.metadata().map_err(fs_error)?.len() > MAX_FILE_BYTES as u64 {
         return Err("檔案過大：文字預覽上限為 256 KiB".into());
     }
@@ -261,6 +313,50 @@ pub(super) fn list(
     let mut entries = Vec::new();
     let mut seen = 0usize;
     let mut name_bytes = 0usize;
+    enumerate(&directory, |name| {
+        seen += 1;
+        name_bytes += name.len();
+        check_directory_budget(seen, name_bytes)?;
+        if show_hidden || !name.starts_with('.') {
+            let kind = open_at(&directory, &name, false)
+                .and_then(|file| inspect(&file))
+                .unwrap_or(WorkspaceEntryKind::Blocked);
+            entries.push((name, kind));
+        }
+        Ok(true)
+    })?;
+    entries.sort_unstable_by(|a, b| {
+        let rank = |kind| u8::from(kind != WorkspaceEntryKind::Directory);
+        rank(a.1).cmp(&rank(b.1)).then_with(|| a.0.cmp(&b.0))
+    });
+    let end = offset.saturating_add(PAGE_SIZE).min(entries.len());
+    let next_offset = (end < entries.len()).then_some(end);
+    let entries = entries
+        .into_iter()
+        .skip(offset)
+        .take(PAGE_SIZE)
+        .map(|(name, kind)| WorkspaceEntry {
+            path: if path.is_empty() {
+                name.clone()
+            } else {
+                format!("{path}/{name}")
+            },
+            name,
+            kind,
+        })
+        .collect();
+    Ok(WorkspaceFilePage {
+        entries,
+        next_offset,
+    })
+}
+
+// Enumerates the owned handle without reopening a pathname. Returning false
+// stops the native stream immediately, including within its bounded 64 KiB batch.
+fn enumerate(
+    directory: &File,
+    mut visit: impl FnMut(String) -> Result<bool, String>,
+) -> Result<bool, String> {
     // u64 storage provides the alignment required by FILE_ID_BOTH_DIR_INFO.
     let mut buffer = vec![0u64; 8192];
     loop {
@@ -317,16 +413,8 @@ pub(super) fn list(
                 })
                 .collect();
             let name = String::from_utf16(&units).map_err(|_| "目錄含有無效 Unicode 檔名")?;
-            if !matches!(name.as_str(), "." | "..") {
-                seen += 1;
-                name_bytes += name.len();
-                check_directory_budget(seen, name_bytes)?;
-                if show_hidden || !name.starts_with('.') {
-                    let kind = open_at(&directory, &name, false)
-                        .and_then(|file| inspect(&file))
-                        .unwrap_or(WorkspaceEntryKind::Blocked);
-                    entries.push((name, kind));
-                }
+            if !matches!(name.as_str(), "." | "..") && !visit(name)? {
+                return Ok(false);
             }
             let next = info.NextEntryOffset as usize;
             if next == 0 {
@@ -338,30 +426,83 @@ pub(super) fn list(
             position += next;
         }
     }
-    entries.sort_unstable_by(|a, b| {
-        let rank = |kind| u8::from(kind != WorkspaceEntryKind::Directory);
-        rank(a.1).cmp(&rank(b.1)).then_with(|| a.0.cmp(&b.0))
-    });
-    let end = offset.saturating_add(PAGE_SIZE).min(entries.len());
-    let next_offset = (end < entries.len()).then_some(end);
-    let entries = entries
-        .into_iter()
-        .skip(offset)
-        .take(PAGE_SIZE)
-        .map(|(name, kind)| WorkspaceEntry {
-            path: if path.is_empty() {
+    Ok(true)
+}
+
+struct SearchState<'a> {
+    query: &'a str,
+    result: WorkspaceFileSearch,
+    seen: usize,
+    started: std::time::Instant,
+}
+
+impl SearchState<'_> {
+    fn visit(&mut self, directory: File, prefix: &str, depth: usize) -> Result<bool, String> {
+        if self.started.elapsed() >= SEARCH_MAX_DURATION {
+            self.result.truncated = true;
+            return Ok(false);
+        }
+        enumerate(&directory, |name| {
+            if self.seen >= SEARCH_MAX_ENTRIES || self.started.elapsed() >= SEARCH_MAX_DURATION {
+                self.result.truncated = true;
+                return Ok(false);
+            }
+            self.seen += 1;
+            if !valid_name(&name) {
+                return Ok(true);
+            }
+            let path = if prefix.is_empty() {
                 name.clone()
             } else {
-                format!("{path}/{name}")
-            },
-            name,
-            kind,
+                format!("{prefix}/{name}")
+            };
+            if path.len() > MAX_PATH_BYTES {
+                self.result.truncated = true;
+                return Ok(true);
+            }
+            // open_at rejects every reparse point and inspect rejects aliases;
+            // only metadata is read, never file contents.
+            let Ok(child) = open_at(&directory, &name, false) else {
+                return Ok(true);
+            };
+            match inspect(&child) {
+                Ok(WorkspaceEntryKind::Directory) => {
+                    if [".git", "node_modules", "target", "dist"].contains(&name.as_str()) {
+                        return Ok(true);
+                    }
+                    if depth >= SEARCH_MAX_DEPTH {
+                        self.result.truncated = true;
+                    } else if !self.visit(child, &path, depth + 1)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(WorkspaceEntryKind::File) if path.to_lowercase().contains(self.query) => {
+                    if self.result.paths.len() == SEARCH_MAX_RESULTS {
+                        self.result.truncated = true;
+                        return Ok(false);
+                    }
+                    self.result.paths.push(path);
+                }
+                _ => {}
+            }
+            Ok(true)
         })
-        .collect();
-    Ok(WorkspaceFilePage {
-        entries,
-        next_offset,
-    })
+    }
+}
+
+pub(super) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, String> {
+    let mut state = SearchState {
+        query,
+        result: WorkspaceFileSearch {
+            paths: Vec::new(),
+            truncated: false,
+        },
+        seen: 0,
+        started: std::time::Instant::now(),
+    };
+    state.visit(open_root(root)?, "", 0)?;
+    state.result.paths.sort_unstable();
+    Ok(state.result)
 }
 
 fn check_directory_budget(seen: usize, name_bytes: usize) -> Result<(), String> {

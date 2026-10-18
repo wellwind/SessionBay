@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   focus: vi.fn(),
   options: [] as Record<string, unknown>[],
   input: undefined as undefined | ((value: string) => void),
+  renderCallbacks: new Set<() => void>(),
 }));
 vi.mock('./api', () => ({ errorMessage: (e: unknown) => String(e), api: mocks }));
 vi.mock('@xterm/xterm', () => ({
@@ -67,6 +68,10 @@ vi.mock('@xterm/xterm', () => ({
     onData(callback: (value: string) => void) {
       mocks.input = callback;
       return { dispose() {} };
+    }
+    onRender(callback: () => void) {
+      mocks.renderCallbacks.add(callback);
+      return { dispose() { mocks.renderCallbacks.delete(callback); } };
     }
     write(data: Uint8Array, callback: () => void) {
       mocks.termWrite(data, callback);
@@ -148,6 +153,7 @@ beforeEach(() => {
   mocks.initialRows = 24;
 
   mocks.options.length = 0;
+  mocks.renderCallbacks.clear();
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -1132,6 +1138,69 @@ it('non-terminal controls do not claim terminal keyboard focus', async () => {
   expect(mocks.write).not.toHaveBeenCalled();
 });
 
+it('reconciles the first ready render once per reveal without refocusing or fitting hidden panes', async () => {
+  const flushFrames = controlAnimationFrames();
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(562);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(259);
+  const p = props(makePane({ startToken: 1 }));
+  const view = render(<TerminalPane {...p} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  const firstRender = [...mocks.renderCallbacks][0];
+  expect(firstRender).toBeDefined(); // initial visible mount is covered too
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  act(() => firstRender()); // snapshot has not become ready yet
+  expect(mocks.fit).not.toHaveBeenCalled();
+  expect(mocks.resize).not.toHaveBeenCalled();
+  expect(mocks.renderCallbacks.size).toBe(1);
+  completeSnapshot(mocks.launch.mock.calls[0][1]);
+  flushFrames();
+  const input = screen.getByRole('textbox', { name: 'Mock xterm input' });
+  input.focus();
+  fireEvent.compositionStart(input);
+  mocks.fit.mockClear(); mocks.resize.mockClear(); mocks.focus.mockClear();
+  const resets = mocks.reset.mock.calls.length;
+  // A fit-triggered render must not recursively fit again.
+  mocks.fit.mockImplementationOnce(() => { firstRender(); });
+  await act(async () => firstRender());
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  expect(mocks.resize).toHaveBeenCalledOnce();
+  expect(mocks.renderCallbacks.size).toBe(0);
+  expect(input).toHaveFocus();
+  expect(mocks.focus).not.toHaveBeenCalled();
+  expect(mocks.reset).toHaveBeenCalledTimes(resets);
+  act(() => firstRender()); // even a queued obsolete callback is harmless
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  view.rerender(<TerminalPane {...p} focused={false} />);
+  expect(mocks.renderCallbacks.size).toBe(0); // focus alone does not rearm
+  view.rerender(<TerminalPane {...p} visible={false} focused={false} />);
+  view.rerender(<TerminalPane {...p} visible focused={false} />);
+  const revealedRender = [...mocks.renderCallbacks][0];
+  expect(revealedRender).toBeDefined();
+  flushFrames();
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  await act(async () => revealedRender());
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  expect(mocks.resize).toHaveBeenCalledOnce();
+  view.rerender(<TerminalPane {...p} visible={false} />);
+  view.rerender(<TerminalPane {...p} visible />);
+  const hiddenRender = [...mocks.renderCallbacks][0];
+  view.rerender(<TerminalPane {...p} visible={false} />);
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  act(() => hiddenRender());
+  expect(mocks.fit).not.toHaveBeenCalled();
+  expect(mocks.resize).not.toHaveBeenCalled();
+  expect(mocks.renderCallbacks.size).toBe(0);
+  view.rerender(<TerminalPane {...p} visible />);
+  const unmountedRender = [...mocks.renderCallbacks][0];
+  view.unmount();
+  act(() => unmountedRender());
+  expect(mocks.renderCallbacks.size).toBe(0);
+  expect(mocks.fit).not.toHaveBeenCalled();
+  expect(mocks.resize).not.toHaveBeenCalled();
+  expect(mocks.launch).toHaveBeenCalledOnce();
+  expect(mocks.stop).not.toHaveBeenCalled();
+});
+
 it('refits after native page zoom without changing terminal font or runtime, and fits hidden panes on reveal', async () => {
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(500);
@@ -1506,6 +1575,20 @@ describe('guarded terminal output activity', () => {
       <RuntimeActivityIndicator tab={{ id: 'tab', name: 'Work', projectId: 'project', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }} panes={{ pane }} />
     </RuntimeActivityProvider>;
   }
+  it('accepts a retained completed report when attach resolves exited before its first poll', async () => {
+    mocks.attach.mockResolvedValueOnce({ id: 'runtime', paneId: 'pane', sessionId: null, state: 'exited', cwd: '/tmp', exitCode: 0 });
+    render(<ActivityHarness />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    await act(async () => { await Promise.resolve(); });
+    const channel = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => channel({ type: 'terminalStatus', runtimeId: 'runtime', generation: 'terminal-g', revision: 4, status: 'done' }));
+    await waitFor(() => expect(screen.getByRole('img', { name: /已完成（終端回報）/ })).toBeInTheDocument());
+    completeSnapshot(channel);
+    act(() => channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 }));
+    expect(screen.getByRole('img', { name: /已完成（終端回報）/ })).toBeInTheDocument();
+    act(() => channel({ type: 'terminalStatus', runtimeId: 'runtime', generation: 'terminal-g', revision: 5, status: 'working' }));
+    expect(screen.queryByRole('img', { name: /工作中（終端回報）/ })).not.toBeInTheDocument();
+  });
   it('file insertion and manual Enter do not manufacture output activity; rendered Agent output still does', async () => {
     mocks.termPaste.mockReset();
     render(<ActivityHarness visible />);
@@ -1562,5 +1645,50 @@ describe('guarded terminal output activity', () => {
     expect(mocks.disposed).not.toHaveBeenCalled();
     view.unmount();
     act(() => current({ type: 'output', runtimeId: 'runtime', sequence: 2, data: [68] }));
+  });
+  it('routes structured reports without PTY ACKs, survives reconnect, and fences stale callbacks', async () => {
+    const view = render(<ActivityHarness />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    const old = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(old);
+    const writes = mocks.termWrite.mock.calls.length, acks = mocks.ack.mock.calls.length;
+    const report: TerminalEvent = { type: 'agentActivity', runtimeId: 'runtime', generation: 'generation-a', revision: 1, observation: 'busy', validForMs: 1000 };
+    act(() => old(report));
+    await waitFor(() => expect(screen.getByRole('img', { name: /Agent 最近回報：工作中/ })).toBeInTheDocument());
+    expect(mocks.termWrite).toHaveBeenCalledTimes(writes);
+    expect(mocks.ack).toHaveBeenCalledTimes(acks);
+    expect(screen.queryByRole('img', { name: /未讀輸出|有新輸出/ })).not.toBeInTheDocument();
+    act(() => {
+      old({ ...report, runtimeId: 'wrong-runtime', revision: 99, observation: 'idle' });
+      old({ type: 'disconnected', runtimeId: 'runtime', message: 'Offline' });
+      old({ ...report, revision: 2 });
+    });
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Agent 最近回報/ })).not.toBeInTheDocument());
+    expect(mocks.ack).toHaveBeenCalledTimes(acks);
+    fireEvent.click(screen.getByRole('button', { name: '重新連線' }));
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledTimes(2));
+    const current = mocks.attach.mock.calls[1][1] as (event: TerminalEvent) => void;
+    completeSnapshot(current);
+    const reattachedWrites = mocks.termWrite.mock.calls.length, reattachedAcks = mocks.ack.mock.calls.length;
+    act(() => {
+      old({ ...report, revision: 99 });
+      current({ ...report, generation: 'generation-b', revision: 1, observation: 'turnStopRequested', validForMs: 300 });
+    });
+    await waitFor(() => expect(screen.getByRole('img', { name: /Agent 最近回報：收到回合停止請求/ })).toBeInTheDocument());
+    expect(screen.queryByRole('img', { name: /閒置|工作中/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Agent 最近回報/ })).not.toBeInTheDocument());
+    act(() => current({ ...report, generation: 'generation-b', revision: 2 }));
+    await waitFor(() => expect(screen.getByRole('img', { name: /Agent 最近回報：工作中/ })).toBeInTheDocument());
+    act(() => {
+      current({ type: 'exit', runtimeId: 'runtime', exitCode: 7 });
+      current({ ...report, generation: 'generation-b', revision: 3 });
+    });
+    await waitFor(() => expect(screen.queryByRole('img', { name: /Agent 最近回報/ })).not.toBeInTheDocument());
+    view.unmount();
+    act(() => current({ ...report, generation: 'generation-b', revision: 4 }));
+    expect(mocks.termWrite).toHaveBeenCalledTimes(reattachedWrites);
+    expect(mocks.ack).toHaveBeenCalledTimes(reattachedAcks);
+    expect(mocks.launch).not.toHaveBeenCalled();
+    expect(mocks.stop).not.toHaveBeenCalled();
   });
 });

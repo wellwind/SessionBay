@@ -1,3 +1,4 @@
+import { isAgentHooksEnabled } from '../settings';
 import { fitTerminal } from '../terminal-fit';
 import { useRuntimeActivity } from './RuntimeActivity';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
@@ -267,6 +268,22 @@ export function TerminalPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
+    const terminal = term.current;
+    if (!visible || !terminal) return;
+    let pending = true;
+    // A hidden xterm renderer defers its rounded cell measurements until it
+    // paints again. Reconcile once after that first ready render, rather than
+    // repeatedly fitting output frames or guessing when its renderer resumes.
+    const rendered = terminal.onRender(() => {
+      if (!pending || !mounted.current || term.current !== terminal || !latest.current.visible ||
+          !attachment.current?.ready || !host.current?.clientWidth || !host.current.clientHeight) return;
+      pending = false;
+      rendered.dispose(); // fit can itself render; consume the one-shot first
+      fitNow();
+    });
+    return () => { pending = false; rendered.dispose(); };
+  }, [visible, fitNow]);
+  useEffect(() => {
     if (term.current) {
       term.current.options.fontSize = settings.fontSize;
       term.current.options.fontFamily = settings.fontFamily;
@@ -277,6 +294,13 @@ export function TerminalPane({
     // Colors never resize, reset, refocus or reconnect a running terminal.
     if (term.current) term.current.options.theme = terminalTheme(settings.terminalTheme);
   }, [settings.terminalTheme]);
+  const previousHookOptIn = useRef(pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind));
+  useEffect(() => {
+    const enabled = pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind);
+    if (previousHookOptIn.current && !enabled) activity?.revokeAgent(pane.id);
+    previousHookOptIn.current = enabled;
+  }, [settings.agentHooks, pane.kind, pane.id, activity]);
+
   useEffect(() => {
     if (visible) {
       const scheduledFrom = document.activeElement;
@@ -339,6 +363,14 @@ export function TerminalPane({
       }
       active.id = event.runtimeId;
       activity?.bind(pane.id, active.lease, event.runtimeId);
+      if (event.type === 'terminalStatus') {
+        if (pane.kind !== 'shell' && (!active.ended || event.status === 'done' || event.status === 'error') && !active.disconnected) activity?.observeTerminal(pane.id, active.lease, event);
+        return;
+      }
+      if (event.type === 'agentActivity') {
+        if (pane.kind !== 'shell' && !active.ended && !active.disconnected) activity?.observe(pane.id, active.lease, event);
+        return;
+      }
       if (event.type === 'output' || event.type === 'snapshot') {
         if (event.sequence <= active.lastSequence) {
           if (event.sequence <= active.lastAcknowledged) ack(event);
@@ -389,7 +421,7 @@ export function TerminalPane({
         if (!active.ended && !['exited', 'failed', 'interrupted'].includes(state))
           latest.current.onPatch(pane.id, { state: 'disconnected', runtimeId: event.runtimeId });
       } else if (event.type === 'exit') {
-        activity?.end(pane.id, active.lease);
+        activity?.end(pane.id, active.lease, true);
         active.ended = true;
         inputQueue.current?.cancel();
         resizePending.current = null;
@@ -450,7 +482,7 @@ export function TerminalPane({
         if (active.disconnected || ['exited', 'failed', 'interrupted'].includes(state)) setConnecting(false);
         active.ended = ['exited', 'failed', 'interrupted'].includes(state);
         active.failed = state === 'failed';
-        if (active.ended || active.disconnected) activity?.end(pane.id, active.lease);
+        if (active.ended || active.disconnected) activity?.end(pane.id, active.lease, active.ended && !active.disconnected);
         latest.current.onPatch(pane.id, { runtimeId: info.id, state, cwd: info.cwd, exitCode: info.exitCode, error: undefined });
         enableInput();
       } else latest.current.onPatch(pane.id, { runtimeId: info.id });

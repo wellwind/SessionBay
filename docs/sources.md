@@ -262,3 +262,61 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [VS Code terminalInstance](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/terminal/browser/terminalInstance.ts)：公開 custom keyboard handler 分流，沒有自製 composition finalizer。
 
 - [FitAddon 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/addons/addon-fit/src/FitAddon.ts) 與 [DOM renderer 6.0](https://github.com/xtermjs/xterm.js/blob/6.0.0/src/browser/renderer/dom/DomRenderer.ts)：公開 fit/proposeDimensions 與 canvas/cols 取整的相容依據；來源層模型與 Chromium zoom 回歸不等同原生 WebView。
+
+## 2026-10-17 Agent 活動 hooks
+
+| 官方來源 | 此輪使用範圍與限制 |
+| --- | --- |
+| [Codex hooks](https://learn.chatgpt.com/docs/hooks) | hook_event_name/session_id/turn_id、Stop gate、並行 hooks 與 child 事件；文件現況，不承諾舊 CLI 支援 |
+| [Claude Code hooks](https://code.claude.com/docs/en/hooks) | common fields、agent_id/prompt_id、permission 與 Stop/StopFailure；Notification 延遲，不推論目前等人 |
+| [Grok hooks guide](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md)、[固定版本 envelope](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-hooks/src/event.rs) | hookEventName 與 hook_event_name alias 不同大小寫、sessionId/promptId、child markers、passive Stop 觀察限制 |
+| [Antigravity hooks](https://antigravity.google/docs/hooks#input-and-output-contract) | conversationId、registration event name、invocation/tool/Stop；fullyIdle 仍在 gate 之前，不代表最終 idle |
+| [OpenCode plugin events](https://opencode.ai/docs/plugins#events)、[v1.18.18 schema](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/sdk/js/src/v2/gen/types.gen.ts)、[開發版 schema](https://github.com/anomalyco/opencode/blob/8c173a8f3805d8e749d44311054b07e37a1b2ce1/packages/client/src/promise/generated/types.ts) | 此輪僅 v1 properties envelope 的 session.status；v2 data envelope 明確拒絕，不推導所有安裝版本相容 |
+
+所有來源只驗證解析契約，不代表已安裝或執行真實 hooks。保守 TTL、binding 與失效規則是 SessionBay 設計，不是 provider 保證。
+
+## 2026-10-18 Launch-local hooks
+
+- https://learn.chatgpt.com/docs/hooks ：inline config、同步 lifecycle、turn_id、Stop gate 與 /hooks trust。
+- https://code.claude.com/docs/en/hooks ：--settings、prompt_id、SessionEnd、Notification 的約 6／60 秒延遲。
+
+來源為官方 current docs；版本可用性與 native CLI callback 仍需逐版實測，不能以文檔存在代替驗收。
+
+## 2026-10-18：Activity Bar 參考
+
+- [VS Code User Interface](https://code.visualstudio.com/docs/editing/getting-started/userinterface)：Activity Bar 選擇 Primary Side Bar 的功能，中央編輯區獨立。
+- [VS Code Custom Layout](https://code.visualstudio.com/docs/configure/custom-layout)：側欄顯示切換與 Zen Mode。Session Bay 僅採功能／內容分離原則，保留自己的專注模式快捷入口。
+
+## 2026-10-18：OpenCode launch-local 活動來源
+
+- [官方 config](https://opencode.ai/docs/config/)／[plugins](https://opencode.ai/docs/plugins/)：`OPENCODE_CONFIG_CONTENT`、local file plugin；不新增 npm 依賴。
+- [v1.19.3 plugin 實作](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/plugin/index.ts)：`--pure` 禁止 plugins、逐 instance directory 過濾，outward `{type, properties}`，event callbacks 不 await、dispose。
+- [v1.19.3 hook API](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/plugin/src/index.ts)／[session prompt](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/prompt.ts)：chat.message 提供 sessionID；session.error 包含可恢復的 preparation error，非 terminal success/failure 契約。
+- [v1.19.3 status](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/session/status.ts)／[schema](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/schema/src/session-status-event.ts)：busy／retry／idle；idle 從 map 刪除，不能以缺項建立未知 Session 身份。
+- [v1.19.3 permission](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/schema/src/v1/permission.ts)／[question](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/schema/src/v1/question.ts)：asked 的 id、resolution 的 requestID 與各自 sessionID。
+- [v1.19.2 config](https://github.com/anomalyco/opencode/blob/v1.19.2/packages/opencode/src/config/config.ts)：inline JSONC 與 plugin origins 的合併。本輪審閱1.19.2／1.19.3，選定 >=1.19.2,<2 stable；不是最早支援版本或未來版本 E2E 保證。
+
+來源查閱日2026-10-18。Linux 已實測官方 `opencode-linux-x64@1.19.3`：npm tarball SHA-512 `wz+kXi7ZkvLW04hEIocW3RoEznALJ3YGnvNlZdXFarYF0v1jyDyAwpPGZkxb4JZDrw4oy48/LDZ8wCFIQDTxhw==`；`--version`、隔離 `debug config` 與 production plugin 載入／dispose 通過，未登入或呼叫模型。這些證據與合成 contracts 分列，不冒充真實回合驗收。
+
+- 2026-10-18：Codex 0.163.0／Grok 1.0.52／Antigravity 1.4.0 的官方 OSC7501 與競品來源、信任／版本界線，見 [原生終端活動訊號](native-terminal-status.md#官方與參考來源)。
+## Monaco 唯讀預覽（2026-10-18）
+
+- 官方 ESM / Vite worker 整合：https://github.com/microsoft/monaco-editor/blob/main/docs/integrate-esm.md
+- 官方套件與 API：https://www.npmjs.com/package/monaco-editor 、https://microsoft.github.io/monaco-editor/typedoc/
+- 本次固定 monaco-editor 0.57.0，採 editor API、局部 contributions 與本機 worker；套件的 JSON defaults 明確關閉 schema request。未引入 CDN loader。
+
+- Monaco Editor 0.57.0 官方 npm 套件：`esm/vs/internal/common/workers.js`、`esm/vs/features/register.all.js`、`esm/vs/editor/standalone/browser/standaloneServices.js`。2026-10-18 核對 local package：JSON lazy workerManager 會晚載入全套 contributions，而 StandaloneServices 僅 initialize 時補 singleton；須在第一個 model/editor 前完成註冊。上游：https://github.com/microsoft/monaco-editor/tree/v0.57.0 。
+
+### 2026-10-18：大檔分級閱讀
+
+- [VS Code large-file optimization warning](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/codeEditor/browser/largeFileOptimizations.ts)：大型文件會降低特性，避免 tokenization、folding、word highlight 等昂貴工作。Session Bay 採較保守的 IPC 與 model 大小界限，不宣稱與完整 VS Code 記憶體能力相等。
+- [VS Code text model](https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/model/textModel.ts)：大小／行數判斷與 tokenization／sync 退化是參考方向；本專案門檻為自己的資源政策。
+
+## 圖片閱讀安全（2026-10-18）
+
+- [image Limits](https://docs.rs/image/0.25.10/image/struct.Limits.html)：尺寸／配置限制及 decoder 適用範圍；不是 OS 級硬資源限制。
+- [WebP RIFF container](https://developers.google.com/speed/webp/docs/riff_container)：容器、畫布與 frame 尺寸驗證。
+- [SVG as an image](https://developer.mozilla.org/en-US/docs/Web/SVG/Guides/SVG_as_an_image)：img context 限制；應用仍額外採受限靜態子集與 CSP。
+## 發行與 Snap 更新政策（2026-10-18 查閱）
+
+- [Snap Manage updates](https://snapcraft.io/docs/how-to-guides/manage-snaps/manage-updates/)：Store 預設自動更新；snapd 2.58+ 單套件無期限 hold 與 targeted refresh；本機測試安裝與 Store 行為不同。應用不能以自己的確認框保證阻止 snapd；產品規劃與未完成驗收見[發行與更新](release-update-plan.md)。

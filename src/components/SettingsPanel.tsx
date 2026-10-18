@@ -21,6 +21,7 @@ import type { AgentKind, HistorySourceDiscovery, IndexStatus, Installation, Sett
 import { normalizedShortcut, normalizeLegacyShortcuts, reservedWorkspaceShortcut, shortcutDefaults, workspaceTabShortcutHelp } from '../commands';
 import { agentCapabilities, agentKinds, historyAgentKinds, agentNames, executableDefaults, bypassFlags, installationState, normalizedAgentOptions, isAgentEnabled } from '../agents';
 import type { HistoryAgentKind } from '../agents';
+import { isAgentHooksEnabled, normalizedAgentHooks } from '../settings';
 import { isAbsoluteFilesystemPath } from '../paths';
 import { Select, SearchableSelect } from './controls';
 import { AgentIcon } from './AgentIcon';
@@ -50,6 +51,9 @@ type Section = 'sources' | 'profiles' | 'appearance' | 'shortcuts';
 type ValidationErrors = Record<string, string>;
 type JsonFields = Record<string, { args: string; env: string }>;
 const shortcutNames: Record<string, string> = {
+  'project-quick-open': '快速開啟專案分頁、Sessions 與檔案',
+  'toggle-project-sessions': '顯示／隱藏專案 Sessions',
+  'toggle-project-files': '顯示／隱藏專案 Files',
   'new-terminal': '開啟終端機',
   'new-agent': '開始 Agent 工作',
   'search-sessions': '搜尋 Session',
@@ -72,6 +76,7 @@ const sections = [
 function cloneSettings(settings: Settings): Settings {
   return {
     ...settings,
+    agentHooks: normalizedAgentHooks(settings),
     ...(settings.agentEnabled ? { agentEnabled: { ...settings.agentEnabled } } : {}),
     profiles: settings.profiles.map((profile) => ({
       ...profile,
@@ -629,7 +634,6 @@ export function SettingsPanel({
                           onChange={(event) => update('agentEnabled', { ...draft.agentEnabled, [selectedAgent]: event.target.checked })} />
                         <strong>啟用 {agentNames[selectedAgent]}</strong>
                       </label>
-                      <p className="settings-help">儲存後套用。停用會暫停新啟動、接續與歷史掃描；保留既有歷史、來源與工具設定，執行中的工作不受影響。</p>
                       {[selectedAgent].map((kind) => {
                         const installation = installations.find((item) => item.kind === kind);
                         const binary = installationState(installation, draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind]));
@@ -654,7 +658,6 @@ export function SettingsPanel({
                     <div className="settings-section-heading" id="settings-agent-tools">
                       <div>
                         <h3>啟動設定</h3>
-                        <p>工具可啟動與歷史可讀取，會分別確認。</p>
                       </div>
                       <button
                         type="button"
@@ -696,15 +699,21 @@ export function SettingsPanel({
                             </label>
                             {installation?.executable && (
                               <p className="settings-detected-path" title={installation.executable}>
-                                目前：{installation.executable}
+                                <span className="settings-detected-label">目前：</span><span className="settings-detected-value">{installation.executable}</span>
                               </p>
                             )}
                             {installation?.error && (
                               <p className="settings-subtle-warning">{installation.error}</p>
                             )}
-                            <p className="settings-help">{agentCapabilities[kind].history.supported
-                              ? '支援唯讀歷史索引、搜尋及接續。'
-                              : '支援啟動／指定對話 ID 恢復，尚不索引歷史。'}</p>
+                            {!agentCapabilities[kind].history.supported && <p className="settings-help">支援啟動／指定對話 ID 恢復，尚不索引歷史。</p>}
+                            {(kind === 'codex' || kind === 'claude' || kind === 'opencode' || kind === 'grok' || kind === 'antigravity') && <>
+                              <label className="settings-field">
+                                <span><input className="checkbox" type="checkbox"
+                                  aria-label={`${agentNames[kind]} 真實活動 hooks`}
+                                  checked={isAgentHooksEnabled(draft, kind)}
+                                  onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> 啟用真實活動 hooks</span>
+                              </label>
+                            </>}
                             <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>
                               <summary aria-label={`${agentNames[kind]} 參數與權限設定`}>
                                 <span>參數與權限</span><span>{draft.agentOptions[kind].bypassPermissions ? '高風險模式已開啟' : argumentSummary}</span>
@@ -755,7 +764,7 @@ export function SettingsPanel({
                               <AgentIcon kind={kind} />
                               <h4>{capability.name}</h4>
                             </div>
-                            <p className="settings-help">{capability.history.description}</p>
+                            {kind !== 'codex' && <p className="settings-help">{capability.history.description}</p>}
                             <button type="button" className="settings-button secondary compact"
                               disabled={!capability.history.supported || !onDetectHistorySources}
                               aria-label={`偵測 ${capability.name} 歷史來源`}
@@ -1127,7 +1136,7 @@ export function SettingsPanel({
                         onChange={(event) => update('appZoom', event.target.value === '' ? Number.NaN : Number(event.target.value))}
                         aria-invalid={Boolean(errors.appZoom)} aria-describedby="app-zoom-error app-zoom-help" />
                       <FieldError id="app-zoom-error" message={errors.appZoom} />
-                      <p className="settings-help" id="app-zoom-help">{workspaceZoomShortcutHelp} 儲存保留、取消捨棄還原；終端基準字級不變。</p>
+                      <p className="settings-help" id="app-zoom-help">{workspaceZoomShortcutHelp}</p>
                       <button className="secondary" type="button" onClick={() => update('appZoom', 100)}>還原工作台縮放 100%</button>
                     </div>
                     <ThemeControls value={appearanceOf(draft)} disabled={locked}

@@ -189,7 +189,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .settings-source-wayfinding a { font-size: 12px; text-decoration: none; padding: 6px 8px; border-radius: 5px; }
 .settings-source-wayfinding a:hover { background: var(--accent-bg); }
 .settings-source-wayfinding > span { font-size: 11px; color: var(--muted); margin-left: auto; }
-.settings-installations { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.settings-installations { grid-template-columns: minmax(0,1fr); gap: 16px; }
 .settings-installation { padding: 16px; background: var(--bg); border-radius: 10px; }
 .settings-installation-top { flex-wrap: wrap; gap: 8px; }
 .settings-installation-top strong { font-size: 14px; }
@@ -254,7 +254,7 @@ input.checkbox::before { border-color: var(--on-accent); }
   *, *::before, *::after { transition: none !important; animation-duration: 0s !important; scroll-behavior: auto !important; }
 }
 /* Provider cards stay registered even with no executable or source on this computer. */
-.settings-history-providers { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.settings-history-providers { grid-template-columns: minmax(0, 1fr); align-items: start; }
 .settings-history-provider .settings-source-fields { grid-template-columns: 1fr; gap: 12px; }
 .settings-history-provider .settings-source-top { flex-wrap: wrap; }
 .settings-history-provider-top .settings-status { margin-left: 0; }

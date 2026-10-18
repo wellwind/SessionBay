@@ -9,13 +9,12 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc -b",
-    "test": "vitest run",
+    "test": "vitest run && node --test src-tauri/src/claude_state_mod.contract.mjs src-tauri/src/opencode_state_plugin.contract.mjs",
     "test:watch": "vitest",
     "lint": "eslint src",
     "tauri": "node scripts/tauri.mjs",
     "test:files": "playwright test --config playwright.files.config.ts",
     "test:images": "playwright test --config playwright.images.config.ts",
-
     "test:agent-status": "playwright test --config playwright.agent-status.config.ts",
     "test:tabs": "playwright test --config playwright.tabs.config.ts",
     "test:layout": "playwright test --config playwright.layout.config.ts",
@@ -32,6 +31,7 @@
     "@xterm/addon-search": "0.16.0",
     "@xterm/xterm": "6.0.0",
     "lucide-react": "^0.468.0",
+    "monaco-editor": "0.57.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

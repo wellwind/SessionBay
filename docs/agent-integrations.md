@@ -182,7 +182,7 @@ SQLite 歷史、XDG 路徑、OPENCODE_DB 精確接續、--auto opt-in、合成 f
 
 ### 工作中狀態的可靠性界線（2026-10-17）
 
-目前 Codex、Claude Code、Grok Build、Antigravity CLI、OpenCode 均只接 PTY 生命週期，busy／idle 未支援。專案展開 tabs 與分頁指示如實顯示「活動未知」。啟動中只描述啟動，不代表 Agent 正在工作。
+2026-10-17 的基線為五工具只接 PTY 生命週期；後續 Codex／Claude／OpenCode 的明確 opt-in 正式來源見 [provider hooks](provider-hooks.md)。未啟用或不支援的來源仍不推論 busy／idle。專案展開 tabs 與分頁指示如實顯示「活動未知」。啟動中只描述啟動，不代表 Agent 正在工作。
 
 Codex 官方 structured event 的 `TurnStartedEvent`／`TurnCompleteEvent` 可依 `turn_id` 配對，舊 rollout 名稱 `task_started`／`task_complete` 已被歷史 adapter 識別。但 catalog session ID、檔案 EOF 與啟動時間不足以證明是此 PTY 的活動：broker 只能排除自己的重複 resume，外部 CLI 可操作同一 session。新版 protocol 的 `SessionConfiguredEvent` 有 `rollout_path`，目前 PTY transport 未提供此控制通道。未建立 provider/runtime 來源綁定前，不把追加紀錄冒充本 tab 忙碌。
 
@@ -195,3 +195,8 @@ Codex 官方 structured event 的 `TurnStartedEvent`／`TurnCompleteEvent` 可�
 ## 一般檔案參照
 
 Agent 入口接受所有檔案類型而不解碼或執行；直接本機路由守衛與保留生命週期不變。一般路徑參照不保證 CLI／模型能解析內容；詳見[一般檔案輸入](file-input.md)。
+
+
+## 結構化活動 hooks
+
+第一階段（#53）宣告五工具的純 observation adapters，當時 transport 為 `notImplemented`。目前已有 [opt-in ordered bridge](agent-activity-transport.md)，registry 為 `orderedBridgeOptIn`；未啟用的啟動仍不提供 live busy／idle。Codex／Claude／OpenCode 的 launch-local 正式路徑、版本與驗證限制見 [provider hooks](provider-hooks.md)。事件不是持續狀態，gateable Stop 不是 idle；不自動修改 Agent 設定。格式、測試及後續安全邊界見[活動 hook 基礎](agent-activity.md)。

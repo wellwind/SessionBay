@@ -189,6 +189,10 @@ fn disabling_preserves_live_indexed_focus_but_blocks_new_resume() {
     fs::write(&executable, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     let mut settings = service.settings().unwrap();
+    // Owned synthetic stubs use the direct runtime, without a hook broker.
+    for kind in AgentKind::ALL {
+        settings.agent_hooks.insert(kind.as_str().into(), false);
+    }
     settings.executables.codex = executable.to_string_lossy().into_owned();
     settings.sources = vec![HistorySource {
         id: "synthetic-codex".into(),

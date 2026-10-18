@@ -11,7 +11,7 @@ const workspace = (): Workspace => ({ ...emptyWorkspace(), panes: { a: pane('a')
 const project: Project = { id: 'p', name: 'Project', path: '/synthetic', launchPath: null, exists: true, curated: true, pinned: false, sessionCount: 19, updatedAt: null, agents: ['codex'] };
 describe('truthful project runtime projection', () => {
   it('never infers activity for any provider from a live process', () => {
-    for (const kind of agentKinds) expect(runtimePaneLabel(pane('a', { kind }))).toBe('已開啟 · 活動未知');
+    for (const kind of agentKinds) expect(runtimePaneLabel(pane('a', { kind }))).toBe('已開啟');
     expect(runtimePaneLabel(pane('a', { kind: 'shell' }))).toBe('已開啟');
     expect(runtimePaneLabel(pane('a', { state: 'disconnected' }))).toBe('連線中斷 · 存活未知');
     expect(runtimePaneLabel(pane('a', { state: 'starting' }))).toBe('啟動中');
@@ -19,11 +19,11 @@ describe('truthful project runtime projection', () => {
   });
   it('summarizes split tabs, counts agents separately and ignores historical sessions', () => {
     const ws = workspace();
-    expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已開啟 · 活動未知；已開啟');
+    expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已開啟 ×2');
     expect(projectRuntimeSummary(ws.tabs, ws.panes)).toBe('1 分頁 · 1 Agent');
     ws.panes.b = pane('b', { runtimeId: 'runtime-a' });
     expect(projectRuntimeSummary(ws.tabs, ws.panes)).toBe('1 分頁 · 1 Agent');
-    expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已開啟 · 活動未知');
+    expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已開啟');
     ws.panes.b.state = 'exited';
     expect(tabRuntimeSummary(ws.tabs[0], ws.panes)).toBe('已結束');
   });

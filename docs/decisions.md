@@ -1,5 +1,9 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-18 發行與更新決策
+
+已確認試用對象、GitHub Releases 主管道、Homebrew／Snap、人工累積發版、依安裝來源更新、每次直接安裝同意、背景工作保護與備份／相容降版。完整決策及最新交付順序見[獨立規劃](release-update-plan.md)；相關新功能尚未完成，既有歷史驗收不變。此索引取代下方早期「發行方式待決定」的範圍；授權／品牌、帳號、簽章金鑰與實際發布仍另行處理。
+
 ## 2026-10-17 Session 清單漸進載入
 
 - 歷史（所有 Session 與各專案）及資源回收筒移除分頁介面，每次從既有 SQLite 批次查詢取得 40 筆，接近已載入尾端才追加；不得預載整個 catalog。
@@ -9,6 +13,15 @@
 
 
 此表區分使用者已確定的需求、目前建議方案與待決策事項，避免把討論中的選項當成已核定實作。基準日期為 2026-10-15。
+
+## 2026-10-17 專案 Files 側欄與唯讀工作分頁
+
+- 依使用者最新要求，取代綁定 Terminal 分頁的右側預覽：進入專案即顯示左側 Files 目錄，沒有 Terminal 仍可瀏覽，正常與專注模式共用。臨時 Terminal 及只有工作區殘留身分的專案不推導 HOME 或其他檔案根。
+- 開檔在既有工作分頁列顯示獨立檔案圖示，內容佔主工作區；Terminal／Agent 仍保持掛載與原 Runtime，僅切換顯示。檔案狀態不加入 Runtime、pane 或持久化工作區 schema。
+- 同專案相對路徑去重；單擊替換一個暫時預覽 tab，雙擊固定；每專案最多 20 個檔案。切換 Runtime 分頁、Files 開關或專注模式不清除開檔、目錄及捲動位置。關閉檔案不停止程序；最後一檔關閉回現有工作區，沒有工作區則回歷史。
+- 隱藏檔案預設列出，移除勾選與兩個寬度選單，僅保留目錄分隔線拖曳及鍵盤調寬。檔案外框、側欄及分頁無圓角，不另設最大化／第二層分頁工具列。
+- Workspace 快捷鍵依同列順序選 Runtime 與檔案；各類分頁在自身群組內排序，檔案拖曳使用不含路徑的內部 MIME，不當作 Terminal 檔案輸入。組字／對話框不觸發關閉，檔案內容與 API 安全邊界不變。
+- 此候選的瀏覽器與原生視覺驗證獨立列示，不沿用舊 UI 的通過紀錄；未驗不視為可合併。
 
 ## 2026-10-17 Agent 正常退出（含新建分割面板）
 
@@ -486,9 +499,9 @@ macOS 明確提供標準應用程式／編輯／檢視／視窗選單，以 Clos
 
 ## 2026-10-17：工作區唯讀檔案預覽
 
-依使用者要求以獨立 PR 實作，不混入側欄排序、Agent 設定或垃圾桶。工作分頁可開啟檔案側面板，Terminal 維持掛載與 Runtime；目錄及選檔狀態只保留於該分頁的記憶體，關頁／重開不保存內容。
+依使用者要求以獨立 PR 實作，不混入側欄排序、Agent 設定或垃圾桶。工作分頁可開啟檔案側面板，Terminal 維持掛載與 Runtime；初版目錄及選檔狀態限該分頁記憶體；後續以本頁「專案 Files 側欄與唯讀工作分頁」決策取代此 UI，安全機制維持。
 
-IPC 僅接受 catalog Project ID 與相對路徑；根目錄採原始 project.path，不採可能指向其他位置的 launchPath，也不從臨時 Terminal 推導 HOME。只讀單層目錄及 256 KiB 以下 UTF-8 一般文字檔；每頁 200 項，明確載入更多，不遞迴掃描 node_modules。隱藏檔案預設隱藏，可明確開啟顯示。
+IPC 僅接受 catalog Project ID 與相對路徑；根目錄採原始 project.path，不採可能指向其他位置的 launchPath，也不從臨時 Terminal 推導 HOME。只讀單層目錄及 256 KiB 以下 UTF-8 一般文字檔；每頁 200 項，明確載入更多，不遞迴掃描 node_modules。初版隱藏檔案預設隱藏；最新 Files 側欄決策改為預設列出。
 
 Linux／macOS 以開啟的目錄 descriptor 逐段 O_NOFOLLOW 解析，不依賴先 canonicalize 再 open 的競態檢查。根及祖先路徑含符號連結亦拒絕，檔案以開啟後 metadata 驗證；一般檔案 nlink > 1 一律拒絕，避免預覽與根目錄外共用 inode 的硬連結。目錄不套用連結數限制。Windows 使用 NtCreateFile 相對於已持有的目錄 handle 逐段開啟，拒絕所有 reparse points 與多重硬連結；從已開啟 handle 驗證磁碟根為 volume root，拒絕 UNC、網路磁碟與映射到子目錄的磁碟別名。目錄列舉也使用同一 handle；開啟的項目不共享寫入／刪除，忙碌檔案可能明確失敗。Windows native GUI 尚未驗收。內容以 React 純文字呈現，不執行 HTML／Markdown、不啟動外部應用、不編輯／刪除檔案。詳見[檔案預覽](workspace-file-preview.md)。
 ## 2026-10-17：Agent 生命週期總覽
@@ -672,3 +685,111 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 ## 2026-10-17：永久移除先提供唯讀來源檢查
 
 使用者要求永久移除連同 Agent 原始對話。現有 provider 只支援唯讀索引，外部 Agent 不遵守 Session Bay 的鎖；單純複製快照或鎖 catalog 無法排除寫入、換檔與共享資料庫誤刪。本次只增加以回收筒 ID 查詢的來源檢查，不提供刪除命令、刪除權杖或假成功。檢查結果不是完整清除清單，也不是授權。完整需求仍未完成；下一階段安全條件見 [永久移除設計](permanent-removal.md)。
+
+## 2026-10-17：Hook adapter 基礎與活動顯示界線
+
+五工具共用 registry 宣告各自已審閱的 observation adapter，transport 一律為 `notImplemented`。本輪只交付純解析與記憶體 reducer，不安裝 hooks、不建立 listener、不修改使用者 Agent 設定，也不把此基礎描述為 live busy／idle 已完成。`Stop` 可被其他 hook 阻止或繼續，不能等同 idle；prompt、tool、permission hooks 只證明事件發生，不保證目前仍工作中或等待人類。
+
+工作分頁的已知狀態圖示移到名稱左側；未知／不支援不顯示問號，也不保留沒有輸出的點。保留專案分頁、已知退出／錯誤／斷線／連線中狀態、輸出提示與無障礙生命週期說明。後續傳輸、驗證與 opt-in 安裝界線見 [活動 hook 基礎](agent-activity.md)。
+
+## 2026-10-17：活動 observation 的 opt-in ordered bridge
+
+- 沿用 owner-authenticated broker IPC，以記憶體內 capability／runtime generation 綁定單一 ordered publisher；不新增 listener、永久憑證或修改 Agent 設定。
+- 獨立 activity cursor／revision／剩餘 TTL 傳到 App，不使用 PTY output ACK；未知、過期、失聯立即保守隱藏。
+- 真實 CLI callbacks 尚無可靠因果 bridge，預設全部關閉。合成 socket 與 actual-App seams 詳見 [傳輸設計](agent-activity-transport.md)，不等於真實 CLI／三平台 native 驗收。
+
+## 2026-10-18：真實 Agent launch-local hook bridge
+
+Codex／Claude 的明確 opt-in 由 SessionBay 每次啟動參數註冊同步 command hooks，callback 使用應用程式本身，不要求 Node／Python 額外常駐程式。Codex 使用 `--no-daemon` 保持 routing environment 與目前 runtime 同生命週期。既有全域／專案設定不修改，hook trust 不略過；尚未信任的 Codex hooks 需使用者在 `/hooks` 核准，再由 SessionBay 重新啟動／恢復完成 SessionStart 綁定。
+
+broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn identity、generation 與撤銷。只把小型識別與事件欄位送入 owner-authenticated IPC；不轉傳或保存 prompt、tool input、transcript path／內容。callback 永遠回傳中立 `{}`，不能替使用者核准工具或影響模型決策。
+
+不把 Stop 當完成、不把 PermissionRequest 當使用者正在等待。Claude Notification 可提供延遲的等待輸入／權限回報。工具平行事件未註冊，不能將 callback 到達順序聲稱為 provider 的完整因果序。SessionEnd 後只有新的 parent SessionStart 可重綁；已退役 Session ID 不可復活，同 ID 重新進入須重開 pane。這些是有限期 observation，不以 PTY 靜默或輸出猜測活動。
+
+真實 CLI 與 native WebView 的端到端驗證需另列實際版本、通過情境與受阻原因；合成 driver 測試不能代稱實機驗收。
+
+## 2026-10-18：原生狀態來源取代 gateable hooks 作為正式 launch 路徑
+
+前述 command-hook bridge 保留低階測試；正式設定啟用後，Claude >=2.1.287 改以 launch-local mod 的主回合 start/complete，Codex 改以 app-owned private app-server + 原生 remote TUI + metadata-only observer。既有 hooks/notify 不覆寫，不增加模型請求。由單一來源序號與30秒快照期限傳送 current state；舊 gateable callback 不能覆寫。Claude 只宣稱 active main turn／完成，尚不辨識回合內等待。詳細版本限制、未知／撤銷、隔離原生驗收步驟見 [provider-hooks](provider-hooks.md)。
+
+## 2026-10-18：專案內右側 Activity Bar
+
+原先全域三功能方案經畫面回饋撤回：切換全域 Sessions 卻保留目錄總覽造成脈絡混淆，並有額外留白。依確認後的新方案，左側恢復專案／所有目錄，工具限於選定專案，位於最右側，歷史 Sessions 第一、Files 第二；Projects 不再是工具 contribution。
+
+工具面板向左展開，一次一個，收合不保留寬度；總覽不顯示工具。中央檢視與工具選取按專案保留，正常／專注工具狀態分開；專注預設收合右工具並隱藏左導航。圖示與專注切換不替換中央內容或重啟 Runtime。首次進入無工作專案開歷史，有工作專案恢復工作分頁。
+
+保留內部 typed contribution contract：功能提供 ID、圖示、名稱、renderer、availability、badge 與啟用 callback，shell 負責順序、選取／收合、鍵盤、首次延遲掛載、狀態保留與 overflow。功能 renderer 從專案 context 取得資料；不建立第三方插件平台或尚未實作的 Git 按鈕。
+
+## 2026-10-18：OpenCode 使用 launch-local plugin 回報原生活動
+
+下一個正式來源採 OpenCode 1.19.2 以上、2.0.0 以下的 stable CLI；這是已審閱 1.19.2／1.19.3 原始碼後選定的支援基線，不是宣稱 hooks 最早版本。Unix 每次啟動在 owner-only 暫存目錄建立固定、無套件依賴的 `.mjs`，只在子程序 `OPENCODE_CONFIG_CONTENT` 加入 file URI，保留既有 JSONC、plugin 與 argv。`--pure`／`OPENCODE_PURE` 仍禁止 plugin；啟用活動時明確拒絕不相容設定，不偷偷移除旗標。Windows 尚不啟用此來源。
+
+新 root 只能由 `chat.message` 加上該 provider client 回傳的相符 Session／directory／無 parentID 建立；恢復以原生 `ses_` ID 驗證，不使用 catalog ID 或 resume deduplication hash。任意第一個 status、歷史最近 Session、child 及未驗證 ancestry 不能綁定。每個 launch 只有單一 ordered reporter；多次 plugin 初始化不重設序號，dispose／通訊中斷後不復活舊來源。
+
+`session.status` 的 busy／retry／idle 是活動依據；permission／question 的 asked/replied/rejected 維護有界 pending ID 集合，不讀內容。`session.error` 也可能是可恢復的準備錯誤，故降為 unknown，不武斷宣稱 terminal failure；後續 idle 不把不確定結果升級為成功。只有新 busy/retry 恢復連續來源。idle 只表示 provider 閒置，不保證工作成功。5 秒刷新只重送事件維護的狀態；broker 原有30秒 TTL、世代與撤銷仍生效。
+
+合成 plugin／helper／broker contracts 可以在無登入、無模型呼叫的 Linux 環境驗證；正式 CLI 載入與真實回合另列證據，不能以 fixture 代替。macOS／Windows 原生 QA 繼續標示尚未執行，不作目前 Linux 交付的假性通過。
+
+## 2026-10-18：Git 工作台規劃定案，功能尚未實作
+
+使用者確認在 Session Bay 內完成日常 Git、PR／MR 與三方衝突處理；GitLab 為自架主機。一專案可含多 repo，僅有效 Git 工作目錄啟用功能，正確辨識 .git file 與既有 worktree。文字 diff 支援同檔部分 hunk／行 stage／unstage，第一階段包含歷史 graph 與 blame。不做非文字內容 diff，但保留整檔變更與衝突處置。
+
+危險操作採清楚確認與可驗證復原點，防止 Agent／外部編輯造成過期寫入；一般 push 不自動推送所有 tag。GitHub／自架 GitLab 採多主機／帳號架構，PR／MR review／合併在應用內完成；CI 先狀態與外連，logs／retry／cancel 後續。Worktree 管理後續，識別能力不能延後。
+
+完整規劃與八個實作 PR 的相依／驗收見 [Git 工作台](git-workbench-plan.md)。本次只新增文件，所有 Git 功能均未完成／未驗收；Monaco 等文字引擎仍是候選，沒有選定或安裝。本文件不授權對使用者 repo 執行破壞操作或自動配置憑證。
+
+## 2026-10-18：採用官方 OSC7501，明示終端來源信任
+
+Codex 新版、Grok、Antigravity 使用官方原生終端狀態，補足透明 interactive CLI 與 resume/fork 的限制；不採用競品 screen detection 或 gateable Stop→done。採用獨立 broker capability、無 heartbeat 的 event-maintained 記錄、明確「終端回報」UI 與 opt-in/revoke。Claude/OpenCode 保留既有 lifecycle/plugin 路徑。真實模型回合、Windows 與完整 GUI 未驗事項仍保留。詳見 [原生終端活動訊號](native-terminal-status.md)。
+
+## 2026-10-18：Monaco 唯讀預覽
+
+中央 Files tabs 使用 Monaco Editor 0.57.0 取代逐行 regex 高亮；編輯器與語言定義延遲載入，worker 由 Vite 本機打包，CSP 僅新增 worker-src 'self'。保留後端 256 KiB、安全路徑與文字格式檢查，不新增寫檔 API。提供全文選取／搜尋、語法折疊與每檔案 view state；卸載時釋放 model/editor。僅詞法高亮與本機 JSON 支援，不宣稱 VS Code extension host 或完整語意診斷；JSON 遠端 schema 請求關閉。切換 Files 不重建 Terminal。
+
+### 2026-10-18：Monaco contribution 必須在第一次初始化前完整註冊
+
+Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會引入整套 editor contributions；精簡 API 建立模型後才載入會讓 `StandaloneServices` 的一次性 singleton snapshot 缺少 `ISuggestMemories`，下一個 editor 的 SuggestController 因而失敗。改在 lazy preview 模組內先載入官方 `features/register.all`；仍延後整個 preview 模組直到開檔，不靠停用 suggest 隱藏問題。Vite dev 與 production 都測非 JSON → JSON worker → 多次 TS/JSON 切換。Monaco library 的 delayed error 改送 file-preview 錯誤介面，React file boundary 隔離 render 失敗，不覆蓋全域 window error 監聽。
+## 2026-10-18：移除重複視覺輔助文案
+
+依使用者指定移除本機優先 badge、啟動說明、來源與工具重複說明、支援能力的成功態文案、主題數量提示與部分縮放說明。移除整個空容器，保留欄位 label、錯誤／不支援狀態、停用行為、權限警告與設定儲存邏輯。程式碼預覽的選取提示由 Monaco 更新移除，這份清理不改 editor 實作。
+## 2026-10-18：Reload Window 只重新載入前端
+
+命令面板提供「重新載入視窗（Reload Window）」。重新載入前沿用關閉視窗的序列化保存流程，等待既有保存與面板清理，再以瀏覽器 reload 重新 bootstrap、接回 broker runtime。不呼叫 close／stop／launch。儲存失敗取消重新載入並顯示錯誤。
+
+模組載入失敗或 React 畫面崩潰時，最早載入的 dependency-free startup overlay 另提供同名按鈕。已有 App 時保留最後 committed 保存 handler；App 尚未載入時直接 reload，不覆寫尚未讀取的工作區。這是復原入口，不修復造成錯誤的根因。
+
+## 2026-10-18：文字預覽改為分級、大檔有界讀取
+
+移除中央 Files 預覽的 256 KiB 開檔限制。先以安全開啟的檔案 handle 取得 metadata／版本及最多 64 KiB 文字樣本，再循序讀取最多 256 KiB 的 IPC chunks；每次都檢查路徑政策、檔案身分與版本。一般文字至 20 MiB 正常閱讀；20–64 MiB 需使用者確認，採純文字效能模式；超過 64 MiB 或 300,000 行則以最多約 1 MiB／300,000 行區段閱讀，區段搜尋／複製不宣稱全文。超長行降級並揭露繪製限制。這些是 Session Bay 的資源政策，並非 VS Code 無上限讀取的複製。
+
+切換檔案／離開檔案區／取消會停止後續讀取，已送出的單一 chunk 仍可完成但不提交過時結果；active file 才建立 Monaco model。跨工作區共享有限 LRU 小檔 cache，不保留多個大型全文 model；文字讀取仍不接受 binary 或非 UTF-8，不放寬 traversal、symlink、hardlink／reparse 保護。原有小檔 API 留給舊呼叫者，不再作為 Files 的開檔路徑。一般檔案寫入尚未授權，也未實作。
+
+## 2026-10-18：中央 Files 加入受限圖片閱讀
+
+PNG／JPEG／GIF／WebP 依內容簽章辨識，由後端以有界來源大小、尺寸、像素與輸出大小驗證並解碼首幀，再交付靜態 PNG。SVG 只接受受限靜態 XML 子集，拒絕腳本、事件、外部資源與複雜主動內容，僅透過 img 顯示。原始圖檔不直接送進 WebView，也不將 SVG 內嵌為 DOM。
+
+圖片沿用中央檔案 tab 與專案路徑／版本檢查，支援符合視窗、1:1、縮放、平移及尺寸資訊。IPC 使用有界二進位回應，離開或換檔釋放 Blob URL；取消後不提交過時結果。此功能不包含圖片編輯，也不改 Git 非文字檔不做 diff 的規劃。
+
+圖片 review 發現 image-webp 0.2.4 的 lossless Huffman table 配置不受其 memory limit 完整約束。初版因此在呼叫 decoder 前拒絕 VP8L 與 lossless alpha（包含動畫 frame），保留 VP8 有損 WebP；介面明確顯示不支援壓縮方式。未以尺寸上限掩蓋解碼器配置缺口。
+
+## 2026-10-18：hooks 預設啟用與舊 broker 的未啟動分類
+
+五工具活動 hooks 預設啟用；舊設定缺欄位或缺個別工具 key 補 true，明確 false 保留。過去版本若已把預設 false 存入檔案，無法辨識它是否來自使用者選擇，因此不覆寫。使用者仍可隨時關閉；不寫全域 provider 設定。
+
+舊 broker 不支援 hooks 時，能力檢查在 Launch IPC 之前拒絕，屬於「確定未啟動」，不能顯示可能已在背景啟動或要求結束既有工作。Fresh launch 在保存不確定請求之前先做本地能力 preflight；只有真正送出後遺失回覆才走不重送／重新查詢流程。舊 broker 使用者可明確關閉該工具 hooks、儲存後手動新開無活動回報的 Agent。此 hotfix 不自動 fallback、停止舊 Agent 或切換 broker owner。
+
+尚無活動來源的平台（目前 Windows）保留啟用偏好，但只執行原本 CLI，不附加 hook route，活動維持未知；不能因預設 true 阻擋原有跨平台啟動。這在送出任何 launch 前決定，並非失敗後重試。
+
+## 2026-10-18：專案快速開啟與共用工具面板
+
+Cmd+P（非 macOS 的非終端區域為 Ctrl+P）在目前專案搜尋已開啟的檔案／Agent／Terminal 分頁、未開啟的索引 Sessions 與專案相對檔案路徑。已開分頁以穩定身分聚焦，不重啟程序或複製分頁；歷史結果只預覽，接續仍須明確操作。保留 Cmd+Shift+P 命令面板、IME 與對話框防護；Linux／Windows 終端的 Ctrl+P 保留給 Shell。
+
+右側工具由同一個可調寬外框承載，Sessions／Files 使用同一分隔線，按專案記住本次執行期間偏好；正常／Zen 共用寬度，收合不佔空間。所有圖示提供 hover／focus tooltip，顯示目前有效快捷鍵。Sessions／Files 預設 Mod+Shift+H／Mod+Shift+L，可改綁或停用；衝突時不顯示失效組合。無工作分頁預設 Sessions，關閉最後一個檔案及 Runtime 分頁亦回到歷史；尊重已明確收合工具的使用者。
+
+檔名搜尋不掃描內容，以既有安全 descriptor／handle 路徑政策讀取未展開子目錄，含隱藏檔，排除 .git、node_modules、target、dist、符號連結與多重硬連結。每次最多 50 結果／20,000 entries／32 層／250 ms cooperative budget；單次 filesystem call 不能保證硬性時間上限。上限內子集合按路徑排序，非完整全域排名；截斷會提示。Sessions 每次最多最近 40 筆，需以關鍵字縮小範圍。唯讀預覽沿用目前的大檔分級讀取與受限圖片策略，詳見 [大型文字檔閱讀](large-file-reading.md) 與 [圖片預覽](file-image-preview.md)；檔名搜尋不放寬各類型的資源與安全限制。
+
+## 2026-10-18：Monaco 預覽跟隨介面色系
+
+文字預覽從共用 UI tokens 產生 Monaco 主題，追蹤 data-theme 與 data-theme-palette。介面預覽、取消還原、系統亮暗變更只呼叫 defineTheme／setTheme，不重建 editor 或 model，也不重設選取、捲動或焦點。Terminal 色票維持獨立。
+
+12 色系的深／淺模式映射背景、文字、行號、選取、搜尋、輸入及 widget 顏色。語法規則使用 Session Bay 語意色並確保相對文件／選取背景至少 4.5:1，不繼承針對其他背景的語法色，也不宣稱完整複製 VS Code TextMate 主題。未知色系沿用 Bay fallback。新增數值對比及原實例保留回歸；原生 WebView 視覺驗收仍待實測。

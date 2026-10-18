@@ -267,3 +267,136 @@ fn legacy_encoded_global_shell_launches_resolved_home_without_a_project() {
     assert!(records[0].project_id.is_none());
     assert_eq!(records[0].profile_id.as_deref(), Some("chosen-profile"));
 }
+
+#[test]
+fn activity_poll_negotiation_omits_every_new_field_for_legacy_hosts() {
+    for capabilities in [
+        None,
+        Some(serde_json::json!([])),
+        Some(serde_json::json!(["future"])),
+    ] {
+        let client = BrokerClient::from_hello(Path::new("/unused"), hello(capabilities)).unwrap();
+        assert!(!client.inner.activity_supported);
+        let request = Request::Poll {
+            generation: client.generation(),
+            runtime_id: "r".into(),
+            after: Some(0),
+            agent_activity: client.inner.activity_supported,
+            terminal_status: client.inner.terminal_status_supported,
+            activity_after: None,
+        };
+        assert!(
+            serde_json::from_value::<LegacyRequest>(serde_json::to_value(request).unwrap()).is_ok()
+        );
+        assert!(client
+            .open_ordered_activity_publisher("r", crate::models::AgentKind::Claude, "session")
+            .is_err());
+    }
+    let client = BrokerClient::from_hello(
+        Path::new("/unused"),
+        hello(Some(serde_json::json!(["orderedAgentActivity"]))),
+    )
+    .unwrap();
+    assert!(client.inner.activity_supported);
+    let wire = serde_json::to_value(Request::Poll {
+        generation: client.generation(),
+        runtime_id: "r".into(),
+        after: Some(0),
+        agent_activity: true,
+        terminal_status: false,
+        activity_after: None,
+    })
+    .unwrap();
+    assert!(serde_json::from_value::<LegacyRequest>(wire).is_err());
+}
+
+#[test]
+fn terminal_status_has_an_independent_negotiated_capability() {
+    for (capabilities, expected) in [
+        (serde_json::json!(["orderedAgentActivity"]), false),
+        (
+            serde_json::json!(["orderedAgentActivity", "nativeTerminalStatusV1"]),
+            true,
+        ),
+    ] {
+        let client =
+            BrokerClient::from_hello(Path::new("/unused"), hello(Some(capabilities))).unwrap();
+        assert_eq!(client.inner.terminal_status_supported, expected);
+        let wire = serde_json::to_value(Request::Poll {
+            generation: client.generation(),
+            runtime_id: "r".into(),
+            after: None,
+            agent_activity: true,
+            terminal_status: client.inner.terminal_status_supported,
+            activity_after: None,
+        })
+        .unwrap();
+        assert_eq!(
+            wire.get("terminalStatus"),
+            expected.then_some(&serde_json::Value::Bool(true))
+        );
+    }
+}
+
+#[test]
+fn legacy_hook_preflight_is_local_and_allows_explicit_opt_out() {
+    let client = BrokerClient::from_hello(Path::new("/unused-no-transport"), hello(None)).unwrap();
+    let (mut spec, request) = launch();
+    spec.env
+        .insert(crate::provider_hooks::OPT_IN.into(), "live".into());
+    assert_eq!(
+        client.check_provider_hooks(&spec),
+        Err(LaunchPreflightError::MissingProviderHooks)
+    );
+    let error = client
+        .launch_unattached(spec.clone(), &request)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        LaunchPreflightError::MissingProviderHooks.to_string()
+    );
+    // The subscribed path must reject locally too, before transport or attach.
+    let subscribed_error = client
+        .launch(
+            spec.clone(),
+            &request,
+            "unused-attachment".into(),
+            std::sync::Arc::new(|_| panic!("preflight cannot emit or attach")),
+        )
+        .unwrap_err();
+    assert_eq!(subscribed_error, error);
+    assert!(error.contains("這次未啟動 Agent"));
+    assert!(error.contains("既有工作不受影響"));
+    assert!(!error.contains("請先結束"));
+    spec.env.remove(crate::provider_hooks::OPT_IN);
+    assert!(client.check_provider_hooks(&spec).is_ok());
+}
+
+#[test]
+fn hooks_preflight_classifies_only_missing_capability_and_preserves_spec() {
+    let (mut spec, _) = launch();
+    spec.env
+        .insert(crate::provider_hooks::OPT_IN.into(), "live".into());
+    spec.env.insert("SYNTHETIC_ENV".into(), "preserved".into());
+    let before = serde_json::to_value(&spec).unwrap();
+    for (capabilities, expected) in [
+        (None, Err(LaunchPreflightError::MissingProviderHooks)),
+        (
+            Some(serde_json::json!(["unknown-capability"])),
+            Err(LaunchPreflightError::MissingProviderHooks),
+        ),
+        (
+            Some(serde_json::json!([crate::provider_hooks::CAPABILITY])),
+            Ok(()),
+        ),
+    ] {
+        let client =
+            BrokerClient::from_hello(Path::new("/unused-no-transport"), hello(capabilities))
+                .unwrap();
+        assert_eq!(client.check_provider_hooks(&spec), expected);
+        assert_eq!(serde_json::to_value(&spec).unwrap(), before);
+        let mut opted_out = spec.clone();
+        opted_out.env.remove(crate::provider_hooks::OPT_IN);
+        assert!(client.check_provider_hooks(&opted_out).is_ok());
+    }
+}

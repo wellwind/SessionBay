@@ -1,3 +1,4 @@
+import type { AgentActivityEvent, TerminalStatusEvent } from './agent-observation';
 export type AgentKind = 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode';
 export interface AgentOptions { extraArgs: string[]; bypassPermissions: boolean; }
 export interface HistorySource {
@@ -126,6 +127,8 @@ export interface Settings {
   fontSize: number;
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
+  /** Missing providers default to launch-local hooks; explicit false preserves opt-out. */
+  agentHooks?: Partial<Record<AgentKind, boolean>>;
   /** Missing providers remain enabled; unknown keys survive settings round trips. */
   agentEnabled?: Record<string, boolean>;
   defaultAgent: AgentKind;
@@ -175,6 +178,8 @@ export interface RuntimeRecord extends RuntimeInfo {
   homeDirectory?: boolean;
 }
 export type TerminalEvent =
+  | AgentActivityEvent
+  | TerminalStatusEvent
   | { type: 'snapshot'; runtimeId: string; sequence: number; data: number[]; cols: number; rows: number; truncated: boolean }
   | { type: 'disconnected'; runtimeId: string; message: string }
   | { type: 'output'; runtimeId: string; sequence: number; data: number[] }
@@ -233,11 +238,22 @@ export interface WorkspaceFilePage {
   entries: WorkspaceFileEntry[];
   nextOffset: number | null;
 }
+export interface WorkspaceFileSearch {
+  paths: string[];
+  truncated: boolean;
+}
 export interface WorkspaceFilePreview {
   path: string;
   text: string;
   sizeBytes: number;
 }
+export interface WorkspaceFileInfo {
+  path: string;
+  sizeBytes: number;
+  version: string;
+  kind: 'text' | 'binary' | 'image';
+}
+export interface WorkspaceFileChunk { bytes: number[]; eof: boolean }
 
 export interface TrashedSession {
   id: string;

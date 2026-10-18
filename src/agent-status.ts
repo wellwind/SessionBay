@@ -33,8 +33,7 @@ export const agentLifecycleLabels: Record<PaneState, string> = {
   exited: '已結束', failed: '失敗', disconnected: '連線中斷', interrupted: '程序中斷',
 };
 export function agentLifecycleText(state: PaneState): string {
-  return state === 'running' ? '程序存活 · 活動未知'
-    : state === 'disconnected' ? '連線中斷 · 存活未知' : agentLifecycleLabels[state];
+  return state === 'disconnected' ? '連線中斷 · 存活未知' : agentLifecycleLabels[state];
 }
 export function isAgentPane(pane: Pane): pane is Pane & { kind: AgentKind } {
   return agentKinds.some((kind) => kind === pane.kind);
