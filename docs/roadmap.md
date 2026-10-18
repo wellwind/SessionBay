@@ -2,7 +2,7 @@
 
 ## 2026-10-18 發行與後續順序（最新）
 
-已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。新功能全部尚未完成；本節的最新順序優先於下方歷史排程：五工具 hook → Snap 可安裝測試包；並行 Quick Open／共用 panel、大檔後圖片；接著 Git G1–G4 → 完整 Release／Update → 永久刪除 → 遠端／Web／用量。Git 的完整八階工作包沿用既有規劃。
+已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。本節的最新順序優先於下方歷史排程：先恢復雲端開發空間，收尾 #65 Quick Open／共用 panel、藍點提示、Monaco palette、broker 生命週期與單次無 hooks 啟動，再製作 Snap 可安裝測試包。五工具 hook 已整合，真實登入模型回合由使用者自行驗證。此輪不插入 Git 等大型新功能；Git G1–G4、完整 Release／Update、永久刪除、遠端／Web／用量保留後續規劃，Git 的完整八階工作包仍沿用既有文件。
 
 目前功能 PR 以相關 Linux 驗證及 review 作交付門檻；發行特定 OS／架構仍需該目標實測，未驗平台不假稱通過。Windows #46 不在此次交付內。
 
