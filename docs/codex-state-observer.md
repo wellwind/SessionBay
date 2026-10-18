@@ -1,5 +1,7 @@
 # Codex 原生狀態觀察器
 
+> 更新：Codex 0.163.0 以上優先採用 [原生 OSC7501](native-terminal-status.md)，保留完整原生 resume/fork、profile 與權限設定。本文描述較舊版本的 app-server fallback；其 resume/fork 限制仍成立，不套用到新版原生終端路徑。
+
 本模組保留 Codex 原生互動 TUI。使用者的提示、信任選擇、授權與模型呼叫仍由 Codex 處理；Session Bay 只讀取這次啟動所擁有之 app-server 的執行狀態。
 
 ## 啟動與所有權
@@ -70,3 +72,5 @@ Idle 是「目前未執行 turn」，不代表任務成功完成。少於取樣�
 - [原生 remote TUI 的 trust 檢查](https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/tui/src/lib.rs)
 - [Thread start／resume 參數與權限還原語義](https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/tui/src/app_server_session.rs)
 - [Thread status 與 metadata read schema](https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/app-server-protocol/src/protocol/v2/thread.rs)
+
+舊版 observer 額外要求 metadata 明確 `threadSource=user`，不讓沒有 parent 的 guardian/memory/internal thread 被當成使用者 root；缺失或未知 source 保持 unknown。合成測試涵蓋 resumed/fork 身分、internal/child 排除與多 root 不推測 foreground。

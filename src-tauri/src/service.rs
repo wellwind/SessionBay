@@ -194,7 +194,7 @@ impl Service {
         };
         settings.validate()?;
         if let Some(broker) = &self.broker {
-            for kind in [AgentKind::Codex, AgentKind::Claude] {
+            for kind in AgentKind::ALL {
                 if settings.agent_hooks.get(kind.as_str()) != Some(&true) {
                     broker.revoke_provider_hooks(kind)?;
                 }

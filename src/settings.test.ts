@@ -1312,7 +1312,7 @@ describe('history root directory selection', () => {
 });
 
 describe('launch-local activity hook opt-in', () => {
-  it.each(['codex', 'claude', 'opencode'] as const)('%s defaults off, saves explicitly, and keeps cancellation local to the draft', async (kind) => {
+  it.each(['codex', 'claude', 'opencode', 'grok', 'antigravity'] as const)('%s defaults off, saves explicitly, and keeps cancellation local to the draft', async (kind) => {
     const config = props();
     const view = render(createElement(SettingsPanel, config));
     selectAgent(kind);
@@ -1328,11 +1328,12 @@ describe('launch-local activity hook opt-in', () => {
     selectAgent(kind);
     expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).not.toBeChecked();
   });
-  it('does not offer unverified providers a hook switch', () => {
+  it('explains terminal writer trust for native terminal status', () => {
     render(createElement(SettingsPanel, props()));
     for (const kind of ['grok', 'antigravity'] as const) {
       selectAgent(kind);
-      expect(screen.queryByRole('checkbox', { name: /真實活動 hooks/ })).not.toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /真實活動 hooks/ })).not.toBeChecked();
+      expect(screen.getByText(/任意終端寫入者/)).toBeInTheDocument();
     }
   });
 });

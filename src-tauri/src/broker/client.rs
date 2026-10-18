@@ -1,6 +1,6 @@
 use super::{
     lock, transport, Request, Response, RuntimeInfo, RuntimeRecord, UiEmitter, UiEvent,
-    ACTIVITY_CAPABILITY, HOME_DIRECTORY_CAPABILITY, PROTOCOL,
+    ACTIVITY_CAPABILITY, HOME_DIRECTORY_CAPABILITY, PROTOCOL, TERMINAL_STATUS_CAPABILITY,
 };
 use crate::{runtime::LaunchSpec, service::LaunchRequest};
 use std::{
@@ -32,6 +32,7 @@ struct Inner {
     generation: String,
     home_directory_supported: bool,
     activity_supported: bool,
+    terminal_status_supported: bool,
     provider_hooks_supported: bool,
     subscriptions: Mutex<HashMap<String, Arc<Subscription>>>,
 }
@@ -179,6 +180,9 @@ impl BrokerClient {
                     activity_supported: capabilities
                         .iter()
                         .any(|value| value == ACTIVITY_CAPABILITY),
+                    terminal_status_supported: capabilities
+                        .iter()
+                        .any(|value| value == TERMINAL_STATUS_CAPABILITY),
                     provider_hooks_supported: capabilities
                         .iter()
                         .any(|value| value == crate::provider_hooks::CAPABILITY),
@@ -347,6 +351,7 @@ impl BrokerClient {
         let directory = self.inner.directory.clone();
         let generation = self.generation();
         let activity_supported = self.inner.activity_supported;
+        let terminal_status_supported = self.inner.terminal_status_supported;
         let id = info.id.clone();
         thread::Builder::new()
             .name(format!("attach-{}", id.chars().take(8).collect::<String>()))
@@ -357,7 +362,7 @@ impl BrokerClient {
                     while !subscription.cancelled.load(Ordering::Acquire) {
                         let response = exchange(&directory, &Request::Poll {
                             generation: generation.clone(), runtime_id: id.clone(), after,
-                            agent_activity: activity_supported, activity_after: activity_after.clone(),
+                            agent_activity: activity_supported, terminal_status: terminal_status_supported, activity_after: activity_after.clone(),
                         })?;
                         let events = match response {
                             Response::Events { events } => events,
@@ -385,7 +390,7 @@ impl BrokerClient {
                                 }
                                 after = Some(sequence);
                             } else {
-                                if let UiEvent::AgentActivity { generation, revision, .. } = &event {
+                                if let UiEvent::AgentActivity { generation, revision, .. } | UiEvent::TerminalStatus { generation, revision, .. } = &event {
                                     activity_after = Some(super::activity::Cursor { generation: generation.clone(), revision: *revision });
                                 }
                                 let done = matches!(event, UiEvent::Exit { .. } | UiEvent::Disconnected { .. });

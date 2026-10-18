@@ -3,7 +3,7 @@ use serde_json::json;
 
 fn metadata(id: &str, session: &str, status: serde_json::Value) -> ThreadMetadata {
     serde_json::from_value(json!({
-        "id":id, "sessionId":session, "parentThreadId":null,
+        "id":id, "sessionId":session, "parentThreadId":null,"threadSource":"user",
         "forkedFromId":null, "status":status,
         "preview":"PRIVATE PROMPT", "cwd":"/private/project", "turns":[],
     }))
@@ -67,9 +67,95 @@ fn only_one_proven_non_fork_root_is_selected() {
 }
 
 #[test]
+fn parentless_background_or_unclassified_threads_never_bind_as_user_roots() {
+    for source in [
+        None,
+        Some("subagent"),
+        Some("guardian_review"),
+        Some("memory_consolidation"),
+        Some("feature:background"),
+        Some("future_source"),
+    ] {
+        let mut thread = metadata("background", "background-tree", json!({"type":"idle"}));
+        thread.thread_source = source.map(str::to_owned);
+        assert!(select_root(vec![thread]).is_none(), "{source:?}");
+    }
+    let mut child = metadata("child", "parent-tree", json!({"type":"idle"}));
+    child.parent_thread_id = Some("parent".into());
+    // Even a contradictory user classification cannot override real ancestry.
+    assert!(select_root(vec![child]).is_none());
+}
+
+#[test]
+fn resumed_root_metadata_preserves_native_tree_identity_without_enabling_resume() {
+    let resumed = metadata("resumed-thread", "saved-tree", json!({"type":"idle"}));
+    let selected = select_root(vec![resumed]).unwrap();
+    assert_eq!(selected.id, "resumed-thread");
+    let report = Reporter::default().snapshot(Some(selected)).unwrap();
+    assert_eq!(report.session, "saved-tree");
+    assert!(requires_native_session(&[
+        "resume".into(),
+        "resumed-thread".into(),
+        "--sandbox".into(),
+        "read-only".into(),
+    ]));
+}
+
+#[test]
+fn fork_new_root_identity_does_not_authorize_parent_binding_or_foreground_selection() {
+    let mut fork = metadata("new-fork", "new-fork", json!({"type":"idle"}));
+    fork.forked_from_id = Some("original-root".into());
+    assert_ne!(fork.session_id, fork.forked_from_id.as_deref().unwrap());
+    // Correct ancestry is not evidence that the native TUI activated this root.
+    // Keep the existing conservative gate until that signal is available.
+    assert!(select_root(vec![fork]).is_none());
+    assert!(requires_native_session(&[
+        "fork".into(),
+        "original-root".into(),
+    ]));
+}
+
+#[test]
+fn multiple_roots_never_infer_activation_from_order_or_only_busy_thread() {
+    let mut reporter = Reporter::default();
+    let initial = reporter
+        .snapshot(select_root(vec![metadata(
+            "root-a",
+            "tree-a",
+            json!({"type":"idle"}),
+        )]))
+        .unwrap();
+    assert_eq!(initial.session, "tree-a");
+    for reversed in [false, true] {
+        let mut candidates = vec![
+            metadata("root-a", "tree-a", json!({"type":"idle"})),
+            metadata(
+                "root-b",
+                "tree-b",
+                json!({"type":"active","activeFlags":[]}),
+            ),
+        ];
+        if reversed {
+            candidates.reverse();
+        }
+        let invalidation = reporter.snapshot(select_root(candidates)).unwrap();
+        assert_eq!(invalidation.observation, Observation::Unknown);
+        assert_eq!(invalidation.session, "tree-a");
+        assert!(invalidation.sequence > initial.sequence);
+    }
+    assert_eq!(reporter.last_session.as_deref(), Some("tree-a"));
+}
+
+#[test]
 fn old_or_incomplete_identity_never_binds_a_parent() {
-    for missing in ["parentThreadId", "forkedFromId", "sessionId", "id"] {
-        let mut wire = json!({"id":"root","sessionId":"tree","parentThreadId":null,"forkedFromId":null,"status":{"type":"idle"}});
+    for missing in [
+        "parentThreadId",
+        "forkedFromId",
+        "sessionId",
+        "id",
+        "threadSource",
+    ] {
+        let mut wire = json!({"id":"root","sessionId":"tree","parentThreadId":null,"threadSource":"user","forkedFromId":null,"status":{"type":"idle"}});
         wire.as_object_mut().unwrap().remove(missing);
         assert!(
             serde_json::from_value::<ThreadMetadata>(wire).is_err(),
@@ -81,7 +167,7 @@ fn old_or_incomplete_identity_never_binds_a_parent() {
 #[test]
 fn privacy_and_request_correlation_do_not_require_transcripts() {
     let payload = json!({"id":3,"result":{"thread":{
-        "id":"root","sessionId":"tree","parentThreadId":null,"forkedFromId":null,
+        "id":"root","sessionId":"tree","parentThreadId":null,"threadSource":"user","forkedFromId":null,
         "status":{"type":"active","activeFlags":[]},"preview":"PRIVATE".repeat(10000),
         "turns":[{"items":[{"text":"SECRET"}]}], "credentials":{"access_token":"SECRET"}
     }}})
@@ -318,7 +404,7 @@ mod transport {
         json!({"id":id,"result":{"data":data,"nextCursor":null}})
     }
     fn read(id: u64, thread: &str, status: serde_json::Value) -> serde_json::Value {
-        json!({"id":id,"result":{"thread":{"id":thread,"sessionId":"tree","parentThreadId":null,"forkedFromId":null,"status":status,"preview":"PRIVATE PREVIEW","turns":[]}}})
+        json!({"id":id,"result":{"thread":{"id":thread,"sessionId":"tree","parentThreadId":null,"threadSource":"user","forkedFromId":null,"status":status,"preview":"PRIVATE PREVIEW","turns":[]}}})
     }
     fn sent(outgoing: &Arc<Mutex<Vec<u8>>>) -> Vec<serde_json::Value> {
         let bytes = outgoing.lock().unwrap().clone();

@@ -125,3 +125,5 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 - [Codex 原生狀態觀察器](docs/codex-state-observer.md)：互動 TUI、唯讀 app-server 與相容性限制。
 
 - [工作區 Activity Bar 與內部功能擴充](docs/activity-bar.md)
+
+- [原生終端活動訊號（OSC7501）](docs/native-terminal-status.md)：Codex／Grok／Antigravity 的明確來源狀態、信任界線與驗證範圍。

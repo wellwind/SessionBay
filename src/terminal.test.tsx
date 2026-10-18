@@ -1575,6 +1575,20 @@ describe('guarded terminal output activity', () => {
       <RuntimeActivityIndicator tab={{ id: 'tab', name: 'Work', projectId: 'project', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }} panes={{ pane }} />
     </RuntimeActivityProvider>;
   }
+  it('accepts a retained completed report when attach resolves exited before its first poll', async () => {
+    mocks.attach.mockResolvedValueOnce({ id: 'runtime', paneId: 'pane', sessionId: null, state: 'exited', cwd: '/tmp', exitCode: 0 });
+    render(<ActivityHarness />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    await act(async () => { await Promise.resolve(); });
+    const channel = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    act(() => channel({ type: 'terminalStatus', runtimeId: 'runtime', generation: 'terminal-g', revision: 4, status: 'done' }));
+    await waitFor(() => expect(screen.getByRole('img', { name: /已完成（終端回報）/ })).toBeInTheDocument());
+    completeSnapshot(channel);
+    act(() => channel({ type: 'exit', runtimeId: 'runtime', exitCode: 0 }));
+    expect(screen.getByRole('img', { name: /已完成（終端回報）/ })).toBeInTheDocument();
+    act(() => channel({ type: 'terminalStatus', runtimeId: 'runtime', generation: 'terminal-g', revision: 5, status: 'working' }));
+    expect(screen.queryByRole('img', { name: /工作中（終端回報）/ })).not.toBeInTheDocument();
+  });
   it('file insertion and manual Enter do not manufacture output activity; rendered Agent output still does', async () => {
     mocks.termPaste.mockReset();
     render(<ActivityHarness visible />);

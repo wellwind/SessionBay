@@ -60,6 +60,8 @@ pub(super) struct State {
     visible: Option<Observation>,
     source_snapshot: Option<(Observation, Instant)>,
     recent: VecDeque<Instant>,
+    terminal_mode: bool,
+    terminal_status: Option<crate::terminal_status::Status>,
 }
 impl State {
     pub(super) fn new(
@@ -82,6 +84,8 @@ impl State {
             visible: None,
             source_snapshot: None,
             recent: VecDeque::new(),
+            terminal_mode: false,
+            terminal_status: None,
         })
     }
     pub(super) fn hook_generation(&self) -> &str {
@@ -105,6 +109,16 @@ impl State {
             .clone();
         self.publish(&capability, self.sequence + 1, event, payload, now)
     }
+    pub(super) fn publish_terminal(&mut self, status: Option<crate::terminal_status::Status>) {
+        self.tracker.invalidate();
+        self.source_snapshot = None;
+        self.visible = None;
+        if !self.terminal_mode || self.terminal_status != status {
+            self.terminal_mode = true;
+            self.terminal_status = status;
+            self.advance();
+        }
+    }
     pub(super) fn publish_source(&mut self, observation: Observation, now: Instant) {
         self.tracker.invalidate();
         self.source_snapshot = (observation != Observation::Unknown).then_some((observation, now));
@@ -126,13 +140,33 @@ impl State {
         } else {
             self.revision = MAX_SAFE_REVISION;
             self.capability = None;
+            self.terminal_status = None;
             self.tracker.close();
             self.source_snapshot = None;
             self.visible = None;
         }
     }
+    pub(super) fn process_exit(&mut self) {
+        if self.terminal_mode
+            && matches!(
+                self.terminal_status,
+                Some(crate::terminal_status::Status::Done | crate::terminal_status::Status::Error)
+            )
+        {
+            if self.capability.take().is_some() {
+                self.tracker.close();
+                self.advance();
+            }
+        } else {
+            self.close();
+        }
+    }
     fn close(&mut self) {
-        if self.capability.take().is_some() || self.visible.is_some() {
+        if self.capability.take().is_some()
+            || self.visible.is_some()
+            || self.terminal_status.is_some()
+        {
+            self.terminal_status = None;
             self.tracker.close();
             self.source_snapshot = None;
             self.visible = None;
@@ -152,6 +186,14 @@ impl State {
             after.generation == self.binding.generation && after.revision == self.revision
         }) {
             return None;
+        }
+        if self.terminal_mode {
+            return Some(UiEvent::TerminalStatus {
+                runtime_id: self.binding.runtime_id.clone(),
+                generation: self.binding.generation.clone(),
+                revision: self.revision,
+                status: self.terminal_status,
+            });
         }
         let snapshot = self.snapshot(now);
         Some(UiEvent::AgentActivity {
@@ -308,6 +350,14 @@ impl Host {
         activity.insert(runtime_id.into(), state);
         Ok(response)
     }
+    pub(super) fn revoke_provider_activity(&self, provider: AgentKind) {
+        for state in lock(&self.activity)
+            .values_mut()
+            .filter(|state| state.binding.kind == provider)
+        {
+            state.close();
+        }
+    }
     pub(super) fn close_runtime_activity(&self, runtime_id: &str) {
         if let Some(state) = lock(&self.activity).get_mut(runtime_id) {
             state.close();
@@ -330,7 +380,7 @@ impl Host {
         let mut activity = lock(&self.activity);
         let state = activity.get_mut(runtime_id)?;
         if !self.activity_runtime_live(runtime_id) {
-            state.close();
+            state.process_exit();
         }
         state.poll(after, now)
     }

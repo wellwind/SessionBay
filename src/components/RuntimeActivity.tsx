@@ -33,12 +33,12 @@ export function RuntimeActivityIndicator({ tab, panes, id }: { tab: WorkspaceTab
   const bits = useSyncExternalStore(store?.subscribe ?? noopSubscribe, () => store?.snapshot(ids) ?? '000', () => '000');
   const observation = useSyncExternalStore(store?.subscribe ?? noopSubscribe, () => store?.agentSnapshot(ids) ?? '', () => '');
   const agentStates = useSyncExternalStore(store?.subscribe ?? noopSubscribe, () => store?.agentStates(ids) ?? '', () => '').split('|');
-  const busy = agentStates.includes('busy') || agentStates.includes('retry');
-  const permission = agentStates.includes('awaitingPermission');
-  const input = agentStates.includes('awaitingInput');
-  const idle = agentStates.includes('idle');
+  const busy = agentStates.includes('busy') || agentStates.includes('retry') || agentStates.includes('terminalWorking');
+  const permission = agentStates.includes('awaitingPermission') || agentStates.includes('terminalPermission');
+  const input = agentStates.includes('awaitingInput') || agentStates.some(state => ['terminalQuestion', 'terminalAuthentication', 'terminalBlocked'].includes(state));
+  const idle = agentStates.includes('idle') || agentStates.includes('terminalIdle') || agentStates.includes('terminalDone');
   const states = ids.flatMap(id => panes[id] ? [panes[id].state] : []);
-  const attention = states.some(state => state === 'failed' || state === 'interrupted') || agentStates.some(state => state === 'failed' || state === 'interrupted');
+  const attention = states.some(state => state === 'failed' || state === 'interrupted') || agentStates.some(state => state === 'failed' || state === 'interrupted' || state === 'terminalError');
   const disconnected = states.includes('disconnected');
   const ended = states.length > 0 && states.every(state => state === 'exited');
   const recent = bits[0] === '1', unread = bits[1] === '1', connecting = bits[2] === '1';
