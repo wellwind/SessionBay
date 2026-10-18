@@ -208,6 +208,11 @@
 
 歷史與資源回收筒使用每批 40 筆查詢及固定列高虛擬捲動；畫面只掛載可見列、上下各 3 列與鍵盤焦點列。接近底部自動追加，並提供載入更多與重試操作。搜尋、篩選及排序切換隔離過期回應；最近 8 個查詢脈絡在元件存活期間保留載入資料，切換專案可返回原捲動位置。索引、刪除、還原導致資料更新時分批重讀已載範圍並保留畫面高度；不自動讀完整個資料庫。鍵盤方向鍵、Home／End（已載範圍）及雙向 Tab 支援跨虛擬列。驗證命令：`npx playwright test --config playwright.session-feed.config.ts`；合成 10,000 筆，不存取原始歷史。
 
+## 永久移除（2026-10-17）
+
+- [x] 回收筒逐筆唯讀來源影響檢查及 provider blocker，詳見 [安全界線](permanent-removal.md)。
+- [ ] Provider 排他協定、完整關聯清理計畫與逐次確認後的永久移除；本次未開放任何來源刪除。
+
 ## Agent 活動 hooks 基礎（2026-10-17）
 
 - [x] 五工具共享 registry 的純 observation adapters、synthetic replay／binding／turn／TTL 契約測試；transport 明確 `notImplemented`。

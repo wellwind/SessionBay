@@ -120,6 +120,8 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 - [Caps Lock 中文組字候選修正](docs/capslock-ime.md)：交易隔離、合成回歸與尚待原生驗收的範圍。
 
+永久移除的目前範圍與剩餘安全條件：[來源影響檢查](docs/permanent-removal.md)。
+
 - [Agent 活動 opt-in 傳輸與驗收邊界](docs/agent-activity-transport.md)
 
 - [真實 Provider 狀態](docs/provider-hooks.md)：launch-local opt-in、Claude mod、撤銷與驗證界線。

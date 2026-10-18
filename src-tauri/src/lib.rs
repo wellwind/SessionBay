@@ -18,6 +18,7 @@ pub mod opencode;
 pub mod opencode_state;
 pub mod provider_hooks;
 pub mod providers;
+pub mod removal;
 pub mod runtime;
 pub mod service;
 pub mod shells;

@@ -688,6 +688,10 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 
 同時移除側欄底部「你的工作，留在本機」、唯讀說明與「資料來源與支援範圍」入口及其容器；頂欄「設定與資料來源」入口仍可使用，不改實際隱私或 Agent 啟動行為。
 
+## 2026-10-17：永久移除先提供唯讀來源檢查
+
+使用者要求永久移除連同 Agent 原始對話。現有 provider 只支援唯讀索引，外部 Agent 不遵守 Session Bay 的鎖；單純複製快照或鎖 catalog 無法排除寫入、換檔與共享資料庫誤刪。本次只增加以回收筒 ID 查詢的來源檢查，不提供刪除命令、刪除權杖或假成功。檢查結果不是完整清除清單，也不是授權。完整需求仍未完成；下一階段安全條件見 [永久移除設計](permanent-removal.md)。
+
 ## 2026-10-17：Hook adapter 基礎與活動顯示界線
 
 五工具共用 registry 宣告各自已審閱的 observation adapter，transport 一律為 `notImplemented`。本輪只交付純解析與記憶體 reducer，不安裝 hooks、不建立 listener、不修改使用者 Agent 設定，也不把此基礎描述為 live busy／idle 已完成。`Stop` 可被其他 hook 阻止或繼續，不能等同 idle；prompt、tool、permission hooks 只證明事件發生，不保證目前仍工作中或等待人類。

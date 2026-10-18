@@ -3,9 +3,9 @@ use crate::{
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
     models::{
-        AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
-        WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage, WorkspaceFilePreview,
-        WorkspaceFileSearch,
+        AgentKind, IndexStatus, Project, RemovalInspection, SessionPage, SessionQuery,
+        TranscriptPage, TrashPage, WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage,
+        WorkspaceFilePreview, WorkspaceFileSearch,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
@@ -263,6 +263,14 @@ async fn trash_session(
 ) -> Result<String, String> {
     let s = state.inner().clone();
     blocking(move || s.catalog.trash_session(&session_id, &expected_identity)).await
+}
+#[tauri::command]
+async fn inspect_session_removal(
+    state: AppState<'_>,
+    trash_id: String,
+) -> Result<RemovalInspection, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.inspect_removal(&trash_id)).await
 }
 #[tauri::command]
 async fn restore_session(state: AppState<'_>, session_id: String) -> Result<(), String> {
@@ -697,6 +705,7 @@ pub fn run() {
             query_sessions,
             trash_session,
             restore_session,
+            inspect_session_removal,
             list_trashed_sessions,
             read_transcript,
             start_index,

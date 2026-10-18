@@ -28,6 +28,8 @@ impl Harness {
     fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().to_owned();
+        #[cfg(unix)]
+        let root = root.canonicalize().unwrap();
         let catalog = Catalog::open(&root.join("app/index.sqlite")).unwrap();
         Self {
             _temp: temp,
@@ -2366,4 +2368,292 @@ fn version_four_migration_preserves_rows_and_versions_subsequent_writes() {
     let after = migrated.query(&SessionQuery::default()).unwrap();
     assert_ne!(after.catalog_revision, before.catalog_revision);
     assert_eq!(after.items[0].title, "changed");
+}
+
+#[test]
+fn removal_inspection_is_read_only_bound_to_trash_and_detects_append() {
+    let h = Harness::new();
+    let source = h.source("removal", AgentKind::Codex);
+    let path = h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect", "synthetic inspection"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let original = fs::read(&path).unwrap();
+    let inspection = h.catalog.inspect_removal(&id).unwrap();
+    assert_eq!(inspection.session_id, session.id);
+    assert_eq!(inspection.indexed_artifacts.len(), 1);
+    assert_eq!(
+        Path::new(&inspection.indexed_artifacts[0].relative_path),
+        Path::new("sessions/a.jsonl")
+    );
+    #[cfg(unix)]
+    assert_eq!(
+        inspection.indexed_artifacts[0].status,
+        "metadataMatchesIndex"
+    );
+    assert!(!inspection.blockers.is_empty());
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert!(h.catalog.inspect_removal(path.to_str().unwrap()).is_err());
+    OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b"\n")
+        .unwrap();
+    assert_eq!(
+        h.catalog.inspect_removal(&id).unwrap().indexed_artifacts[0].status,
+        "changedOrUnavailable"
+    );
+    h.catalog.restore_session(&id).unwrap();
+    assert!(h.catalog.inspect_removal(&id).is_err());
+}
+
+#[test]
+fn removal_inspection_rejects_disabled_or_repointed_sources() {
+    let h = Harness::new();
+    let mut source = h.source("removal", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect", "synthetic inspection"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    source.enabled = false;
+    h.sync(std::slice::from_ref(&source));
+    assert!(h.catalog.inspect_removal(&id).is_err());
+    source.enabled = true;
+    source.root = h.root.join("other").to_string_lossy().into_owned();
+    fs::create_dir_all(&source.root).unwrap();
+    h.sync(&[source]);
+    assert!(h.catalog.inspect_removal(&id).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn removal_inspection_marks_symlinks_hardlinks_and_missing_files_uncertain() {
+    let h = Harness::new();
+    let source = h.source("removal", AgentKind::Codex);
+    let path = h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect", "synthetic inspection"),
+    );
+    h.sync(&[source]);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let linked = h.root.join("synthetic-link.jsonl");
+    fs::hard_link(&path, &linked).unwrap();
+    assert_eq!(
+        h.catalog.inspect_removal(&id).unwrap().indexed_artifacts[0].status,
+        "changedOrUnavailable"
+    );
+    fs::remove_file(&path).unwrap();
+    assert_eq!(
+        h.catalog.inspect_removal(&id).unwrap().indexed_artifacts[0].status,
+        "changedOrUnavailable"
+    );
+    std::os::unix::fs::symlink(&linked, &path).unwrap();
+    assert_eq!(
+        h.catalog.inspect_removal(&id).unwrap().indexed_artifacts[0].status,
+        "changedOrUnavailable"
+    );
+    assert!(linked.is_file());
+}
+
+#[test]
+fn removal_inspection_rejects_indexed_path_outside_original_source() {
+    let h = Harness::new();
+    let source = h.source("removal", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect", "synthetic inspection"),
+    );
+    h.sync(&[source]);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let outside = h.root.join("outside-synthetic.jsonl");
+    fs::write(&outside, b"synthetic sentinel").unwrap();
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    conn.execute(
+        "UPDATE files SET path=?1 WHERE session_id=?2",
+        rusqlite::params![outside.to_str().unwrap(), session.id],
+    )
+    .unwrap();
+    assert!(h
+        .catalog
+        .inspect_removal(&id)
+        .unwrap_err()
+        .contains("範圍外"));
+    assert_eq!(fs::read(outside).unwrap(), b"synthetic sentinel");
+}
+
+#[cfg(unix)]
+#[test]
+fn removal_inspection_rejects_configured_root_symlink() {
+    let h = Harness::new();
+    let source = h.source("removal", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect", "synthetic inspection"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let linked = h.root.join("linked-source");
+    std::os::unix::fs::symlink(&source.root, &linked).unwrap();
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    conn.execute(
+        "UPDATE sources SET root=?1 WHERE id=?2",
+        rusqlite::params![linked.to_str().unwrap(), source.id],
+    )
+    .unwrap();
+    assert!(h.catalog.inspect_removal(&id).unwrap_err().contains("連結"));
+}
+
+#[test]
+fn removal_inspection_discloses_that_rescanned_files_are_not_a_trash_time_snapshot() {
+    let h = Harness::new();
+    let source = h.source("removal", AgentKind::Codex);
+    let path = h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect", "synthetic inspection"),
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let replacement = h.root.join("replacement.jsonl");
+    fs::write(&replacement, codex("inspect", "synthetic replacement")).unwrap();
+    fs::remove_file(&path).unwrap();
+    fs::rename(&replacement, &path).unwrap();
+    h.sync(&[source]);
+    let inspection = h.catalog.inspect_removal(&id).unwrap();
+    assert!(inspection
+        .blockers
+        .iter()
+        .any(|b| b.contains("不能證明與移入時內容相同")));
+}
+
+#[test]
+fn removal_inspection_refuses_truncated_artifact_inventory() {
+    let h = Harness::new();
+    let source = h.source("removal", AgentKind::Codex);
+    h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect", "synthetic inspection"),
+    );
+    h.sync(&[source]);
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let conn = rusqlite::Connection::open(h.root.join("app/index.sqlite")).unwrap();
+    for i in 0..200 {
+        conn.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived) SELECT source_id,path || ?1,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived FROM files WHERE session_id=?2 ORDER BY id LIMIT 1", rusqlite::params![format!(".synthetic-{i}"), session.id]).unwrap();
+    }
+    assert!(h.catalog.inspect_removal(&id).unwrap_err().contains("過多"));
+}
+
+#[test]
+fn removal_inspection_accepts_verified_configured_root_spelling() {
+    let h = Harness::new();
+    let mut source = h.source("removal-spelling", AgentKind::Codex);
+    let alias = h.root.join("alias");
+    fs::create_dir_all(&alias).unwrap();
+    source.root = alias
+        .join("..")
+        .join("removal-spelling")
+        .to_string_lossy()
+        .into_owned();
+    let path = h.write(
+        &source,
+        "sessions/a.jsonl",
+        &codex("inspect-spelling", "synthetic inspection"),
+    );
+    assert_ne!(
+        Path::new(&source.root),
+        fs::canonicalize(&source.root).unwrap()
+    );
+    h.sync(std::slice::from_ref(&source));
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let original = fs::read(&path).unwrap();
+    let inspection = h.catalog.inspect_removal(&id).unwrap();
+    assert_eq!(inspection.indexed_artifacts.len(), 1);
+    assert_eq!(
+        Path::new(&inspection.indexed_artifacts[0].relative_path),
+        Path::new("sessions/a.jsonl")
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
 }

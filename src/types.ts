@@ -267,3 +267,14 @@ export interface TrashPage {
   items: TrashedSession[];
   total: number;
 }
+
+export interface RemovalInspection {
+  trashId: string;
+  sessionId: string;
+  externalId: string;
+  kind: AgentKind;
+  sourceRoot: string;
+  catalogRevision: string;
+  indexedArtifacts: { relativePath: string; status: 'metadataMatchesIndex' | 'changedOrUnavailable' | 'sharedStore'; indexedBytes: number | null }[];
+  blockers: string[];
+}

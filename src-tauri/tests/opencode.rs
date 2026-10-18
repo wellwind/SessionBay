@@ -19,6 +19,8 @@ impl Harness {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("OpenCode history with spaces");
         fs::create_dir(&root).unwrap();
+        #[cfg(unix)]
+        let root = root.canonicalize().unwrap();
         let catalog = Catalog::open(&temp.path().join("catalog.db")).unwrap();
         let source = HistorySource {
             id: "opencode-test".into(),
@@ -353,4 +355,38 @@ fn deleting_all_v2_rows_never_restores_ambiguous_legacy_text() {
     assert!(h.session().partial);
     assert!(h.session().resume_disabled_reason.is_some());
     assert!(h.catalog.resume_source(&h.session().id).is_err());
+}
+
+#[test]
+fn removal_inspection_marks_database_shared_without_exposing_virtual_file_keys() {
+    let h = Harness::new();
+    h.sync();
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .remove(0);
+    let id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let before: i64 = h
+        .db()
+        .query_row("SELECT count(*) FROM session", [], |r| r.get(0))
+        .unwrap();
+    let inspection = h.catalog.inspect_removal(&id).unwrap();
+    assert_eq!(inspection.indexed_artifacts.len(), 1);
+    assert_eq!(inspection.indexed_artifacts[0].status, "sharedStore");
+    assert!(inspection.indexed_artifacts[0]
+        .relative_path
+        .starts_with("opencode.db"));
+    assert_eq!(inspection.indexed_artifacts[0].indexed_bytes, None);
+    assert!(inspection.blockers[0].contains("禁止刪除整個資料庫"));
+    assert_eq!(
+        h.db()
+            .query_row("SELECT count(*) FROM session", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        before
+    );
 }
