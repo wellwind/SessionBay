@@ -44,6 +44,10 @@ home = pathlib.Path(os.environ['HOME'])
 root = home / 'sessionbay-smoke-fixture'
 for path in [root/'codex/sessions/2026/01/01', root/'claude/projects/smoke', root/'workspaces/harbor', root/'workspaces/notes']:
     path.mkdir(parents=True, exist_ok=True)
+for name, size in [('medium.txt', 1), ('big.txt', 21), ('huge.txt', 65)]:
+    with (root/'workspaces/harbor'/name).open('wb') as output:
+        block = (b'x' * 127 + b'\n') * 8192
+        for _ in range(size): output.write(block)
 for number, (directory, title) in enumerate([
     ('harbor', '整理 API 邊界與錯誤處理'),
     ('notes', '檢查發行筆記與測試清單'),
@@ -179,6 +183,7 @@ for scenario in empty dark light; do
     smoke_wait_marker interaction
   fi
   smoke_wait_marker interaction monaco-worker-readonly-disposal
+  if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction bounded-files-preflight-chunks-large-model-range-disposal; fi
   smoke_alive
   smoke_stop
 done

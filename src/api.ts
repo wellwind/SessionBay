@@ -3,6 +3,8 @@ import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
   WorkspaceFilePage,
   WorkspaceFilePreview,
+  WorkspaceFileInfo,
+  WorkspaceFileChunk,
   AgentKind,
   HistorySourceDiscovery,
   Bootstrap,
@@ -53,6 +55,10 @@ export const api = {
     call<WorkspaceFilePage>('list_workspace_files', { projectId, path, offset, showHidden }),
   readWorkspaceFile: (projectId: string, path: string) =>
     call<WorkspaceFilePreview>('read_workspace_file', { projectId, path }),
+  inspectWorkspaceFile: (projectId: string, path: string) =>
+    call<WorkspaceFileInfo>('inspect_workspace_file', { projectId, path }),
+  readWorkspaceFileChunk: (projectId: string, path: string, version: string, offset: number, maxBytes: number) =>
+    call<WorkspaceFileChunk>('read_workspace_file_chunk', { projectId, path, version, offset, maxBytes }),
   projects: () => call<Project[]>('list_projects'),
   addProject: (path: string, name?: string) => call<Project>('add_project', { path, name }),
   createProject: (parentPath: string, name: string) => call<Project>('create_project', { parentPath, name }),

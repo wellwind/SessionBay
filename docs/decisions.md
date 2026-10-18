@@ -1,5 +1,9 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-18 發行與更新決策
+
+已確認試用對象、GitHub Releases 主管道、Homebrew／Snap、人工累積發版、依安裝來源更新、每次直接安裝同意、背景工作保護與備份／相容降版。完整決策及最新交付順序見[獨立規劃](release-update-plan.md)；相關新功能尚未完成，既有歷史驗收不變。此索引取代下方早期「發行方式待決定」的範圍；授權／品牌、帳號、簽章金鑰與實際發布仍另行處理。
+
 ## 2026-10-17 Session 清單漸進載入
 
 - 歷史（所有 Session 與各專案）及資源回收筒移除分頁介面，每次從既有 SQLite 批次查詢取得 40 筆，接近已載入尾端才追加；不得預載整個 catalog。
@@ -736,3 +740,9 @@ Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會
 命令面板提供「重新載入視窗（Reload Window）」。重新載入前沿用關閉視窗的序列化保存流程，等待既有保存與面板清理，再以瀏覽器 reload 重新 bootstrap、接回 broker runtime。不呼叫 close／stop／launch。儲存失敗取消重新載入並顯示錯誤。
 
 模組載入失敗或 React 畫面崩潰時，最早載入的 dependency-free startup overlay 另提供同名按鈕。已有 App 時保留最後 committed 保存 handler；App 尚未載入時直接 reload，不覆寫尚未讀取的工作區。這是復原入口，不修復造成錯誤的根因。
+
+## 2026-10-18：文字預覽改為分級、大檔有界讀取
+
+移除中央 Files 預覽的 256 KiB 開檔限制。先以安全開啟的檔案 handle 取得 metadata／版本及最多 64 KiB 文字樣本，再循序讀取最多 256 KiB 的 IPC chunks；每次都檢查路徑政策、檔案身分與版本。一般文字至 20 MiB 正常閱讀；20–64 MiB 需使用者確認，採純文字效能模式；超過 64 MiB 或 300,000 行則以最多約 1 MiB／300,000 行區段閱讀，區段搜尋／複製不宣稱全文。超長行降級並揭露繪製限制。這些是 Session Bay 的資源政策，並非 VS Code 無上限讀取的複製。
+
+切換檔案／離開檔案區／取消會停止後續讀取，已送出的單一 chunk 仍可完成但不提交過時結果；active file 才建立 Monaco model。跨工作區共享有限 LRU 小檔 cache，不保留多個大型全文 model；文字讀取仍不接受 binary 或非 UTF-8，不放寬 traversal、symlink、hardlink／reparse 保護。原有小檔 API 留給舊呼叫者，不再作為 Files 的開檔路徑。一般檔案寫入尚未授權，也未實作。
