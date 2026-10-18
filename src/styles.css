@@ -495,9 +495,8 @@ kbd {
   padding-top: 20px;
 }
 .workspace-tab-bar { display: flex; min-width: 0; flex-shrink: 0; background: var(--panel); border-bottom: 1px solid var(--border); }
+.workspace-tab-bar > .workspace-tabs { flex: 1; min-width: 0; }
 .workspace-tabs {
-  flex: 1;
-  min-width: 0;
   display: flex;
   gap: 0;
   padding: 0;
