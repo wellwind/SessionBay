@@ -61,7 +61,11 @@ pub(super) struct State {
     recent: VecDeque<Instant>,
 }
 impl State {
-    fn new(runtime_id: &str, provider: AgentKind, session_id: &str) -> Result<Self, String> {
+    pub(super) fn new(
+        runtime_id: &str,
+        provider: AgentKind,
+        session_id: &str,
+    ) -> Result<Self, String> {
         let binding = Binding {
             runtime_id: runtime_id.into(),
             generation: Uuid::new_v4().to_string(),
@@ -77,6 +81,27 @@ impl State {
             visible: None,
             recent: VecDeque::new(),
         })
+    }
+    pub(super) fn hook_generation(&self) -> &str {
+        &self.binding.generation
+    }
+    pub(super) fn invalidate_hook_observation(&mut self) {
+        self.tracker.invalidate();
+        self.visible = None;
+        self.advance();
+    }
+    pub(super) fn publish_hook(
+        &mut self,
+        event: &str,
+        payload: &[u8],
+        now: Instant,
+    ) -> Result<(), String> {
+        let capability = self
+            .capability
+            .as_ref()
+            .ok_or("Hook generation retired")?
+            .clone();
+        self.publish(&capability, self.sequence + 1, event, payload, now)
     }
     fn advance(&mut self) {
         // The final safe integer is reserved for a closed, unknown observation.

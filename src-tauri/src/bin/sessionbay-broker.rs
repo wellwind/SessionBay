@@ -1,6 +1,9 @@
 //! Headless harness for native lifecycle integration tests. Production launches
 //! the installed desktop executable in its pre-WebView broker mode.
 fn main() {
+    if sessionbay_lib::provider_hooks::run_callback_if_requested() {
+        return;
+    }
     if let Some(directory) = sessionbay_lib::broker::stop_arguments() {
         if let Err(error) = sessionbay_lib::broker::BrokerClient::stop_existing(&directory) {
             eprintln!("{error}");

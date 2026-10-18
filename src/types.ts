@@ -128,6 +128,7 @@ export interface Settings {
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
   /** Missing providers remain enabled; unknown keys survive settings round trips. */
+  agentHooks?: Partial<Record<AgentKind, boolean>>;
   agentEnabled?: Record<string, boolean>;
   defaultAgent: AgentKind;
   defaultProfileId: string;

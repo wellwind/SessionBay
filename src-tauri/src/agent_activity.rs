@@ -32,6 +32,8 @@ pub enum Observation {
     ToolPending,
     ToolFinished,
     PermissionRequested,
+    WaitingInput,
+    WaitingPermission,
     TurnStopRequested,
     InvocationStarted,
     InvocationEnded,
@@ -92,6 +94,15 @@ pub fn normalize(
                 "PreToolUse" => Observation::ToolPending,
                 "PostToolUse" => Observation::ToolFinished,
                 "PermissionRequest" => Observation::PermissionRequested,
+                "Notification" if adapter == ActivityAdapter::ClaudeHooks => {
+                    match value.get("notification_type").and_then(Value::as_str) {
+                        Some("idle_prompt" | "elicitation_dialog" | "elicitation_url_dialog") => {
+                            Observation::WaitingInput
+                        }
+                        Some("permission_prompt") => Observation::WaitingPermission,
+                        _ => Observation::Unknown,
+                    }
+                }
                 "Stop" => Observation::TurnStopRequested,
                 "SessionEnd" => Observation::SessionEnded,
                 "Interrupt" if adapter == ActivityAdapter::CodexHooks => Observation::Interrupted,

@@ -9,7 +9,7 @@ export interface AgentCapability {
   executable: string;
   logo: string;
   bypassFlag: string;
-  /** Opt-in bridge API; ordinary Agent launches do not configure a publisher. */
+  /** Opt-in bridge API; launch-local Codex/Claude hooks are separately enabled in Settings. */
   activity: {
     adapter: 'codexHooks' | 'claudeHooks' | 'grokHooks' | 'antigravityHooks' | 'openCodeV1Events';
     transport: 'orderedBridgeOptIn';

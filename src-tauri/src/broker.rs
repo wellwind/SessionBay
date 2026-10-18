@@ -3,6 +3,8 @@
 mod activity;
 mod client;
 mod output_batch;
+mod provider_hooks;
+pub use provider_hooks::send_provider_callback;
 mod screen;
 mod transport;
 use crate::runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent};
@@ -135,6 +137,19 @@ enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         activity_after: Option<activity::Cursor>,
     },
+    ProviderHook {
+        generation: String,
+        launch: String,
+        callback: crate::provider_hooks::Callback,
+    },
+    ProviderHookFailed {
+        generation: String,
+        launch: String,
+    },
+    RevokeProviderHooks {
+        generation: String,
+        provider: crate::models::AgentKind,
+    },
     OpenOrderedActivity {
         generation: String,
         runtime_id: String,
@@ -188,6 +203,9 @@ impl Request {
             | Self::Launch { generation, .. }
             | Self::FindResume { generation, .. }
             | Self::Poll { generation, .. }
+            | Self::ProviderHook { generation, .. }
+            | Self::ProviderHookFailed { generation, .. }
+            | Self::RevokeProviderHooks { generation, .. }
             | Self::OpenOrderedActivity { generation, .. }
             | Self::PublishActivity { generation, .. }
             | Self::CloseActivity { generation, .. }
@@ -240,6 +258,7 @@ struct Host {
     runtime: Arc<RuntimeManager>,
     entries: Mutex<HashMap<String, Entry>>,
     activity: Mutex<HashMap<String, activity::State>>,
+    provider_hooks: Mutex<HashMap<String, provider_hooks::Lease>>,
     activity_permits: Arc<tokio::sync::Semaphore>,
     shutdown: std::sync::atomic::AtomicBool,
     shutdown_reply_complete: tokio::sync::Notify,
@@ -296,6 +315,7 @@ impl Host {
             runtime: Arc::new(RuntimeManager::new()),
             entries: Mutex::new(entries),
             activity: Mutex::new(HashMap::new()),
+            provider_hooks: Mutex::new(HashMap::new()),
             activity_permits: Arc::new(tokio::sync::Semaphore::new(MAX_ACTIVITY_PUBLISHERS)),
             shutdown: std::sync::atomic::AtomicBool::new(false),
             shutdown_reply_complete: tokio::sync::Notify::new(),
@@ -376,6 +396,7 @@ impl Host {
                     capabilities: vec![
                         HOME_DIRECTORY_CAPABILITY.into(),
                         ACTIVITY_CAPABILITY.into(),
+                        crate::provider_hooks::CAPABILITY.into(),
                     ],
                 })
             }
@@ -386,7 +407,7 @@ impl Host {
                 info: self.runtime.find_running_resume(&key),
             }),
             Request::Launch {
-                spec,
+                mut spec,
                 kind,
                 project_id,
                 profile_id,
@@ -430,6 +451,32 @@ impl Host {
                 if lock(&self.entries).len() >= MAX_RECORDS {
                     return Err("Close completed panes before opening more terminals (128 retained panes maximum)".into());
                 }
+                // Reserve before spawn: SessionStart may run before launch returns.
+                // This lock blocks callback admission only until identity is installed.
+                let hook_launch =
+                    if spec.env.remove(crate::provider_hooks::OPT_IN).as_deref() == Some("1") {
+                        let provider = crate::models::AgentKind::parse(&kind)?;
+                        crate::provider_hooks::configure(
+                            &mut spec,
+                            provider,
+                            &std::env::current_exe().map_err(|e| e.to_string())?,
+                        )?;
+                        let launch = Uuid::new_v4().to_string();
+                        spec.env.insert(
+                            crate::provider_hooks::DIRECTORY.into(),
+                            self.directory.to_string_lossy().into_owned(),
+                        );
+                        spec.env.insert(
+                            crate::provider_hooks::GENERATION.into(),
+                            self.generation.clone(),
+                        );
+                        spec.env
+                            .insert(crate::provider_hooks::LAUNCH.into(), launch.clone());
+                        Some((launch, provider))
+                    } else {
+                        None
+                    };
+                let mut hook_guard = hook_launch.as_ref().map(|_| lock(&self.provider_hooks));
                 let screen = Arc::new(Mutex::new(screen::TerminalScreen::new(cols, rows)));
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
@@ -442,7 +489,7 @@ impl Host {
                     Arc::new(move |event| {
                         if let TerminalEvent::Exit { runtime_id, .. } = &event {
                             if let Some(host) = host.upgrade() {
-                                host.close_runtime_activity(runtime_id);
+                                host.revoke_runtime_hooks(runtime_id);
                             }
                         }
                         let ack = match &event {
@@ -484,6 +531,20 @@ impl Host {
                     }
                     keep
                 });
+                if let (Some((launch, provider)), Some(leases)) = (&hook_launch, &mut hook_guard) {
+                    leases.insert(
+                        launch.clone(),
+                        provider_hooks::Lease {
+                            runtime_id: info.id.clone(),
+                            provider: *provider,
+                            expected_session: resume_id.clone(),
+                            session: None,
+                            activity_generation: None,
+                            ended: false,
+                            retired_sessions: Default::default(),
+                        },
+                    );
+                }
                 entries.insert(
                     info.id.clone(),
                     Entry {
@@ -501,6 +562,7 @@ impl Host {
                     },
                 );
                 drop(entries);
+                drop(hook_guard);
                 for id in retired_activity {
                     lock(&self.activity).remove(&id);
                 }
@@ -543,6 +605,17 @@ impl Host {
                     }
                 }
                 Ok(Response::Events { events })
+            }
+            Request::ProviderHook {
+                launch, callback, ..
+            } => self.receive_provider_hook(&launch, callback),
+            Request::ProviderHookFailed { launch, .. } => {
+                self.fail_provider_hook(&launch);
+                Ok(Response::Ok)
+            }
+            Request::RevokeProviderHooks { provider, .. } => {
+                self.revoke_provider_hooks(provider);
+                Ok(Response::Ok)
             }
             Request::OpenOrderedActivity { .. }
             | Request::PublishActivity { .. }
