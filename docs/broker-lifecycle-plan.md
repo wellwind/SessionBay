@@ -1,6 +1,6 @@
 # Broker 生命週期與安全升級計畫
 
-狀態：使用者已確認產品方向，以下新增功能尚未實作／驗收。#69 的啟動錯誤分類與 hooks 預設啟用已合併；不代表此計畫已完成。
+狀態：使用者已確認產品方向，F1 已實作並記錄本機驗證，其餘新增功能尚未實作／驗收。#69 的啟動錯誤分類與 hooks 預設啟用已合併；不代表此計畫已完成。
 
 ## 已確認行為
 
@@ -57,16 +57,26 @@
 
 ## F1：明確單次無 hooks 啟動
 
-這是獨立於版本升級的短期操作，尚未實作。
+這是獨立於版本升級的短期操作，已實作；Mac 合成測試通過，Linux CI 與獨立 review 待確認。
 
-- [ ] 只在 typed「舊 broker 缺 hooks 能力」的本地 preflight 拒絕後，提供「不啟用活動回報，繼續啟動」與取消。
-- [ ] Backend 保存有界、具原始期限的 rejected intent、broker generation、完整原 request／LaunchSpec。重複原請求不重新規劃。
-- [ ] 明確確認只移除本次 spec 的 hooks opt-in，其餘 executable、argv、cwd、env、權限旗標與產生的 pane ID 完全不變，不儲存長期偏好。
-- [ ] 同一 mutex 下由 rejected 原子轉成 send-once attempt；雙擊、Enter＋click、兩種命令競爭最多送一次 Launch。
-- [ ] unknown outcome 不再提供繼續啟動；只查證／恢復原 owner 的既有結果。新錯誤不得重新產生可重送狀態。
-- [ ] 過期、generation 改變、影響啟動的設定變更、導航／關閉／取消使原操作失效，不偷偷採用新參數。
-- [ ] 首版僅限 fresh 新 Agent。既有 resume 照原本 focus／attach；需要啟動程序的歷史／手動 resume 暫保留明確錯誤，不能清除 resume identity 冒充 fresh。
-- [ ] 不加 legacy wire 欄位，不呼叫 stop／forget／revoke，不修改全域 hooks；無活動來源維持 unknown。
+- [x] 只在 typed「舊 broker 缺 hooks 能力」的本地 preflight 拒絕後，提供「本次不啟用活動回報，繼續啟動」與取消。
+- [x] Backend 保存有界、具原始期限的 rejected intent、broker generation、完整原 request／LaunchSpec。重複原請求不重新規劃。
+- [x] 明確確認只移除本次 spec 的 hooks opt-in，其餘 executable、argv、cwd、env、權限旗標與產生的 pane ID 完全不變，不儲存長期偏好。
+- [x] 同一 fresh mutex 下由 rejected 透過 admission CAS 原子轉成 send-once attempt；取消不等待 fresh／catalog／settings 鎖，能在 consume 前贏得競爭。雙擊、Enter＋click、兩種命令競爭最多送一次 Launch。
+- [x] unknown outcome 不再提供繼續啟動；只查證／恢復原 owner 的既有結果。新錯誤不得重新產生可重送狀態。
+- [x] 過期、generation 改變、影響啟動的設定變更、導航／關閉／取消使原操作失效，不偷偷採用新參數。UI 確認送出後仍保留 intent 至 IPC 結束；取消截止點是後端 consume，consume 後不停止或重送 Agent。
+- [x] 首版僅限 fresh 新 Agent。既有 resume 照原本 focus／attach；需要啟動程序的歷史／手動 resume 暫保留明確錯誤，不能清除 resume identity 冒充 fresh。
+- [x] 不加 legacy wire 欄位，不呼叫 stop／forget／revoke，不修改全域 hooks；無活動來源維持 unknown。
+
+### F1 驗證紀錄（2026-10-18，Apple Silicon macOS）
+
+- `npm run typecheck && npm run lint && npm test && npm run build`：61 個前端檔案、1,418 項測試與 39 項離線 plugin contracts 通過。
+- Rust 1.99：完整 desktop crate 測試 559 passed／3 ignored，`cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings` 通過。測試使用獨立 `/private/tmp/sessionbay-f1-tests`，低並行及關閉 debug symbols／incremental；Unix socket 測試須在 sandbox 外執行。最初 sandbox／符號連結暫存路徑／高並行結果不列為通過。
+- Chrome 原生鍵盤確認測試 2 passed，合成 IPC 驗證 Escape 取消、Enter＋click 最多一次確認、不儲存設定、不停止既有工作，以及確認框不會使 launchContext 自我失效。[確認框截圖](validation/f1-hook-skip-confirmation.png) 已人工檢視。
+- 後端假 broker 測試驗證原 request／完整 canonical spec 僅移除 hooks opt-in、雙命令競爭、unknown 不重送，以及取消／設定版本／catalog revision／期限／generation／參數變更失效。catalog 確認使用 SQLite immediate reservation，與 writers 排序；設定寫入使用 fresh→settings 鎖序。
+- `npm run tauri -- build --debug --bundles app` 初版與取消修正後的未簽章 macOS app 均建置成功。初版使用既有 `ci-macos-smoke.sh`（僅改指向 debug bundle），空 HOME／合成深色／合成淺色三種原生 WebView DOM／IPC 情境通過。取消修正後重跑停在 mounted，等不到需兩個 animation frames 的 ready marker 而逾時；未回報 crash／bootstrap error，原因未確認。LaunchServices 前景診斷以 `-10810` 失敗，未修改安全設定或申請 automation 權限；不能把初版 smoke 當作取消修正後通過。此原生 smoke 不含 F1 特定按鈕、像素、IME 或真實 CLI 回合驗收；F1 互動以 Chrome＋後端假 broker 測試驗證。
+- 獨立 review 的取消時序 finding 已補修：確認中的 UI ref 保留至 IPC 結束，取消使用獨立 admission CAS；外部 catalog writer／等待 fresh 的 barrier 測試及 UI 導航／關閉／reload／unmount gate 測試通過，consume 後的晚到取消不停止或重送。
+- 未執行真實模型回合或讀取使用者歷史；Linux 交 exact-head CI，修正後仍待獨立覆核與主對話合併。其他 L1–L4 驗收仍未完成。
 
 ## 驗收門檻
 

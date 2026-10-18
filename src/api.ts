@@ -86,6 +86,8 @@ export const api = {
   // The request pane ID is an idempotency intent key. Only the returned pane ID
   // identifies the detached, backend-owned runtime to attach in the workspace.
   launchFresh: (request: LaunchRequest): Promise<RuntimeInfo> => call<RuntimeInfo>('launch_fresh_runtime', { request }),
+  launchFreshWithoutHooks: (request: LaunchRequest): Promise<RuntimeInfo> => call<RuntimeInfo>('launch_fresh_without_hooks', { request }),
+  cancelFresh: (intent: string) => call<void>('cancel_fresh_launch', { intent }),
   launch: (request: LaunchRequest, onMessage: (event: TerminalEvent) => void, attachmentId: string) => {
     const onEvent = new Channel<TerminalEvent>();
     onEvent.onmessage = onMessage;

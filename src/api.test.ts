@@ -57,6 +57,17 @@ describe('fresh Agent launch IPC contract', () => {
     expect(native.channels).not.toHaveBeenCalled();
   });
 
+  it('uses separate explicit confirmation and cancellation commands without rewriting the request', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const request: LaunchRequest = { paneId: 'original-intent', kind: 'claude', cols: 80, rows: 24 };
+    await api.launchFreshWithoutHooks(request);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('launch_fresh_without_hooks', { request });
+    vi.mocked(invoke).mockClear();
+    await api.cancelFresh(request.paneId);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('cancel_fresh_launch', { intent: request.paneId });
+    expect(native.channels).not.toHaveBeenCalled();
+  });
+
   it('does not retry an uncertain fresh launch response', async () => {
     vi.mocked(isTauri).mockReturnValue(true);
     vi.mocked(invoke).mockRejectedValueOnce(new Error('response lost'));

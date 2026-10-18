@@ -46,6 +46,7 @@ import type {
   Bootstrap,
   IndexStatus,
   LaunchPreview,
+  LaunchRequest,
   Pane,
   Project,
   Session,
@@ -207,6 +208,26 @@ export default function App() {
   const [launcher, setLauncher] = useState<Launcher | null>(null);
   const [freshLaunchPending, setFreshLaunchPending] = useState(false);
   const freshLaunchInFlight = useRef(false);
+  type HookSkip = { request: LaunchRequest; generation: number; message: string; confirming?: boolean; settle: (confirmed: boolean) => void };
+  const [hookSkip, setHookSkip] = useState<HookSkip | null>(null);
+  const hookSkipRef = useRef<HookSkip | null>(null);
+  const cancelHookSkip = useCallback(() => {
+    const pending = hookSkipRef.current;
+    if (!pending) return;
+    hookSkipRef.current = null;
+    setHookSkip(null);
+    void api.cancelFresh(pending.request.paneId).catch(() => {});
+    pending.settle(false);
+  }, []);
+  const finishHookSkip = (confirmed: boolean) => {
+    const pending = hookSkipRef.current;
+    if (!pending || pending.confirming) return;
+    pending.confirming = true; // Block duplicate activation, but retain cancellation until IPC settles.
+    setHookSkip(null);
+    const valid = pending.generation === launchContext.current.generation && mounted.current && !closingApp.current;
+    if (!confirmed || !valid) void api.cancelFresh(pending.request.paneId).catch(() => {});
+    pending.settle(confirmed && valid);
+  };
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -398,13 +419,23 @@ export default function App() {
   const stateRef = useRef({ workspace, selectedId, boot, view, navigation, launcher, projects: visibleProjects });
   stateRef.current = { workspace, selectedId, boot, view, navigation, launcher, projects: visibleProjects };
   const launchContextKey = JSON.stringify([selectedId, navigation, view, allSessionsSearch, activeTabId,
-    activeTab?.focusedPaneId, settingsOpen, palette, quickThemeOpen, !!pathDialog, !!projectDialog, !!confirmation, !!renameTarget]);
+    activeTab?.focusedPaneId, settingsOpen, palette, quickThemeOpen, !!pathDialog, !!projectDialog, !!confirmation, !!renameTarget, settings]);
   const launchContext = useRef({ key: launchContextKey, launcher, generation: 0 });
   // Closing the submitted launcher is expected. Opening or editing another
   // launcher invalidates its ownership even if that newer dialog closes too.
   if (launchContext.current.key !== launchContextKey || (launcher && launchContext.current.launcher !== launcher))
     launchContext.current = { key: launchContextKey, launcher, generation: launchContext.current.generation + 1 };
   else launchContext.current.launcher = launcher;
+  useEffect(() => {
+    if (hookSkipRef.current && hookSkipRef.current.generation !== launchContext.current.generation) cancelHookSkip();
+  });
+  useEffect(() => cancelHookSkip, [cancelHookSkip]);
+  useEffect(() => {
+    if (!hookSkip) return;
+    const expires = Number(hookSkip.request.paneId.split(':')[0]) + 10 * 60 * 1000;
+    const timer = window.setTimeout(cancelHookSkip, Math.max(0, expires - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [hookSkip, cancelHookSkip]);
   const composing = useRef(false);
   useEffect(() => {
     const start = () => { composing.current = true; };
@@ -567,6 +598,7 @@ export default function App() {
   }, []);
   const reloadWindow = useCallback(async () => {
     if (closingApp.current) throw new Error('視窗正在儲存或關閉，請稍後再試。');
+    cancelHookSkip();
     closingApp.current = true;
     try {
       await persistCurrentWorkspace();
@@ -576,7 +608,7 @@ export default function App() {
       setWorkspace((current) => ({ ...current }));
       throw new Error(`重新載入已取消，工作區儲存失敗：${errorMessage(error)}`);
     }
-  }, [persistCurrentWorkspace]);
+  }, [persistCurrentWorkspace, cancelHookSkip]);
   useEffect(() => {
     // Keep the last committed handler after a fatal React unmount so the
     // dependency-free startup fallback can still persist the latest workspace.
@@ -584,6 +616,7 @@ export default function App() {
   }, [reloadWindow]);
   const closeApplication = useCallback(() => {
     const action = async () => {
+      cancelHookSkip();
       closingApp.current = true;
       try {
         await persistCurrentWorkspace();
@@ -597,7 +630,7 @@ export default function App() {
       }
     };
     if (!closingApp.current) void action().catch(notify);
-  }, [notify, persistCurrentWorkspace]);
+  }, [notify, persistCurrentWorkspace, cancelHookSkip]);
   useEffect(() => {
     if (!desktop) return;
     let disposed = false;
@@ -774,9 +807,28 @@ export default function App() {
       void (async () => {
         let confirmedLaunch = false;
         try {
-          const info = await api.launchFresh({ paneId: `${Date.now()}:${crypto.randomUUID()}`, kind,
+          const request: LaunchRequest = { paneId: `${Date.now()}:${crypto.randomUUID()}`, kind,
             projectId: project && !project.workspaceOnly ? project.id : undefined,
-            cwd, profileId, cols: 80, rows: 24 });
+            cwd, profileId, cols: 80, rows: 24 };
+          let info;
+          try {
+            info = await api.launchFresh(request);
+          } catch (error) {
+            const message = errorMessage(error);
+            const marker = '[SESSIONBAY_LAUNCH_NOT_STARTED] ';
+            if (!message.startsWith(marker)) throw error;
+            if (!mounted.current || closingApp.current || generation !== launchContext.current.generation) {
+              void api.cancelFresh(request.paneId).catch(() => {});
+              return;
+            }
+            const confirmed = await new Promise<boolean>((settle) => {
+              const pending = { request, generation, message: message.slice(marker.length), settle };
+              hookSkipRef.current = pending;
+              setHookSkip(pending);
+            });
+            if (!confirmed) return;
+            info = await api.launchFreshWithoutHooks(request);
+          }
           confirmedLaunch = true;
           if (!mounted.current || closingApp.current) return;
           const latest = stateRef.current;
@@ -814,6 +866,8 @@ export default function App() {
             else notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${message}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
           }
         } finally {
+          // A confirmed intent remains cancellable while backend admission is pending.
+          hookSkipRef.current = null;
           freshLaunchInFlight.current = false;
           if (mounted.current) setFreshLaunchPending(false);
         }
@@ -1974,6 +2028,16 @@ export default function App() {
             setProjects((previous) => previous.map((project) => project.id === result.id ? result : project));
           } finally { projectMutation.current = false; setProjectBusy(false); }
         }} />}
+      {hookSkip && (
+        <Dialog title="本次不啟用活動回報" onClose={() => finishHookSkip(false)}>
+          <p className="dialog-description">{hookSkip.message}</p>
+          <p className="dialog-description">僅略過本次活動 hooks，啟動參數與權限保持原樣。既有工作及 hooks 設定不變。</p>
+          <div className="dialog-actions">
+            <button className="secondary" onClick={() => finishHookSkip(false)}>取消</button>
+            <button className="primary" onClick={() => finishHookSkip(true)}>本次不啟用活動回報，繼續啟動</button>
+          </div>
+        </Dialog>
+      )}
       {confirmation && (
         <Dialog title={confirmation.title} onClose={() => { if (!busy) { confirmation.onCancel?.(); setConfirmation(null); } }}>
           <p className="dialog-description">{confirmation.text}</p>

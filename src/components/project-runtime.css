@@ -30,14 +30,12 @@
 .project-runtime-tabs button.active strong { color: var(--accent); }
 .runtime-activity { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; color: var(--muted); }
 .runtime-activity.attention { color: var(--warning); }
-.runtime-activity .runtime-output-dot { position: absolute; top: -2px; right: -2px; display: block; flex: none; padding: 0; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .25; transition: opacity .35s ease; }
-.runtime-output-dot.recent, .runtime-output-dot.unread { color: var(--accent); opacity: 1; }
-.runtime-output-dot.recent { animation: runtime-output-pulse 1s ease-in-out infinite; }
+.runtime-activity .runtime-output-dot { position: absolute; top: -2px; right: -2px; display: block; flex: none; padding: 0; width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: .25; }
+.runtime-output-dot.unread { color: var(--accent); opacity: 1; }
 .runtime-connecting { animation: runtime-connecting-spin 1s linear infinite; }
-@keyframes runtime-output-pulse { 50% { opacity: .45; } }
 @keyframes runtime-connecting-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .runtime-output-dot, .runtime-connecting { animation: none !important; transition: none !important; }
+  .runtime-connecting { animation: none !important; }
 }
 
 /* Do not inherit the numeric pane badge styling from .workspace-tab span. */
