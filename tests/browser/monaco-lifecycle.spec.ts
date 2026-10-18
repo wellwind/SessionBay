@@ -19,7 +19,7 @@ test('JSON worker activation before later editors never registers missing servic
   await page.getByRole('button', { name: 'settings.json', exact: true }).dblclick();
   const jsonWorker = await workerReply;
   await expect(page.getByLabel('唯讀內容：settings.json').locator('.view-line').first()).toBeVisible();
-  // Wait for actual worker initialization, rather than only its script request.
+  // Confirm the worker bootstrap handler exists; native smoke separately requires RPC.
   await expect.poll(() => jsonWorker.evaluate(() => typeof self.onmessage)).toBe('function');
   await page.getByRole('button', { name: 'src', exact: true }).click();
   for (let cycle = 0; cycle < 3; cycle++) {

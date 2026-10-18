@@ -13,7 +13,7 @@ export default defineConfig({
   ],
   webServer: [
     { command: 'npm run dev:web -- --port 1442', url: 'http://127.0.0.1:1442', reuseExistingServer: false },
-    { command: 'npx vite build --config vite.monaco-smoke.config.ts && npx vite preview --outDir dist-monaco-smoke --port 1443',
+    { command: 'npx vite build --config vite.monaco-smoke.config.ts && npx vite preview --outDir dist-monaco-smoke --host 127.0.0.1 --port 1443 --strictPort',
       url: 'http://127.0.0.1:1443/tests/browser/workspace-focus-mode.html', reuseExistingServer: false, timeout: 120000 },
   ],
 });

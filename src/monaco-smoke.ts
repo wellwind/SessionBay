@@ -54,8 +54,9 @@ export async function runMonacoSmoke(): Promise<void> {
     ]);
     editor.dispose();
     editor = monaco.editor.create(host, { model, readOnly: true, domReadOnly: true });
+    if (!editor.getContribution('editor.contrib.suggestController'))
+      throw new Error('Monaco smoke: SuggestController did not instantiate');
     editor.focus();
-    await new Promise<void>(resolve => setTimeout(resolve, 200));
     if (!replies || errors) throw new Error('Monaco smoke: worker/contribution failed or silently fell back');
     editor.trigger('native-smoke', 'type', { text: 'MUST_NOT_INSERT' });
     if (model.getValue() !== text) throw new Error('Monaco smoke: readonly content changed');
@@ -68,6 +69,7 @@ export async function runMonacoSmoke(): Promise<void> {
     listeners.forEach((remove) => remove());
     stopErrors();
   }
+  if (errors) throw new Error('Monaco smoke: contribution or cleanup error');
   if (monaco.editor.getModel(uri)) throw new Error('Monaco smoke: model leaked');
   await call('frontend_diagnostic', { phase: 'interaction', message: 'monaco-worker-readonly-disposal' });
 }
