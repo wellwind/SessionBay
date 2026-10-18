@@ -337,3 +337,19 @@ fn terminal_status_has_an_independent_negotiated_capability() {
         );
     }
 }
+
+#[test]
+fn legacy_hook_preflight_is_local_and_allows_explicit_opt_out() {
+    let client = BrokerClient::from_hello(Path::new("/unused-no-transport"), hello(None)).unwrap();
+    let (mut spec, request) = launch();
+    spec.env
+        .insert(crate::provider_hooks::OPT_IN.into(), "live".into());
+    let error = client
+        .launch_unattached(spec.clone(), &request)
+        .unwrap_err();
+    assert!(error.contains("這次未啟動 Agent"));
+    assert!(error.contains("既有工作不受影響"));
+    assert!(!error.contains("請先結束"));
+    spec.env.remove(crate::provider_hooks::OPT_IN);
+    assert!(client.check_provider_hooks(&spec).is_ok());
+}

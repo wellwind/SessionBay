@@ -767,3 +767,11 @@ PNG／JPEG／GIF／WebP 依內容簽章辨識，由後端以有界來源大小�
 圖片沿用中央檔案 tab 與專案路徑／版本檢查，支援符合視窗、1:1、縮放、平移及尺寸資訊。IPC 使用有界二進位回應，離開或換檔釋放 Blob URL；取消後不提交過時結果。此功能不包含圖片編輯，也不改 Git 非文字檔不做 diff 的規劃。
 
 圖片 review 發現 image-webp 0.2.4 的 lossless Huffman table 配置不受其 memory limit 完整約束。初版因此在呼叫 decoder 前拒絕 VP8L 與 lossless alpha（包含動畫 frame），保留 VP8 有損 WebP；介面明確顯示不支援壓縮方式。未以尺寸上限掩蓋解碼器配置缺口。
+
+## 2026-10-18：hooks 預設啟用與舊 broker 的未啟動分類
+
+五工具活動 hooks 預設啟用；舊設定缺欄位或缺個別工具 key 補 true，明確 false 保留。過去版本若已把預設 false 存入檔案，無法辨識它是否來自使用者選擇，因此不覆寫。使用者仍可隨時關閉；不寫全域 provider 設定。
+
+舊 broker 不支援 hooks 時，能力檢查在 Launch IPC 之前拒絕，屬於「確定未啟動」，不能顯示可能已在背景啟動或要求結束既有工作。Fresh launch 在保存不確定請求之前先做本地能力 preflight；只有真正送出後遺失回覆才走不重送／重新查詢流程。舊 broker 使用者可明確關閉該工具 hooks、儲存後手動新開無活動回報的 Agent。此 hotfix 不自動 fallback、停止舊 Agent 或切換 broker owner。
+
+尚無活動來源的平台（目前 Windows）保留啟用偏好，但只執行原本 CLI，不附加 hook route，活動維持未知；不能因預設 true 阻擋原有跨平台啟動。這在送出任何 launch 前決定，並非失敗後重試。

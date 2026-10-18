@@ -765,8 +765,12 @@ export default function App() {
               ? info.state as Pane['state'] : 'disconnected',
             exitCode: info.exitCode });
         } catch (error) {
-          if (mounted.current && !closingApp.current)
-            notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${errorMessage(error)}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
+          if (mounted.current && !closingApp.current) {
+            const message = errorMessage(error);
+            const notStarted = '[SESSIONBAY_LAUNCH_NOT_STARTED] ';
+            if (!confirmedLaunch && message.startsWith(notStarted)) notify(message.slice(notStarted.length));
+            else notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${message}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
+          }
         } finally {
           freshLaunchInFlight.current = false;
           if (mounted.current) setFreshLaunchPending(false);
