@@ -269,6 +269,10 @@ export async function runSmokeInteraction(): Promise<void> {
     const { runFilesSmoke } = await import('./files-smoke');
     await runFilesSmoke();
   }
+  if (await call<boolean>('frontend_diagnostic', { phase: 'monaco-probe', message: 'enabled' })) {
+    const { runMonacoSmoke } = await import('./monaco-smoke');
+    await runMonacoSmoke();
+  }
   // Allow the final committed layout to reach the compositor before capture.
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   window.SessionBayStartup?.interaction();

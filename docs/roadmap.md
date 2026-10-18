@@ -253,3 +253,10 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 - [ ] G8 PR／MR 建立、review、CI 狀態與合併。
 
 Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字內容 diff 不在範圍內。既有 worktree 的正確 Git 探測與非文字變更／衝突處置仍在基礎範圍。
+
+
+### Monaco 唯讀預覽
+
+- [x] 實作延遲載入 Monaco、唯讀模型、全文搜尋／選取／折疊、每檔案 view state、本機 workers 與 CSP。
+- [ ] Linux 真實瀏覽器整合驗證與 review 後合併（以 PR 證據更新）。
+- [ ] macOS／Windows 原生 WebView 驗收（非此次 Linux 交付阻礙）。

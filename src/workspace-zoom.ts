@@ -3,7 +3,7 @@ export const workspaceZoomMin = 50;
 export const workspaceZoomMax = 200;
 export const workspaceZoomDefault = 100;
 export type WorkspaceZoomAction = 'increase' | 'decrease' | 'reset';
-export const workspaceZoomShortcutHelp = '整個工作台（介面與所有終端）：macOS ⌘＋／⌘＝、⌘−、⌘0；Windows／Linux Ctrl＋／Ctrl＝、Ctrl−、Ctrl0。每次 10%，範圍 50–200%，還原 100%；立即套用並儲存。輸入欄位、對話框及組字期間請改用外觀設定。';
+export const workspaceZoomShortcutHelp = '整個工作台（介面與所有終端）：macOS ⌘＋／⌘＝、⌘−、⌘0；Windows／Linux Ctrl＋／Ctrl＝、Ctrl−、Ctrl0。每次 10%，範圍 50–200%，還原 100%；立即套用並儲存。';
 export function workspaceZoomShortcut(event: KeyboardEvent, mac = /Mac|iPhone|iPad/.test(navigator.platform)): WorkspaceZoomAction | null {
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.metaKey !== mac || event.ctrlKey !== !mac) return null;
   if (event.key === '+' || event.key === '=') return 'increase';

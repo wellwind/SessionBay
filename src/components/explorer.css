@@ -50,22 +50,12 @@
 .explorer-document-bar { display: flex; align-items: center; gap: 4px; padding: 2px 6px; flex: 0 0 30px; border-bottom: 1px solid var(--border); color: var(--muted); }
 .explorer-document-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .explorer-document-bar button { width: 28px; flex: 0 0 28px; padding: 2px; }
-.explorer-find { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid var(--border); background: var(--surface); }
-.explorer-find input { flex: 1 1 110px; width: 0; min-width: 90px; min-height: 28px; padding: 3px 6px; border: 1px solid var(--control-border, var(--muted)); border-radius: 3px; background: var(--panel); color: var(--text); }
-.explorer-find > span { font-size: 11px; color: var(--muted); padding: 0 3px; }
-.explorer-find button { width: 28px; padding: 2px; }
-.explorer-code-scroll { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: auto; scrollbar-width: thin; overscroll-behavior: contain; background: var(--panel); }
-.explorer-code-space { display: flex; min-width: 100%; width: max-content; position: relative; align-items: flex-start; }
-.explorer-line-numbers { position: sticky; left: 0; z-index: 1; background: var(--panel); color: var(--muted); user-select: none; flex: 0 0 48px; width: 48px; padding-right: 12px; text-align: right; font: 12px/20px ui-monospace, Consolas, monospace; }
-.explorer-line-numbers > div > div { height: 20px; }
-.explorer .explorer-code-scroll .explorer-code-space pre { margin: 0; padding-left: 0; padding-right: 20px; overflow: visible; flex: 1; tab-size: 4; font: 13px/20px ui-monospace, Consolas, monospace; white-space: pre; min-height: 0; border: 0; color: var(--text); }
-.explorer pre code { font: inherit; background: none; }
-.explorer .syntax-keyword { color: var(--syntax-keyword); font-weight: 600; }
-.explorer .syntax-string { color: var(--syntax-string); }
-.explorer .syntax-number { color: var(--syntax-number); }
-.explorer .syntax-comment { color: var(--syntax-comment); }
-.explorer mark { color: var(--text); background: var(--accent-bg); outline: 1px solid var(--accent); }
-.explorer mark.current-match { background: var(--warning); color: var(--panel); outline: 2px solid var(--warning); }
+.explorer-monaco-host { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.explorer-monaco { position: absolute; inset: 0; }
+.explorer-editor-message { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--panel); }
+/* Monaco owns its embedded controls; application-wide button sizing must not
+   expand the find widget or folding controls. */
+.explorer .monaco-editor button { min-height: 0; border-radius: 0; }
 .explorer-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; padding: 4px 8px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); }
 .explorer-empty { display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 1; padding: 16px; text-align: center; color: var(--muted); gap: 8px; }
 .explorer-empty > svg { width: 32px; height: 32px; }

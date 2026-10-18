@@ -297,3 +297,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [v1.19.2 config](https://github.com/anomalyco/opencode/blob/v1.19.2/packages/opencode/src/config/config.ts)：inline JSONC 與 plugin origins 的合併。本輪審閱1.19.2／1.19.3，選定 >=1.19.2,<2 stable；不是最早支援版本或未來版本 E2E 保證。
 
 來源查閱日2026-10-18。Linux 已實測官方 `opencode-linux-x64@1.19.3`：npm tarball SHA-512 `wz+kXi7ZkvLW04hEIocW3RoEznALJ3YGnvNlZdXFarYF0v1jyDyAwpPGZkxb4JZDrw4oy48/LDZ8wCFIQDTxhw==`；`--version`、隔離 `debug config` 與 production plugin 載入／dispose 通過，未登入或呼叫模型。這些證據與合成 contracts 分列，不冒充真實回合驗收。
+## Monaco 唯讀預覽（2026-10-18）
+
+- 官方 ESM / Vite worker 整合：https://github.com/microsoft/monaco-editor/blob/main/docs/integrate-esm.md
+- 官方套件與 API：https://www.npmjs.com/package/monaco-editor 、https://microsoft.github.io/monaco-editor/typedoc/
+- 本次固定 monaco-editor 0.57.0，採 editor API、局部 contributions 與本機 worker；套件的 JSON defaults 明確關閉 schema request。未引入 CDN loader。
+
+- Monaco Editor 0.57.0 官方 npm 套件：`esm/vs/internal/common/workers.js`、`esm/vs/features/register.all.js`、`esm/vs/editor/standalone/browser/standaloneServices.js`。2026-10-18 核對 local package：JSON lazy workerManager 會晚載入全套 contributions，而 StandaloneServices 僅 initialize 時補 singleton；須在第一個 model/editor 前完成註冊。上游：https://github.com/microsoft/monaco-editor/tree/v0.57.0 。

@@ -77,15 +77,16 @@ mockIPC((command, payload = {}) => {
       { name: 'index.ts', path: 'src/index.ts', kind: 'file' },
     ] : [
       { name: 'src', path: 'src', kind: 'directory' },
-      ...['synthetic.txt', 'README.md', 'large.ts', '.config'].map(name => ({ name, path: name, kind: 'file' })),
+      ...['synthetic.txt', 'README.md', 'large.ts', '.config', 'settings.json'].map(name => ({ name, path: name, kind: 'file' })),
       { name: 'outside-link', path: 'outside-link', kind: 'blocked' },
     ], nextOffset: null };
     case 'read_workspace_file': {
       const path = args.path as string;
       const text = path === 'large.ts'
-        ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(2000) + 'END_SENTINEL\n'
+        ? Array.from({ length: 3000 }, (_, index) => `const row = ${index};`).join('\n') + '\n' + 'x'.repeat(12000) + 'END_SENTINEL\n'
         : path === 'README.md' ? '# Synthetic project\n<script>alert("never executed")</script>\n'
-        : path === 'src/index.ts' ? 'export const greeting = "Synthetic";\n' : 'synthetic preview only';
+        : path === 'settings.json' ? '{\n  "synthetic": true,\n  "count": 42\n}\n'
+        : path === 'src/index.ts' ? 'export const greeting = () => {\n  const message = "Synthetic";\n  return message;\n};\n' : 'synthetic preview only';
       return { path, text, sizeBytes: new TextEncoder().encode(text).length };
     }
     case 'update_project': {
@@ -146,5 +147,6 @@ mockIPC((command, payload = {}) => {
     default: throw new Error(`Unexpected synthetic fixture IPC: ${command}`);
   }
 }, { shouldMockEvents: true });
-const { default: App } = await import('../../src/App');
-createRoot(document.getElementById('root')!).render(<App />);
+void import('../../src/App').then(({ default: App }) => {
+  createRoot(document.getElementById('root')!).render(<App />);
+});
