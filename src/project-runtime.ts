@@ -4,7 +4,7 @@ import { paneIds } from './workspace';
 
 /** Lifecycle only: PTY output and process liveness cannot establish busy or idle. */
 export function runtimePaneLabel(pane: Pane): string {
-  if (pane.state === 'running') return pane.kind === 'shell' ? '已開啟' : '已開啟 · 活動未知';
+  if (pane.state === 'running') return '已開啟';
   return agentLifecycleText(pane.state);
 }
 export function tabRuntimeSummary(tab: WorkspaceTab, panes: Workspace['panes']): string {

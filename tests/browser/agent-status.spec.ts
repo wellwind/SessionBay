@@ -8,7 +8,7 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await expect(page.locator('.agent-status-overview')).toHaveCount(0);
     const project = page.locator('.project-group').filter({ has: page.getByRole('button', { name: /^工作台介面 / }) });
     await expect(project).toContainText('3 分頁 · 2 Agent');
-    await expect(project).toContainText('活動未知');
+    await expect(project).not.toContainText('活動未知');
     await expect(project.locator('.project-count')).toHaveText('99');
     const tab = project.getByRole('button', { name: '開啟工作區 工作台介面 已保留的 codex' });
     await tab.scrollIntoViewIfNeeded();
@@ -46,7 +46,7 @@ for (const viewport of [{ width: 1200, height: 900 }, { width: 1000, height: 650
     await page.screenshot({ path: testInfo.outputPath('known-status-left-no-unknown.png'), fullPage: true });
     const global = page.getByRole('button', { name: /開啟工作區 臨時 Terminal 已保留的 grok/ });
     await global.click();
-    await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('程序存活 · 活動未知');
+    await expect(page.locator('.pane-position:visible .agent-lifecycle')).toHaveText('程序存活');
     await expect(page.locator('.sidebar-bottom')).toHaveCount(0);
     await expect(page.getByRole('button', { name: '設定與資料來源' })).toBeEnabled();
   });
@@ -212,6 +212,8 @@ test('native terminal states stay distinct and visibly disclose their source', a
   ]) {
     await emit(status);
     await expect(indicator).toHaveAttribute('aria-label', new RegExp(`${label}（終端回報）`));
+    await expect(page.locator('body')).not.toContainText('活動未知');
+    await expect(indicator).not.toHaveAttribute('aria-label', /活動未知/);
     await expect(indicator.locator('.runtime-output-dot')).toHaveCount(0);
     if (status === 'idle') await expect(indicator).not.toHaveAttribute('aria-label', /已完成/);
     if (status === 'working' || status === 'done') {
