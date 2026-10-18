@@ -98,11 +98,49 @@ mod platform {
         }
     }
 
+    // Diagnostics deliberately contain only fixed operation/stage labels and
+    // numeric positions/errno. Never pass paths, entry names or error Display.
+    #[derive(Clone, Copy)]
+    enum OpenStage {
+        FilesystemRoot,
+        ProjectAncestor(usize),
+        RelativeDirectory(usize),
+        PreviewFile,
+    }
+
+    impl OpenStage {
+        fn diagnostic(self) -> String {
+            match self {
+                Self::FilesystemRoot => "filesystem-root".into(),
+                Self::ProjectAncestor(index) => format!("project-ancestor:{index}"),
+                Self::RelativeDirectory(index) => format!("relative-directory:{index}"),
+                Self::PreviewFile => "preview-file".into(),
+            }
+        }
+    }
+
+    fn diagnostic_error(error: io::Error, operation: &'static str, stage: &str) -> String {
+        let errno = error
+            .raw_os_error()
+            .map_or_else(|| "none".into(), |code| code.to_string());
+        let message = match error.kind() {
+            io::ErrorKind::NotFound => "檔案或目錄已不存在，請重新整理",
+            io::ErrorKind::PermissionDenied => "沒有權限讀取此檔案或目錄",
+            _ => "無法安全讀取：不允許符號連結或非一般檔案／目錄",
+        };
+        format!("{message} [workspace-files operation={operation} stage={stage} errno={errno}]")
+    }
+
     fn c_name(name: &[u8]) -> Result<CString, String> {
         CString::new(name).map_err(|_| "檔案路徑不可包含空字元".into())
     }
 
-    fn open_at(parent: RawFd, name: &CStr, directory: bool) -> Result<File, String> {
+    fn open_at(
+        parent: RawFd,
+        name: &CStr,
+        directory: bool,
+        stage: OpenStage,
+    ) -> Result<File, String> {
         let flags = libc::O_RDONLY
             | libc::O_CLOEXEC
             | libc::O_NOFOLLOW
@@ -112,7 +150,11 @@ mod platform {
         // the literal filesystem root); name is NUL-terminated. No creation.
         let descriptor = unsafe { libc::openat(parent, name.as_ptr(), flags) };
         if descriptor < 0 {
-            return Err(fs_error(io::Error::last_os_error()));
+            return Err(diagnostic_error(
+                io::Error::last_os_error(),
+                "openat",
+                &stage.diagnostic(),
+            ));
         }
         // SAFETY: openat returned a new descriptor, whose sole owner is File.
         Ok(unsafe { File::from_raw_fd(descriptor) })
@@ -128,12 +170,19 @@ mod platform {
         {
             return Err("專案必須有絕對本機目錄，無法預覽遠端或未知路徑".into());
         }
-        let mut directory = open_at(libc::AT_FDCWD, c"/", true)?;
+        let mut directory = open_at(libc::AT_FDCWD, c"/", true, OpenStage::FilesystemRoot)?;
+        let mut ancestor_index = 0;
         for component in root.components() {
             match component {
                 Component::RootDir => {}
                 Component::Normal(name) => {
-                    directory = open_at(directory.as_raw_fd(), &c_name(name.as_bytes())?, true)?;
+                    ancestor_index += 1;
+                    directory = open_at(
+                        directory.as_raw_fd(),
+                        &c_name(name.as_bytes())?,
+                        true,
+                        OpenStage::ProjectAncestor(ancestor_index),
+                    )?;
                 }
                 _ => return Err("專案目錄含有不支援的路徑成分".into()),
             }
@@ -142,8 +191,13 @@ mod platform {
     }
 
     fn descend(mut directory: File, parts: &[&str]) -> Result<File, String> {
-        for part in parts {
-            directory = open_at(directory.as_raw_fd(), &c_name(part.as_bytes())?, true)?;
+        for (index, part) in parts.iter().enumerate() {
+            directory = open_at(
+                directory.as_raw_fd(),
+                &c_name(part.as_bytes())?,
+                true,
+                OpenStage::RelativeDirectory(index + 1),
+            )?;
         }
         Ok(directory)
     }
@@ -180,7 +234,7 @@ mod platform {
                     let error = io::Error::last_os_error();
                     // SAFETY: fdopendir failed without taking ownership.
                     drop(unsafe { File::from_raw_fd(descriptor) });
-                    Err(fs_error(error))
+                    Err(diagnostic_error(error, "fdopendir", "selected-directory"))
                 }
             }
         }
@@ -210,7 +264,11 @@ mod platform {
                 return if code == 0 {
                     Ok(None)
                 } else {
-                    Err(fs_error(io::Error::from_raw_os_error(code)))
+                    Err(diagnostic_error(
+                        io::Error::from_raw_os_error(code),
+                        "readdir",
+                        "selected-directory",
+                    ))
                 };
             }
             // SAFETY: readdir returned a live entry with NUL-terminated d_name;
@@ -312,7 +370,7 @@ mod platform {
         }
         // O_NONBLOCK avoids blocking if a regular file is replaced by a FIFO
         // between fstatat and openat. O_NOFOLLOW prevents a symlink replacement.
-        let mut file = open_at(directory.as_raw_fd(), &name, false)?;
+        let mut file = open_at(directory.as_raw_fd(), &name, false, OpenStage::PreviewFile)?;
         let metadata = file.metadata().map_err(fs_error)?;
         if !metadata.is_file()
             || metadata.dev() != before.st_dev as u64
@@ -365,6 +423,71 @@ mod platform {
     mod tests {
         use super::*;
         use std::{fs, os::unix::fs::symlink};
+
+        #[test]
+        fn diagnostics_distinguish_errno_without_disclosing_error_payloads() {
+            for errno in [libc::EPERM, libc::EACCES] {
+                let message = diagnostic_error(
+                    io::Error::from_raw_os_error(errno),
+                    "openat",
+                    "project-ancestor:3",
+                );
+                assert_eq!(message, format!("沒有權限讀取此檔案或目錄 [workspace-files operation=openat stage=project-ancestor:3 errno={errno}]"));
+            }
+            let secret = "private-directory/private-file/private-content";
+            let message =
+                diagnostic_error(io::Error::other(secret), "readdir", "selected-directory");
+            assert!(!message.contains(secret));
+            assert!(message.ends_with("operation=readdir stage=selected-directory errno=none]"));
+        }
+
+        #[test]
+        fn directory_stream_failure_reports_operation_without_filename() {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join("synthetic-private-file");
+            fs::write(&path, "synthetic content").unwrap();
+            let error = DirectoryStream::new(File::open(&path).unwrap())
+                .err()
+                .unwrap();
+            assert!(error.contains(&format!(
+                "operation=fdopendir stage=selected-directory errno={}",
+                libc::ENOTDIR
+            )));
+            assert!(!error.contains("synthetic-private-file"));
+            assert!(!error.contains("synthetic content"));
+        }
+
+        #[test]
+        fn diagnostic_stages_are_fixed_labels_and_numeric_indices() {
+            assert_eq!(OpenStage::FilesystemRoot.diagnostic(), "filesystem-root");
+            assert_eq!(
+                OpenStage::ProjectAncestor(3).diagnostic(),
+                "project-ancestor:3"
+            );
+            assert_eq!(
+                OpenStage::RelativeDirectory(2).diagnostic(),
+                "relative-directory:2"
+            );
+            assert_eq!(OpenStage::PreviewFile.diagnostic(), "preview-file");
+        }
+
+        #[test]
+        fn open_failure_reports_stage_not_entry_name() {
+            let temp = tempfile::tempdir().unwrap();
+            let base = temp.path().canonicalize().unwrap();
+            let root = base.join("synthetic-private-project");
+            let expected_index = root
+                .components()
+                .filter(|part| matches!(part, Component::Normal(_)))
+                .count();
+            let message = open_root(&root).unwrap_err();
+            assert!(message.contains(&format!(
+                "operation=openat stage=project-ancestor:{expected_index} errno={}",
+                libc::ENOENT
+            )));
+            assert!(!message.contains("synthetic-private-project"));
+            assert!(!message.contains(base.to_str().unwrap()));
+        }
 
         #[test]
         fn descriptor_stays_on_original_root_after_path_is_replaced_by_outside_link() {

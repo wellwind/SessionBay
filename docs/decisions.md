@@ -713,3 +713,8 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 ### 2026-10-18：Monaco contribution 必須在第一次初始化前完整註冊
 
 Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會引入整套 editor contributions；精簡 API 建立模型後才載入會讓 `StandaloneServices` 的一次性 singleton snapshot 缺少 `ISuggestMemories`，下一個 editor 的 SuggestController 因而失敗。改在 lazy preview 模組內先載入官方 `features/register.all`；仍延後整個 preview 模組直到開檔，不靠停用 suggest 隱藏問題。Vite dev 與 production 都測非 JSON → JSON worker → 多次 TS/JSON 切換。Monaco library 的 delayed error 改送 file-preview 錯誤介面，React file boundary 隔離 render 失敗，不覆蓋全域 window error 監聽。
+## 2026-10-18：Reload Window 只重新載入前端
+
+命令面板提供「重新載入視窗（Reload Window）」。重新載入前沿用關閉視窗的序列化保存流程，等待既有保存與面板清理，再以瀏覽器 reload 重新 bootstrap、接回 broker runtime。不呼叫 close／stop／launch。儲存失敗取消重新載入並顯示錯誤。
+
+模組載入失敗或 React 畫面崩潰時，最早載入的 dependency-free startup overlay 另提供同名按鈕。已有 App 時保留最後 committed 保存 handler；App 尚未載入時直接 reload，不覆寫尚未讀取的工作區。這是復原入口，不修復造成錯誤的根因。
