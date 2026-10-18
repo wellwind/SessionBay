@@ -288,7 +288,7 @@ Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 op
 - [x] 最終 head `8dcc591` 的 [Linux browser／core CI](https://github.com/wellwind/SessionBay/actions/runs/39097805009) 與 [Tauri／WebKit smoke](https://github.com/wellwind/SessionBay/actions/runs/39097805078) 通過。
 - [ ] macOS／Windows 原生驗收；不宣稱完整 WebP 或所有 SVG 支援。詳見 [圖片預覽](file-image-preview.md)。
 
-## Broker 生命週期與單次無 hooks 啟動（已確認，尚未實作）
+## Broker 生命週期與單次無 hooks 啟動（分步實作）
 
 先完成目前工作台修正、broker 生命週期與單次無 hooks 啟動，再製作 Snap 測試包；Git 等大型新功能不插隊。詳見 [安全升級與驗收計畫](broker-lifecycle-plan.md)。
 
@@ -296,9 +296,9 @@ Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 op
 - [ ] 明確確認的「結束所有工作並退出」，部分清理失敗如實回報。
 - [ ] 版本隔離 registry、完整 runtime owner routing、新工作切換與現代 broker drain。
 - [ ] Legacy 限制、共用資料單 writer／schema 過渡、更新與 rollback 驗收。
-- [ ] 已知 preflight 未啟動後的單次無 hooks 按鈕，保留原參數且不重送 unknown outcome。
+- [x] #78 已合併：已知 preflight 未啟動後的單次無 hooks 按鈕，保留原參數且不重送 unknown outcome。
 
-上述為後續實作，不等同已合併 #69 的未啟動錯誤分類與 hooks 預設啟用。
+L1a 保守 runtime 證據記帳與原子 admission seal 已實作於獨立 PR，獨立 review 的 poison／snapshot proof 修正後本機 core／desktop feature 回歸通過，更新 head 的 Linux CI 與覆核待確認；它不啟用 broker 自退。後續依序是協商式 UI lease、完整 broker admission／idle timer 整合及 Stop all。上述完整生命週期仍未完成；不能將 runtime snapshot 或 List 空陣列當成停止服務的授權。
 
 ## Terminal 檔名點開 tab（待實作，Snap 之後）
 

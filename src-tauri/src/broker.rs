@@ -1153,3 +1153,6 @@ mod tests {
 
 #[cfg(all(test, unix))]
 mod terminal_status_tests;
+
+#[cfg(all(test, unix))]
+mod lifecycle_foundation_tests;
