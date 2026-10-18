@@ -66,15 +66,22 @@ sudo snap refresh <實際套件名稱>
 
 ## 整體優先順序
 
-以下為 2026-10-18 的最新工作順序，取代歷史章節中的排程優先文字；歷史驗收結果保持原樣。
+以下為 2026-10-18 的目前工作順序，與[路線圖](roadmap.md)同步；歷史驗收結果保持原樣。
 
-1. 五工具真實 Agent 活動 hook：先收尾 Claude、Codex、OpenCode、Grok、Antigravity 的來源與 Runtime 綁定、啟用／撤銷及 Linux 驗證；真實登入模型回合尚未驗，不將 synthetic／CI 視為實際狀態已驗證。
-2. 接著 Snap 可安裝測試包（R1），先能試用，不等待整套更新中心完工。
-3. 同時收尾 Quick Open／共用可調寬 panel（#65）及大檔讀取（#66），大檔之後再做圖片預覽。這裡的圖片預覽不是已存在的 Agent 圖片輸入。
-4. [Git 第一階段 G1–G4](git-workbench-plan.md#第一階段本機日常流程)：多 repo、部分暫存、commit／遠端、graph／blame；不重複定義 #58 的八個工作包。
+1. 恢復雲端開發空間，收尾藍點提示與 Monaco palette；Quick Open／共用 panel #65 已合併。
+2. 完成 [broker 生命週期與單次無 hooks 啟動](broker-lifecycle-plan.md)，再製作 Snap 可安裝測試包（R1）。#69 僅完成未啟動錯誤分類與預設啟用，不代表 broker 升級或單次 fallback 已完成。
+3. Snap 之後實作 [Terminal 檔案路徑連結](terminal-file-links.md)。此輪不插入 Git 等大型新功能。
+4. [Git 第一階段 G1–G4](git-workbench-plan.md#第一階段本機日常流程)：多 repo、部分暫存、commit／遠端、graph／blame。
 5. 完整 Release／Update（R2–R7）。
 6. 原始對話永久刪除：沿用[調查](permanent-deletion-investigation.md)與[安全分析](permanent-deletion-safety-review.md)，#55 的唯讀影響檢查不能當成刪除功能完成。
 7. 遠端機器、獨立 Web 與[用量分析](usage-spec.md)：沿用[既有待辦](future-backlog.md)，另依安全／架構相依拆分。
 
-2026-10-18 查核基線：#60 Monaco、#62 Reload Window、#63 輔助文案清理已合併；#55、#56、#61、#64、#65、#66 尚未合併。此段是時間點紀錄，後續狀態以各 PR 和驗收文件為準，不能用本段取代即時檢查。Windows #46 安裝驗收仍排除；真實 CLI／原生未驗證項目保留。
+### 2026-10-18 合併狀態核對
 
+- [x] #56／#61／#64 五工具活動來源、#65 Quick Open／共用 panel、#66 大檔讀取、#68 圖片預覽已合併；#69 啟動分類／預設 hooks、#70 Settings 外觀及 #71 狀態文案修正已合併。
+- [x] 合併後 main `148b2615` 的 [Linux CI](https://github.com/wellwind/SessionBay/actions/runs/39100959264) 通過。此為該 SHA 的自動化證據，不等同每個平台或真實已登入模型回合驗收。
+- [x] #72 broker 生命週期／單次無 hooks 與 #73 Terminal 路徑連結的需求文件已合併。
+- [ ] #72／#73 對應功能尚未實作；R1–R7、Git G1–G8 及永久刪除仍未完成。
+- #55 唯讀來源影響檢查與 #46 Windows installer 修正仍是未合併 Draft；#46 繼續排除於此次 Linux 交付。
+
+以上取代先前將 #56／#61／#64／#65／#66 列為未合併的時間點快照。真實模型回合由使用者自行驗證；未完成的原生平台、安裝與升級驗收保持原限制。
