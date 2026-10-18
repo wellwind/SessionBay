@@ -2,7 +2,7 @@
 
 ## 2026-10-18 發行與後續順序（最新）
 
-已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。本節的最新順序優先於下方歷史排程：先恢復雲端開發空間，收尾 #65 Quick Open／共用 panel、藍點提示、Monaco palette、broker 生命週期與單次無 hooks 啟動，再製作 Snap 可安裝測試包。五工具 hook 已整合，真實登入模型回合由使用者自行驗證。此輪不插入 Git 等大型新功能；Git G1–G4、完整 Release／Update、永久刪除、遠端／Web／用量保留後續規劃，Git 的完整八階工作包仍沿用既有文件。
+已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。本節的最新順序優先於下方歷史排程：先恢復雲端開發空間，Quick Open／共用 panel 已於 [#65](https://github.com/wellwind/SessionBay/pull/65) 合併；接著收尾藍點提示、Monaco palette、broker 生命週期與單次無 hooks 啟動，再製作 Snap 可安裝測試包。五工具 hook 已整合，真實登入模型回合由使用者自行驗證。此輪不插入 Git 等大型新功能；Git G1–G4、完整 Release／Update、永久刪除、遠端／Web／用量保留後續規劃，Git 的完整八階工作包仍沿用既有文件。
 
 目前功能 PR 以相關 Linux 驗證及 review 作交付門檻；發行特定 OS／架構仍需該目標實測，未驗平台不假稱通過。Windows #46 不在此次交付內。
 
@@ -169,9 +169,9 @@
 
 ### 專案目錄整合工作區（2026-10-17）
 
-已實作專案父列展開 tabs、保留歷史 badge、生命週期摘要與切回既有 runtime；獨立 Agent 狀態大區移除。busy／idle 與代表工作中的 spinner 尚未完成，等待可靠 provider control/event transport；不能將存活／輸出當成工作中。使用者已選定的輸出提示另見下方。
+已實作專案父列展開 tabs、保留歷史 badge、生命週期摘要與切回既有 runtime；獨立 Agent 狀態大區移除。本段原始交付尚無 busy／idle；後續 #56／#61／#64 已整合版本限定的 provider 活動來源及狀態圖示，見下方整合進度。仍不能將存活／輸出當成工作中。使用者已選定的輸出提示另見下方。
 
-已加入使用者同意的新輸出 pulse／背景未讀提示與短暫連線 spinner；這些不提供 Agent busy／idle 判定。該能力仍等待可靠 provider 事件，與輸出提示分開驗收。
+已加入使用者同意的新輸出 pulse／背景未讀提示與短暫連線 spinner；這些不提供 Agent busy／idle 判定。後續 provider 活動來源與輸出提示分開驗收，真實已登入模型回合仍待使用者驗證。
 
 專案清單以拖曳排序取代置頂，保留首次遷移順序，提供 Alt＋上／下鍵盤替代操作，不再顯示上／下移按鈕。專案／目錄清單、開啟中的工作區獨立收合並記住狀態；不更動執行中程序。前端測試與原生跨平台驗收分別記錄，不以瀏覽器測試取代原生驗收。
 
@@ -220,18 +220,19 @@
 ### 活動 hook 傳輸增量
 
 - 提供 opt-in ordered publisher、runtime 綁定、短期 capability、重連／expiry 與 App observation 傳遞；詳見 [範圍與驗收邊界](agent-activity-transport.md)。
-- 尚未完成：真實 provider causal bridge、使用者 opt-in 安裝／撤銷流程及三平台 native QA。一般 Agent 啟動仍無自動 hooks。
+- 此段為傳輸基礎的歷史範圍。後續 #56／#61／#64 已接上五工具來源與設定啟用／撤銷；#69 將 hooks 預設啟用，但保留既存明確 false 與平台能力限制。真實已登入模型回合及 macOS／Windows native QA 仍未完成，詳見下方整合進度。
 
 ## 2026-10-18 真實 hook bridge
 
-Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。OpenCode 後續增量見下；Grok／Antigravity 不宣稱已接通。
+Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。OpenCode 後續增量見下；Grok／Antigravity 已由 #64 接通版本限定的 Unix OSC7501 來源，真實已登入模型回合仍未驗。
 
 ### 原生狀態實作與驗收
 
 - [x] Claude launch-local mod、Codex owned app-server read-only observer、source sequence／快照失效及 UI 進行中／等待／閒置圖示。
 - [x] 設定關閉撤銷現有來源，保留 Agent 執行；不修改使用者全域 hooks 或 notify。
 - [x] PR56 69e26df exact-head Linux CI；Claude 2.1.302 Linux 官方 plugin validate；Codex 0.159.2 Linux 官方 app-server initialize / 空 loaded-list（無模型請求）。
-- [ ] 整合最新 main 後 exact-head CI；真實 CLI 回合 Busy→Idle 與 GUI 驗收（無憑證的載入測試不等於回合驗收）。
+- [x] #56 → #61 → #64 已依序合併；[整合 main `dca4e6d6` Linux CI](https://github.com/wellwind/SessionBay/actions/runs/39096966750) 通過，後續 [main `148b2615` Linux CI](https://github.com/wellwind/SessionBay/actions/runs/39100959264) 也通過。
+- [ ] 真實已登入 CLI 回合 Busy→Idle 與 GUI 驗收（無憑證的載入測試不等於回合驗收）。
 - [ ] macOS／Windows 原生驗收；依目前交付範圍不作 Linux 合併門檻。
 - [ ] Claude 回合內權限／輸入等待、Grok／Antigravity 及 Windows 的正式支援。
 
@@ -260,7 +261,7 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 
 Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字內容 diff 不在範圍內。既有 worktree 的正確 Git 探測與非文字變更／衝突處置仍在基礎範圍。
 
-2026-10-18 候選：專案 Cmd+P 將已開分頁、未開 Sessions 預覽及有界遞迴檔名搜尋整合；右工具共用 resize 容器、可存取 tooltip 與自訂快捷鍵。Linux 自動化驗證隨 PR 記錄；macOS／Windows 原生互動未驗，不以交叉編譯代替。
+2026-10-18 已合併 [#65](https://github.com/wellwind/SessionBay/pull/65)：專案 Cmd+P 將已開分頁、未開 Sessions 預覽及有界遞迴檔名搜尋整合；右工具共用 resize 容器、可存取 tooltip 與自訂快捷鍵。[合併後 main `148b2615` Linux CI](https://github.com/wellwind/SessionBay/actions/runs/39100959264) 通過。macOS／Windows 原生互動未驗，不以交叉編譯代替。
 
 ## 真實活動訊號整合進度（2026-10-18）
 
@@ -278,7 +279,9 @@ Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 op
 
 ## 檔案圖片閱讀
 
-PNG／JPEG／GIF／VP8 有損 WebP／靜態 SVG 的中央 tab 預覽正在實作，包含縮放與資源有界處理。以 Linux 實際驗證交付，未通過前不標為驗收完成。詳見 [圖片預覽](file-image-preview.md)。
+- [x] PNG／JPEG／GIF／VP8 有損 WebP／受限靜態 SVG 的中央 tab 預覽、縮放與資源有界處理，已合併 [#68](https://github.com/wellwind/SessionBay/pull/68)。
+- [x] 最終 head `8dcc591` 的 [Linux browser／core CI](https://github.com/wellwind/SessionBay/actions/runs/39097805009) 與 [Tauri／WebKit smoke](https://github.com/wellwind/SessionBay/actions/runs/39097805078) 通過。
+- [ ] macOS／Windows 原生驗收；不宣稱完整 WebP 或所有 SVG 支援。詳見 [圖片預覽](file-image-preview.md)。
 
 ## Broker 生命週期與單次無 hooks 啟動（已確認，尚未實作）
 
