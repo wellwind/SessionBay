@@ -215,3 +215,4 @@
 
 - 提供 opt-in ordered publisher、runtime 綁定、短期 capability、重連／expiry 與 App observation 傳遞；詳見 [範圍與驗收邊界](agent-activity-transport.md)。
 - 尚未完成：真實 provider causal bridge、使用者 opt-in 安裝／撤銷流程及三平台 native QA。一般 Agent 啟動仍無自動 hooks。
+- 全域 Activity Bar：歷史 Sessions／Files／專案共用單一側欄，中央內容獨立；typed contribution、延遲掛載與 overflow 為未來功能保留擴充點。Git 等其他功能待實作後才加入。

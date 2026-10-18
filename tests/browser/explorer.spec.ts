@@ -8,6 +8,7 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     const terminal = page.locator('.xterm-screen');
     await expect(terminal).toBeVisible();
     await terminal.evaluate(node => { (window as unknown as { originalTerminal: Element }).originalTerminal = node; });
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
     await page.getByRole('button', { name: 'README.md', exact: true }).dblclick();
     await page.getByRole('button', { name: 'large.ts', exact: true }).dblclick();
     const tabs = page.locator('.project-file-tabs-host');
@@ -31,11 +32,11 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     await tabs.getByRole('tab', { name: /large.ts/ }).click();
     await expect.poll(() => editor.evaluate(node => node.scrollTop)).toBe(scroll);
     expect(await page.locator('[data-line]').count()).toBeLessThan(100);
-    await page.getByRole('button', { name: '隱藏 Files 側欄', exact: true }).click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
     await expect(page.getByRole('tree')).toBeHidden();
     await expect(editor).toBeVisible();
     await page.screenshot({ path: info.outputPath(`explorer-${theme}-${width}-document.png`) });
-    await page.getByRole('button', { name: '顯示 Files 側欄', exact: true }).click();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
     const pane = page.locator('.project-files-sidebar:visible');
     await page.getByRole('separator', { name: '調整目錄樹寬度' }).focus();
     await page.keyboard.press('Home');

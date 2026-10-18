@@ -2,7 +2,7 @@
 
 ## 操作與範圍
 
-進入 catalog 專案即顯示左側 Files 側欄，無需先開 Terminal／Agent。Files 開關在共用分頁列，正常與專注模式皆可使用。選檔後主工作區顯示獨立的唯讀檔案 tab，原 Terminal 持續執行、保留元件與 Runtime，只暫時隱藏；點原工作分頁即可切回。臨時 Terminal 不提供 HOME 檔案瀏覽。
+進入 catalog 專案後，可從工作區左側 Activity Bar 的第二個圖示開啟 Files 側欄，無需先開 Terminal／Agent。第一個圖示為歷史 Sessions，再點目前功能可收合；正常與專注模式皆可使用。選檔後主工作區顯示獨立的唯讀檔案 tab，原 Terminal 持續執行、保留元件與 Runtime，只暫時隱藏；點原工作分頁即可切回。臨時 Terminal 不提供 HOME 檔案瀏覽。
 
 - 根目錄是 catalog 專案原始路徑，不是重新指定的啟動位置 launchPath。只存在於歷史的無本機路徑專案會顯示錯誤。
 - 檔案樹一次只讀使用者展開的目錄；每頁 200 項，更多內容由「載入更多檔案」明確取得。node_modules 等不會自行展開。隱藏檔案預設列出，沒有額外勾選列。
@@ -38,6 +38,6 @@ Windows 使用 `NtCreateFile(RootDirectory)` 單元件相對開啟及 `FILE_OPEN
 
 ## 最新 main 整合
 
-Files 與 history、workspace 是並列顯示狀態。App 擁有各專案 Files 的存續與共用 hosts；WorkspaceCanvas 僅保有 Terminal surface，檔案元件用 portal 放入同列 tabs、左側樹與主文件區，不以 portal 重新掛載 Terminal。分割拖曳仍以 Terminal surface 實際大小計算。
+Files 文件、history 對話預覽與 workspace 是中央並列顯示狀態，獨立於 Activity Bar 的側欄選擇。App 擁有各專案 Files 的存續與共用 hosts；WorkspaceCanvas 僅保有 Terminal surface，檔案元件用 portal 放入同列 tabs、左側樹與主文件區，不以 portal 重新掛載 Terminal。分割拖曳仍以 Terminal surface 實際大小計算。
 
 Files 重整未改 Rust、IPC、權限、檔案根或 Runtime schema。2026-10-17 GitHub Actions 已通過新版 Files 8 項及專注模式 16 項瀏覽器回歸，並實際檢視正常／專注模式、深淺主題、窄寬視窗與零 Runtime 截圖；本機雲端 Chromium 啟動限制未繞過。上述瀏覽器及 Windows 舊版通過紀錄不代表重整版已完成原生驗收。整合 Session 清單漸進載入後仍須重新通過完整 CI。

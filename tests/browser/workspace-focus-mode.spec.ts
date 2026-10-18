@@ -16,6 +16,7 @@ async function openWorkspace(page: Page) {
   await page.goto('/tests/browser/workspace-focus-mode.html');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
+  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
   await expect(page.locator('.xterm-screen')).toBeVisible();
   await expect.poll(() => page.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
   await expect.poll(() => latestSize(page)).toBeTruthy();
@@ -64,7 +65,7 @@ test('focus gains terminal area, fits on resize, and preserves runtime and termi
   await expect(page.locator('.sidebar')).toBeHidden();
   await expect.poll(async () => (await geometry(page)).height).toBeGreaterThan(normal.height);
   const focused = await geometry(page);
-  expect(focused.width).toBeGreaterThan(normal.width);
+  expect(focused.width).toBe(normal.width);
   await expect.poll(async () => (await latestSize(page))?.rows ?? 0).toBeGreaterThan(normalSize!.rows!);
   await sameTerminal(page);
   await page.screenshot({ path: testInfo.outputPath('focused.png'), fullPage: true });
@@ -86,8 +87,11 @@ test('focus gains terminal area, fits on resize, and preserves runtime and termi
 
 test('history, settings, theme and project navigation remain reachable without reattaching', async ({ page }) => {
   await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
-  await page.getByRole('button', { name: '歷史 Session', exact: true }).click();
-  await expect(page.locator('.history-mount')).toBeVisible();
+  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
+  await expect(page.locator('#activity-sessions-panel')).toBeHidden();
+  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
+  await expect(page.locator('#activity-sessions-panel')).toBeVisible();
+  await expect(page.locator('.xterm-screen')).toBeVisible();
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
   await sameTerminal(page);
   await page.locator('.workspace-tab-select').click();
@@ -105,6 +109,7 @@ test('history, settings, theme and project navigation remain reachable without r
   await expect(page.locator('.app-topbar')).toBeHidden();
   await sameTerminal(page);
   await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
+  await page.getByRole('navigation', { name: '工作區功能' }).getByRole('button', { name: '專案', exact: true }).click();
   await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'true');
   await expect(page.locator('.project-header h1')).toHaveText('Synthetic other');
@@ -119,8 +124,9 @@ test('history, settings, theme and project navigation remain reachable without r
 });
 
 test('Files sidebar, project tabs and Zen preserve terminal lifecycle', async ({ page }, testInfo) => {
-  const toggle = page.locator('.project-files-toggle');
-  await expect(toggle).toHaveAttribute('aria-label', '隱藏 Files 側欄');
+  const toggle = page.getByRole('button', { name: 'Files', exact: true });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'synthetic.txt', exact: true }).dblclick();
   const preview = page.getByLabel('唯讀內容：synthetic.txt');
   await expect(preview).toContainText('synthetic preview only');
@@ -135,12 +141,14 @@ test('Files sidebar, project tabs and Zen preserve terminal lifecycle', async ({
   await expect(toggle).toBeVisible();
   await sameTerminal(page);
   await page.screenshot({ path: testInfo.outputPath('files-zen.png'), fullPage: true });
-  await page.getByRole('button', { name: '歷史 Session', exact: true }).click();
+  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
   await expect(toggle).toBeVisible();
-  await expect(page.locator('.history-mount')).toBeVisible();
+  await expect(page.locator('#activity-sessions-panel')).toBeVisible();
+  await expect(preview).toBeVisible();
   await page.locator('.project-file-tabs-host').getByRole('tab', { name: /synthetic.txt/ }).click();
   await expect(preview).toBeVisible();
   await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
+  await page.getByRole('navigation', { name: '工作區功能' }).getByRole('button', { name: '專案', exact: true }).click();
   await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
   await expect(page.locator('.project-file-tabs-host').getByRole('tab')).toHaveCount(0);
   await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic focus' }).click();
@@ -167,20 +175,20 @@ test('long tab names keep a keyboard-operable focus exit at supported narrow wid
 });
 
 
-for (const sidebarOpen of [true, false]) {
-  test(`hiding revealed controls restores terminal focus (initial sidebar ${sidebarOpen})`, async ({ page }) => {
-    if (!sidebarOpen) await page.getByRole('button', { name: '隱藏側欄', exact: true }).click();
+for (const panelOpen of [true, false]) {
+  test(`hiding revealed controls restores terminal focus and preserves the activity panel (${panelOpen})`, async ({ page }) => {
+    if (!panelOpen) await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
     await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
     await page.getByRole('button', { name: '展開完整控制列', exact: true }).click();
-    const hide = page.getByRole('button', { name: '隱藏側欄', exact: true });
+    const hide = page.getByRole('button', { name: '收起完整控制列', exact: true });
     await hide.focus();
     await hide.click();
-    await expect(page.locator('.sidebar')).toBeHidden();
+    await expect(page.locator('.app-topbar')).toBeHidden();
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
     await sameTerminal(page);
     await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
-    await expect(page.locator('.sidebar')).toHaveCount(sidebarOpen ? 1 : 0);
+    await expect(page.getByRole('button', { name: '歷史 Sessions', exact: true })).toHaveAttribute('aria-expanded', String(panelOpen));
   });
 }
 

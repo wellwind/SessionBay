@@ -5,10 +5,40 @@
 .project-files-sidebar-host[hidden], .project-file-document-host[hidden] { display: none; }
 .project-file-document-host { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; }
 .project-file-tabs-host { display: contents; }
-.project-files-toggle { flex: 0 0 auto; gap: 5px; padding-inline: 10px; min-height: 39px; border-left: 1px solid var(--border); border-radius: 0; }
-.project-files-toggle[aria-expanded='true'] { color: var(--accent); background: var(--accent-bg); }
 .project-work-content .workspace-canvas, .project-work-content .workspace-canvas-body { border-radius: 0; }
 @media (max-width: 650px) {
   .project-files-sidebar-host { max-width: 48%; }
-  .project-files-toggle span { display: none; }
 }
+
+/* Activity selection controls only the adjacent panel, never the work surface. */
+.activity-sessions-panel { display: flex; flex: 0 0 320px; min-width: 0; max-width: 40%; min-height: 0; border-right: 1px solid var(--border); background: var(--panel); }
+.activity-sessions-panel[hidden] { display: none; }
+.activity-history-browser { width: 100%; min-width: 0; overflow: hidden; }
+.activity-history-browser .history-controls { padding: 12px; flex-wrap: wrap; gap: 6px; }
+.activity-history-browser .search-field { flex-basis: 100%; }
+.activity-history-browser .history-caption { padding: 0 12px 10px; }
+.activity-history-browser .filter-bar { padding: 0 12px 10px; }
+.activity-history-browser .session-column { flex: 1; border: 0; border-top: 1px solid var(--border); }
+.activity-history-browser .session-list { padding-inline: 8px; }
+.activity-history-browser .session-card { border-radius: 3px; }
+.activity-history-preview .transcript-column { flex: 1; min-width: 0; }
+@media (max-width: 900px) { .activity-sessions-panel { flex-basis: 280px; } }
+.activity-history-browser .history-controls .search-field { min-width: 0; width: 100%; }
+.activity-history-browser .history-agent-filter { max-width: 100%; }
+.activity-history-browser .filter-bar > * { max-width: 100%; }
+.activity-history-browser .empty-state { padding: 20px 12px; }
+.activity-history-controls { flex: 0 1 auto; min-height: 0; max-height: 50%; overflow: auto; }
+.activity-history-browser .search-field input { min-width: 0; }
+/* One global rail and one adjacent panel in normal and Zen modes. */
+.sidebar .navigation-tabs { display: flex; margin-bottom: 12px; gap: 0; border-radius: 0; padding: 0; }
+.sidebar .navigation-tabs > button { flex: 1; min-width: 0; padding: 8px 4px; border-radius: 0; }
+.activity-empty-panel { display: flex; flex-direction: column; gap: 20px; padding: 16px; width: 280px; min-width: 0; }
+.activity-empty-panel strong { font-size: 13px; }
+.activity-panel > .sidebar { flex: 0 0 300px; width: 300px; max-width: 100%; padding: 12px 10px 0; }
+.activity-panel > .activity-sessions-panel { flex: 0 0 320px; max-width: 100%; }
+.activity-panel > .project-files-sidebar-host { max-width: 100%; }
+@media (max-width: 900px) {
+  .activity-panel > .sidebar { flex-basis: 260px; width: 260px; }
+  .activity-panel > .activity-sessions-panel { flex-basis: 280px; }
+}
+.activity-history-heading { margin: 0; padding: 12px 12px 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

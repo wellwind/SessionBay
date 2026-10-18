@@ -689,3 +689,15 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 - 沿用 owner-authenticated broker IPC，以記憶體內 capability／runtime generation 綁定單一 ordered publisher；不新增 listener、永久憑證或修改 Agent 設定。
 - 獨立 activity cursor／revision／剩餘 TTL 傳到 App，不使用 PTY output ACK；未知、過期、失聯立即保守隱藏。
 - 真實 CLI callbacks 尚無可靠因果 bridge，預設全部關閉。合成 socket 與 actual-App seams 詳見 [傳輸設計](agent-activity-transport.md)，不等於真實 CLI／三平台 native 驗收。
+## 2026-10-18：工作區 Activity Bar
+
+- 採用左側直列功能列：歷史 Sessions 第一、Files 第二。選取功能只切換鄰接側欄；再次點選收合，不改變中央 Terminal／檔案內容。
+- 歷史搜尋、篩選與虛擬清單移至側欄，選取 Session 才開啟中央對話預覽；沿用同一個歷史狀態與分頁快取，不複製資料來源。
+- 功能選取與收合狀態以專案為單位保留；專注模式保留輕量功能入口，不重建 Terminal。未實作的 Git 不顯示佔位按鈕，後續可擴充功能註冊表。
+- 參考 VS Code 的 Activity Bar／Primary Side Bar 分工，保留 Session Bay 的專案導覽與 Terminal 優先工作方式，而非複製完整 IDE。
+
+### 同日補充：統一專案導覽與可擴充功能貢獻
+
+依最新需求，功能列提升為全域：歷史 Sessions、Files、專案依序排列；原先獨立的專案導覽移入第三個功能，同時只顯示一個相鄰側欄，不疊加兩份左側空間。專案／所有目錄分頁、總覽、專案樹與執行中工作摘要仍保留在專案功能。未選專案的 Files 提供選擇專案入口。選取功能為全域介面狀態，跨專案與正常／專注模式保留；專案切換只更新資料範圍。
+
+採內部 typed contribution contract。各功能提供 ID、圖示、名稱、側欄 renderer，並可提供 availability、badge 與啟用 callback；通用 shell 負責順序、選取／收合、鍵盤導覽、首次延遲掛載、後續保留狀態，以及短高度／多功能時的 overflow menu。新增功能不增加 shell 的功能 ID 判斷；目前不建立第三方插件平台。

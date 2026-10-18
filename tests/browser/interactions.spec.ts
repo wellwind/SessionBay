@@ -3,6 +3,7 @@ for (const theme of ['dark', 'light']) {
   test(`${theme}: consistent rows, selection, delete and keyboard focus`, async ({ page }, info) => {
     await page.goto(`/tests/browser/interactions.html?theme=${theme}`);
     await page.locator('.project-main').filter({ hasText: '工作台介面' }).click();
+    await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
     const rows = page.getByRole('list', { name: 'Session 清單' }).getByRole('listitem');
     await expect(rows).toHaveCount(3);
     const row = rows.nth(1).locator('.session-card');
@@ -43,6 +44,7 @@ for (const theme of ['dark', 'light']) {
     expect(dismissBox!.x).toBeGreaterThan(undoBox!.x + undoBox!.width);
     expect(dismissBox!.x - (undoBox!.x + undoBox!.width)).toBeLessThan(20);
     await page.screenshot({ path: info.outputPath(`${theme}-undo-banner.png`) });
+    await page.getByRole('navigation', { name: '工作區功能' }).getByRole('button', { name: '專案', exact: true }).click();
     const project = page.locator('.project-main').first();
     await project.hover();
     await expect(project).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -64,6 +66,7 @@ test('touch actions remain visible and reduced motion removes transitions', asyn
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:1437/tests/browser/interactions.html');
   await page.locator('.project-main').filter({ hasText: '工作台介面' }).click();
+  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
   const remove = page.locator('.session-card-delete').first();
   await expect(remove).toHaveCSS('opacity', '1');
   await expect(remove).toHaveCSS('transition-duration', '0s');
