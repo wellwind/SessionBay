@@ -238,3 +238,13 @@ Session 列右側保留 32px 圖示動作；桌面 hover 或列內鍵盤焦點�
 刪除後的 Undo 焦點屬於當次刪除流程：父層 refresh 尚未完成時，任何新 focus、pointer 或 keyboard 操作會撤銷待執行的焦點回復；已有另一個 modal 時亦不接管焦點。僅在沒有新操作且焦點仍在原 trigger／body 時聚焦 Undo。
 
 Code Modern／Code2026 保留原 tab active／inactive／hover 配色，但高 specificity 的 tab hover 僅由主選取按鈕命中，rename／close 只亮自身並保留父 tab 選取底色與頂端邊線。Code palette 的列表／tab 鍵盤焦點保留 code-focus 色，改為 inset，避免被捲動容器裁切。新增兩套 Code palette × 深淺色的 computed-style 瀏覽器回歸（含未選取／已選取、三個 hover 命中區及鍵盤焦點），追加 12 張預期截圖，共 26 張、9 個 browser tests；結果仍待 Linux CI，不以 token 對比檢查代替瀏覽器驗證。
+
+## 2026-10-18 工作區密度與分頁調整
+
+工作區與檔案分頁共用直角、頂部選取線與 hover／focus 樣式。專注模式按鈕獨立於水平捲動區，固定在列右側。選取變更及可用寬度變更只揭露目前分頁；輸出更新與手動水平捲動不重設位置，不捲動整頁。
+
+右側 Activity 面板使用實體 1px 語意 border，避免子面板背景覆蓋 inset shadow。歷史標題 15px、摘要 13px，縮小上下 padding 並同步將虛擬列改為 176px。刪除結果沿用 toast 外觀、移至 body portal，不占列表空間；復原保留 FIFO 佇列、逐筆操作與既有確認／焦點規則，不自動逾時丟棄。
+
+此批的瀏覽器幾何與截圖驗收仍待資源充足的環境執行；單元測試不等於原生 Linux WebView／Snap 驗收。
+
+Zen 保留與一般模式相同的固定高度底部 statusbar；索引開始／進度／完成／取消／錯誤只替換列內內容，不再因 `statusbar-important` 切換而增減 Terminal 高度。模式切換本身的 fit 與索引期間的額外 resize 分開驗收。

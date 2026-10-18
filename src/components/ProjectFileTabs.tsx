@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { useActiveTabVisibility } from './useActiveTabVisibility';
 import { Pin, X } from 'lucide-react';
 import { FileIcon } from './ExplorerTree';
 import type { FileTabs, TabAction } from './explorer-model';
@@ -7,6 +8,7 @@ export function ProjectFileTabs({ state, active, dispatch, close }: {
   state: FileTabs; active: boolean; dispatch: (action: TabAction) => void; close: (path: string) => void;
 }) {
   const dragged = useRef('');
+  const activeTab = useActiveTabVisibility(active ? state.active ?? undefined : undefined);
   return <div className="project-file-tabs explorer" role="tablist" aria-label="唯讀檔案分頁" onKeyDown={event => {
     if (document.querySelector('[role="dialog"], dialog[open]') || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
@@ -22,7 +24,7 @@ export function ProjectFileTabs({ state, active, dispatch, close }: {
       tabs[next].focus(); tabs[next].click();
     } else if (!event.altKey && event.key === 'Delete') { event.preventDefault(); event.stopPropagation(); close(state.tabs[index].path); }
   }}>
-    {state.tabs.map(tab => <div key={tab.path} className={`project-file-tab${active && state.active === tab.path ? ' active' : ''}${tab.pinned ? ' pinned' : ' preview'}`} draggable
+    {state.tabs.map(tab => <div key={tab.path} ref={active && state.active === tab.path ? activeTab : undefined} className={`project-file-tab${active && state.active === tab.path ? ' active' : ''}${tab.pinned ? ' pinned' : ' preview'}`} draggable
       onDragStart={event => { event.stopPropagation(); dragged.current = tab.path; event.dataTransfer.clearData(); event.dataTransfer.setData('application/x-sessionbay-file-tab', 'internal'); event.dataTransfer.effectAllowed = 'move'; }}
       onDragEnd={event => { event.stopPropagation(); dragged.current = ''; }}
       onDragOver={event => { event.stopPropagation(); if (dragged.current) event.preventDefault(); }}

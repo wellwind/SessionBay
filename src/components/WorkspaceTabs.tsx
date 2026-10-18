@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { useActiveTabVisibility } from './useActiveTabVisibility';
 import { useAnimatedReorder } from './useAnimatedReorder';
 import { Pencil, TerminalSquare, X } from 'lucide-react';
 import { RuntimeActivityIndicator } from './RuntimeActivity';
@@ -18,6 +19,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
 }) {
   const [announcement, setAnnouncement] = useState('');
   const helpId = useId();
+  const activeTab = useActiveTabVisibility(activeId);
   const move = (id: string, targetId: string, after: boolean) => {
     const source = tabs.find((tab) => tab.id === id);
     const target = tabs.find((tab) => tab.id === targetId);
@@ -33,7 +35,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
     <span className="organization-sr-only" role="status" aria-live="polite">{announcement}</span>
     {tabs.map((tab, index) => <div key={tab.id}
       className={`workspace-tab ${tab.id === activeId ? 'active' : ''} ${reorder.className(tab.id)}`}
-      style={reorder.style(tab.id)} ref={element => reorder.ref(tab.id, element)}>
+      style={reorder.style(tab.id)} ref={element => { reorder.ref(tab.id, element); if (tab.id === activeId) activeTab.current = element; }}>
       <button className="workspace-tab-select" aria-current={tab.id === activeId ? 'true' : undefined} aria-label={`${tab.name} ${paneIds(tab.layout).length}`} aria-describedby={`${helpId}${panes ? ` ${helpId}-activity-${index}` : ''}`}
         aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
         title={tab.name}

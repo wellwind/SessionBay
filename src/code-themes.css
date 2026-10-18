@@ -11,19 +11,19 @@
 :root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tabs, .pane-toolbar, .pane-meta, .pane-footer, .statusbar) {
   background: var(--panel);
 }
-:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab, .workspace-tabs > .history-tab) {
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab, .project-file-tab, .workspace-tabs > .history-tab) {
   color: var(--code-tab-inactive-text);
   background: var(--code-tab-inactive);
   border-top: 2px solid transparent;
   border-bottom-color: transparent;
   border-right: 1px solid var(--border);
 }
-:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab.active, .workspace-tabs > .history-tab.active) {
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab.active, .project-file-tab.active, .workspace-tabs > .history-tab.active) {
   color: var(--code-tab-text);
   background: var(--code-tab-active);
   border-top-color: var(--code-tab-border);
 }
-:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab:has(> .workspace-tab-select:hover), .workspace-tabs > .history-tab:hover) {
+:root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(.workspace-tab:has(> .workspace-tab-select:hover), .project-file-tab:has(> button:first-child:hover), .workspace-tabs > .history-tab:hover) {
   background: var(--code-tab-hover);
 }
 :root:is([data-theme-palette='code-modern'], [data-theme-palette='code-2026']) :is(input, textarea, select, .select-trigger, .date-field, .search-field, .project-search.search-field) {

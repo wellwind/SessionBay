@@ -113,21 +113,13 @@ test('lifted source cannot hide the real Focus Exit control from drop validation
   const exit = page.getByRole('button', { name: '退出專注模式', exact: true });
   const strip = page.locator('.workspace-tabs');
   const tabs = page.locator('.workspace-tab-select');
-  // Overflow the real strip so its real sticky Exit overlaps a real tab.
-  await strip.evaluate(el => { (el as HTMLElement).style.maxWidth = '400px'; });
-  await strip.evaluate(el => {
-    const target = el.querySelectorAll('.workspace-tab')[2].getBoundingClientRect();
-    const exit = el.querySelector('.focus-mode-toggle')!.getBoundingClientRect();
-    el.scrollLeft += target.x + target.width / 2 - (exit.x + exit.width / 2);
-  });
-  const covered = (await page.locator('.workspace-tab').nth(2).boundingBox())!;
+  // The fixed control is now outside the scrolling drop region.
+  await page.locator('.workspace-tab-bar').evaluate(el => { (el as HTMLElement).style.maxWidth = '400px'; });
+  await strip.evaluate(el => { el.scrollLeft = 0; });
   const control = (await exit.boundingBox())!;
   const x = control.x + control.width / 2;
   const y = control.y + control.height / 2;
-  expect(x).toBeGreaterThan(covered.x);
-  expect(x).toBeLessThan(covered.x + covered.width);
-  expect(y).toBeGreaterThan(covered.y);
-  expect(y).toBeLessThan(covered.y + covered.height);
+  expect(x).toBeGreaterThan((await strip.boundingBox())!.x + (await strip.boundingBox())!.width);
   expect(await exit.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); })).toBe(true);
   const from = (await tabs.first().boundingBox())!;
   const saved = await page.evaluate(() => localStorage.getItem('workspace-test'));
@@ -168,17 +160,89 @@ for (const width of [800, 1200]) test(`tab strip edge spacing and overflow at ${
     })).toBe(true);
     expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: info.outputPath(`tab-edges-${focused}.png`), fullPage: true });
-    await strip.evaluate(element => { (element as HTMLElement).style.maxWidth = '320px'; });
+    await page.locator('.workspace-tab-bar').evaluate(element => { (element as HTMLElement).style.maxWidth = '320px'; });
     expect(await strip.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
     for (const end of [false, true]) {
       await strip.evaluate((element, end) => { element.scrollLeft = end ? element.scrollWidth : 0; }, end);
-      const box = (await strip.boundingBox())!;
+      const box = (await page.locator('.workspace-tab-bar').boundingBox())!;
       const button = (await toggle.boundingBox())!;
       expect(Math.abs(button.x + button.width - box.x - box.width)).toBeLessThanOrEqual(1);
       await expect(toggle).toBeInViewport();
     }
-    await strip.evaluate(element => { (element as HTMLElement).style.maxWidth = ''; });
+    await page.locator('.workspace-tab-bar').evaluate(element => { (element as HTMLElement).style.maxWidth = ''; });
   }
   await page.getByRole('button', { name: '退出專注模式', exact: true }).press('Enter');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', 'false');
+});
+
+for (const theme of ['dark', 'light']) test(`active overflow tabs and fixed rectangular controls in ${theme}`, async ({ page }, info) => {
+  await page.setViewportSize({ width: 800, height: 850 });
+  await page.goto(`/tests/browser/workspace-tabs.html?overflow=1&theme=${theme}`);
+  await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab b', exact: true }).click();
+  const strip = page.locator('.workspace-tabs');
+  const bar = page.locator('.workspace-tab-bar');
+  const visible = async () => {
+    const viewport = (await strip.boundingBox())!;
+    const active = (await page.locator('.workspace-tab.active').boundingBox())!;
+    expect(active.x).toBeGreaterThanOrEqual(viewport.x - 1);
+    expect(active.x + active.width).toBeLessThanOrEqual(viewport.x + viewport.width + 1);
+    expect(await page.evaluate(() => ({ x: scrollX, y: scrollY }))).toEqual({ x: 0, y: 0 });
+  };
+  for (const zen of [false, true]) {
+    if (zen) await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+    for (const zoom of [1, 1.25]) {
+      await bar.evaluate((el, zoom) => { (el as HTMLElement).style.zoom = String(zoom); }, zoom);
+      await page.keyboard.press('Control+9');
+      await expect(page.locator('.workspace-tab.active .workspace-tab-name')).toHaveText('Tab extra-11');
+      await visible();
+      await page.keyboard.press('Control+1'); await visible();
+      await page.keyboard.press('Control+Tab'); await visible();
+      // Sidebar selection exercises the programmatic focus path, without
+      // Playwright scrolling the tab itself before clicking it.
+      await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab extra-11', exact: true, includeHidden: true }).evaluate((el: HTMLButtonElement) => el.click());
+      await visible();
+      await page.locator('.workspace-tab-select').first().click(); await visible();
+      const toggle = page.getByRole('button', { name: zen ? '退出專注模式' : '進入專注模式', exact: true });
+      const before = (await toggle.boundingBox())!;
+      await strip.evaluate(el => { el.scrollLeft = el.scrollWidth; });
+      await page.waitForTimeout(150);
+      expect((await toggle.boundingBox())!.x).toBeCloseTo(before.x, 0);
+      expect(await toggle.evaluate(el => getComputedStyle(el).borderRadius)).toBe('0px');
+      expect(await strip.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+    }
+    await page.screenshot({ path: info.outputPath(`overflow-${theme}-${zen}.png`) });
+  }
+});
+
+test('history density, divider and queued undo toast retain geometry at CSS zoom', async ({ page }, info) => {
+  await page.setViewportSize({ width: 900, height: 850 });
+  await page.goto('/tests/browser/workspace-tabs.html?history=1&theme=light');
+  await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab b', exact: true }).click();
+  const panel = page.locator('.activity-panel-shell:visible');
+  await expect(panel).toBeVisible();
+  expect(await panel.evaluate(el => getComputedStyle(el).borderLeftWidth)).toBe('1px');
+  const list = panel.locator('.session-list');
+  for (const zoom of [1, 1.25]) {
+    await panel.evaluate((el, zoom) => { (el as HTMLElement).style.zoom = String(zoom); }, zoom);
+    const rows = list.locator('.virtual-session-row');
+    await expect(rows.first()).toBeVisible();
+    const first = (await rows.nth(0).boundingBox())!, second = (await rows.nth(1).boundingBox())!;
+    expect(first.height).toBeCloseTo(176 * zoom, 0);
+    expect(second.y).toBeCloseTo(first.y + first.height, 0);
+    const title = await rows.first().locator('h3').evaluate(el => getComputedStyle(el).fontSize);
+    expect(title).toBe('15px');
+  }
+  const before = (await list.boundingBox())!;
+  for (let i = 0; i < 2; i++) {
+    await list.getByRole('button', { name: /^刪除 Session/ }).first().click();
+    await page.getByRole('button', { name: '確認移入資源回收筒', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+  await expect(page.getByText('還有 1 筆可依序復原。')).toBeVisible();
+  const after = (await list.boundingBox())!;
+  expect(after.y).toBeCloseTo(before.y, 0); expect(after.height).toBeCloseTo(before.height, 0);
+  expect(await page.locator('.history-undo').evaluate(el => el.parentElement === document.body && getComputedStyle(el).position === 'fixed')).toBe(true);
+  await page.screenshot({ path: info.outputPath('history-density-undo.png'), fullPage: true });
+  await page.getByRole('button', { name: '復原刪除', exact: true }).click();
+  await expect(page.getByText('還有 1 筆可依序復原。')).toHaveCount(0);
 });

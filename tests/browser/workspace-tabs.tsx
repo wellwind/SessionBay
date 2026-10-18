@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from '../../src/App';
 import { api } from '../../src/api';
 import { defaultAgentOptions } from '../../src/agents';
-import type { Bootstrap } from '../../src/types';
+import type { Bootstrap, Session, Workspace } from '../../src/types';
 import '../../src/styles.css';
 import '../../src/workbench.css';
 
@@ -25,6 +25,16 @@ const data: Bootstrap = {
       name: `Tab ${id}`, focusedPaneId: id, layout: { kind: 'pane', paneId: id } })),
     activeTabByProject: { p0: 'b', p1: 'other' }, activeTemporaryTabId: 'global-a' },
 };
+const params = new URLSearchParams(location.search);
+if (params.get('theme') === 'light') data.settings.theme = 'light';
+if (params.has('overflow')) {
+  const workspace = data.workspace as Workspace;
+  for (let i = 0; i < 12; i++) {
+    const id = `extra-${i}`;
+    workspace.panes[id] = { ...workspace.panes.a, id, title: id };
+    workspace.tabs.push({ id, projectId: 'p0', name: `Tab ${id}`, focusedPaneId: id, layout: { kind: 'pane', paneId: id } });
+  }
+}
 api.bootstrap = async () => ({ ...data, workspace: JSON.parse(localStorage.getItem('workspace-test') || JSON.stringify(data.workspace)) });
 api.listWorkspaceFiles = async () => ({ entries: [], nextOffset: null });
 api.readWorkspaceFile = async () => { throw new Error('No file fixture is configured for this scenario'); };
@@ -35,3 +45,14 @@ api.saveWorkspace = async workspace => { localStorage.setItem('workspace-test', 
 api.setWorkspaceZoom = async () => {};
 api.sessions = async () => ({ catalogRevision: 'fixture', items: [], total: 0 });
 createRoot(document.getElementById('root')!).render(<App />);
+
+if (params.has('history')) {
+  const sessions: Session[] = Array.from({ length: 24 }, (_, i) => ({ id: `session-${i}`, title: `Synthetic long title ${i} 中文多行標題與足夠長的內容驗證可讀性及虛擬列間距`,
+    sourceId: 'synthetic', kind: 'codex', externalId: `synthetic-${i}`, projectId: 'p0', cwd: '/synthetic/long/path',
+    updatedAt: '2026-10-18T12:00:00Z', timeSource: 'event', archived: false, parentId: null, partial: false,
+    snippet: 'Synthetic multiline content 中文內容提供閱讀脈絡與長段文字，確認放大後仍可辨認並保持穩定行距。', trashIdentity: `identity-${i}` }));
+  const deleted = new Set<string>();
+  api.sessions = async () => { const items = sessions.filter(item => !deleted.has(item.id)); return { catalogRevision: `fixture-${deleted.size}`, items, total: items.length }; };
+  api.trashSession = async id => { deleted.add(id); return id; };
+  api.restoreSession = async id => { deleted.delete(id); };
+}

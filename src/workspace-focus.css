@@ -1,20 +1,19 @@
 /* Focus is app chrome presentation, never another workspace or native fullscreen. */
 .app-shell.workspace-focus > .app-topbar,
-.app-shell.workspace-focus .project-header,
-.app-shell.workspace-focus > .statusbar:not(.statusbar-important) {
+.app-shell.workspace-focus .project-header {
   display: none;
 }
 .focus-mode-toggle,
-.workspace-tabs > .focus-mode-toggle {
+.workspace-tab-bar > .focus-mode-toggle {
   min-width: 44px;
   min-height: 44px;
   color: var(--text);
 }
-.workspace-tabs > .focus-mode-toggle {
+.workspace-tab-bar > .focus-mode-toggle {
   flex-shrink: 0;
-  margin-left: auto;
-  position: sticky;
-  right: -1px;
+  align-self: stretch;
+  margin: 0;
+  border-radius: 0;
   z-index: 2;
   background: var(--panel);
   border-left: 1px solid var(--border);
@@ -35,3 +34,23 @@
 .workspace-focus .workspace-tabs {
   flex-shrink: 0;
 }
+
+/* Runtime and file tabs share geometry and interaction states. */
+.workspace-tabs :is(.workspace-tab, .project-file-tab) {
+  flex: 0 0 auto; min-height: 44px; border-radius: 0;
+  border-top: 2px solid transparent; border-right: 1px solid var(--border); border-bottom: 0;
+  color: var(--muted); background: var(--panel);
+}
+.workspace-tabs :is(.workspace-tab, .project-file-tab).active {
+  border-top-color: var(--accent); color: var(--accent); background: var(--accent-bg);
+}
+.workspace-tabs :is(.workspace-tab, .project-file-tab):has(> button:first-child:hover) { background: var(--surface-hover); }
+.workspace-tabs :is(.workspace-tab, .project-file-tab).active:has(> button:first-child:hover) { background: var(--interaction-selected-hover); }
+.workspace-tabs :is(.workspace-tab, .project-file-tab) > button:first-child {
+  align-self: stretch; border-radius: 0; min-height: 40px; font-size: 12px; --interaction-hover: transparent;
+}
+.workspace-tabs :is(.workspace-tab, .project-file-tab) > button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -3px;
+}
+.workspace-tab-bar > .focus-mode-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.workspace-tabs :is(.project-file-tabs-group, .project-file-tabs) { height: auto; align-self: stretch; }

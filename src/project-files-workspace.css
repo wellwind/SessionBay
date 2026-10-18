@@ -35,7 +35,7 @@
 .app-body > .sidebar { width: 236px; padding: 12px 10px 0; }
 .project-activity-tools { display: flex; flex: 0 0 auto; min-width: 0; min-height: 0; max-width: 45%; }
 .project-activity-tools .activity-sessions-panel { flex: 1; width: 100%; border-right: 0; }
-.project-activity-tools .workspace-activity-bar { border: 0; box-shadow: inset 1px 0 0 var(--border); }
+.project-activity-tools .workspace-activity-bar { border: 0; border-left: 1px solid var(--border); }
 .project-activity-tools .workspace-activity[aria-pressed='true']::before { left: auto; right: 0; }
 .project-activity-tools .activity-overflow-menu, .project-activity-tools .activity-tooltip { left: auto; right: 100%; }
 .project-activity-tools .project-files-sidebar-host { flex-shrink: 1; }
@@ -59,3 +59,22 @@
 .activity-history-browser .session-card h3 { font-size: 13px; line-height: 1.4; margin: 8px 0 4px; }
 .activity-history-browser .session-snippet { margin: 4px 0; line-height: 1.4; }
 .activity-history-browser .agent-badge { padding: 0; }
+
+/* 176px virtual rows budget for two title/snippet lines and wrapped metadata. */
+.session-list .virtual-session-row { padding-block: 2px; }
+.session-list .session-card > .session-card-select { padding: 8px 10px; }
+.session-list .session-card h3 { font-size: 15px; line-height: 1.4; margin: 5px 0 4px; }
+.session-list .session-snippet { font-size: 13px; line-height: 1.5; margin: 0; }
+.session-list .session-card-meta { margin-top: 5px; font-size: 11px; line-height: 1.4; }
+.session-list .session-time { font-size: 11px; line-height: 1.4; }
+.toast.history-undo {
+  width: min(540px, calc(100vw - 32px)); max-width: calc(100vw - 32px);
+  max-height: min(35vh, 240px); overflow: auto; padding: 12px 16px;
+  color: var(--text); background: var(--panel); gap: 12px;
+}
+.history-undo-message { flex: 1; min-width: 0; }
+.history-undo-message p { margin: 0; overflow-wrap: anywhere; }
+.history-undo-actions > button { min-height: 36px; }
+@media (max-width: 600px) { .toast.history-undo { right: 16px; flex-wrap: wrap; } }
+
+.history-undo-message > p:first-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

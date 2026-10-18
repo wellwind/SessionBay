@@ -139,3 +139,19 @@ test('partial and last-cell OSC8 attributes cannot shadow a file candidate while
   await expect(page.getByLabel('唯讀內容：src/index.ts')).toBeVisible();
   await expect(page.locator('.explorer-status')).toContainText('已定位第 2 行、第 3 欄'); await intact(page);
 });
+
+test('file and runtime tabs share rectangular geometry and active borders', async ({ page }) => {
+  await openWorkspace(page);
+  await clickLink(page, 'ABS ', '/synthetic/focus/src/index.ts:2:3');
+  const style = (element: Element) => {
+    const css = getComputedStyle(element);
+    return { height: element.getBoundingClientRect().height, radius: css.borderRadius,
+      border: css.borderTopWidth, borderStyle: css.borderTopStyle, color: css.borderTopColor, background: css.backgroundColor };
+  };
+  const file = await page.locator('.project-file-tab.active').evaluate(style);
+  await page.locator('.workspace-tab-select').filter({ hasText: 'Focus shell' }).click();
+  const runtime = await page.locator('.workspace-tab.active').evaluate(style);
+  expect(file).toEqual(runtime);
+  expect(runtime.radius).toBe('0px'); expect(runtime.border).toBe('2px');
+  await intact(page);
+});

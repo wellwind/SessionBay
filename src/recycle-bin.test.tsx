@@ -251,3 +251,23 @@ it('returns keyboard focus through inspection and restores the original modal la
   expect(launcher).toHaveFocus();
   launcher.remove();
 });
+
+it('keeps consecutive deletions queued in a portal toast and restores each original id', async () => {
+  vi.mocked(api.trashSession).mockResolvedValueOnce('first').mockResolvedValueOnce('second');
+  const { container } = render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} />);
+  for (let index = 0; index < 2; index++) {
+    fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
+    fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: '復原刪除' })).toBeEnabled());
+  }
+  expect(screen.getByText('還有 1 筆可依序復原。')).toBeInTheDocument();
+  expect(container.querySelector('.history-undo')).toBeNull();
+  expect(document.body.querySelector('.toast.history-undo')).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '復原刪除' }));
+  await waitFor(() => expect(api.restoreSession).toHaveBeenCalledWith('first'));
+  await waitFor(() => expect(screen.queryByText('還有 1 筆可依序復原。')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('button', { name: '復原刪除' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '復原刪除' }));
+  await waitFor(() => expect(api.restoreSession).toHaveBeenCalledWith('second'));
+});

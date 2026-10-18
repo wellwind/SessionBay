@@ -4,7 +4,7 @@
 .workspace-activity[aria-pressed='true']::before { content: ''; position: absolute; inset: 7px auto 7px 0; width: 2px; background: var(--accent); }
 .workspace-activity:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .activity-badge { position: absolute; right: 2px; bottom: 3px; max-width: 38px; overflow: hidden; padding: 0 3px; background: var(--accent); color: var(--on-accent); font-size: 10px; line-height: 14px; border-radius: 3px; }
-.activity-panel-shell { position: relative; display: flex; flex: 0 1 auto; min-width: 0; min-height: 0; box-shadow: inset 1px 0 0 var(--border); }
+.activity-panel-shell { position: relative; display: flex; flex: 0 1 auto; min-width: 0; min-height: 0; border-left: 1px solid var(--border); }
 .activity-panel-shell[hidden] { display: none; }
 .activity-panel { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; overflow: hidden; }
 .activity-panel > * { width: 100%; min-width: 0; }
