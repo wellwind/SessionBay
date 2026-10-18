@@ -9,6 +9,8 @@ mod provider_hooks;
 pub use provider_hooks::{send_provider_callback, send_provider_state};
 mod screen;
 mod transport;
+mod ui_lease;
+mod ui_owner;
 use crate::runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent};
 pub use client::{BrokerClient, OrderedActivityPublisher};
 use interprocess::local_socket::tokio::{prelude::*, Stream};
@@ -21,6 +23,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
+pub(crate) use ui_owner::NativeUiLease;
 use uuid::Uuid;
 
 pub const PROTOCOL: u32 = 1;
@@ -117,6 +120,19 @@ impl UiEvent {
 enum Request {
     Hello {
         protocol: u32,
+    },
+    AcquireUiLease {
+        generation: String,
+        offer: String,
+    },
+    RenewUiLease {
+        generation: String,
+        lease: String,
+        sequence: u64,
+    },
+    ReleaseUiLease {
+        generation: String,
+        lease: String,
     },
     List {
         generation: String,
@@ -215,7 +231,10 @@ impl Request {
     fn generation(&self) -> Option<&str> {
         match self {
             Self::Hello { .. } => None,
-            Self::List { generation }
+            Self::AcquireUiLease { generation, .. }
+            | Self::RenewUiLease { generation, .. }
+            | Self::ReleaseUiLease { generation, .. }
+            | Self::List { generation }
             | Self::Launch { generation, .. }
             | Self::FindResume { generation, .. }
             | Self::Poll { generation, .. }
@@ -250,6 +269,13 @@ enum Response {
         generation: String,
         #[serde(default)]
         capabilities: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ui_lease_offer: Option<String>,
+    },
+    UiLease {
+        lease: String,
+        sequence: u64,
+        valid_for_ms: u64,
     },
     Records {
         records: Vec<RuntimeRecord>,
@@ -280,6 +306,7 @@ struct Host {
     shutdown: std::sync::atomic::AtomicBool,
     shutdown_reply_complete: tokio::sync::Notify,
     persisted: Mutex<Vec<u8>>,
+    ui_leases: Mutex<ui_lease::Registry>,
 }
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value.lock().unwrap_or_else(|error| error.into_inner())
@@ -337,6 +364,7 @@ impl Host {
             shutdown: std::sync::atomic::AtomicBool::new(false),
             shutdown_reply_complete: tokio::sync::Notify::new(),
             persisted: Mutex::new(Vec::new()),
+            ui_leases: Mutex::new(ui_lease::Registry::default()),
         });
         host.persist()?;
         Ok(host)
@@ -411,12 +439,23 @@ impl Host {
                     protocol: PROTOCOL,
                     generation: self.generation.clone(),
                     capabilities: vec![
+                        ui_lease::CAPABILITY.into(),
                         HOME_DIRECTORY_CAPABILITY.into(),
                         ACTIVITY_CAPABILITY.into(),
                         TERMINAL_STATUS_CAPABILITY.into(),
                         crate::provider_hooks::CAPABILITY.into(),
                     ],
+                    ui_lease_offer: self.ui_leases()?.offer(Instant::now()),
                 })
+            }
+            Request::AcquireUiLease { offer, .. } => {
+                self.ui_leases()?.acquire(&offer, Instant::now())
+            }
+            Request::RenewUiLease {
+                lease, sequence, ..
+            } => self.ui_leases()?.renew(&lease, sequence, Instant::now()),
+            Request::ReleaseUiLease { lease, .. } => {
+                self.ui_leases()?.release(&lease, Instant::now())
             }
             Request::List { .. } => Ok(Response::Records {
                 records: self.records(),

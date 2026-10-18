@@ -75,6 +75,7 @@ pub struct Service {
     fresh_launch_control: Arc<crate::fresh_launch::FreshLaunchControl>,
     launch_provenance: Mutex<Option<crate::launch_provenance::LaunchProvenance>>,
     broker: Option<BrokerClient>,
+    ui_owner: Mutex<Option<crate::broker::NativeUiLease>>,
     settings: Mutex<Settings>,
     index: Mutex<IndexStatus>,
     scan_guard: Mutex<()>,
@@ -93,7 +94,13 @@ impl Service {
         let config = ConfigStore::open(directory.clone())?;
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;
         let broker = BrokerClient::connect(&config.directory, &executable)?;
-        Self::open_internal(directory, Some(broker))
+        let owner = broker.start_ui_owner()?;
+        let service = Self::open_internal(directory, Some(broker))?;
+        *service
+            .ui_owner
+            .lock()
+            .map_err(|_| "UI owner lock unavailable")? = owner;
+        Ok(service)
     }
     fn open_internal(
         directory: PathBuf,
@@ -115,6 +122,7 @@ impl Service {
             fresh_launch_control,
             launch_provenance: Mutex::new(None),
             broker,
+            ui_owner: Mutex::new(None),
             settings: Mutex::new(settings),
             index: Mutex::new(empty_index()),
             scan_guard: Mutex::new(()),
@@ -826,6 +834,11 @@ impl Service {
             broker.detach_all();
         }
         self.runtime.shutdown()?;
+        // Native owner survives renderer reload; close only after local shutdown succeeds.
+        self.ui_owner
+            .lock()
+            .map_err(|_| "UI owner lock unavailable")?
+            .take();
         self.closed.store(true, Ordering::Release);
         Ok(())
     }
@@ -936,6 +949,76 @@ fn empty_index() -> IndexStatus {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn native_service_close_preserves_broker_idle_prompt_and_original_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = temp.path().join("app");
+        ConfigStore::open(app.clone()).unwrap();
+        let broker_dir = app.clone();
+        let host = std::thread::spawn(move || crate::broker::run(broker_dir));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let client = loop {
+            if let Ok(client) = BrokerClient::existing_for_test(&app) {
+                break client;
+            }
+            assert!(!host.is_finished());
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let owner = client.start_ui_owner().unwrap().unwrap();
+        let service = Service::open_internal(app, Some(client.clone())).unwrap();
+        *service.ui_owner.lock().unwrap() = Some(owner);
+        let request = LaunchRequest {
+            pane_id: "native-owner-prompt".into(),
+            kind: "shell".into(),
+            project_id: Some("synthetic-project".into()),
+            session_id: None,
+            resume_id: None,
+            cwd: Some(temp.path().to_string_lossy().into_owned()),
+            profile_id: None,
+            cols: 80,
+            rows: 24,
+        };
+        let info = client
+            .launch_unattached(
+                LaunchSpec {
+                    executable: "/bin/sh".into(),
+                    args: vec![
+                        "-c".into(),
+                        "read value; test \"$value\" = after-close".into(),
+                    ],
+                    cwd: temp.path().into(),
+                    env: std::collections::HashMap::from([(
+                        "HOME".into(),
+                        temp.path().to_string_lossy().into_owned(),
+                    )]),
+                    session_id: None,
+                    resume_key: None,
+                    pane_id: request.pane_id.clone(),
+                },
+                &request,
+            )
+            .unwrap();
+        service.shutdown().unwrap();
+        drop(service);
+        let records = client.list().unwrap();
+        assert_eq!(records[0].info.id, info.id);
+        assert_eq!(records[0].info.state, "running");
+        client.write(&info.id, "after-close\n").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if client.list().unwrap()[0].info.state == "exited" {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(client.list().unwrap()[0].info.exit_code, Some(0));
+        client.shutdown_broker().unwrap();
+        host.join().unwrap().unwrap();
+    }
+
     #[test]
     fn failed_revision_read_does_not_mark_an_unstarted_scan_running() {
         let dir = tempfile::tempdir().unwrap();

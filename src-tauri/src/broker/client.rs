@@ -36,6 +36,7 @@ struct Inner {
     terminal_status_supported: bool,
     provider_hooks_supported: bool,
     subscriptions: Mutex<HashMap<String, Arc<Subscription>>>,
+    ui_lease_offer: Mutex<Option<String>>,
 }
 /// Dropping this handle disconnects UI rendering only. It never stops the broker.
 #[derive(Clone)]
@@ -171,6 +172,7 @@ impl BrokerClient {
                 protocol: PROTOCOL,
                 generation,
                 capabilities,
+                ui_lease_offer,
             } => Ok(Self {
                 inner: Arc::new(Inner {
                     directory: directory.into(),
@@ -188,6 +190,13 @@ impl BrokerClient {
                         .iter()
                         .any(|value| value == crate::provider_hooks::CAPABILITY),
                     subscriptions: Mutex::new(HashMap::new()),
+                    ui_lease_offer: Mutex::new(
+                        capabilities
+                            .iter()
+                            .any(|value| value == super::ui_lease::CAPABILITY)
+                            .then_some(ui_lease_offer)
+                            .flatten(),
+                    ),
                 }),
             }),
             _ => Err("Incompatible runtime broker response".into()),
@@ -197,6 +206,19 @@ impl BrokerClient {
     pub(crate) fn existing_for_test(parent: &Path) -> Result<Self, String> {
         let directory = transport::private_directory(parent).map_err(|error| error.to_string())?;
         Self::existing(&directory)
+    }
+    pub(crate) fn start_ui_owner(&self) -> Result<Option<super::NativeUiLease>, String> {
+        // One native owner per handshake, shared across all client clones.
+        let Some(offer) = self
+            .inner
+            .ui_lease_offer
+            .lock()
+            .map_err(|_| "UI lease offer unavailable")?
+            .take()
+        else {
+            return Ok(None);
+        };
+        super::NativeUiLease::start(&self.inner.directory, &self.inner.generation, &offer).map(Some)
     }
     pub(crate) fn generation(&self) -> String {
         self.inner.generation.clone()

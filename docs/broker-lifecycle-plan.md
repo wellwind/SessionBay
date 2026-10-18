@@ -13,7 +13,7 @@
 
 ## 現況與缺口
 
-目前 GUI 關閉保存 workspace 並 detach renderer，broker 繼續持有 PTY。broker 使用固定 `runtime-broker-v1` endpoint 與 OS ownership lock，沒有閒置自退、持續 UI lease、版本 registry 或 drain 協定。250 ms accept timeout 只供維護，不能當自退計時；MAX_CLIENTS 是進行中的 IPC 數量，不能代表有幾個 UI。
+目前 GUI 關閉保存 workspace 並 detach renderer，broker 繼續持有 PTY。L1b 新增 generation-local UI lease，仍不以 lease 推定工作已結束。broker 使用固定 `runtime-broker-v1` endpoint 與 OS ownership lock，沒有閒置自退、版本 registry 或 drain 協定。250 ms accept timeout 只供維護，不能當自退計時；MAX_CLIENTS 是進行中的 IPC 數量，不能代表有幾個 UI。
 
 目前內部 Shutdown 能要求受管工作停止，但 GUI 尚無上述確認入口。runtime 的 failed 狀態也可能伴隨 ownership lost／cleanup error，不能單靠 List 的非 running 狀態判斷可安全退出。
 
@@ -30,12 +30,12 @@
 
 ### L1 拆分與目前邊界
 
-- L1a（本次）：RuntimeManager 保守證據記帳、`quiescence()` snapshot 與原子 `try_close_if_quiescent()` admission seal；只對隔離工作測試，不啟用 broker 自退。本機測試通過，Linux CI 與獨立 review 待確認。
-- L1b：協商式 UI lease 的 acquire／renew／release、crash／reload／過期與 legacy 退路。
+- L1a（#82 已合併）：RuntimeManager 保守證據記帳、`quiescence()` snapshot 與原子 `try_close_if_quiescent()` admission seal；只對隔離工作測試，不啟用 broker 自退。本機測試、獨立 review 與 exact-head Linux CI 通過；合併後 main CI 39123974759 成功。
+- L1b（本次）：協商式 UI lease 的 acquire／renew／release、native Service owner 與 legacy 退路；Mac 隔離 core／desktop 測試通過，尚待 Linux CI 與獨立 review。
 - L1c：broker 整段 Launch admission、歷史 owner 不確定性、lease 與 grace timer 的同步邊界，再啟用安全自退。RuntimeManager 的 snapshot 不能代替這些證明，舊 UI／broker 不因一次 List 空而退出。
 - L1d：Stop all 的使用者確認、admission 關閉及部分清理失敗回報。
 
-現有 Unix snapshot 枚舉不是原子 job membership 證明，不能因 reap leader／PTY 關閉就認定沒有同 session 子孫；本 PR 不讓任何現有平台 worker 設定正向 containment proof。實際執行過工作後目前保持 Unverified，只有從未使用且無不明 rollback 的空 manager 可 Proven／seal。嚴格 containment 方案待後續決策，不以多次掃描替代。L1a 的不確定性在記錄淘汰後保留；因目前 spawn rollback 無正向結果，任何平台 spawn 錯誤均保守禁止該 manager 的 idle seal。正常手動啟動不因此停用。尚未決定 lease／grace 時限，也未接入 production idle-exit caller，以上 L1 整體驗收不得勾選完成。
+現有 Unix snapshot 枚舉不是原子 job membership 證明，不能因 reap leader／PTY 關閉就認定沒有同 session 子孫；本 PR 不讓任何現有平台 worker 設定正向 containment proof。實際執行過工作後目前保持 Unverified，只有從未使用且無不明 rollback 的空 manager 可 Proven／seal。嚴格 containment 方案待後續決策，不以多次掃描替代。L1a 的不確定性在記錄淘汰後保留；因目前 spawn rollback 無正向結果，任何平台 spawn 錯誤均保守禁止該 manager 的 idle seal。正常手動啟動不因此停用。L1b 選用 offer 30 秒、lease 60 秒、native 續期 5 秒；grace 留待 L1c。未接入 production idle-exit caller，以上 L1 整體驗收不得勾選完成。
 
 ### L1a 本機驗證（2026-10-18，Apple Silicon macOS）
 
@@ -111,3 +111,20 @@
 - [ ] Linux tests、真實瀏覽器與必要程序驗證；模型回合與 Mac／Windows 驗收另列證據。
 
 原始碼現況：`src-tauri/src/broker.rs`、`broker/client.rs`、`broker/transport.rs`、`runtime/unix.rs`、`fresh_launch.rs`、`service.rs`。本文件僅記錄已批准方向與待辦，不代表程式已新增這些能力。
+
+### L1b：native owner 與保守新舊協商
+
+Hello request 維持原 v1 格式，只在 response 加能力與一次性 offer；舊 response decoder 可忽略此欄位。新版 Service 明確取得自己的 lease，guard 不可 Clone，持續至 Service shutdown 或 drop，renderer reload／client clone 不影響它。專用 worker 依序處理 renew→release；正常關閉只 best-effort Release，永不發 broker Shutdown／Stop／Forget／revoke。Acquire 重送回既有 lease／期限；Renew sequence 重送回原期限，過期或 release 後不復活。所有命令檢查原 generation，失聯不 reconnect、不重送 Launch。
+
+未 redeem 的 Hello、逾期 lease、clock 回退、容量耗盡保留 unknown pin；mutex poison 拒絕 lifecycle evidence，不影響既有 List／互動命令。最多保留 128 個 offer／tombstone，滿時仍可回 Hello 及原功能，但不再新增 lease，並保守禁止將此 generation 視作無 UI。舊 broker 不支援能力時不傳 lease 命令，不嘗試停止／替換它。新 UI 的 lease 不能清除其他舊 UI 或失聯證據。
+
+這版沒有 idle-exit caller，也沒有 lease 到期即宣稱 UI／工作消失。native crash／長暫停可能留下整個 generation 的 pin，需要人工管理；不以 TTL、PID snapshot 或 runtime List 空來降低證據要求。真正的 broker admission、歷史 owner、containment 與升級 drain 仍待 L1c／L2–L4。暫停期間的 Instant 行為不作跨平台死亡證明，clock 測試僅驗證 injected 時間邊界與回退 fail closed。
+
+### L1b 本機驗證（2026-10-18，Apple Silicon macOS）
+
+- 初版 head `bf03f72`：Rust 1.99、既有 sparse cache、`--locked --offline`，core 587 passed／3 ignored，desktop feature 591 passed／3 ignored；兩種 feature 的 all-targets Clippy（`-D warnings`）、rustfmt 與 diff whitespace check 通過。
+- 10 項新增測試涵蓋 acquire／renew lost reply 不延長、release／expiry 不復活、legacy dormant Hello／容量／clock pin、generation／mutex poison、舊 response decoder／能力協商、單一 native owner、renew 與 close gate。Service 關閉後隔離 idle Shell 仍保有同一 identity，能接收輸入並以 0 退出。
+- 沒有安裝工具／套件、沒有讀取真實對話或啟動模型；重用單一約 2.1 GiB target、低並行、專用 `/private/tmp/sessionbay-l1-tests`。測試以合成時間與 channel 排序驗證邊界，不宣稱 Mac／Windows 的實際 suspend／crash 原生驗收已完成。
+- Linux exact-head CI 與修正後獨立 review 留待 PR；無自退／drain／多版本 owner routing，完整 L1 仍不勾選。
+
+L1b review 另發現到期後時鐘回退可讓 lease／offer 重新有效；unknown pin 雖保守保留 broker，但不能替代不可復活契約。修正為鎖內永久 expired flag，所有 acquire／renew／有效 lease 統計尊重此旗標。新增兩項組合回歸先於原碼失敗，修正後六項 lease 單元測試通過；完整 Mac 與 exact-head Linux 重跑結果以 PR 紀錄為準，不沿用初版 head 的成功宣稱修正版本已通過。

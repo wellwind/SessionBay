@@ -298,7 +298,7 @@ Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 op
 - [ ] Legacy 限制、共用資料單 writer／schema 過渡、更新與 rollback 驗收。
 - [x] #78 已合併：已知 preflight 未啟動後的單次無 hooks 按鈕，保留原參數且不重送 unknown outcome。
 
-L1a 保守 runtime 證據記帳與原子 admission seal 已實作於獨立 PR，獨立 review 的 poison／snapshot proof 修正後本機 core／desktop feature 回歸通過，更新 head 的 Linux CI 與覆核待確認；它不啟用 broker 自退。後續依序是協商式 UI lease、完整 broker admission／idle timer 整合及 Stop all。上述完整生命週期仍未完成；不能將 runtime snapshot 或 List 空陣列當成停止服務的授權。
+L1a 保守 runtime 證據記帳與原子 admission seal 已於 #82 合併，review 修正、本機 core／desktop 與 Linux CI 通過。L1b 本次接入協商式 UI lease 與 native owner，保守保留 legacy／失聯 pin，Mac core／desktop 測試與 Clippy 通過，Linux CI 與 review 待確認；兩者都不啟用 broker 自退。後續依序是完整 broker admission／idle timer 整合及 Stop all。上述完整生命週期仍未完成；不能將 runtime snapshot 或 List 空陣列當成停止服務的授權。
 
 ## Terminal 檔名點開 tab（待實作，Snap 之後）
 

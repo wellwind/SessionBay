@@ -206,6 +206,7 @@ fn home_policy_validation_and_generation_authority_are_preserved() {
             protocol: PROTOCOL,
             generation: host.generation.clone(),
             capabilities: vec![HOME_DIRECTORY_CAPABILITY.into()],
+            ui_lease_offer: None,
         },
     )
     .unwrap();
@@ -245,6 +246,7 @@ fn legacy_encoded_global_shell_launches_resolved_home_without_a_project() {
             protocol: PROTOCOL,
             generation: host.generation.clone(),
             capabilities: vec![],
+            ui_lease_offer: None,
         },
     )
     .unwrap();
@@ -399,4 +401,41 @@ fn hooks_preflight_classifies_only_missing_capability_and_preserves_spec() {
         opted_out.env.remove(crate::provider_hooks::OPT_IN);
         assert!(client.check_provider_hooks(&opted_out).is_ok());
     }
+}
+
+#[test]
+fn lease_offer_is_compatible_with_old_response_decoder_and_requests_stay_negotiated() {
+    let temp = tempfile::tempdir().unwrap();
+    let host = super::super::Host::open(temp.path().into()).unwrap();
+    let response = host.handle(Request::Hello { protocol: PROTOCOL }).unwrap();
+    let wire = serde_json::to_value(&response).unwrap();
+    assert!(wire["uiLeaseOffer"].is_string());
+    assert!(matches!(
+        serde_json::from_value::<LegacyResponse>(wire).unwrap(),
+        LegacyResponse::Hello {
+            protocol: PROTOCOL,
+            ..
+        }
+    ));
+    // No exchange is attempted for an old broker, even when starting a native owner.
+    let old = BrokerClient::from_hello(Path::new("/unused-do-not-connect"), hello(None)).unwrap();
+    assert!(old.start_ui_owner().unwrap().is_none());
+    let unknown = BrokerClient::from_hello(
+        Path::new("/unused-do-not-connect"),
+        hello(Some(serde_json::json!(["futureLease"]))),
+    )
+    .unwrap();
+    assert!(unknown.start_ui_owner().unwrap().is_none());
+    assert!(serde_json::from_value::<LegacyRequest>(
+        serde_json::to_value(Request::Hello { protocol: PROTOCOL }).unwrap()
+    )
+    .is_ok());
+    assert!(serde_json::from_value::<LegacyRequest>(
+        serde_json::to_value(Request::AcquireUiLease {
+            generation: "g".into(),
+            offer: "o".into()
+        })
+        .unwrap()
+    )
+    .is_err());
 }
