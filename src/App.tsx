@@ -28,8 +28,6 @@ import {
   Square,
   Compass,
   Palette,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { closeFocusedExplorer } from './components/explorer-focus';
@@ -81,6 +79,7 @@ import { Dialog } from './components/Dialog';
 import { ProjectDialog } from './components/ProjectDialog';
 import { DirectoryPathField } from './components/DirectoryPathField';
 import { RenameDialog } from './components/RenameDialog';
+import { FocusModeButton } from './components/FocusModeButton';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
@@ -1153,7 +1152,10 @@ export default function App() {
     { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式（Zen Mode）' : '進入專注模式（Zen Mode）',
       disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
-      if (focusMode) setFocusControlsOpen(value => !value);
+      if (focusMode) {
+        setFocusControlsOpen(value => !value);
+        if (focusControlsOpen) restoreWorkspaceFocus();
+      }
       else setSidebarOpen(previous => !previous);
     } },
   ].map((command) => ({ ...command, shortcut: effectiveShortcuts[command.id] ?? '' }));
@@ -1180,7 +1182,7 @@ export default function App() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
@@ -1457,7 +1459,7 @@ export default function App() {
           <kbd>⌘ / Ctrl ⇧ P</kbd>
         </button>
         <div className="topbar-actions">
-          {focusMode && !focusAvailable && <button onClick={toggleFocusMode} aria-label="退出專注模式"><Minimize2 size={16} />退出專注</button>}
+          {focusMode && !focusAvailable && <FocusModeButton active onClick={toggleFocusMode} />}
           <button className="secondary temporary-terminal-button" disabled={!boot || !desktop}
             title="在家目錄開啟臨時 Terminal，不建立專案" aria-label="開啟臨時 Terminal"
             onClick={() => openTemporaryTerminal()}>
@@ -1618,11 +1620,6 @@ export default function App() {
                 </div>
               )}
               {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs">
-                {focusMode && focusAvailable && <button className="focus-project-control" aria-label={focusControlsOpen ? '收起完整控制列' : '展開完整控制列'}
-                  aria-expanded={focusControlsOpen} title="顯示專案、設定與完整操作"
-                  onClick={() => { setFocusControlsOpen((value) => !value); if (focusControlsOpen) restoreWorkspaceFocus(); }}>
-                  <Layers3 size={16} aria-hidden="true" /><span>{current?.name ?? '臨時 Terminal'}</span>
-                </button>}
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
                   onSelect={(tab) => {
@@ -1643,12 +1640,7 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
-                {focusAvailable && <button ref={focusToggle} className="focus-mode-toggle" aria-pressed={focusMode}
-                  aria-label={focusMode ? '退出專注模式' : '進入專注模式'}
-                  title={focusMode ? '退出專注模式' : '進入專注模式（保留分頁與面板）'} onClick={toggleFocusMode}>
-                  {focusMode ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
-                  <span>{focusMode ? '退出專注' : '專注'}</span>
-                </button>}
+                {focusAvailable && <FocusModeButton buttonRef={focusToggle} active={focusMode} onClick={toggleFocusMode} />}
               </div>}
               <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
                 <div className="project-work-content">

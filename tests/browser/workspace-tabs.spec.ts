@@ -114,7 +114,7 @@ test('lifted source cannot hide the real Focus Exit control from drop validation
   const strip = page.locator('.workspace-tabs');
   const tabs = page.locator('.workspace-tab-select');
   // Overflow the real strip so its real sticky Exit overlaps a real tab.
-  await strip.evaluate(el => { (el as HTMLElement).style.maxWidth = '600px'; });
+  await strip.evaluate(el => { (el as HTMLElement).style.maxWidth = '400px'; });
   await strip.evaluate(el => {
     const target = el.querySelectorAll('.workspace-tab')[2].getBoundingClientRect();
     const exit = el.querySelector('.focus-mode-toggle')!.getBoundingClientRect();
@@ -154,8 +154,8 @@ for (const width of [800, 1200]) test(`tab strip edge spacing and overflow at ${
     const edges = await strip.evaluate(element => {
       const rect = element.getBoundingClientRect();
       // WorkspaceTabs starts with clipped accessibility-only spans; measure the
-      // first real flex item (the project control in Zen, otherwise a tab).
-      const first = element.querySelector(':scope > .focus-project-control, :scope > .workspace-tab')!.getBoundingClientRect();
+      // first real flex item (a workspace tab in both modes).
+      const first = element.querySelector(':scope > .workspace-tab')!.getBoundingClientRect();
       return { left: first.left - rect.left, padding: getComputedStyle(element).paddingInline };
     });
     expect(edges).toEqual({ left: 0, padding: '0px' });

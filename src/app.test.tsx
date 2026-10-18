@@ -3461,7 +3461,7 @@ describe('workspace focus presentation', () => {
     fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
     expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-expanded', 'false');
     openSessions();
-    fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true, shiftKey: true });
     selectGroup();
     expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', 'false');
@@ -3484,10 +3484,10 @@ describe('workspace focus presentation', () => {
     for (let i = 0; i < 3; i++) {
       fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
       expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
-      fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+      fireEvent.keyDown(window, { key: 'b', ctrlKey: true, shiftKey: true });
       expect(document.querySelector('.app-shell')).not.toHaveClass('workspace-focus');
       expect(document.querySelector('.sidebar')?.closest('[hidden]') === null).toBe(sidebarOpen);
-      fireEvent.click(screen.getByRole('button', { name: '收起完整控制列' }));
+      fireEvent.keyDown(window, { key: 'b', ctrlKey: true, shiftKey: true });
       fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
       expect(document.querySelector('.app-shell')).not.toHaveClass('workspace-focus');
     }
@@ -3544,7 +3544,7 @@ describe('workspace focus presentation', () => {
     expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
     fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' }));
     expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
-    fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true, shiftKey: true });
     fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
@@ -3572,7 +3572,7 @@ describe('workspace focus presentation', () => {
     expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
     expect(fireEvent.keyDown(target, { key: 'z', ctrlKey: true, shiftKey: true, isComposing: true })).toBe(true);
     expect(document.querySelector('.app-shell')).toHaveClass('workspace-focus');
-    fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true, shiftKey: true });
     fireEvent.click(screen.getByRole('button', { name: '設定與資料來源' }));
     expect(fireEvent.keyDown(target, { key: 'z', ctrlKey: true, shiftKey: true })).toBe(true);
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-focus-mode', 'true');
@@ -3594,7 +3594,7 @@ it('preserves persisted sidebar section preferences across focus controls reveal
   fireEvent.click(screen.getByRole('button', { name: '開啟中的工作區' }));
   const preferences = localStorage.getItem('sessionbay.sidebar.v1');
   fireEvent.click(screen.getByRole('button', { name: '進入專注模式' }));
-  fireEvent.click(screen.getByRole('button', { name: '展開完整控制列' }));
+  fireEvent.keyDown(window, { key: 'b', ctrlKey: true, shiftKey: true });
   expect(within(document.querySelector<HTMLElement>('.sidebar')!).getByRole('button', { name: '專案' })).toHaveAttribute('aria-expanded', 'false');
   expect(screen.getByRole('button', { name: '開啟中的工作區' })).toHaveAttribute('aria-expanded', 'false');
   fireEvent.click(screen.getByRole('button', { name: '退出專注模式' }));
