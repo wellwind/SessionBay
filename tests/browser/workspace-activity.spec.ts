@@ -281,10 +281,10 @@ test('Zen tool choice is remembered separately and never changes normal panel or
   await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
   await expect(filesPanel(page)).toBeVisible();
   await expect(sessionsPanel(page)).toBeHidden();
-  await page.keyboard.press('Control+Shift+B');
+  await page.keyboard.press('ControlOrMeta+Shift+B');
   await expect(navigator(page)).toBeVisible();
   await expect(filesPanel(page)).toBeVisible();
-  await page.keyboard.press('Control+Shift+B');
+  await page.keyboard.press('ControlOrMeta+Shift+B');
   await expect(navigator(page)).toBeHidden();
   await expect(filesPanel(page)).toBeVisible();
   await expectRuntimePreserved(page);

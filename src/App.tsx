@@ -1098,7 +1098,10 @@ export default function App() {
     { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式（Zen Mode）' : '進入專注模式（Zen Mode）',
       disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
     { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
-      if (focusMode) setFocusControlsOpen(value => !value);
+      if (focusMode) {
+        setFocusControlsOpen(value => !value);
+        if (focusControlsOpen) restoreWorkspaceFocus();
+      }
       else setSidebarOpen(previous => !previous);
     } },
   ].map((command) => ({ ...command, shortcut: effectiveShortcuts[command.id] ?? '' }));
@@ -1125,7 +1128,7 @@ export default function App() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();

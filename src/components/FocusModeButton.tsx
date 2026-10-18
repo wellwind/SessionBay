@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Maximize2, Minimize2 } from 'lucide-react';
@@ -16,6 +16,24 @@ export function FocusModeButton({ active, onClick, buttonRef }: {
   const [dismissed, setDismissed] = useState(false);
   const label = active ? '退出專注模式' : '進入專注模式';
   const open = !!anchor && (hovered || focused) && !dismissed;
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setDismissed(true);
+    };
+    const hide = () => setDismissed(true);
+    window.addEventListener('keydown', dismiss, true);
+    window.addEventListener('resize', hide);
+    window.addEventListener('scroll', hide, true);
+    return () => {
+      window.removeEventListener('keydown', dismiss, true);
+      window.removeEventListener('resize', hide);
+      window.removeEventListener('scroll', hide, true);
+    };
+  }, [open]);
   const position = (button: HTMLButtonElement) => {
     const rect = button.getBoundingClientRect();
     setAnchor({ top: rect.bottom, right: Math.max(8, window.innerWidth - rect.right) });
@@ -28,13 +46,7 @@ export function FocusModeButton({ active, onClick, buttonRef }: {
     onFocus={event => { position(event.currentTarget); setFocused(true); }}
     onBlur={() => setFocused(false)}
     onClick={() => { setDismissed(true); onClick(); }}
-    onKeyDown={event => {
-      if (event.key === 'Escape' && open) {
-        event.preventDefault();
-        event.stopPropagation();
-        setDismissed(true);
-      }
-    }}>
+    >
     {active ? <Minimize2 size={16} aria-hidden="true" /> : <Maximize2 size={16} aria-hidden="true" />}
     {open && createPortal(<span id={id} role="tooltip" className="focus-mode-tooltip" style={anchor!}>{label}</span>, document.body)}
   </button>;
