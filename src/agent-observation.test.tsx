@@ -26,6 +26,8 @@ afterEach(() => {
 describe('structured agent observations are independent from terminal output', () => {
   it('accepts only explicit observation names, never prototype properties', () => {
     expect(isAgentObservation('busy')).toBe(true);
+    expect(isAgentObservation('awaitingPermission')).toBe(true);
+    expect(isAgentObservation('awaitingInput')).toBe(true);
     expect(isAgentObservation('turnStopRequested')).toBe(true);
     for (const value of ['unknown', 'toString', 'constructor', '__proto__', '', null, undefined, 1])
       expect(isAgentObservation(value)).toBe(false);
@@ -41,6 +43,19 @@ describe('structured agent observations are independent from terminal output', (
     vi.advanceTimersByTime(1001);
     expect(store.agentSnapshot(['p'])).toBe('');
     expect(store.snapshot(['p'])).toBe('000');
+  });
+
+  it('separates current waiting states from past hook notifications', () => {
+    const store = setup();
+    store.observe('p', 'lease', event({ observation: 'awaitingPermission' }));
+    expect(store.agentStates(['p'])).toBe('awaitingPermission');
+    expect(store.agentSnapshot(['p'])).toBe('等待權限確認');
+    store.observe('p', 'lease', event({ revision: 2, observation: 'waitingPermission' }));
+    expect(store.agentSnapshot(['p'])).toBe('收到權限等待通知');
+    store.observe('p', 'lease', event({ revision: 3, observation: 'awaitingInput' }));
+    expect(store.agentSnapshot(['p'])).toBe('等待輸入');
+    store.end('p', 'lease');
+    expect(store.agentStates(['p'])).toBe('');
   });
 
   it('does not infer a structured observation from terminal output or connection', () => {
@@ -224,6 +239,8 @@ describe('structured agent observations are independent from terminal output', (
       vi.advanceTimersByTime(100);
     });
     expect(screen.getByRole('img')).toHaveAttribute('title', expect.stringContaining('Agent 最近回報：工作中'));
+    expect(screen.getByRole('img')).toHaveClass('agent-working');
+    expect(screen.getByRole('img').querySelector('svg')).toHaveClass('runtime-connecting');
     act(() => {
       store!.observe('p', 'lease', event({ revision: 2, observation: 'turnStopRequested', validForMs: 300 }));
       vi.advanceTimersByTime(100);

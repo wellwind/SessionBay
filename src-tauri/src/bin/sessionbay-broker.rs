@@ -1,6 +1,9 @@
 //! Headless harness for native lifecycle integration tests. Production launches
 //! the installed desktop executable in its pre-WebView broker mode.
 fn main() {
+    if sessionbay_lib::codex_state::run_if_requested() {
+        return;
+    }
     if sessionbay_lib::provider_hooks::run_callback_if_requested() {
         return;
     }

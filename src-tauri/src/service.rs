@@ -502,7 +502,7 @@ impl Service {
                 if !crate::provider_hooks::supported(kind) {
                     return Err("此工具／平台尚未支援 launch-local hooks".into());
                 }
-                env.insert(crate::provider_hooks::OPT_IN.into(), "1".into());
+                env.insert(crate::provider_hooks::OPT_IN.into(), "live".into());
             }
         }
         Ok(LaunchSpec {

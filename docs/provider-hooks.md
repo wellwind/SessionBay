@@ -1,36 +1,61 @@
-# 真實 Provider hooks（明確啟用）
+# 真實 Provider 狀態（明確啟用）
 
-## 操作
+## 操作與支援範圍
 
-設定 → 來源與工具 → 選擇 Codex 或 Claude →「啟用真實活動 hooks」→ 儲存。只套用後續由 SessionBay 啟動／恢復的程序；既有程序不會偷偷加裝。關閉並儲存會立即撤銷該 provider 現有回報，程序繼續執行。
+設定 → 來源與工具 → Codex／Claude →「啟用真實活動 hooks」→ 儲存。只套用後續由 SessionBay 啟動／恢復的程序。關閉並儲存會立即撤銷該 provider 現有回報，Agent 繼續執行。初始、來源不可信或失聯時保持未知，不以 PTY 輸出猜測。
 
-目前註冊路徑為 macOS／Linux。Windows、Grok、Antigravity、OpenCode 沒有此版本的真實 launch-local bridge，保持 unknown，不借用 PTY output 推測。這不代表這些 provider 沒有 hooks。
+目前為 macOS／Linux。Windows、Grok、Antigravity、OpenCode 尚未接上這個正式 launch-local bridge；這不代表它們沒有原生 hooks。
 
-- Claude：以 `--settings` 傳入純本次啟動 JSON；hooks 與原設定依 provider 規則合併。
-- Codex：以 `-c hooks.<Event>=…` 傳入本次啟動定義，加入 `--no-daemon`，避免共享 app-server 遺失本次啟動的 ephemeral routing environment。
-- 不寫入 `~/.claude`、`~/.codex`、專案設定、永久 token 或 PATH。
-- Codex 預設需要 `/hooks` 檢查並信任所有 SessionBay command definitions；SessionBay 不添加 `--dangerously-bypass-hook-trust`。首次信任後須從 SessionBay 重開／恢復，讓之前被跳過的 SessionStart 重新完成綁定。
-- 若 provider 管理政策停用 hooks 或該版本不支援參數，保持未知或明確顯示原 CLI 啟動錯誤，不降級成猜測狀態。
+### Claude Code >= 2.1.287
 
-## 可以觀察什麼
+本次啟動以 `--plugin-dir` 載入最小 mod，觀察現有互動流程的主回合：
 
-| Provider event | SessionBay 顯示的事實 | 不宣稱 |
-| --- | --- | --- |
-| UserPromptSubmit | 收到新提示 | 已通過其他 gate hooks、持續運算 |
-| PermissionRequest | 收到權限請求 | 一定需要人類核准 |
-| Stop | 收到回合停止請求 | 回合已完成、idle |
-| Claude Notification idle_prompt | 等待輸入通知 | 即時通知，provider 約 60 秒後才可能通知 |
-| Claude Notification permission_prompt | 等待權限通知 | 即時通知，provider 約 6 秒後才可能通知 |
-| Codex Interrupt / Claude StopFailure | 中斷／失敗回報 | 任意 exit code 等同模型失敗 |
-| SessionEnd | Session 已回報結束 | 程序已退出 |
-| owned runtime exit / IPC disconnect | 程序結束／斷線 | 先前活動仍可信 |
+- `turn.start`：回合進行中。
+- `turn.complete`：依結果回報閒置、中斷或失敗。只有相符主回合能結束目前狀態，子 agent 不覆寫主回合。
+- `session.end`、重新載入、來源錯誤：未知；不從啟動成功推斷閒置。
 
-所有 observation 30 秒後過期；單一 generation 最多追蹤 128 個 prompt ID，超限保守關閉回報並須重開 pane；缺少可驗證 prompt／turn ID 的舊版本不顯示活動。未知不增加問號，原有程序生命週期仍可見。`/clear` 等可在同程序結束舊 Session，新的 parent SessionStart 會開啟新 generation；已退役的 Session ID 不重用，遇到同 ID 返回時需重開 pane。
+「工作中」指主回合進行中，不等於模型持續運算。本來源目前不能區分回合內的權限／輸入等待。mod 每五秒重送由原生生命周期維護的狀態，並確認目前 Session；單純程序存活不會產生工作中。既有管理政策、mod 信任及禁止 sideload 仍生效，SessionBay 不繞過。
 
-## 邊界與驗證
+### Codex
 
-命令僅包含 app-owned executable 與固定事件名稱；payload 由 stdin 讀取，原始輸入上限 4 MiB，選擇性反序列化先忽略提示、路徑、工具內容等欄位，縮減後不超過 64 KiB，再送既有 owner-authenticated IPC。輸入超量／解析失敗會撤銷該 launch 證據，不保留舊回合狀態。per-launch 路由只在程序 environment／broker memory；metadata、argv、log 不含 capability。app 關閉時 broker 仍能接收，runtime 結束、關閉設定、broker 重啟會撤銷。完整掌控同一 OS 使用者的程式不在隔離保證內。
+本次 PTY 擁有一個 private Unix app-server，原生互動介面以 `--remote` 連入。唯讀 observer 僅做 initialize、thread/loaded/list、thread/read(includeTurns:false)，不呼叫 thread/start、thread/resume 或 turn/start，不會為狀態另送模型請求。
 
-`src-tauri/tests/provider_hooks.rs` 使用合成 provider driver 執行 production callback binary，測試 IPC → broker → subscriber、turn fence、SessionEnd 與撤銷；不等同真實 CLI。真正 native 驗收須在隔離資料目錄使用已安裝 binary，記錄版本與可用事件，不讀取真實歷史／憑證，不新增全域 hooks 或略過信任。
+provider status 決定工作中、等待輸入、等待權限、閒置／錯誤。只接受可識別的單一 root；多 root、子 agent、載入競態、來源識別不明及通訊錯誤均保持未知。使用 session-tree ID 綁定，不把 thread ID 當成同一識別。
 
-2026-10-18 cloud：Codex binary 0.159.2 可讀版本；實際 session 啟動在 hook 前遭環境 sandbox helper 拒絕。broker socket／PTY 測試在 cloud sandbox 也遭拒絕，尚待 CI／native 執行。不得把 compile-only 或合成 callback 驗證標示為真實 Agent 已驗證。
+不覆寫使用者原有 hooks 或 notify。不能安全保留 profile 設定的模式及不相容 app-server 版本保留原生使用流程並明確提示不提供狀態；任何已啟動 TUI 的回合不會自動重送。詳見 `codex-state-observer.md`。
+
+## UI 與生命週期
+
+轉動圖示表示 provider 回報的進行中回合；手掌／對話圖示表示 authoritative 權限／輸入等待；勾號表示閒置。PTY 新輸出亮點、未讀輸出與程序斷線／退出仍各自獨立。
+
+每個來源回報嚴格遞增序號；新 root Session 旋轉 UI generation。來源接管後，舊 gateable callback 不得覆寫。每份來源快照有效 30 秒，沒有新來源證據不續期；明確失聯會嘗試立即回報未知；IPC 本身不可達時最遲30秒過期。程序退出、撤銷或 broker 重啟清除狀態。UI 不增加猜測性的問號。
+
+## 隱私與撤銷
+
+只傳遞 Session／回合識別、序號與狀態。Claude mod 不讀取提示、答案、工具內容或對話檔案。Codex metadata response 的非必要欄位在反序列化時跳過，不取得 turns／訊息內容，不保存原始回應。
+
+不寫入全域／專案設定、PATH 或永久憑證。Claude plugin 存於 app-owned private temporary directory，僅含固定模組；路由在程序環境及 broker memory，metadata／log 不保存 capability。關閉設定、程序退出或啟動失敗清除 app-owned plugin。app UI 關閉時 broker 仍能接收；完整控制同一 OS 使用者的程式不在隔離保證內。
+
+## 低階 command-hook 測試路徑
+
+保留獨立的 launch-local command-hook driver 測試 callback binary → owner-authenticated IPC → broker → subscriber。它只把 UserPromptSubmit、PermissionRequest、Stop、Notification 等標為「最近收到」事件，Stop 不是完成，Notification 不是即時狀態。
+
+callback 原始 stdin 上限 4 MiB，忽略私密欄位後才送 IPC。格式錯誤撤銷證據；合法但錯 session／陳舊 callback 被拒絕，不撤銷有效 parent。Classic Claude SessionStart 在 startup／resume／clear 可背景執行，不能當作所有 callback 的同步 barrier；正式 live route 使用原生來源直接註冊。低階路徑最多追蹤 128 個 prompt ID，超限要求重開；正式狀態來源不使用該限制。
+
+## 驗證紀錄
+
+2026-10-18 native 已安裝 Codex 0.163.0、Claude 2.1.302。版本確認不等同 lifecycle 驗收。首輪 production callback/socket/subscriber 合成 driver 2/3 通過，找出錯 session 拒絕時誤撤銷 parent 的問題，已修並增加 regression，等待 exact-head CI/native 重跑。真正 provider turn 與 GUI 驗收仍進行中，不能把合成 callback 測試說成真實 Agent 已通過。
+
+官方來源：
+- https://code.claude.com/docs/en/plugins/mods/overview
+- https://code.claude.com/docs/en/plugins/mods/create
+- https://code.claude.com/docs/en/plugins/mods/events
+- https://code.claude.com/docs/en/plugins/mods/api
+- https://learn.chatgpt.com/docs/app-server
+- https://learn.chatgpt.com/docs/developer-commands?surface=cli
+
+### 隔離 GUI 驗收
+
+使用固定 build／bundle 身分，不為每一步重新安裝。先在 app-owned QA 目錄建立完整 `settings.json`，`sources: []`，指定已安裝的 executable，`agentHooks: {codex:true,claude:true}`，`onboardingComplete:true`，不從原 app settings 複製任何來源。以 `SESSIONBAY_SMOKE=1 SESSIONBAY_SMOKE_MANUAL=1 SESSIONBAY_SMOKE_APP_DATA=<絕對 QA 資料目錄>` 啟動 bundle executable。這會驗證空白來源並使用隔離 catalog，但不自動點 UI；保留原 HOME 讓 provider 自行使用既有登入，不由測試讀取或複製 credential。Provider 自己仍會讀取通常的全域設定／個人指示，因此不能宣稱該部分完全空白。不要加 `--bare`、清空 CODEX_HOME 或複製 auth files。
+
+先跑合成測試及 Claude plugin validate，不送 prompt。經明確授權後，從空白測試工作目錄新建各工具 pane，各只送一次「只回覆 OK，不讀寫檔案、不執行工具」。記錄 provider 版本、可見工作中／閒置圖示和 tooltips；沒有看到就記錄未驗證，不重複呼叫模型。若要求登入、信任或額外權限，依允許範圍停下，不自動接受。

@@ -219,3 +219,10 @@
 ## 2026-10-18 真實 hook bridge
 
 Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已實作；真實 CLI→native UI 驗收仍待實際版本證據，見 [provider-hooks](provider-hooks.md)。其餘三種 provider 不宣稱已接通。
+
+### 原生狀態實作與驗收
+
+- [x] Claude launch-local mod、Codex owned app-server read-only observer、source sequence／快照失效及 UI 進行中／等待／閒置圖示。
+- [x] 設定關閉撤銷現有來源，保留 Agent 執行；不修改使用者全域 hooks 或 notify。
+- [ ] exact-head CI、真實 Codex 0.163.0／Claude 2.1.302 各一個授權合成回合與 native UI 驗收。
+- [ ] Claude 回合內權限／輸入等待、其餘三工具及 Windows 的正式支援。

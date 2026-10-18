@@ -32,6 +32,8 @@ pub enum Observation {
     ToolPending,
     ToolFinished,
     PermissionRequested,
+    AwaitingInput,
+    AwaitingPermission,
     WaitingInput,
     WaitingPermission,
     TurnStopRequested,

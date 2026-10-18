@@ -94,20 +94,40 @@ impl Running {
     }
 }
 fn start(root: &Path) -> Running {
+    start_mode(root, false)
+}
+fn start_mode(root: &Path, live: bool) -> Running {
     let script = root.join("synthetic_provider.py");
     std::fs::write(&script,r#"
-import sys,json,subprocess
-hooks=json.loads(sys.argv[sys.argv.index('--settings')+1])['hooks']
+import sys,json,subprocess,shlex,os
+if '--settings' in sys.argv:
+    hooks=json.loads(sys.argv[sys.argv.index('--settings')+1])['hooks']
+else:
+    hooks={event:[{'hooks':[{'command':shlex.join([os.environ['SESSIONBAY_CLAUDE_STATE_HELPER'],'--sessionbay-provider-hook',event])}]}] for event in ['SessionStart','UserPromptSubmit','PermissionRequest','Stop','Notification','SessionEnd']}
 def emit(event,turn=None,notification=None,session='synthetic-session',child=False):
     payload={'hook_event_name':event,'session_id':session,'prompt_id':turn,'notification_type':notification,'prompt':'SYNTHETIC_PRIVATE_PROMPT','transcript_path':'/never/read/this','source':'startup'}
     if child: payload['agent_id']='synthetic-child'
     command=hooks[event][0]['hooks'][0]['command']
     result=subprocess.run(command,shell=True,input=json.dumps(payload),text=True,capture_output=True,timeout=4)
     assert result.returncode==0 and result.stdout.strip()=='{}'
+state_sequence=0
+helper=shlex.split(hooks['SessionStart'][0]['hooks'][0]['command'])[0]
+def state(observation,session='synthetic-session'):
+    global state_sequence
+    state_sequence+=1
+    payload={'session':session,'turn':'live-turn','sequence':state_sequence,'observation':observation}
+    result=subprocess.run([helper,'--sessionbay-provider-state'],input=json.dumps(payload),text=True,capture_output=True,timeout=4)
+    assert result.returncode in (0,1) and result.stdout.strip()=='{}'
 emit('SessionStart')
 for line in sys.stdin:
     cmd=line.strip()
-    if cmd=='prompt': emit('UserPromptSubmit','turn-one')
+    if cmd=='busy': state('busy')
+    elif cmd=='approval': state('awaitingPermission')
+    elif cmd=='input': state('awaitingInput')
+    elif cmd=='idle': state('idle')
+    elif cmd=='unknown': state('unknown')
+    elif cmd=='newroot': state('busy','new-root')
+    elif cmd=='prompt': emit('UserPromptSubmit','turn-one')
     elif cmd=='permission': emit('PermissionRequest','turn-one')
     elif cmd=='stop': emit('Stop','turn-one')
     elif cmd=='wait': emit('Notification','turn-one','idle_prompt')
@@ -136,11 +156,15 @@ for line in sys.stdin:
         cols: 80,
         rows: 24,
     };
+    let executable = root.join("synthetic-claude");
+    std::fs::write(&executable, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo '2.1.302 (Claude Code)'; exit; fi\nexec /usr/bin/python3 '{}' \"$@\"\n", script.display())).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
     let spec = LaunchSpec {
-        executable: "/usr/bin/python3".into(),
-        args: vec![script.to_string_lossy().into_owned()],
+        executable: executable.to_string_lossy().into_owned(),
+        args: vec![],
         cwd: root.into(),
-        env: HashMap::from([(OPT_IN.into(), "1".into())]),
+        env: HashMap::from([(OPT_IN.into(), if live { "live" } else { "1" }.into())]),
         session_id: None,
         resume_key: None,
         pane_id: request.pane_id.clone(),
@@ -185,7 +209,8 @@ fn actual_callback_binary_reaches_subscriber_and_revocation_leaves_agent_alive()
     run.send("prompt");
     assert_eq!(run.client.list().unwrap()[0].info.state, "running");
     // No callback payload or launch capability is persisted in session metadata.
-    let metadata = std::fs::read_to_string(root.path().join("runtime-v1/sessions.json")).unwrap();
+    let metadata =
+        std::fs::read_to_string(root.path().join("runtime-broker-v1/sessions.json")).unwrap();
     assert!(
         !metadata.contains("SYNTHETIC_PRIVATE_PROMPT") && !metadata.contains("SESSIONBAY_HOOK")
     );
@@ -211,5 +236,31 @@ fn clear_can_bind_a_new_session_without_restarting_the_process() {
     run.observation(Some(Observation::PromptSubmitted));
     run.send("clear");
     run.observation(Some(Observation::PromptSubmitted));
+    assert_eq!(run.client.list().unwrap()[0].info.state, "running");
+}
+
+#[test]
+fn ordered_real_state_helper_overrides_gateable_hooks_and_invalidates_on_disconnect() {
+    let root = tempfile::tempdir().unwrap();
+    let run = start_mode(root.path(), true);
+    run.send("busy");
+    run.observation(Some(Observation::Busy));
+    run.send("stop");
+    run.send("wrong");
+    run.unchanged_until_barrier();
+    run.send("approval");
+    run.observation(Some(Observation::AwaitingPermission));
+    run.send("input");
+    run.observation(Some(Observation::AwaitingInput));
+    run.send("idle");
+    run.observation(Some(Observation::Idle));
+    run.send("unknown");
+    run.observation(None);
+    run.send("newroot");
+    run.observation(Some(Observation::Busy));
+    run.client.revoke_provider_hooks(AgentKind::Claude).unwrap();
+    run.observation(None);
+    run.send("busy");
+    run.unchanged_until_barrier();
     assert_eq!(run.client.list().unwrap()[0].info.state, "running");
 }

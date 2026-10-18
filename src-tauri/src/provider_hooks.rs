@@ -10,7 +10,35 @@ pub const OPT_IN: &str = "SESSIONBAY_ACTIVITY_HOOKS";
 pub const DIRECTORY: &str = "SESSIONBAY_HOOK_DIRECTORY";
 pub const GENERATION: &str = "SESSIONBAY_HOOK_GENERATION";
 pub const LAUNCH: &str = "SESSIONBAY_HOOK_LAUNCH";
-pub const CAPABILITY: &str = "launchLocalHooksV1";
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StateReport {
+    pub session: String,
+    pub turn: Option<String>,
+    pub sequence: u64,
+    pub observation: crate::agent_activity::Observation,
+}
+impl StateReport {
+    pub fn validate(&self) -> Result<(), String> {
+        use crate::agent_activity::Observation::*;
+        let valid_id =
+            |s: &str| !s.is_empty() && s.len() <= 512 && !s.chars().any(char::is_control);
+        if !valid_id(&self.session)
+            || self.turn.as_deref().is_some_and(|s| !valid_id(s))
+            || self.sequence == 0
+            || self.sequence > 9_007_199_254_740_991
+            || !matches!(
+                self.observation,
+                Busy | Idle | AwaitingInput | AwaitingPermission | Failed | Interrupted | Unknown
+            )
+        {
+            return Err("Invalid provider state metadata".into());
+        }
+        Ok(())
+    }
+}
+
+pub const CAPABILITY: &str = "launchLocalStateV2";
 
 pub fn supported(kind: AgentKind) -> bool {
     cfg!(unix) && matches!(kind, AgentKind::Codex | AgentKind::Claude)
@@ -176,6 +204,35 @@ impl Callback {
 /// Called before GUI startup in the desktop executable and the headless harness.
 /// Always non-blocking to the provider's decision semantics, even if IPC fails.
 pub fn run_callback_if_requested() -> bool {
+    if std::env::args_os().nth(1).as_deref()
+        == Some(std::ffi::OsStr::new("--sessionbay-provider-state"))
+    {
+        let result = (|| -> Result<(), String> {
+            if std::env::args_os().count() != 2 {
+                return Err("Unexpected state arguments".into());
+            }
+            let mut bytes = Vec::new();
+            std::io::stdin()
+                .take(4097)
+                .read_to_end(&mut bytes)
+                .map_err(|_| "Cannot read state")?;
+            if bytes.len() > 4096 {
+                return Err("State too large".into());
+            }
+            let report: StateReport =
+                serde_json::from_slice(&bytes).map_err(|_| "Invalid state")?;
+            report.validate()?;
+            crate::broker::send_provider_state(report)
+        })();
+        if result.is_err() {
+            let _ = crate::broker::send_provider_callback(None);
+        }
+        println!("{{}}");
+        if result.is_err() {
+            std::process::exit(1);
+        }
+        return true;
+    }
     let mut args = std::env::args_os().skip(1);
     if args.next().as_deref() != Some(std::ffi::OsStr::new("--sessionbay-provider-hook")) {
         return false;
@@ -194,7 +251,10 @@ pub fn run_callback_if_requested() -> bool {
             .read_to_end(&mut payload)
             .map_err(|_| "Cannot read callback")?;
         if let Some(callback) = Callback::parse(&event, &payload)? {
-            crate::broker::send_provider_callback(Some(callback))?;
+            // Broker rejection can be an expected stale/wrong-root callback. It
+            // must not revoke the valid parent route. Transport loss expires the
+            // last evidence naturally; malformed input is invalidated below.
+            let _ = crate::broker::send_provider_callback(Some(callback));
         }
         Ok(())
     };
@@ -266,5 +326,30 @@ mod tests {
             assert!(!joined.contains("bypass") && !joined.contains("async"));
             assert!(joined.contains("SessionStart") && joined.contains("UserPromptSubmit"));
         }
+    }
+}
+
+#[cfg(test)]
+mod state_report_tests {
+    use super::*;
+    use crate::agent_activity::Observation;
+    #[test]
+    fn state_contract_only_accepts_minimal_current_state_metadata() {
+        let mut report = StateReport {
+            session: "root".into(),
+            turn: Some("turn".into()),
+            sequence: 1,
+            observation: Observation::Busy,
+        };
+        assert!(report.validate().is_ok());
+        report.observation = Observation::PromptSubmitted;
+        assert!(report.validate().is_err());
+        report.observation = Observation::Busy;
+        report.sequence = 0;
+        assert!(report.validate().is_err());
+        assert!(serde_json::from_str::<StateReport>(
+            r#"{"session":"s","turn":null,"sequence":1,"observation":"busy","prompt":"private"}"#
+        )
+        .is_err());
     }
 }

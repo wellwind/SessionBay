@@ -120,4 +120,5 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 - [Agent 活動 opt-in 傳輸與驗收邊界](docs/agent-activity-transport.md)
 
-- [真實 Provider hooks](docs/provider-hooks.md)：launch-local opt-in、信任、撤銷與驗證界線。
+- [真實 Provider 狀態](docs/provider-hooks.md)：launch-local opt-in、Claude mod、撤銷與驗證界線。
+- [Codex 原生狀態觀察器](docs/codex-state-observer.md)：互動 TUI、唯讀 app-server 與相容性限制。

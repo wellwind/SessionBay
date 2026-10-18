@@ -699,3 +699,7 @@ broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn ide
 不把 Stop 當完成、不把 PermissionRequest 當使用者正在等待。Claude Notification 可提供延遲的等待輸入／權限回報。工具平行事件未註冊，不能將 callback 到達順序聲稱為 provider 的完整因果序。SessionEnd 後只有新的 parent SessionStart 可重綁；已退役 Session ID 不可復活，同 ID 重新進入須重開 pane。這些是有限期 observation，不以 PTY 靜默或輸出猜測活動。
 
 真實 CLI 與 native WebView 的端到端驗證需另列實際版本、通過情境與受阻原因；合成 driver 測試不能代稱實機驗收。
+
+## 2026-10-18：原生狀態來源取代 gateable hooks 作為正式 launch 路徑
+
+前述 command-hook bridge 保留低階測試；正式設定啟用後，Claude >=2.1.287 改以 launch-local mod 的主回合 start/complete，Codex 改以 app-owned private app-server + 原生 remote TUI + metadata-only observer。既有 hooks/notify 不覆寫，不增加模型請求。由單一來源序號與30秒快照期限傳送 current state；舊 gateable callback 不能覆寫。Claude 只宣稱 active main turn／完成，尚不辨識回合內等待。詳細版本限制、未知／撤銷、隔離原生驗收步驟見 [provider-hooks](provider-hooks.md)。

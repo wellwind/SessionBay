@@ -4,7 +4,7 @@ mod activity;
 mod client;
 mod output_batch;
 mod provider_hooks;
-pub use provider_hooks::send_provider_callback;
+pub use provider_hooks::{send_provider_callback, send_provider_state};
 mod screen;
 mod transport;
 use crate::runtime::{LaunchSpec, RuntimeInfo, RuntimeManager, TerminalEvent};
@@ -137,6 +137,11 @@ enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         activity_after: Option<activity::Cursor>,
     },
+    ProviderState {
+        generation: String,
+        launch: String,
+        report: crate::provider_hooks::StateReport,
+    },
     ProviderHook {
         generation: String,
         launch: String,
@@ -203,6 +208,7 @@ impl Request {
             | Self::Launch { generation, .. }
             | Self::FindResume { generation, .. }
             | Self::Poll { generation, .. }
+            | Self::ProviderState { generation, .. }
             | Self::ProviderHook { generation, .. }
             | Self::ProviderHookFailed { generation, .. }
             | Self::RevokeProviderHooks { generation, .. }
@@ -453,73 +459,95 @@ impl Host {
                 }
                 // Reserve before spawn: SessionStart may run before launch returns.
                 // This lock blocks callback admission only until identity is installed.
-                let hook_launch =
-                    if spec.env.remove(crate::provider_hooks::OPT_IN).as_deref() == Some("1") {
-                        let provider = crate::models::AgentKind::parse(&kind)?;
-                        crate::provider_hooks::configure(
-                            &mut spec,
-                            provider,
-                            &std::env::current_exe().map_err(|e| e.to_string())?,
-                        )?;
-                        let launch = Uuid::new_v4().to_string();
-                        spec.env.insert(
-                            crate::provider_hooks::DIRECTORY.into(),
-                            self.directory.to_string_lossy().into_owned(),
-                        );
-                        spec.env.insert(
-                            crate::provider_hooks::GENERATION.into(),
-                            self.generation.clone(),
-                        );
-                        spec.env
-                            .insert(crate::provider_hooks::LAUNCH.into(), launch.clone());
-                        Some((launch, provider))
+                // Preserve native image-input provenance before an app-owned
+                // observer wraps the executable; never trust arbitrary wrappers.
+                let image_input = crate::image_input::supports_launch(&kind, &spec);
+                let hook_mode = spec.env.remove(crate::provider_hooks::OPT_IN);
+                let hook_launch = if matches!(hook_mode.as_deref(), Some("1" | "live")) {
+                    let provider = crate::models::AgentKind::parse(&kind)?;
+                    let helper = std::env::current_exe().map_err(|e| e.to_string())?;
+                    let launch = Uuid::new_v4().to_string();
+                    spec.env.insert(
+                        crate::provider_hooks::DIRECTORY.into(),
+                        self.directory.to_string_lossy().into_owned(),
+                    );
+                    spec.env.insert(
+                        crate::provider_hooks::GENERATION.into(),
+                        self.generation.clone(),
+                    );
+                    spec.env
+                        .insert(crate::provider_hooks::LAUNCH.into(), launch.clone());
+                    if hook_mode.as_deref() == Some("live") {
+                        match provider {
+                            crate::models::AgentKind::Codex => {
+                                crate::codex_state::prepare(&mut spec, &helper)?
+                            }
+                            crate::models::AgentKind::Claude => {
+                                crate::claude_state::prepare(&mut spec, &helper)?
+                            }
+                            _ => return Err("Live state provider unsupported".into()),
+                        }
                     } else {
-                        None
-                    };
+                        crate::provider_hooks::configure(&mut spec, provider, &helper)?;
+                    }
+                    Some((launch, provider))
+                } else {
+                    None
+                };
                 let mut hook_guard = hook_launch.as_ref().map(|_| lock(&self.provider_hooks));
                 let screen = Arc::new(Mutex::new(screen::TerminalScreen::new(cols, rows)));
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
-                let image_input = crate::image_input::supports_launch(&kind, &spec);
                 let host = Arc::downgrade(self);
-                let info = self.runtime.launch(
-                    *spec,
-                    cols,
-                    rows,
-                    Arc::new(move |event| {
-                        if let TerminalEvent::Exit { runtime_id, .. } = &event {
-                            if let Some(host) = host.upgrade() {
-                                host.revoke_runtime_hooks(runtime_id);
+                let info = self
+                    .runtime
+                    .launch(
+                        *spec,
+                        cols,
+                        rows,
+                        Arc::new(move |event| {
+                            if let TerminalEvent::Exit { runtime_id, .. } = &event {
+                                if let Some(host) = host.upgrade() {
+                                    host.revoke_runtime_hooks(runtime_id);
+                                }
                             }
-                        }
-                        let ack = match &event {
-                            TerminalEvent::Output {
-                                runtime_id,
-                                sequence,
-                                ..
-                            } => Some((runtime_id.clone(), *sequence)),
-                            _ => None,
-                        };
-                        let replies = {
-                            let mut output = lock(&output);
-                            output.event(event);
-                            output.replies()
-                        };
-                        if !replies.is_empty() {
-                            if let Some((id, _)) = &ack {
-                                let _ = manager.write(id, &String::from_utf8_lossy(&replies));
+                            let ack = match &event {
+                                TerminalEvent::Output {
+                                    runtime_id,
+                                    sequence,
+                                    ..
+                                } => Some((runtime_id.clone(), *sequence)),
+                                _ => None,
+                            };
+                            let replies = {
+                                let mut output = lock(&output);
+                                output.event(event);
+                                output.replies()
+                            };
+                            if !replies.is_empty() {
+                                if let Some((id, _)) = &ack {
+                                    let _ = manager.write(id, &String::from_utf8_lossy(&replies));
+                                }
                             }
+                            // The broker, not the WebView, consumes the PTY stream. UI
+                            // detach / slow rendering must never trigger runtime ACK timeout.
+                            if let Some((id, sequence)) = ack {
+                                manager.ack(&id, sequence)?;
+                            }
+                            Ok(())
+                        }),
+                    )
+                    .inspect_err(|_| {
+                        if let Some((launch, _)) = &hook_launch {
+                            crate::claude_state::cleanup(launch);
                         }
-                        // The broker, not the WebView, consumes the PTY stream. UI
-                        // detach / slow rendering must never trigger runtime ACK timeout.
-                        if let Some((id, sequence)) = ack {
-                            manager.ack(&id, sequence)?;
-                        }
-                        Ok(())
-                    }),
-                )?;
+                    })?;
                 let mut entries = lock(&self.entries);
                 if entries.contains_key(&info.id) {
+                    // Runtime reuse did not spawn the newly prepared source.
+                    if let Some((launch, _)) = &hook_launch {
+                        crate::claude_state::cleanup(launch);
+                    }
                     return Ok(Response::Runtime { info: Some(info) });
                 }
                 // An explicit restart replaces the older record for this pane.
@@ -541,6 +569,8 @@ impl Host {
                             session: None,
                             activity_generation: None,
                             ended: false,
+                            source_sequence: 0,
+                            live: hook_mode.as_deref() == Some("live"),
                             retired_sessions: Default::default(),
                         },
                     );
@@ -605,6 +635,9 @@ impl Host {
                     }
                 }
                 Ok(Response::Events { events })
+            }
+            Request::ProviderState { launch, report, .. } => {
+                self.receive_provider_state(&launch, report)
             }
             Request::ProviderHook {
                 launch, callback, ..

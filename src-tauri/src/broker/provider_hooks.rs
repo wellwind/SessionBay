@@ -15,6 +15,8 @@ pub(super) struct Lease {
     pub session: Option<String>,
     pub activity_generation: Option<String>,
     pub ended: bool,
+    pub source_sequence: u64,
+    pub live: bool,
     pub retired_sessions: std::collections::HashSet<String>,
 }
 impl Host {
@@ -34,6 +36,11 @@ impl Host {
             .any(|r| r.id == lease.runtime_id && r.state == "running")
         {
             return Err("Hook runtime is no longer running".into());
+        }
+        // Once the launch-local lifecycle observer is admitted, gateable command
+        // hooks cannot overwrite its current-state snapshots.
+        if lease.live || lease.source_sequence > 0 {
+            return Ok(Response::Ok);
         }
         // Validate again after IPC; clients cannot smuggle state or private data.
         let payload = callback.payload(lease.provider);
@@ -104,8 +111,61 @@ impl Host {
         }
         Ok(Response::Ok)
     }
+    pub(super) fn receive_provider_state(
+        &self,
+        launch: &str,
+        report: hooks::StateReport,
+    ) -> Result<Response, String> {
+        report.validate()?;
+        let mut leases = lock(&self.provider_hooks);
+        let lease = leases
+            .get_mut(launch)
+            .ok_or("State launch revoked or not registered")?;
+        if !self
+            .runtime
+            .list()
+            .iter()
+            .any(|r| r.id == lease.runtime_id && r.state == "running")
+        {
+            return Err("State runtime is no longer running".into());
+        }
+        if !lease.live {
+            return Err("State source is not registered for this launch".into());
+        }
+        if lease.source_sequence.checked_add(1) != Some(report.sequence) {
+            return Err("Provider state sequence replay or gap".into());
+        }
+        if lease.source_sequence == 0
+            && lease
+                .expected_session
+                .as_ref()
+                .is_some_and(|id| id != &report.session)
+        {
+            return Err("Provider state differs from resume identity".into());
+        }
+        let mut activity = lock(&self.activity);
+        // Direct snapshots come from the app-owned single ordered source, not
+        // concurrent command callbacks. A new root session rotates the UI epoch.
+        if lease.source_sequence == 0 || lease.session.as_deref() != Some(&report.session) {
+            let state = activity::State::new(&lease.runtime_id, lease.provider, &report.session)?;
+            lease.activity_generation = Some(state.hook_generation().to_owned());
+            activity.insert(lease.runtime_id.clone(), state);
+            lease.session = Some(report.session);
+            lease.expected_session = None;
+        }
+        let state = activity
+            .get_mut(&lease.runtime_id)
+            .ok_or("State activity retired")?;
+        if lease.activity_generation.as_deref() != Some(state.hook_generation()) {
+            return Err("Provider state generation superseded".into());
+        }
+        state.publish_source(report.observation, Instant::now());
+        lease.source_sequence = report.sequence;
+        Ok(Response::Ok)
+    }
     pub(super) fn fail_provider_hook(&self, launch: &str) {
         if let Some(lease) = lock(&self.provider_hooks).remove(launch) {
+            crate::claude_state::cleanup(launch);
             self.close_runtime_activity(&lease.runtime_id);
         }
     }
@@ -116,13 +176,27 @@ impl Host {
             .filter(|lease| lease.provider == provider)
             .map(|lease| lease.runtime_id.clone())
             .collect();
-        leases.retain(|_, lease| lease.provider != provider);
+        leases.retain(|launch, lease| {
+            if lease.provider == provider {
+                crate::claude_state::cleanup(launch);
+                false
+            } else {
+                true
+            }
+        });
         for id in ids {
             self.close_runtime_activity(&id);
         }
     }
     pub(super) fn revoke_runtime_hooks(&self, runtime_id: &str) {
-        lock(&self.provider_hooks).retain(|_, lease| lease.runtime_id != runtime_id);
+        lock(&self.provider_hooks).retain(|launch, lease| {
+            if lease.runtime_id == runtime_id {
+                crate::claude_state::cleanup(launch);
+                false
+            } else {
+                true
+            }
+        });
         self.close_runtime_activity(runtime_id);
     }
 }
@@ -144,6 +218,26 @@ pub fn send_provider_callback(callback: Option<Callback>) -> Result<(), String> 
     match super::client::exchange(&directory, &request)? {
         Response::Ok => Ok(()),
         _ => Err("Invalid hook response".into()),
+    }
+}
+
+/// Publish a privacy-minimal snapshot from the one app-owned provider observer.
+pub fn send_provider_state(report: hooks::StateReport) -> Result<(), String> {
+    report.validate()?;
+    let directory =
+        PathBuf::from(std::env::var_os(hooks::DIRECTORY).ok_or("Missing hook directory")?);
+    let generation = std::env::var(hooks::GENERATION).map_err(|_| "Missing hook generation")?;
+    let launch = std::env::var(hooks::LAUNCH).map_err(|_| "Missing hook launch")?;
+    match super::client::exchange(
+        &directory,
+        &Request::ProviderState {
+            generation,
+            launch,
+            report,
+        },
+    )? {
+        Response::Ok => Ok(()),
+        _ => Err("Invalid state response".into()),
     }
 }
 

@@ -4,6 +4,8 @@ pub mod antigravity;
 pub mod antigravity_metadata;
 pub mod broker;
 pub mod catalog;
+pub mod claude_state;
+pub mod codex_state;
 pub mod config;
 pub mod file_input;
 pub mod fresh_launch;

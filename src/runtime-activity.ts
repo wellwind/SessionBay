@@ -36,14 +36,17 @@ export class RuntimeActivityStore {
     return `${Number(recent)}${Number(unread)}${Number(connecting)}`;
   }
   agentSnapshot(ids: readonly string[]): string {
-    const labels = new Set<string>(), runtimes = new Set<string>();
+    return this.agentStates(ids).split('|').filter(isAgentObservation).map(value => AGENT_OBSERVATION_LABELS[value]).join('、');
+  }
+  agentStates(ids: readonly string[]): string {
+    const labels = new Set<AgentObservation>(), runtimes = new Set<string>();
     for (const id of ids) {
       const item = this.entries.get(id);
       if (!item?.active || !item.runtimeId || runtimes.has(item.runtimeId)) continue;
       runtimes.add(item.runtimeId);
-      if (item.agent?.observation && item.agent.until > performance.now()) labels.add(AGENT_OBSERVATION_LABELS[item.agent.observation]);
+      if (item.agent?.observation && item.agent.until > performance.now()) labels.add(item.agent.observation);
     }
-    return [...labels].join('、');
+    return [...labels].join('|');
   }
   observe(id: string, lease: string, event: AgentActivityEvent) {
     const item = this.current(id, lease);
