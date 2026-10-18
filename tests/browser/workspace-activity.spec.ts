@@ -90,6 +90,14 @@ async function expectAdjacentSurfaces(page: Page, panel?: 'sessions' | 'files') 
   }
   expect(value.content.width).toBeGreaterThan(0);
   expect(value.scrollWidth).toBeLessThanOrEqual(value.viewport);
+  expect(await page.locator('#root').evaluate(element => ({
+    overflow: element.scrollWidth - element.clientWidth, left: element.scrollLeft,
+  }))).toEqual({ overflow: 0, left: 0 });
+  for (const button of await rail(page).locator(':scope > button').all()) {
+    const box = (await button.boundingBox())!;
+    expect(box.width).toBe(44);
+    near(box.x + box.width, value.rail.right);
+  }
   return value;
 }
 
@@ -106,6 +114,7 @@ for (const theme of ['dark', 'light']) for (const width of [1200, 1440, 720]) {
     await page.screenshot({ path: info.outputPath(`activity-normal-collapsed-${theme}-${width}.png`), fullPage: true });
     await sessionsButton(page).click();
     await expect(sessionsPanel(page)).toBeVisible();
+    await expect(sessionsPanel(page).locator('.session-time').first()).toHaveCSS('white-space', 'nowrap');
     await expect(navigator(page)).toBeVisible();
     await expect(page.locator('.xterm-screen')).toBeVisible();
     const expanded = await expectAdjacentSurfaces(page, 'sessions');

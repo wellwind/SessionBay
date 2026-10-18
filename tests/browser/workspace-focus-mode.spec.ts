@@ -227,21 +227,26 @@ for (const [size, width, height, zoom] of [
       await page.setViewportSize({ width, height });
       await page.goto('/tests/browser/workspace-focus-mode.html?edge=1');
       await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+      // Fixture-only CSS zoom does not emit the app's native zoom event. Set
+      // its layout before revealing the terminal so the first fit uses it,
+      // rather than capturing a PTY size from before this style mutation.
+      await page.evaluate(scale => {
+        const app = document.querySelector<HTMLElement>('.app-shell')!;
+        app.style.zoom = String(scale);
+        app.style.width = `${innerWidth / scale}px`;
+        app.style.height = `${innerHeight / scale}px`;
+      }, zoom);
       await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
       const original = page.locator('[aria-label="Focus shell 終端面板"]');
       const hidden = page.locator('[aria-label="Hidden shell 終端面板"]');
       await expect(original.locator('.xterm-screen')).toBeVisible();
       await expect.poll(() => original.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
       await expect(hidden).toBeHidden();
-      await page.evaluate(scale => {
-        const app = document.querySelector<HTMLElement>('.app-shell')!;
-        app.style.zoom = String(scale);
-        app.style.width = `${innerWidth / scale}px`;
-        app.style.height = `${innerHeight / scale}px`;
+      await page.evaluate(() => {
         Object.assign(window, { edgeOriginal: document.querySelector('[aria-label="Focus shell 終端面板"] .xterm'),
           edgeHidden: document.querySelector('[aria-label="Hidden shell 終端面板"] .xterm'),
           edgeCanvas: document.querySelector('.workspace-canvas') });
-      }, zoom);
+      });
       if (focused) await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
       const originalSize = () => page.evaluate(() => (window as unknown as {
         focusFixture: { calls: (Call & { runtimeId?: string })[] };

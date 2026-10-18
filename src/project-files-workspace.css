@@ -39,7 +39,7 @@
 .project-activity-tools { display: flex; flex: 0 0 auto; min-width: 0; min-height: 0; max-width: 45%; }
 .project-activity-tools .activity-panel { max-width: none; flex: 0 1 auto; border-left: 1px solid var(--border); }
 .project-activity-tools .activity-sessions-panel { flex: 0 1 320px; width: 320px; border-right: 0; }
-.project-activity-tools .workspace-activity-bar { border-left: 1px solid var(--border); border-right: 0; }
+.project-activity-tools .workspace-activity-bar { border: 0; box-shadow: inset 1px 0 0 var(--border); }
 .project-activity-tools .workspace-activity[aria-pressed='true']::before { left: auto; right: 0; }
 .project-activity-tools .activity-overflow-menu { left: auto; right: 100%; }
 .project-activity-tools .project-files-sidebar-host { flex-shrink: 1; }
@@ -58,3 +58,5 @@
 @media (max-width: 900px) {
   .sidebar .navigation-tabs > button > svg, .sidebar .navigation-tabs > button > span { display: none; }
 }
+.activity-history-browser .session-card-top { flex-wrap: wrap; gap: 4px 8px; }
+.activity-history-browser .session-time { white-space: nowrap; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
