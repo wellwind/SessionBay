@@ -708,3 +708,8 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 ## 2026-10-18：移除重複視覺輔助文案
 
 依使用者指定移除本機優先 badge、啟動說明、來源與工具重複說明、支援能力的成功態文案、主題數量提示與部分縮放說明。移除整個空容器，保留欄位 label、錯誤／不支援狀態、停用行為、權限警告與設定儲存邏輯。程式碼預覽的選取提示由 Monaco 更新移除，這份清理不改 editor 實作。
+## 2026-10-18：Reload Window 只重新載入前端
+
+命令面板提供「重新載入視窗（Reload Window）」。重新載入前沿用關閉視窗的序列化保存流程，等待既有保存與面板清理，再以瀏覽器 reload 重新 bootstrap、接回 broker runtime。不呼叫 close／stop／launch。儲存失敗取消重新載入並顯示錯誤。
+
+模組載入失敗或 React 畫面崩潰時，最早載入的 dependency-free startup overlay 另提供同名按鈕。已有 App 時保留最後 committed 保存 handler；App 尚未載入時直接 reload，不覆寫尚未讀取的工作區。這是復原入口，不修復造成錯誤的根因。

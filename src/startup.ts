@@ -3,6 +3,7 @@ import { call } from './api';
 // The dependency-free observer is a classic script loaded before any app modules.
 declare global {
   interface Window {
+    SessionBayReload?: () => Promise<void>;
     SessionBaySmokeProbe?: () => Promise<void>;
     SessionBayStartup?: {
       moduleLoaded: () => void;
@@ -28,6 +29,7 @@ export async function smokeSnapshot(name: SmokeSnapshot): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, smokeSnapshotHoldMs));
 }
 export const startup = {
+  reloadWindow: () => window.location.reload(),
   moduleLoaded: () => window.SessionBayStartup?.moduleLoaded(),
   mounted: () => window.SessionBayStartup?.mounted(),
   ready: () => window.SessionBayStartup?.ready(),
