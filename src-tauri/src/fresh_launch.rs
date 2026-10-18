@@ -39,6 +39,9 @@ struct Attempt {
     returned: Option<RuntimeInfo>,
     expires_at: u64,
     capability_error: Option<String>,
+    rejected: Option<String>,
+    context: String,
+    invalidated: bool,
 }
 #[derive(Default)]
 pub struct FreshLaunches {
@@ -46,6 +49,20 @@ pub struct FreshLaunches {
     observed_now: u64,
 }
 impl FreshLaunches {
+    pub(crate) fn cancel(&mut self, intent: &str) {
+        for ((_, key), attempt) in &mut self.attempts {
+            if key == intent && attempt.rejected.is_some() {
+                attempt.invalidated = true;
+            }
+        }
+    }
+    pub(crate) fn invalidate_rejected(&mut self) {
+        for attempt in self.attempts.values_mut() {
+            if attempt.rejected.is_some() {
+                attempt.invalidated = true;
+            }
+        }
+    }
     pub(crate) fn capability_error(&self, generation: &str, runtime_id: &str) -> Option<String> {
         self.attempts
             .iter()
@@ -58,6 +75,7 @@ impl FreshLaunches {
             })
             .and_then(|(_, attempt)| attempt.capability_error.clone())
     }
+    #[cfg(test)]
     pub(crate) fn launch<B: FreshBroker>(
         &mut self,
         intent: &LaunchRequest,
@@ -65,19 +83,52 @@ impl FreshLaunches {
         plan: impl FnOnce(&LaunchRequest) -> Result<LaunchSpec, String>,
         record_provenance: impl FnMut(&str, &RuntimeRecord) -> Result<(), String>,
     ) -> Result<RuntimeInfo, String> {
+        self.launch_with_context(intent, broker, plan, record_provenance, "", false)
+    }
+    pub(crate) fn launch_with_context<B: FreshBroker>(
+        &mut self,
+        intent: &LaunchRequest,
+        broker: &B,
+        plan: impl FnOnce(&LaunchRequest) -> Result<LaunchSpec, String>,
+        record_provenance: impl FnMut(&str, &RuntimeRecord) -> Result<(), String>,
+        context: &str,
+        without_hooks: bool,
+    ) -> Result<RuntimeInfo, String> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| "System clock is before UNIX epoch")?
             .as_millis() as u64;
-        self.launch_at(intent, broker, plan, record_provenance, now)
+        self.launch_context_at(
+            intent,
+            broker,
+            plan,
+            record_provenance,
+            now,
+            context,
+            without_hooks,
+        )
     }
+    #[cfg(test)]
     fn launch_at<B: FreshBroker>(
+        &mut self,
+        intent: &LaunchRequest,
+        broker: &B,
+        plan: impl FnOnce(&LaunchRequest) -> Result<LaunchSpec, String>,
+        record_provenance: impl FnMut(&str, &RuntimeRecord) -> Result<(), String>,
+        now: u64,
+    ) -> Result<RuntimeInfo, String> {
+        self.launch_context_at(intent, broker, plan, record_provenance, now, "", false)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn launch_context_at<B: FreshBroker>(
         &mut self,
         intent: &LaunchRequest,
         broker: &B,
         plan: impl FnOnce(&LaunchRequest) -> Result<LaunchSpec, String>,
         mut record_provenance: impl FnMut(&str, &RuntimeRecord) -> Result<(), String>,
         now: u64,
+        context: &str,
+        without_hooks: bool,
     ) -> Result<RuntimeInfo, String> {
         self.observed_now = self.observed_now.max(now);
         let now = self.observed_now;
@@ -118,6 +169,9 @@ impl FreshLaunches {
         let serialized = serde_json::to_vec(intent).map_err(|e| e.to_string())?;
         let first = !self.attempts.contains_key(&key);
         if first {
+            if without_hooks {
+                return Err("沒有可確認的未啟動請求；原請求不會重送。".into());
+            }
             if self.attempts.len() >= 128 {
                 return Err(
                     "目前十分鐘內的啟動請求已達上限，請稍後再試；既有 Agent 繼續運作。".into(),
@@ -135,12 +189,15 @@ impl FreshLaunches {
                 );
             }
             spec.cwd = spec.cwd.canonicalize().map_err(|e| e.to_string())?;
-            // This local capability check cannot send Launch or spawn an Agent.
-            // Reject before caching an uncertain attempt; do not fall back or retry.
-            broker
-                .preflight(&spec)
-                .map_err(|error| format!("{NOT_STARTED}{error}"))?;
-            let prior = broker.list()?;
+            // Retain only the typed, local zero-Launch refusal. No wire fallback.
+            let rejected = broker.preflight(&spec).err().map(|error| match error {
+                LaunchPreflightError::MissingProviderHooks => format!("{NOT_STARTED}{error}"),
+            });
+            let prior = if rejected.is_none() {
+                broker.list()?
+            } else {
+                vec![]
+            };
             if prior.iter().any(|r| r.info.pane_id == request.pane_id) {
                 return Err("Fresh pane identity collision".into());
             }
@@ -156,6 +213,9 @@ impl FreshLaunches {
                     returned: None,
                     expires_at,
                     capability_error: None,
+                    rejected,
+                    context: context.into(),
+                    invalidated: false,
                 },
             );
         }
@@ -166,8 +226,30 @@ impl FreshLaunches {
         if attempt.intent != serialized {
             return Err("Fresh launch intent was reused with different parameters".into());
         }
+        let mut send = first;
+        if attempt.invalidated || (attempt.rejected.is_some() && attempt.context != context) {
+            attempt.invalidated = true;
+            return Err("啟動請求已失效；設定或目錄資料可能已變更，請重新開啟啟動器。".into());
+        }
+        if let Some(error) = &attempt.rejected {
+            if !without_hooks {
+                return Err(error.clone());
+            }
+            // Consume before any fallible IPC. Failure/unknown can never recreate a rejection.
+            attempt.rejected = None;
+            attempt.spec.env.remove(crate::provider_hooks::OPT_IN);
+            let prior = broker.list()?;
+            if prior
+                .iter()
+                .any(|r| r.info.pane_id == attempt.request.pane_id)
+            {
+                return Err("Fresh pane identity collision".into());
+            }
+            attempt.prior_ids = prior.into_iter().map(|r| r.info.id).collect();
+            send = true;
+        }
         // Send once only. A lost response may be recovered by authoritative List, never a second launch.
-        let launch_error = if first {
+        let launch_error = if send {
             match broker.launch(attempt.spec.clone(), &attempt.request) {
                 Ok(info) => {
                     attempt.returned = Some(info);
@@ -258,6 +340,7 @@ mod tests {
         generation: RefCell<String>,
         records: RefCell<Vec<RuntimeRecord>>,
         launches: Cell<usize>,
+        sent: RefCell<Vec<(LaunchSpec, LaunchRequest)>>,
         lose_reply: bool,
         suppress: bool,
         deny: bool,
@@ -271,6 +354,7 @@ mod tests {
                 generation: RefCell::new(Uuid::new_v4().to_string()),
                 records: RefCell::new(vec![]),
                 launches: Cell::new(0),
+                sent: RefCell::new(vec![]),
                 lose_reply: false,
                 suppress: false,
                 deny: false,
@@ -296,6 +380,7 @@ mod tests {
         }
         fn launch(&self, spec: LaunchSpec, request: &LaunchRequest) -> Result<RuntimeInfo, String> {
             self.launches.set(self.launches.get() + 1);
+            self.sent.borrow_mut().push((spec.clone(), request.clone()));
             let info = RuntimeInfo {
                 id: if self.reuse_prior {
                     self.records.borrow()[0].info.id.clone()
@@ -362,7 +447,7 @@ mod tests {
         })
     }
     #[test]
-    fn preflight_rejection_is_known_not_started_and_does_not_cache_an_attempt() {
+    fn preflight_rejection_is_retained_and_only_explicit_confirmation_can_dispatch() {
         let broker = Fake::new();
         broker.preflight_denied.set(true);
         let mut cache = FreshLaunches::default();
@@ -381,11 +466,186 @@ mod tests {
         );
         assert!(!error.contains("尚未確認"));
         assert_eq!(broker.launches.get(), 0);
-        assert!(cache.attempts.is_empty());
-        // Only an explicit later caller action with a now-compatible plan may launch.
+        assert_eq!(cache.attempts.len(), 1);
+        // Even a now-compatible broker cannot turn a duplicate into implicit confirmation.
         broker.preflight_denied.set(false);
-        cache.launch(&r, &broker, plan, |_, _| Ok(())).unwrap();
+        assert!(cache
+            .launch(&r, &broker, |_| panic!("must not replan"), |_, _| Ok(()))
+            .is_err());
+        cache
+            .launch_with_context(
+                &r,
+                &broker,
+                |_| panic!("must not replan"),
+                |_, _| Ok(()),
+                "",
+                true,
+            )
+            .unwrap();
         assert_eq!(broker.launches.get(), 1);
+    }
+    #[test]
+    fn confirmation_only_removes_opt_in_from_the_original_canonical_plan() {
+        let broker = Fake::new();
+        broker.preflight_denied.set(true);
+        let mut cache = FreshLaunches::default();
+        let r = request("codex");
+        assert!(cache
+            .launch(
+                &r,
+                &broker,
+                |r| {
+                    let mut spec = plan(r)?;
+                    spec.args = vec![
+                        "--dangerously-bypass-approvals-and-sandbox".into(),
+                        "literal $HOME".into(),
+                    ];
+                    spec.env
+                        .insert(crate::provider_hooks::OPT_IN.into(), "live".into());
+                    spec.env.insert("CUSTOM".into(), "unchanged".into());
+                    Ok(spec)
+                },
+                |_, _| Ok(())
+            )
+            .is_err());
+        let attempt = cache.attempts.values().next().unwrap();
+        let mut expected_spec = serde_json::to_value(&attempt.spec).unwrap();
+        expected_spec["env"]
+            .as_object_mut()
+            .unwrap()
+            .remove(crate::provider_hooks::OPT_IN);
+        let expected_request = serde_json::to_value(&attempt.request).unwrap();
+        for _ in 0..2 {
+            cache
+                .launch_with_context(
+                    &r,
+                    &broker,
+                    |_| panic!("never replan"),
+                    |_, _| Ok(()),
+                    "",
+                    true,
+                )
+                .unwrap();
+        }
+        assert_eq!(broker.launches.get(), 1);
+        let sent = broker.sent.borrow();
+        assert_eq!(serde_json::to_value(&sent[0].0).unwrap(), expected_spec);
+        assert_eq!(serde_json::to_value(&sent[0].1).unwrap(), expected_request);
+    }
+    #[test]
+    fn cancelled_version_changed_expired_and_restarted_rejections_cannot_launch() {
+        for scenario in 0..6 {
+            let broker = Fake::new();
+            broker.preflight_denied.set(true);
+            let mut cache = FreshLaunches::default();
+            let mut r = request("claude");
+            r.pane_id = format!("1000:{}", Uuid::new_v4());
+            assert!(cache
+                .launch_context_at(
+                    &r,
+                    &broker,
+                    plan,
+                    |_, _| Ok(()),
+                    1000,
+                    "settings:catalog:1",
+                    false
+                )
+                .is_err());
+            match scenario {
+                0 => cache.cancel(&r.pane_id),
+                1 => cache.invalidate_rejected(),
+                2 => {} // Changed catalog/settings revision at confirmation.
+                3 => {} // Original deadline, not refreshed by duplicate requests.
+                4 => *broker.generation.borrow_mut() = Uuid::new_v4().to_string(),
+                _ => r.rows += 1,
+            }
+            let context = if scenario == 2 {
+                "settings:catalog:2"
+            } else {
+                "settings:catalog:1"
+            };
+            let now = if scenario == 3 { 601000 } else { 2000 };
+            assert!(cache
+                .launch_context_at(
+                    &r,
+                    &broker,
+                    |_| panic!("never replan"),
+                    |_, _| Ok(()),
+                    now,
+                    context,
+                    true
+                )
+                .is_err());
+            // A revision that changes back cannot revive an invalidated intent.
+            assert!(cache
+                .launch_context_at(
+                    &r,
+                    &broker,
+                    plan,
+                    |_, _| Ok(()),
+                    now,
+                    "settings:catalog:1",
+                    true
+                )
+                .is_err());
+            assert_eq!(broker.launches.get(), 0);
+        }
+    }
+    #[test]
+    fn confirmation_requires_a_refusal_and_unknown_outcome_never_becomes_retryable() {
+        let mut broker = Fake::new();
+        broker.suppress = true;
+        broker.lose_reply = true;
+        let mut cache = FreshLaunches::default();
+        let r = request("codex");
+        assert!(cache
+            .launch_with_context(&r, &broker, plan, |_, _| Ok(()), "", true)
+            .is_err());
+        assert_eq!(broker.launches.get(), 0);
+        broker.preflight_denied.set(true);
+        assert!(cache.launch(&r, &broker, plan, |_, _| Ok(())).is_err());
+        for confirm in [true, false, true] {
+            let error = cache
+                .launch_with_context(
+                    &r,
+                    &broker,
+                    |_| panic!("never replan"),
+                    |_, _| Ok(()),
+                    "",
+                    confirm,
+                )
+                .unwrap_err();
+            assert!(!error.starts_with(NOT_STARTED));
+        }
+        assert_eq!(broker.launches.get(), 1);
+    }
+    #[test]
+    fn competing_commands_dispatch_at_most_once() {
+        let broker = Fake::new();
+        broker.preflight_denied.set(true);
+        let mut cache = FreshLaunches::default();
+        let r = request("codex");
+        assert!(cache.launch(&r, &broker, plan, |_, _| Ok(())).is_err());
+        let state = std::sync::Mutex::new((cache, broker));
+        std::thread::scope(|scope| {
+            for without_hooks in [true, false, true] {
+                let state = &state;
+                let r = &r;
+                scope.spawn(move || {
+                    let mut state = state.lock().unwrap();
+                    let (cache, broker) = &mut *state;
+                    let _ = cache.launch_with_context(
+                        r,
+                        broker,
+                        |_| panic!("never replan"),
+                        |_, _| Ok(()),
+                        "",
+                        without_hooks,
+                    );
+                });
+            }
+        });
+        assert_eq!(state.lock().unwrap().1.launches.get(), 1);
     }
     #[test]
     fn old_broker_new_codex_and_claude_get_verified_evidence() {

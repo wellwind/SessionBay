@@ -351,6 +351,19 @@ async fn launch_fresh_runtime(
     let s = state.inner().clone();
     blocking(move || s.launch_fresh(&request)).await
 }
+#[tauri::command]
+async fn launch_fresh_without_hooks(
+    state: AppState<'_>,
+    request: LaunchRequest,
+) -> Result<RuntimeInfo, String> {
+    let s = state.inner().clone();
+    blocking(move || s.launch_fresh_without_hooks(&request)).await
+}
+#[tauri::command]
+async fn cancel_fresh_launch(state: AppState<'_>, intent: String) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.cancel_fresh(&intent)).await
+}
 // The broker is authoritative for runtime identity. A pane label alone is insufficient.
 fn image_runtime(s: &Service, runtime_id: &str) -> Result<(), String> {
     s.check_file_runtime(runtime_id)
@@ -707,6 +720,8 @@ pub fn run() {
             preview_launch,
             launch_runtime,
             launch_fresh_runtime,
+            launch_fresh_without_hooks,
+            cancel_fresh_launch,
             attach_runtime,
             detach_runtime,
             forget_runtime,

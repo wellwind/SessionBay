@@ -1,7 +1,7 @@
 import { agentNames, defaultAgentOptions } from './agents';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api, call, isDesktop } from './api';
@@ -50,6 +50,8 @@ vi.mock('./api', () => ({
     runtimes: vi.fn(),
     launch: vi.fn(),
     launchFresh: vi.fn(),
+    launchFreshWithoutHooks: vi.fn(),
+    cancelFresh: vi.fn().mockResolvedValue(undefined),
     detect: vi.fn(),
     detectShells: vi.fn(),
     detectHistorySources: vi.fn(),
@@ -1016,6 +1018,63 @@ describe('fresh Agent backend-owned launch', () => {
     expect(api.launchFresh).toHaveBeenCalledOnce();
     expect(api.launch).not.toHaveBeenCalled();
     expect(api.stop).not.toHaveBeenCalled();
+  });
+
+  it('confirms the original request once without invalidating its own launch context', async () => {
+    const pending = pendingLaunch();
+    let finish!: (info: RuntimeInfo) => void;
+    vi.mocked(api.launchFreshWithoutHooks).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    await submitFresh();
+    await act(async () => pending.reject(new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 這次未啟動 Agent')));
+    const button = screen.getByRole('button', { name: '本次不啟用活動回報，繼續啟動' });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await act(async () => {});
+    expect(api.launchFreshWithoutHooks).toHaveBeenCalledExactlyOnceWith(vi.mocked(api.launchFresh).mock.calls[0][0]);
+    await act(async () => finish(record));
+    expect(workspaceSnapshot().panes[record.paneId].runtimeId).toBe(record.id);
+    expect(api.runtimes).not.toHaveBeenCalled();
+    expect(api.saveSettings).not.toHaveBeenCalled();
+    expect(api.stop).not.toHaveBeenCalled();
+  });
+
+  it.each(['cancel', 'escape', 'navigate', 'expire', 'reload', 'unmount'] as const)('invalidates a rejected intent on %s', async action => {
+    const pending = pendingLaunch();
+    await submitFresh();
+    await act(async () => pending.reject(new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 這次未啟動 Agent')));
+    const dialog = screen.getByRole('dialog', { name: '本次不啟用活動回報' });
+    if (action === 'cancel') fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    if (action === 'escape') fireEvent.keyDown(dialog, { key: 'Escape' });
+    if (action === 'navigate') changePage('所有目錄');
+    if (action === 'expire') await tick(10 * 60 * 1000);
+    if (action === 'reload') await act(async () => { await window.SessionBayReload?.(); });
+    if (action === 'unmount') cleanup();
+    await act(async () => {});
+    expect(api.cancelFresh).toHaveBeenCalledWith(vi.mocked(api.launchFresh).mock.calls[0][0].paneId);
+    expect(api.launchFreshWithoutHooks).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: '本次不啟用活動回報' })).not.toBeInTheDocument();
+  });
+
+  it('does not reopen confirmation after navigating before the refusal arrives', async () => {
+    const pending = pendingLaunch();
+    await submitFresh();
+    changePage('所有目錄');
+    await act(async () => pending.reject(new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 這次未啟動 Agent')));
+    expect(screen.queryByRole('button', { name: '本次不啟用活動回報，繼續啟動' })).not.toBeInTheDocument();
+    expect(api.cancelFresh).toHaveBeenCalledWith(vi.mocked(api.launchFresh).mock.calls[0][0].paneId);
+    expect(api.launchFreshWithoutHooks).not.toHaveBeenCalled();
+  });
+
+  it('never offers another confirmation after an unknown confirmed launch outcome', async () => {
+    const pending = pendingLaunch();
+    vi.mocked(api.launchFreshWithoutHooks).mockRejectedValueOnce(new Error('IPC response lost'));
+    await submitFresh();
+    await act(async () => pending.reject(new Error('[SESSIONBAY_LAUNCH_NOT_STARTED] 這次未啟動 Agent')));
+    fireEvent.click(screen.getByRole('button', { name: '本次不啟用活動回報，繼續啟動' }));
+    await act(async () => {});
+    expect(screen.queryByRole('dialog', { name: '本次不啟用活動回報' })).not.toBeInTheDocument();
+    expect(screen.getByText(/無法確認 Agent 啟動結果/)).toBeInTheDocument();
+    expect(api.launchFreshWithoutHooks).toHaveBeenCalledOnce();
   });
 
   it('does not fabricate a pane or retry after an uncertain launch failure', async () => {
