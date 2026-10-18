@@ -279,3 +279,19 @@ pub struct RemovalArtifact {
     pub status: String,
     pub indexed_bytes: Option<u64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalFileCandidate {
+    pub path: String,
+    pub version: String,
+    pub from_launch_directory: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalFileResolution {
+    pub absolute: bool,
+    pub launch_directory: Option<String>,
+    pub candidates: Vec<TerminalFileCandidate>,
+    pub truncated: bool,
+}

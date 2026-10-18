@@ -1,3 +1,4 @@
+import type { FileReference } from '../types';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -12,7 +13,7 @@ import './explorer.css';
 import './project-files.css';
 
 export interface WorkspaceFilesProps {
-  openRequest?: { path: string; nonce: number };
+  openRequest?: { path: string; nonce: number; reference?: FileReference };
   onTabsChange?: (projectId: string, paths: string[]) => void;
   sidebarSide?: 'left' | 'right';
   projectId: string; visible: boolean; active: boolean; sidebarVisible: boolean;
@@ -27,12 +28,14 @@ function Explorer({ openRequest, onTabsChange, sidebarSide = 'left', projectId, 
   const [revision, setRevision] = useState(0);
   const [searchRequest, setSearchRequest] = useState(0);
   const [notice, setNotice] = useState('');
+  const [reference, setReference] = useState<(FileReference & { path: string })>();
   const [menu, setMenu] = useState<{ path: string; x: number; y: number; target: HTMLElement }>();
   const sidebar = useRef<HTMLElement>(null);
   const documentRoot = useRef<HTMLElement>(null);
   const tabRoot = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const positions = useRef(new Map<string, ScrollPosition>());
+  const handledReference = useRef<number | undefined>(undefined);
   const latest = useRef({ visible, active, sidebarVisible, state }); latest.current = { visible, active, sidebarVisible, state };
   const focusGeneration = useRef(0);
   useEffect(() => {
@@ -41,13 +44,15 @@ function Explorer({ openRequest, onTabsChange, sidebarSide = 'left', projectId, 
     document.addEventListener('focusin', moved);
     return () => { tracker.current++; document.removeEventListener('focusin', moved); };
   }, []);
-  const open = (path: string, pinned = false) => {
-    focusGeneration.current++; setNotice(''); setSearchRequest(0); dispatch({ type: 'open', path, pinned }); onActivate();
+  const open = (path: string, pinned = false, linked = false) => {
+    if (!linked && openRequest?.reference) handledReference.current = openRequest.reference.nonce;
+    focusGeneration.current++; setNotice(''); setSearchRequest(0); setReference(undefined); dispatch({ type: 'open', path, pinned }); onActivate();
   };
   useEffect(() => { onTabsChange?.(projectId, state.tabs.map(tab => tab.path)); }, [projectId, state.tabs, onTabsChange]);
   useEffect(() => {
     if (!openRequest) return;
-    open(openRequest.path, true);
+    open(openRequest.path, true, true);
+    if (openRequest.reference) setReference({ ...openRequest.reference, path: openRequest.path });
     const generation = focusGeneration.current;
     const frame = requestAnimationFrame(() => {
       if (generation !== focusGeneration.current || !latest.current.visible || !latest.current.active ||
@@ -58,6 +63,12 @@ function Explorer({ openRequest, onTabsChange, sidebarSide = 'left', projectId, 
     // Each request is a new user intent; callback changes must not reopen files.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest]);
+  useEffect(() => {
+    if (!visible || !active) {
+      if (openRequest?.reference) handledReference.current = openRequest.reference.nonce;
+      setReference(undefined);
+    }
+  }, [visible, active, openRequest]);
   const closeFile = (path: string) => {
     const next = fileTabsReducer(state, { type: 'close', path });
     const owner = document.activeElement;
@@ -131,6 +142,9 @@ function Explorer({ openRequest, onTabsChange, sidebarSide = 'left', projectId, 
       {state.notice && <p role="status">{state.notice}</p>}
       {!state.active ? <div className="explorer-empty"><FileIcon path="readme.txt" /><strong>開啟檔案閱讀</strong></div>
         : visible && active && <FileDocument key={`${state.active}:${revision}`} projectId={projectId} path={state.active} searchRequest={searchRequest}
+          reference={reference?.path === state.active && reference.nonce !== handledReference.current ? reference
+            : openRequest?.path === state.active && openRequest.reference?.nonce !== handledReference.current ? openRequest.reference : undefined}
+          onReferenceHandled={nonce => { handledReference.current = nonce; setReference(current => current?.nonce === nonce ? undefined : current); }}
           position={positions.current.get(state.active) ?? { top: 0, left: 0 }} onScroll={value => positions.current.set(state.active, value)} />}
 
     </section>, documentHost)}

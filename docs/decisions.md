@@ -854,3 +854,15 @@ Service 明確持有非 Clone 的 lease guard，renderer reload／BrokerClient c
 ### L1b review 修正：到期狀態不可被時間回退撤銷
 
 原先只從當前時間重算到期；即使 unknown pin 已黏住，到期後的 lease／offer 仍可能因回退重新有效，違反不可復活契約。現在在 registry 鎖內永久鎖定各自 expired 狀態；renew、acquire replay 及有效 lease 統計均尊重它，release 不清除此狀態。已消費 offer 以 lease 自己的期限計算，不因原 offer 期限到達而提前終止 lease。兩項新測試先在原碼重現失敗，再驗證到期觀察／renew／acquire→回退→重送皆不能復活；保留 sequence、deadline 及 unknown pin。不更動 wire、既有 owner 或 no-idle-exit 範圍。
+
+## 2026-10-18：Terminal 檔案連結優先交付
+
+使用者最新順序為先完成 Terminal／Agent 輸出檔案路徑連結，再恢復 broker 後續與 Snap。沿用現有專案唯讀檔案 tab；不執行輸出、檔案或 URL，不掃描整台主機，不新增終端輸出保存。
+
+首版對專案內明確絕對路徑直接開啟；相對路徑／裸檔名必須顯示候選並由使用者選擇，即使只有一筆也不猜。後端由既有 broker List 綁定 pane、runtime、project，啟動 cwd 只作候選提示，不宣稱 shell 當前 cwd。候選搜尋沿用單專案有界 metadata search，最後以現有 descriptor-based inspect／chunk API 驗證 root、symlink／hardlink／reparse、檔案版本；解析後版本改變需明確重新讀取。沒有專案的臨時 Terminal、root 外、UNC／device、URL scheme 或含上層目錄的路徑保留拒絕。
+
+macOS Cmd-click／其他平台 Ctrl-click 啟用，普通點選與拖曳保持選取；工具列提供可鍵盤操作的路徑輸入入口。OSC8 由優先的內建 provider 接管，但 activation 只顯示真實目標、不開啟任何 scheme，避免偽裝可見檔名繞到自訂 provider。自動辨識首版只處理完整未折行的實體行，折行內容可用選取／手動輸入；不用內部 xterm API 或推測截斷路徑。
+
+file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 tab 重用、正常／Zen 同一流程。大型檔仍保留既有確認／分段限制，分段閱讀不宣稱能定位全檔行號；圖片不套用行欄。導航、pane/runtime 改變、取消、卸載及晚到結果不得重新開檔或偷取焦點。
+
+自動 provider 額外跳過任何底線／隱藏 cell；xterm 6 的 OSC8 URL 屬性會透過公開 `isUnderline()` 呈現，保守跳過整個候選可涵蓋部分或單尾字元的偽裝，不依賴私有 attr API。一般 SGR 底線也走手動入口。

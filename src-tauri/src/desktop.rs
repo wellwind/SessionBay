@@ -141,6 +141,17 @@ async fn list_projects(state: AppState<'_>) -> Result<Vec<Project>, String> {
     blocking(move || s.catalog.projects()).await
 }
 #[tauri::command]
+async fn resolve_terminal_file(
+    state: AppState<'_>,
+    project_id: String,
+    pane_id: String,
+    runtime_id: String,
+    path: String,
+) -> Result<crate::models::TerminalFileResolution, String> {
+    let s = state.inner().clone();
+    blocking(move || s.resolve_terminal_file(&project_id, &pane_id, &runtime_id, &path)).await
+}
+#[tauri::command]
 async fn list_workspace_files(
     state: AppState<'_>,
     project_id: String,
@@ -707,6 +718,7 @@ pub fn run() {
             save_settings,
             list_projects,
             list_workspace_files,
+            resolve_terminal_file,
             search_workspace_files,
             read_workspace_file,
             inspect_workspace_file,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api';
-import type { WorkspaceFileInfo } from '../types';
+import type { FileReference, WorkspaceFileInfo } from '../types';
 import { ExplorerEditor, type ScrollPosition } from './ExplorerEditor';
 import { ImageViewer } from './ImageViewer';
 import { parseWorkspaceImage, type ImagePreview } from './image-reader';
@@ -9,6 +9,7 @@ import { FULL_FILE_BYTES, NORMAL_FILE_BYTES, RangeRequired, readWorkspaceText, t
 
 interface Props {
   projectId: string; path: string; searchRequest: number;
+  reference?: FileReference; onReferenceHandled?: (nonce: number) => void;
   position: ScrollPosition; onScroll: (position: ScrollPosition) => void;
 }
 type State = { phase: 'loading'; bytes: number } | { phase: 'confirm'; info: WorkspaceFileInfo }
@@ -18,11 +19,31 @@ type State = { phase: 'loading'; bytes: number } | { phase: 'confirm'; info: Wor
 const size = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 
 /** The active document owns its request/model; switching away cancels and releases it. */
-export function FileDocument({ projectId, path, searchRequest, position, onScroll }: Props) {
+export function FileDocument({ projectId, path, searchRequest, position, onScroll, reference, onReferenceHandled }: Props) {
   const [state, setState] = useState<State>({ phase: 'loading', bytes: 0 });
-  const [request, setRequest] = useState<{ generation: number; confirmed?: boolean; start?: number }>({ generation: 0 });
+  const [request, setRequest] = useState<{ generation: number; confirmed?: boolean; start?: number; expectedVersion?: string }>({ generation: 0, expectedVersion: reference?.version });
   const cancellation = useRef<AbortController | undefined>(undefined);
   const pageStarts = useRef<number[]>([0]);
+  const [navigationNote, setNavigationNote] = useState('');
+  const documentState = useRef({ state, request }); documentState.current = { state, request };
+  useEffect(() => {
+    if (!reference) return;
+    const current = documentState.current;
+    const loaded = 'info' in current.state ? current.state.info.version : undefined;
+    if (loaded === reference.version) return;
+    if (current.request.expectedVersion !== reference.version || ['error', 'cancelled'].includes(current.state.phase))
+      setRequest(value => ({ generation: value.generation + 1, expectedVersion: reference.version }));
+  }, [reference]);
+  // Only the original read intent is version-bound; explicit retry authorizes a fresh inspection.
+  useEffect(() => {
+    if (!reference) return;
+    if ('info' in state && state.info.version !== reference.version) return;
+    if (state.phase === 'image' || state.phase === 'range' || state.phase === 'ready' && (state.value.partial || reference.line === undefined)) {
+      if (reference.line !== undefined && (state.phase !== 'ready' || state.value.partial))
+        setNavigationNote(state.phase === 'image' ? '圖片不支援行欄定位。' : '分段閱讀不支援全檔行欄定位，請在目前區段搜尋。');
+      onReferenceHandled?.(reference.nonce);
+    }
+  }, [reference, state, onReferenceHandled]);
   useEffect(() => {
     const controller = new AbortController(); cancellation.current = controller;
     setState({ phase: 'loading', bytes: 0 });
@@ -30,6 +51,7 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
       const info = await api.inspectWorkspaceFile(projectId, path);
       controller.signal.throwIfAborted();
       if (info.path !== path || !Number.isSafeInteger(info.sizeBytes) || info.sizeBytes < 0 || !info.version) throw new Error('無效檔案資訊，請重新整理');
+      if (request.expectedVersion && info.version !== request.expectedVersion) throw new Error('檔案在連結解析後已變更，請重新讀取或重新選擇路徑。');
       if (info.kind === 'image') {
         const response = await api.readWorkspaceImage(projectId, path, info.version);
         controller.signal.throwIfAborted();
@@ -51,23 +73,30 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
   }, [projectId, path, request]);
   const retry = (options: { confirmed?: boolean; start?: number } = {}) => {
     if (options.start === undefined || options.start === 0) pageStarts.current = [0];
-    setRequest(value => ({ generation: value.generation + 1, ...options }));
+    const fresh = state.phase === 'error' || state.phase === 'cancelled';
+    if (fresh && reference) {
+      onReferenceHandled?.(reference.nonce);
+      if (reference.line !== undefined) setNavigationNote('已重新讀取目前版本，未套用舊連結的行欄。');
+    }
+    setRequest(value => ({ generation: value.generation + 1, expectedVersion: fresh ? undefined : value.expectedVersion, ...options }));
   };
-  const cancel = () => { cancellation.current?.abort(); setState({ phase: 'cancelled' }); };
+  const cancel = () => { cancellation.current?.abort(); if (reference) onReferenceHandled?.(reference.nonce); setState({ phase: 'cancelled' }); };
   if (state.phase === 'loading') return <div className="explorer-empty"><p role="status">讀取檔案中…{state.bytes > 0 && ` ${size(state.bytes)}`}</p><button onClick={cancel}>取消讀取</button></div>;
   if (state.phase === 'cancelled') return <div className="explorer-empty"><p>已取消讀取</p><button onClick={() => retry()}>重新讀取檔案</button></div>;
   if (state.phase === 'error') return <div className="explorer-empty"><p role="alert">{state.error}</p><button onClick={() => retry()}>重新讀取檔案</button></div>;
   if (state.phase === 'confirm' || state.phase === 'range') return <div className="explorer-empty">
+    {navigationNote && <p role="status" className="explorer-notice">{navigationNote}</p>}
     <strong>{state.phase === 'confirm' ? '開啟大型文字檔' : '分段閱讀大型文字檔'}</strong><p>{size(state.info.sizeBytes)} · {path}</p>
     <p>{state.phase === 'confirm' ? '以純文字模式閱讀，暫停語法高亮與折疊，降低記憶體使用。' : '每次讀取約 1 MiB。搜尋與複製僅包含目前區段。'}</p>
     {state.phase === 'confirm' && <button onClick={() => retry({ confirmed: true })}>繼續開啟</button>}
     <button onClick={() => retry({ start: 0 })}>分段閱讀</button><button onClick={cancel}>取消</button>
   </div>;
-  if (state.phase === 'image') return <FilePreviewBoundary key={`${path}:${state.info.version}`} path={path}>
+  if (state.phase === 'image') return <>{navigationNote && <p role="status" className="explorer-notice">{navigationNote}</p>}<FilePreviewBoundary key={`${path}:${state.info.version}`} path={path}>
     <ImageViewer path={path} {...state.image} format={state.image.sourceFormat} sizeBytes={state.info.sizeBytes} />
-  </FilePreviewBoundary>;
+  </FilePreviewBoundary></>;
   const { value, info } = state;
   return <div className="file-document-content">
+    {navigationNote && <p role="status" className="explorer-notice">{navigationNote}</p>}
     {value.longestLine > 10000 && value.lightweight && <p className="explorer-notice" role="status">超長行僅繪製前 10,000 字元；選取與複製仍保留目前內容。</p>}
     {value.partial && <div className="file-range-bar" role="group" aria-label="檔案閱讀區段">
       <button disabled={pageStarts.current.length <= 1} onClick={() => { pageStarts.current.pop(); retry({ start: pageStarts.current.at(-1) ?? 0 }); }}>上一段</button>
@@ -76,6 +105,7 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
     </div>}
     <FilePreviewBoundary key={`${path}:${info.version}:${value.start}`} path={path}>
       <ExplorerEditor path={path} text={value.text} sizeBytes={info.sizeBytes} searchRequest={searchRequest}
+        revealRequest={!value.partial && (!reference || info.version === reference.version) ? reference : undefined} onRevealHandled={onReferenceHandled}
         lightweight={value.lightweight} partial={value.partial} lineCount={value.lines}
         position={value.partial ? { top: 0, left: 0 } : position} onScroll={value.partial ? () => {} : onScroll} />
     </FilePreviewBoundary>

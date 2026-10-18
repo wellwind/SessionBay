@@ -1,3 +1,6 @@
+import { TerminalFileDialog } from './components/TerminalFileDialog';
+import type { TerminalFileOpen } from './terminal-file-links';
+import type { FileReference, Pane as FileLinkPane } from './types';
 import { RuntimeActivityProvider, RuntimeActivityIndicator } from './components/RuntimeActivity';
 import { tabRuntimeSummary } from './project-runtime';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -137,7 +140,8 @@ export default function App() {
   const [quickRuntimeFocus, setQuickRuntimeFocus] = useState<{ paneId: string; nonce: number }>();
   const [quickOpen, setQuickOpen] = useState(false);
   const [filePaths, setFilePaths] = useState<Record<string, string[]>>({});
-  const [fileOpenRequest, setFileOpenRequest] = useState<{ projectId: string; path: string; nonce: number }>();
+  const [fileOpenRequest, setFileOpenRequest] = useState<{ projectId: string; path: string; nonce: number; reference?: FileReference }>();
+  const [terminalFileIntent, setTerminalFileIntent] = useState<{ pane: FileLinkPane & { projectId: string; runtimeId: string }; request: TerminalFileOpen; generation: number; nonce: number }>();
   const [historyOpenRequest, setHistoryOpenRequest] = useState<{ session: Session; nonce: number }>();
   const onFileTabsChange = useCallback((projectId: string, paths: string[]) => {
     setFilePaths(previous => ({ ...previous, [projectId]: paths }));
@@ -426,6 +430,16 @@ export default function App() {
   if (launchContext.current.key !== launchContextKey || (launcher && launchContext.current.launcher !== launcher))
     launchContext.current = { key: launchContextKey, launcher, generation: launchContext.current.generation + 1 };
   else launchContext.current.launcher = launcher;
+  const fileContextKey = JSON.stringify([launchContextKey, focusMode, maximizedId, current?.path, current?.launchPath]);
+  const fileContext = useRef({ key: fileContextKey, generation: 0 });
+  if (fileContext.current.key !== fileContextKey) fileContext.current = { key: fileContextKey, generation: fileContext.current.generation + 1 };
+  const fileIntentValid = useCallback((intent: NonNullable<typeof terminalFileIntent>) => {
+    const pane = stateRef.current.workspace.panes[intent.pane.id];
+    return mounted.current && !closingApp.current && intent.generation === fileContext.current.generation &&
+      stateRef.current.selectedId === intent.pane.projectId && stateRef.current.view === 'workspace' &&
+      pane?.runtimeId === intent.pane.runtimeId && pane.projectId === intent.pane.projectId && pane.startToken === intent.pane.startToken;
+  }, []);
+  useEffect(() => { if (terminalFileIntent && !fileIntentValid(terminalFileIntent)) setTerminalFileIntent(undefined); }, [terminalFileIntent, fileContextKey, workspace, fileIntentValid]);
   useEffect(() => {
     if (hookSkipRef.current && hookSkipRef.current.generation !== launchContext.current.generation) cancelHookSkip();
   });
@@ -1682,6 +1696,12 @@ export default function App() {
                     visible={view === 'workspace'}
                     maximizedId={maximizedId}
                     onPatch={patchPane}
+                    onOpenFileLink={(paneId, request) => {
+                      const pane = stateRef.current.workspace.panes[paneId];
+                      if (!pane?.projectId || !pane.runtimeId || stateRef.current.selectedId !== pane.projectId || stateRef.current.view !== 'workspace') return;
+                      setTerminalFileIntent({ pane: { ...pane, projectId: pane.projectId, runtimeId: pane.runtimeId }, request,
+                        generation: fileContext.current.generation, nonce: ++quickRequestNonce.current });
+                    }}
                     onFocus={(id) => {
                       if (activeTab?.focusedPaneId !== id)
                         setWorkspace((w) => ({
@@ -2059,6 +2079,16 @@ export default function App() {
           </div>
         </Dialog>
       )}
+      {terminalFileIntent && fileIntentValid(terminalFileIntent) && <TerminalFileDialog key={terminalFileIntent.nonce}
+        pane={terminalFileIntent.pane} request={terminalFileIntent.request} valid={() => fileIntentValid(terminalFileIntent)}
+        onClose={() => setTerminalFileIntent(undefined)} onOpen={(file, target) => {
+          if (!fileIntentValid(terminalFileIntent)) return;
+          setTerminalFileIntent(undefined);
+          const nonce = ++quickRequestNonce.current;
+          setFileOpenRequest({ projectId: terminalFileIntent.pane.projectId, path: file.path, nonce,
+            reference: { line: target.line, column: target.column, version: file.version, nonce } });
+          setView('files');
+        }} />}
       {quickOpen && current && <Dialog title={`快速開啟 · ${current.name}`} onClose={() => setQuickOpen(false)}>
         <ProjectQuickSwitcher projectId={current.id}
           openedSessionIds={workspace.tabs.filter(tab => tab.projectId === current.id).flatMap(tab => paneIds(tab.layout).flatMap(id => [workspace.panes[id]?.sessionId ?? '', workspace.panes[id]?.resumeId ? `${workspace.panes[id].kind}:${workspace.panes[id].resumeId}` : ''].filter(Boolean)))}

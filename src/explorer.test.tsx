@@ -292,3 +292,14 @@ it('updates palette and mode in place, restores preview colors and disconnects o
     if (oldPalette === undefined) delete root.dataset.themePalette; else root.dataset.themePalette = oldPalette;
   }
 });
+
+it('binds a terminal link version on the first remount of an already open tab', async () => {
+  const view = render(<WorkspaceFiles projectId="p" openRequest={{ path: 'a.ts', nonce: 1 }} />);
+  await screen.findByText('content a.ts');
+  view.rerender(<WorkspaceFiles projectId="p" active={false} openRequest={{ path: 'a.ts', nonce: 1 }} />);
+  vi.mocked(api.readWorkspaceFileChunk).mockClear();
+  view.rerender(<WorkspaceFiles projectId="p" active openRequest={{ path: 'a.ts', nonce: 2,
+    reference: { version: 'old-version', nonce: 2, line: 9 } }} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('連結解析後已變更');
+  expect(api.readWorkspaceFileChunk).not.toHaveBeenCalled();
+});

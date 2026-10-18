@@ -7,7 +7,7 @@ vi.mock('./api', () => ({ api: { inspectWorkspaceFile: vi.fn(), readWorkspaceIma
 vi.mock('./components/file-reader', async original => ({ ...await original<typeof import('./components/file-reader')>(), readWorkspaceText: vi.fn() }));
 vi.mock('./components/image-reader', () => ({ parseWorkspaceImage: vi.fn(() => ({ blob: new Blob(), width: 1, height: 1, sourceFormat: 'png', firstFrameOnly: false })) }));
 vi.mock('./components/ImageViewer', () => ({ ImageViewer: ({ path }: { path: string }) => <div data-testid="image">{path}</div> }));
-vi.mock('./components/ExplorerEditor', () => ({ ExplorerEditor: ({ text, lightweight, partial }: { text: string; lightweight: boolean; partial: boolean }) => <div data-testid="editor" data-lightweight={lightweight} data-partial={partial}>{text}</div> }));
+vi.mock('./components/ExplorerEditor', () => ({ ExplorerEditor: ({ text, lightweight, partial, revealRequest }: { text: string; lightweight: boolean; partial: boolean; revealRequest?: { nonce: number } }) => <div data-testid="editor" data-reveal={revealRequest?.nonce} data-lightweight={lightweight} data-partial={partial}>{text}</div> }));
 const props = { projectId: 'p', path: 'file.txt', searchRequest: 0, position: { top: 0, left: 0 }, onScroll: vi.fn() };
 const info = { path: 'file.txt', version: 'v1', kind: 'text' as const, sizeBytes: 7 };
 const value = { text: 'content', lines: 1, longestLine: 7, start: 0, end: 7, partial: false, lightweight: false };
@@ -55,4 +55,43 @@ describe('bounded active file document', () => {
   it.each([{ ...info, kind: 'binary' as const }, { ...info, path: '../escape' }, { ...info, sizeBytes: Infinity }])('rejects invalid or non-text preflight %#', async metadata => {
     vi.mocked(api.inspectWorkspaceFile).mockResolvedValue(metadata); render(<FileDocument {...props} />); await screen.findByRole('alert'); expect(readWorkspaceText).not.toHaveBeenCalled();
   });
+});
+
+it('binds the initial link read to the inspected version and only explicit retry accepts a new version', async () => {
+  vi.mocked(api.inspectWorkspaceFile).mockResolvedValue({ ...info, version: 'v2' });
+  const handled = vi.fn();
+  render(<FileDocument {...props} reference={{ version: 'v1', nonce: 1, line: 2 }} onReferenceHandled={handled} />);
+  expect(await screen.findByRole('alert')).toHaveTextContent('連結解析後已變更');
+  expect(readWorkspaceText).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '重新讀取檔案' }));
+  expect(await screen.findByTestId('editor')).toHaveTextContent('content');
+  expect(handled).toHaveBeenCalledWith(1);
+});
+it('a new link to an already loaded revision reuses content and only changes location', async () => {
+  const view = render(<FileDocument {...props} />);
+  await screen.findByTestId('editor');
+  view.rerender(<FileDocument {...props} reference={{ version: 'v1', nonce: 2, line: 9 }} />);
+  expect(screen.getByTestId('editor')).toHaveAttribute('data-reveal', '2');
+  expect(readWorkspaceText).toHaveBeenCalledTimes(1);
+  expect(api.inspectWorkspaceFile).toHaveBeenCalledTimes(1);
+});
+it('a link to a newer revision reloads before applying the new location', async () => {
+  const view = render(<FileDocument {...props} />);
+  await screen.findByTestId('editor');
+  vi.mocked(api.inspectWorkspaceFile).mockResolvedValue({ ...info, version: 'v2' });
+  let finish!: (result: typeof value) => void;
+  vi.mocked(readWorkspaceText).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  view.rerender(<FileDocument {...props} reference={{ version: 'v2', nonce: 3, line: 9 }} />);
+  await waitFor(() => expect(readWorkspaceText).toHaveBeenCalledTimes(2));
+  expect(screen.queryByTestId('editor')).toBeNull();
+  finish({ ...value, text: 'new revision' });
+  expect(await screen.findByTestId('editor')).toHaveAttribute('data-reveal', '3');
+});
+it('range mode explains that global line navigation was not applied and keeps reads bounded', async () => {
+  vi.mocked(api.inspectWorkspaceFile).mockResolvedValue({ ...info, sizeBytes: FULL_FILE_BYTES + 1 });
+  const handled = vi.fn();
+  render(<FileDocument {...props} reference={{ version: 'v1', nonce: 4, line: 999 }} onReferenceHandled={handled} />);
+  await screen.findByText('分段閱讀大型文字檔');
+  expect(await screen.findByText(/分段閱讀不支援全檔行欄定位/)).toBeVisible();
+  expect(readWorkspaceText).not.toHaveBeenCalled(); expect(handled).toHaveBeenCalledWith(4);
 });

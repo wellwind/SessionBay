@@ -278,3 +278,9 @@ export interface RemovalInspection {
   indexedArtifacts: { relativePath: string; status: 'metadataMatchesIndex' | 'changedOrUnavailable' | 'sharedStore'; indexedBytes: number | null }[];
   blockers: string[];
 }
+
+export interface TerminalFileCandidate { path: string; version: string; fromLaunchDirectory: boolean }
+export interface TerminalFileResolution {
+  absolute: boolean; launchDirectory: string | null; candidates: TerminalFileCandidate[]; truncated: boolean;
+}
+export interface FileReference { line?: number; column?: number; version: string; nonce: number }

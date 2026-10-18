@@ -2,7 +2,7 @@
 
 ## 2026-10-18 發行與後續順序（最新）
 
-已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。本節的最新順序優先於下方歷史排程：先恢復雲端開發空間，Quick Open／共用 panel 已於 [#65](https://github.com/wellwind/SessionBay/pull/65) 合併；接著收尾藍點提示、Monaco palette、broker 生命週期與單次無 hooks 啟動，再製作 Snap 可安裝測試包。五工具 hook 已整合，真實登入模型回合由使用者自行驗證。此輪不插入 Git 等大型新功能；Git G1–G4、完整 Release／Update、永久刪除、遠端／Web／用量保留後續規劃，Git 的完整八階工作包仍沿用既有文件。
+已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。本節的最新順序優先於下方歷史排程：先恢復雲端開發空間，Quick Open／共用 panel 已於 [#65](https://github.com/wellwind/SessionBay/pull/65) 合併；接著收尾藍點提示與 Monaco palette。使用者最新調整為優先交付 Terminal 檔案路徑連結，再恢復 broker 生命週期後續與 Snap 可安裝測試包。五工具 hook 已整合，真實登入模型回合由使用者自行驗證。此輪不插入 Git 等大型新功能；Git G1–G4、完整 Release／Update、永久刪除、遠端／Web／用量保留後續規劃，Git 的完整八階工作包仍沿用既有文件。
 
 目前功能 PR 以相關 Linux 驗證及 review 作交付門檻；發行特定 OS／架構仍需該目標實測，未驗平台不假稱通過。Windows #46 不在此次交付內。
 
@@ -298,13 +298,13 @@ Claude Mod、OpenCode plugin 與 Codex／Grok／Antigravity OSC7501 已接入 op
 - [ ] Legacy 限制、共用資料單 writer／schema 過渡、更新與 rollback 驗收。
 - [x] #78 已合併：已知 preflight 未啟動後的單次無 hooks 按鈕，保留原參數且不重送 unknown outcome。
 
-L1a 保守 runtime 證據記帳與原子 admission seal 已於 #82 合併，review 修正、本機 core／desktop 與 Linux CI 通過。L1b 本次接入協商式 UI lease 與 native owner，保守保留 legacy／失聯 pin，Mac core／desktop 測試與 Clippy 通過，Linux CI 與 review 待確認；兩者都不啟用 broker 自退。後續依序是完整 broker admission／idle timer 整合及 Stop all。上述完整生命週期仍未完成；不能將 runtime snapshot 或 List 空陣列當成停止服務的授權。
+L1a 保守 runtime 證據記帳與原子 admission seal 已於 #82 合併，review 修正、本機 core／desktop 與 Linux CI 通過。L1b 本次接入協商式 UI lease 與 native owner，保守保留 legacy／失聯 pin，Mac core／desktop 測試與 Clippy 通過，Linux CI 與 review 已通過並於 #84 合併；兩者都不啟用 broker 自退。後續依序是完整 broker admission／idle timer 整合及 Stop all。上述完整生命週期仍未完成；不能將 runtime snapshot 或 List 空陣列當成停止服務的授權。
 
-## Terminal 檔名點開 tab（待實作，Snap 之後）
+## Terminal 檔名點開 tab（首版待 review）
 
-- [ ] 將 Agent 終端輸出的檔案路徑連到中央檔案 tab，保留可靠 cwd、行欄定位、歧義選擇與後端安全路徑界線。
+- [x] 首版連到中央檔案 tab，支援行欄定位、候選選擇與後端安全界線；啟動 cwd 僅作提示，相對路徑一律確認。
 - [ ] 修飾鍵點選、OSC8／URL 區分、跨平台路徑及不可信輸出驗收。
 
-排在目前工作台／broker 修復與 Snap 測試包之後，不插隊。完整需求與安全界線見 [Terminal 檔案路徑連結](terminal-file-links.md)。
+依使用者最新指示優先交付，broker 後續與 Snap 暫停。Mac 合成驗證已通過，Linux CI／獨立 review 與原生跨平台驗收另列。完整範圍與安全界線見 [Terminal 檔案路徑連結](terminal-file-links.md)。
 
 - Agent 面板活動文字：沿用可靠 hook／原生終端狀態、未知留白及生命週期優先；合成元件／瀏覽器回歸已加入，真實模型回合與跨平台原生驗收仍待執行。

@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent } from 'react';
 import type { Pane, RuntimeInfo, Settings, Workspace } from '../types';
 import { layoutRects } from '../workspace';
 import type { Divider } from '../workspace';
+import type { TerminalFileOpen } from '../terminal-file-links';
 import { TerminalPane } from './TerminalPane';
 export function WorkspaceCanvas({
   workspace,
@@ -19,6 +20,7 @@ export function WorkspaceCanvas({
   onSplit,
   onRatio,
   onAlreadyOpen,
+  onOpenFileLink,
 }: {
   workspace: Workspace;
   knownProjectIds: string[];
@@ -34,6 +36,7 @@ export function WorkspaceCanvas({
   onSplit: (id: string, axis: 'horizontal' | 'vertical') => void;
   onRatio: (id: string, ratio: number) => void;
   onAlreadyOpen: (paneId: string, info: RuntimeInfo) => void;
+  onOpenFileLink?: (paneId: string, request: TerminalFileOpen) => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const tab = workspace.tabs.find((t) => t.id === activeTabId);
@@ -98,6 +101,7 @@ export function WorkspaceCanvas({
               onMaximize={() => onMaximize(pane.id)}
               onSplit={(axis) => onSplit(pane.id, axis)}
               onAlreadyOpen={(info) => onAlreadyOpen(pane.id, info)}
+              onOpenFileLink={onOpenFileLink ? request => onOpenFileLink(pane.id, request) : undefined}
             />
           </div>
         );

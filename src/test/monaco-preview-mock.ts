@@ -14,7 +14,10 @@ export const monaco = {
   editor: {
     defineTheme: vi.fn<(name: string, data: unknown) => void>(),
     setTheme: vi.fn(),
-    createModel: vi.fn((text: string) => { const model = { text, dispose: vi.fn() }; models.push(model); return model; }),
+    createModel: vi.fn((text: string) => { const model = { text, dispose: vi.fn(), validatePosition: ({ lineNumber, column }: { lineNumber: number; column: number }) => {
+      const lines = text.split('\n'); const line = Math.max(1, Math.min(lineNumber, lines.length));
+      return { lineNumber: line, column: Math.max(1, Math.min(column, lines[line - 1].length + 1)) };
+    } }; models.push(model); return model; }),
     create: vi.fn((container: HTMLElement, options: { model: { text: string }; ariaLabel: string }) => {
       const pre = document.createElement('pre'); pre.textContent = options.model.text;
       container.append(pre);
@@ -25,7 +28,8 @@ export const monaco = {
         restoreViewState: vi.fn(), saveViewState: vi.fn(() => ({ viewState: { scrollTop: top } })),
         getScrollTop: () => top, getScrollLeft: () => left,
         onDidScrollChange: () => ({ dispose: vi.fn() }), onDidChangeCursorSelection: () => ({ dispose: vi.fn() }),
-        layout: vi.fn(), focus: vi.fn(),
+        layout: vi.fn(), focus: vi.fn(), getModel: () => options.model,
+        setPosition: vi.fn(), revealPositionInCenter: vi.fn(),
         getAction: vi.fn(() => ({ run: vi.fn(() => {
           let input = container.querySelector('input');
           if (!input) { input = document.createElement('input'); input.setAttribute('aria-label', '搜尋文字'); container.append(input); }

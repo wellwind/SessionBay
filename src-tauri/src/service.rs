@@ -139,6 +139,19 @@ impl Service {
             .map(|v| v.clone())
             .map_err(|_| "設定鎖定失敗".into())
     }
+    pub fn resolve_terminal_file(
+        &self,
+        project_id: &str,
+        pane_id: &str,
+        runtime_id: &str,
+        path: &str,
+    ) -> Result<crate::models::TerminalFileResolution, String> {
+        let records = self.broker()?.list()?;
+        let cwd =
+            crate::terminal_file_links::launch_cwd(&records, project_id, pane_id, runtime_id)?;
+        let root = self.catalog.workspace_root(project_id)?;
+        crate::terminal_file_links::resolve(&root, &cwd, path)
+    }
     pub fn list_workspace_files(
         &self,
         project_id: &str,
@@ -1015,6 +1028,102 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(client.list().unwrap()[0].info.exit_code, Some(0));
+        client.shutdown_broker().unwrap();
+        host.join().unwrap().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_file_resolution_binds_real_broker_identity_and_project_read_boundary() {
+        let temp = tempfile::tempdir().unwrap();
+        let app = temp.path().join("app");
+        let root = temp.path().join("workspace");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/file.ts"), "synthetic source").unwrap();
+        let root = root.canonicalize().unwrap();
+        ConfigStore::open(app.clone()).unwrap();
+        let broker_dir = app.clone();
+        let host = std::thread::spawn(move || crate::broker::run(broker_dir));
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let client = loop {
+            if let Ok(client) = BrokerClient::existing_for_test(&app) {
+                break client;
+            }
+            assert!(!host.is_finished());
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        let service = Service::open_internal(app, Some(client.clone())).unwrap();
+        let project = service
+            .catalog
+            .add_project(root.to_str().unwrap(), Some("Synthetic project"))
+            .unwrap();
+        let request = LaunchRequest {
+            pane_id: "source-pane".into(),
+            kind: "shell".into(),
+            project_id: Some(project.id.clone()),
+            session_id: None,
+            resume_id: None,
+            cwd: Some(root.join("src").to_string_lossy().into_owned()),
+            profile_id: None,
+            cols: 80,
+            rows: 24,
+        };
+        let info = client
+            .launch_unattached(
+                LaunchSpec {
+                    executable: "/bin/sh".into(),
+                    args: vec!["-c".into(), "read value".into()],
+                    cwd: root.join("src"),
+                    env: std::collections::HashMap::from([(
+                        "HOME".into(),
+                        root.to_string_lossy().into_owned(),
+                    )]),
+                    session_id: None,
+                    resume_key: None,
+                    pane_id: request.pane_id.clone(),
+                },
+                &request,
+            )
+            .unwrap();
+        let relative = service
+            .resolve_terminal_file(&project.id, &request.pane_id, &info.id, "file.ts")
+            .unwrap();
+        assert!(!relative.absolute);
+        assert_eq!(relative.candidates[0].path, "src/file.ts");
+        assert!(relative.candidates[0].from_launch_directory);
+        let absolute = service
+            .resolve_terminal_file(
+                &project.id,
+                &request.pane_id,
+                &info.id,
+                root.join("src/file.ts").to_str().unwrap(),
+            )
+            .unwrap();
+        assert!(absolute.absolute);
+        assert_eq!(
+            absolute.candidates[0].version,
+            service
+                .inspect_workspace_file(&project.id, "src/file.ts")
+                .unwrap()
+                .version
+        );
+        assert!(service
+            .resolve_terminal_file(&project.id, "other-pane", &info.id, "file.ts")
+            .is_err());
+        assert!(service
+            .resolve_terminal_file("other-project", &request.pane_id, &info.id, "file.ts")
+            .is_err());
+        assert!(service
+            .resolve_terminal_file(
+                &project.id,
+                &request.pane_id,
+                &info.id,
+                temp.path().join("outside.txt").to_str().unwrap()
+            )
+            .is_err());
+        assert_eq!(client.list().unwrap()[0].info.state, "running");
+        service.shutdown().unwrap();
         client.shutdown_broker().unwrap();
         host.join().unwrap().unwrap();
     }

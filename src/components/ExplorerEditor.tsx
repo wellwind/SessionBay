@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import type { FileReference } from '../types';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy, Search } from 'lucide-react';
 import type { editor } from 'monaco-editor';
 import { fileLanguage, monacoLanguage } from './explorer-model';
@@ -6,20 +7,37 @@ import { previewTheme, previewThemeName } from './monaco-theme';
 
 export interface ScrollPosition { top: number; left: number; viewState?: editor.ICodeEditorViewState | null }
 let nextModel = 0;
-export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, searchRequest, lightweight = false, partial = false, lineCount }: {
+export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, searchRequest, lightweight = false, partial = false, lineCount, revealRequest, onRevealHandled }: {
   path: string; text: string; sizeBytes: number; position: ScrollPosition;
   onScroll: (position: ScrollPosition) => void; searchRequest: number;
+  revealRequest?: FileReference; onRevealHandled?: (nonce: number) => void;
   lightweight?: boolean; partial?: boolean; lineCount?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const runEditor = useRef<(action: (widget: editor.IStandaloneCodeEditor) => unknown) => void>(() => {});
-  const latest = useRef({ onScroll, position, searchRequest });
-  latest.current = { onScroll, position, searchRequest };
+  const latest = useRef({ onScroll, position, searchRequest, revealRequest, onRevealHandled });
+  latest.current = { onScroll, position, searchRequest, revealRequest, onRevealHandled };
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [retry, setRetry] = useState(0);
   const [copyStatus, setCopyStatus] = useState('');
+  const [navigationStatus, setNavigationStatus] = useState('');
+  const revealed = useRef(false);
+  const lastReveal = useRef<number | undefined>(undefined);
+  const reveal = useCallback((widget: editor.IStandaloneCodeEditor) => {
+    const request = latest.current.revealRequest;
+    if (!request?.line || request.nonce === lastReveal.current) return;
+    const model = widget.getModel();
+    if (!model) return;
+    const target = model.validatePosition({ lineNumber: request.line, column: request.column ?? 1 });
+    widget.setPosition(target); widget.revealPositionInCenter(target);
+    revealed.current = true; lastReveal.current = request.nonce;
+    setCopyStatus('');
+    setNavigationStatus(`已定位第 ${target.lineNumber} 行、第 ${target.column} 欄${target.lineNumber !== request.line || target.column !== (request.column ?? 1) ? '（超出範圍，已限制）' : ''}。`);
+    latest.current.onRevealHandled?.(request.nonce);
+  }, []);
   const find = () => runEditor.current(widget => widget.getAction('actions.find')?.run());
   useEffect(() => {
+    revealed.current = false; lastReveal.current = undefined;
     let disposed = false;
     let failed = false;
     let initializing = false;
@@ -103,7 +121,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
         // Restore again after the host and horizontal scrollbar have their final
         // dimensions. Restoring during construction can clamp a near-bottom offset.
         const restoreFrame = requestAnimationFrame(() => {
-          run(current => { current.layout(); restore(); });
+          run(current => { current.layout(); if (!revealed.current) restore(); reveal(current); });
         });
         own(() => cancelAnimationFrame(restoreFrame));
         save = () => latest.current.onScroll({ top: ownedWidget.getScrollTop(), left: ownedWidget.getScrollLeft(), viewState: ownedWidget.saveViewState() });
@@ -116,6 +134,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
         observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-palette'] });
         if (failed || disposed) return;
         setStatus('ready');
+        run(reveal);
         if (latest.current.searchRequest) run(current => current.getAction('actions.find')?.run());
       } catch (error) { fail(error); }
       finally { initializing = false; if (failed || disposed) release(); }
@@ -125,8 +144,9 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
       if (!failed && save) safely(save);
       release();
     };
-  }, [path, text, retry, lightweight]);
+  }, [path, text, retry, lightweight, reveal]);
   useEffect(() => { if (searchRequest) find(); }, [searchRequest]);
+  useEffect(() => { if (revealRequest) runEditor.current(reveal); }, [revealRequest, reveal]);
   return <div className="explorer-editor">
     <div className="explorer-document-bar"><span title={path}>{path.split('/').join(' › ')}</span>
       <button aria-label={partial ? '複製目前區段' : '複製檔案全文'} title={partial ? '複製區段' : '複製全文'} onClick={async () => {
@@ -140,6 +160,6 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
       {status === 'loading' && <p className="explorer-editor-message" role="status">載入編輯器中…</p>}
       {status === 'error' && <div className="explorer-editor-message" role="alert">無法載入編輯器。<button onClick={() => setRetry(value => value + 1)}>重試</button></div>}
     </div>
-    <div className="explorer-status"><span>唯讀 · {lightweight ? '純文字（效能模式）' : fileLanguage(path)}</span><span>{(lineCount ?? text.split('\n').length).toLocaleString()} 行 · {sizeBytes.toLocaleString()} bytes</span><span role="status">{copyStatus}</span></div>
+    <div className="explorer-status"><span>唯讀 · {lightweight ? '純文字（效能模式）' : fileLanguage(path)}</span><span>{(lineCount ?? text.split('\n').length).toLocaleString()} 行 · {sizeBytes.toLocaleString()} bytes</span><span role="status">{copyStatus || navigationStatus}</span></div>
   </div>;
 }

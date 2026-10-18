@@ -69,8 +69,8 @@ sudo snap refresh <實際套件名稱>
 以下為 2026-10-18 的目前工作順序，與[路線圖](roadmap.md)同步；歷史驗收結果保持原樣。
 
 1. 恢復雲端開發空間，收尾藍點提示與 Monaco palette；Quick Open／共用 panel #65 已合併。
-2. 完成 [broker 生命週期與單次無 hooks 啟動](broker-lifecycle-plan.md)，再製作 Snap 可安裝測試包（R1）。#69 僅完成未啟動錯誤分類與預設啟用，不代表 broker 升級或單次 fallback 已完成。
-3. Snap 之後實作 [Terminal 檔案路徑連結](terminal-file-links.md)。此輪不插入 Git 等大型新功能。
+2. 依使用者最新指示優先交付 [Terminal 檔案路徑連結](terminal-file-links.md)，首版實作後經獨立 review／CI；原生平台未驗項目保留。
+3. 恢復 [broker 生命週期](broker-lifecycle-plan.md) 後續，再製作 Snap 可安裝測試包（R1）。#78 單次 fallback 與 #84 lease 已合併，尚未啟用 broker 自退或完成升級。此輪不插入 Git 等大型新功能。
 4. [Git 第一階段 G1–G4](git-workbench-plan.md#第一階段本機日常流程)：多 repo、部分暫存、commit／遠端、graph／blame。
 5. 完整 Release／Update（R2–R7）。
 6. 原始對話永久刪除：沿用[調查](permanent-deletion-investigation.md)與[安全分析](permanent-deletion-safety-review.md)，#55 的唯讀影響檢查不能當成刪除功能完成。
