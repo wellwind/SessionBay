@@ -1328,12 +1328,13 @@ describe('launch-local activity hook opt-in', () => {
     selectAgent(kind);
     expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).not.toBeChecked();
   });
-  it('explains terminal writer trust for native terminal status', () => {
+  it('keeps hook controls without repeating long implementation notes', () => {
     render(createElement(SettingsPanel, props()));
-    for (const kind of ['grok', 'antigravity'] as const) {
+    for (const kind of ['codex', 'claude', 'opencode', 'grok', 'antigravity'] as const) {
       selectAgent(kind);
-      expect(screen.getByRole('checkbox', { name: /真實活動 hooks/ })).not.toBeChecked();
-      expect(screen.getByText(/任意終端寫入者/)).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /真實活動 hooks/ })).toBeInTheDocument();
+      expect(screen.queryByText(/僅套用 SessionBay 後續啟動/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/只傳遞 Session／回合識別/)).not.toBeInTheDocument();
     }
   });
 });

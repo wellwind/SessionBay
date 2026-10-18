@@ -695,7 +695,7 @@ export function SettingsPanel({
                             </label>
                             {installation?.executable && (
                               <p className="settings-detected-path" title={installation.executable}>
-                                目前：{installation.executable}
+                                <span className="settings-detected-label">目前：</span><span className="settings-detected-value">{installation.executable}</span>
                               </p>
                             )}
                             {installation?.error && (
@@ -709,8 +709,6 @@ export function SettingsPanel({
                                   checked={draft.agentHooks?.[kind] === true}
                                   onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> 啟用真實活動 hooks</span>
                               </label>
-                              <p className="settings-help">僅套用 SessionBay 後續啟動的 {agentNames[kind]}，以本次啟動的原生狀態來源回報，不修改全域或專案設定。儲存關閉後立即撤銷現有活動回報；Agent 繼續運作。Linux 已有測試；macOS 原生驗證待補，Windows 尚未啟用。</p>
-                              <p className="settings-help">只傳遞 Session／回合識別與事件類型，不讀取 hook 提供的對話檔案，也不保存提示內容。無可靠事件或連線中斷時不推測狀態。{kind === 'codex' ? 'Codex 0.163.0 以上使用官方 OSC7501 終端回報，保留原生 resume／fork 與權限設定；閒置不代表成功。較舊版本使用啟動專用 app-server 的唯讀觀測。' : kind === 'grok' || kind === 'antigravity' ? 'Grok 需要 1.0.52 以上；Antigravity 需要 1.4.0 以上。使用官方 OSC7501 明確狀態訊號，不解析畫面文字；任意終端寫入者都可能產生此訊號，因此會標示「終端回報」，不能用作授權依據。不更動全域 hooks。' : kind === 'opencode' ? 'OpenCode 需要穩定版 1.19.2 以上且低於 2.0.0，透過本次啟動的 plugin 觀測工作／重試、權限／輸入等待與閒置。保留既有設定；--pure 或 OPENCODE_PURE 與活動回報不相容。閒置不保證工作成功。' : 'Claude Code 需要 2.1.287 以上，以本次啟動的 mod 觀測主回合開始／完成。工作中表示回合進行中；尚不能單獨區分等待權限或輸入。'}</p>
                             </>}
                             <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>
                               <summary aria-label={`${agentNames[kind]} 參數與權限設定`}>
