@@ -760,6 +760,14 @@ Monaco 0.57 JSON worker manager 延遲載入的 `internal/common/workers.js` 會
 
 切換檔案／離開檔案區／取消會停止後續讀取，已送出的單一 chunk 仍可完成但不提交過時結果；active file 才建立 Monaco model。跨工作區共享有限 LRU 小檔 cache，不保留多個大型全文 model；文字讀取仍不接受 binary 或非 UTF-8，不放寬 traversal、symlink、hardlink／reparse 保護。原有小檔 API 留給舊呼叫者，不再作為 Files 的開檔路徑。一般檔案寫入尚未授權，也未實作。
 
+## 2026-10-18：中央 Files 加入受限圖片閱讀
+
+PNG／JPEG／GIF／WebP 依內容簽章辨識，由後端以有界來源大小、尺寸、像素與輸出大小驗證並解碼首幀，再交付靜態 PNG。SVG 只接受受限靜態 XML 子集，拒絕腳本、事件、外部資源與複雜主動內容，僅透過 img 顯示。原始圖檔不直接送進 WebView，也不將 SVG 內嵌為 DOM。
+
+圖片沿用中央檔案 tab 與專案路徑／版本檢查，支援符合視窗、1:1、縮放、平移及尺寸資訊。IPC 使用有界二進位回應，離開或換檔釋放 Blob URL；取消後不提交過時結果。此功能不包含圖片編輯，也不改 Git 非文字檔不做 diff 的規劃。
+
+圖片 review 發現 image-webp 0.2.4 的 lossless Huffman table 配置不受其 memory limit 完整約束。初版因此在呼叫 decoder 前拒絕 VP8L 與 lossless alpha（包含動畫 frame），保留 VP8 有損 WebP；介面明確顯示不支援壓縮方式。未以尺寸上限掩蓋解碼器配置缺口。
+
 ## 2026-10-18：hooks 預設啟用與舊 broker 的未啟動分類
 
 五工具活動 hooks 預設啟用；舊設定缺欄位或缺個別工具 key 補 true，明確 false 保留。過去版本若已把預設 false 存入檔案，無法辨識它是否來自使用者選擇，因此不覆寫。使用者仍可隨時關閉；不寫全域 provider 設定。

@@ -38,7 +38,7 @@ smoke_seed_fixture() {
   # only synthetic metadata inside this temporary HOME, never a real source or catalog.
   # Normal adapters index these fixtures; the UI curates two existing directories.
   python3 - "$1" <<'PY'
-import json, os, pathlib, sqlite3, sys
+import base64, json, os, pathlib, sqlite3, sys
 assert sys.argv[1] in ('dark', 'light')
 home = pathlib.Path(os.environ['HOME'])
 root = home / 'sessionbay-smoke-fixture'
@@ -48,6 +48,8 @@ for name, size in [('medium.txt', 1), ('big.txt', 21), ('huge.txt', 65)]:
     with (root/'workspaces/harbor'/name).open('wb') as output:
         block = (b'x' * 127 + b'\n') * 8192
         for _ in range(size): output.write(block)
+(root/'workspaces/harbor/preview.png').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))
+(root/'workspaces/harbor/preview.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="red"/></svg>')
 for number, (directory, title) in enumerate([
     ('harbor', '整理 API 邊界與錯誤處理'),
     ('notes', '檢查發行筆記與測試清單'),
@@ -183,10 +185,10 @@ for scenario in empty dark light; do
     smoke_wait_marker interaction
   fi
   smoke_wait_marker interaction monaco-worker-readonly-disposal
-  if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction bounded-files-preflight-chunks-large-model-range-disposal; fi
+  if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction bounded-files-preflight-chunks-large-model-range-disposal; smoke_wait_marker interaction file-images-binary-ipc-png-svg-webkit-decode; fi
   smoke_alive
   smoke_stop
 done
 cp "$output/dark-app.log" "$output/app.log"
 cp "$output/sessionbay-projects-dark.png" "$output/sessionbay-linux.png"
-printf 'Native Linux WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nCaptured 10 real UI states: Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar in both themes.\nAll ready/interaction markers were required; snapshot markers were allowlisted and screenshots checked for nonblank paint.\nMonaco bundled JSON worker replied under native WebKit CSP; readonly typing and model disposal passed in each scenario.\nPNG visual review is still required. This does not verify IME, real CLI resume, terminal interaction, or macOS pixels.\n' | tee "$output/result.txt"
+printf 'Native Linux WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nCaptured 10 real UI states: Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar in both themes.\nAll ready/interaction markers were required; snapshot markers were allowlisted and screenshots checked for nonblank paint.\nMonaco bundled JSON worker replied under native WebKit CSP; readonly typing and model disposal passed in each scenario.\nBounded 1/21 MiB text IPC and 65 MiB range reads passed; validated PNG/SVG binary IPC decoded under native WebKit CSP.\nPNG visual review is still required. This does not verify IME, real CLI resume, terminal interaction, or macOS pixels.\n' | tee "$output/result.txt"

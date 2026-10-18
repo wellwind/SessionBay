@@ -57,6 +57,8 @@ export const api = {
     call<WorkspaceFilePreview>('read_workspace_file', { projectId, path }),
   inspectWorkspaceFile: (projectId: string, path: string) =>
     call<WorkspaceFileInfo>('inspect_workspace_file', { projectId, path }),
+  readWorkspaceImage: (projectId: string, path: string, version: string) =>
+    call<ArrayBuffer>('read_workspace_image', { projectId, path, version }),
   readWorkspaceFileChunk: (projectId: string, path: string, version: string, offset: number, maxBytes: number) =>
     call<WorkspaceFileChunk>('read_workspace_file_chunk', { projectId, path, version, offset, maxBytes }),
   projects: () => call<Project[]>('list_projects'),

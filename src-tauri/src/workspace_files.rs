@@ -57,12 +57,37 @@ pub(crate) fn inspect(root: &Path, path: &str) -> Result<WorkspaceFileInfo, Stri
         path: path.to_owned(),
         size_bytes: snapshot.size_bytes,
         version: snapshot.version,
-        kind: if is_text_sample(&sample.bytes, sample.eof) {
+        kind: if crate::workspace_images::recognizes(&sample.bytes) {
+            WorkspaceFileKind::Image
+        } else if is_text_sample(&sample.bytes, sample.eof) {
             WorkspaceFileKind::Text
         } else {
             WorkspaceFileKind::Binary
         },
     })
+}
+
+/// Read one capped revision through the same secure descriptor resolution used
+/// by text chunks. Never pass a filesystem path to an image decoder.
+pub(crate) fn read_bounded(
+    root: &Path,
+    path: &str,
+    version: &str,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let parts = relative_parts(path, false)?;
+    if version.len() != 64 || !version.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(FILE_CHANGED.into());
+    }
+    let mut file = platform::open_file(root, &parts)?;
+    let snapshot = platform::snapshot(&file)?;
+    if snapshot.version != version {
+        return Err(FILE_CHANGED.into());
+    }
+    if snapshot.size_bytes == 0 || snapshot.size_bytes > max_bytes as u64 {
+        return Err("圖片大小必須介於 1 byte 與 10 MiB".into());
+    }
+    Ok(read_opened_chunk(&mut file, &snapshot, 0, max_bytes)?.bytes)
 }
 
 pub(crate) fn read_chunk(

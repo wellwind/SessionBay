@@ -62,7 +62,8 @@ fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
         // verifies real providers. Never run automated smoke clicks over them.
         return Ok(false);
     }
-    // This probe creates only synthetic in-memory editor models, never reads files.
+    // This probe uses only synthetic editor models and explicitly seeded file
+    // fixtures; it never opens real user projects or history.
     if phase == "monaco-probe" {
         return Ok(std::env::var("SESSIONBAY_SMOKE_MONACO").as_deref() == Ok("1"));
     }
@@ -187,6 +188,18 @@ async fn read_workspace_file_chunk(
     let s = state.inner().clone();
     blocking(move || s.read_workspace_file_chunk(&project_id, &path, &version, offset, max_bytes))
         .await
+}
+#[tauri::command]
+async fn read_workspace_image(
+    state: AppState<'_>,
+    project_id: String,
+    path: String,
+    version: String,
+) -> Result<tauri::ipc::Response, String> {
+    let s = state.inner().clone();
+    blocking(move || s.read_workspace_image(&project_id, &path, &version))
+        .await
+        .map(tauri::ipc::Response::new)
 }
 #[tauri::command]
 async fn add_project(
@@ -666,6 +679,7 @@ pub fn run() {
             read_workspace_file,
             inspect_workspace_file,
             read_workspace_file_chunk,
+            read_workspace_image,
             add_project,
             create_project,
             update_project,

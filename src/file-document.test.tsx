@@ -3,14 +3,29 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { FileDocument } from './components/FileDocument';
 import { readWorkspaceText, FULL_FILE_BYTES, NORMAL_FILE_BYTES, RangeRequired } from './components/file-reader';
-vi.mock('./api', () => ({ api: { inspectWorkspaceFile: vi.fn() }, errorMessage: String }));
+vi.mock('./api', () => ({ api: { inspectWorkspaceFile: vi.fn(), readWorkspaceImage: vi.fn() }, errorMessage: String }));
 vi.mock('./components/file-reader', async original => ({ ...await original<typeof import('./components/file-reader')>(), readWorkspaceText: vi.fn() }));
+vi.mock('./components/image-reader', () => ({ parseWorkspaceImage: vi.fn(() => ({ blob: new Blob(), width: 1, height: 1, sourceFormat: 'png', firstFrameOnly: false })) }));
+vi.mock('./components/ImageViewer', () => ({ ImageViewer: ({ path }: { path: string }) => <div data-testid="image">{path}</div> }));
 vi.mock('./components/ExplorerEditor', () => ({ ExplorerEditor: ({ text, lightweight, partial }: { text: string; lightweight: boolean; partial: boolean }) => <div data-testid="editor" data-lightweight={lightweight} data-partial={partial}>{text}</div> }));
 const props = { projectId: 'p', path: 'file.txt', searchRequest: 0, position: { top: 0, left: 0 }, onScroll: vi.fn() };
 const info = { path: 'file.txt', version: 'v1', kind: 'text' as const, sizeBytes: 7 };
 const value = { text: 'content', lines: 1, longestLine: 7, start: 0, end: 7, partial: false, lightweight: false };
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.inspectWorkspaceFile).mockResolvedValue(info); vi.mocked(readWorkspaceText).mockResolvedValue(value); });
 describe('bounded active file document', () => {
+  it('routes content-sniffed images through the bounded binary API', async () => {
+    vi.mocked(api.inspectWorkspaceFile).mockResolvedValue({ ...info, kind: 'image' });
+    vi.mocked(api.readWorkspaceImage).mockResolvedValue(new ArrayBuffer(1));
+    render(<FileDocument {...props} />); expect(await screen.findByTestId('image')).toHaveTextContent('file.txt');
+    expect(api.readWorkspaceImage).toHaveBeenCalledWith('p', 'file.txt', 'v1'); expect(readWorkspaceText).not.toHaveBeenCalled();
+  });
+  it('cancel discards an in-flight image result', async () => {
+    vi.mocked(api.inspectWorkspaceFile).mockResolvedValue({ ...info, kind: 'image' });
+    let finish!: (value: ArrayBuffer) => void; vi.mocked(api.readWorkspaceImage).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    render(<FileDocument {...props} />); await waitFor(() => expect(api.readWorkspaceImage).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '取消讀取' })); finish(new ArrayBuffer(1));
+    await screen.findByText('已取消讀取'); await Promise.resolve(); expect(screen.queryByTestId('image')).toBeNull();
+  });
   it('reads ordinary content after metadata', async () => { render(<FileDocument {...props} />); expect(await screen.findByTestId('editor')).toHaveTextContent('content'); expect(readWorkspaceText).toHaveBeenCalledWith('p', info, expect.any(AbortSignal), expect.any(Function), undefined); });
   it('requires consent before loading a 20–64 MiB document', async () => {
     vi.mocked(api.inspectWorkspaceFile).mockResolvedValue({ ...info, sizeBytes: NORMAL_FILE_BYTES + 1 });

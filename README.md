@@ -127,5 +127,6 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 - [工作區 Activity Bar 與內部功能擴充](docs/activity-bar.md)
 
+- [檔案圖片預覽](docs/file-image-preview.md)：有界圖片閱讀、縮放與靜態 SVG。
 - [原生終端活動訊號（OSC7501）](docs/native-terminal-status.md)：Codex／Grok／Antigravity 的明確來源狀態、信任界線與驗證範圍。
 - [大型文字檔閱讀](docs/large-file-reading.md)：分級開啟、取消、有界 IPC 與分段。
