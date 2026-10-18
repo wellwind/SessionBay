@@ -850,3 +850,7 @@ L1a 不啟用 broker 自退、不新增 lease wire 欄位或停止既有程序�
 Service 明確持有非 Clone 的 lease guard，renderer reload／BrokerClient clone 或 drop 不釋放。正常 Service shutdown／guard drop 只停止續期並 best-effort Release，不送 Shutdown、Stop、Forget 或 revoke；worker 序列化 renew→release，避免釋放後續期。逾期、遺失協商回覆、容量耗盡、clock 回退都保守留下 generation-wide unknown pin；mutex poison 則拒絕提供可信生命週期證據；bounded offer／lease tombstone 不因時間或新 client 清除。這會讓曾經失聯的空 broker 保留至人工管理，代價明確優先於誤退。
 
 本 PR 完成 lease wire、native owner 與合成相容／競態驗證，但不接上 idle timer 或自退。lease 到期不能證明 UI 死亡，更不能證明工作清空；目前仍缺完整 broker admission、歷史 owner 與 job containment。新舊 broker 仍使用原 endpoint／ownership lock，遇舊 broker 僅相容連線，不建立第二個 owner、不替換／停止它。版本隔離及升級 drain 仍屬 L2–L4，不能把 lease 協商當完成升級。
+
+### L1b review 修正：到期狀態不可被時間回退撤銷
+
+原先只從當前時間重算到期；即使 unknown pin 已黏住，到期後的 lease／offer 仍可能因回退重新有效，違反不可復活契約。現在在 registry 鎖內永久鎖定各自 expired 狀態；renew、acquire replay 及有效 lease 統計均尊重它，release 不清除此狀態。已消費 offer 以 lease 自己的期限計算，不因原 offer 期限到達而提前終止 lease。兩項新測試先在原碼重現失敗，再驗證到期觀察／renew／acquire→回退→重送皆不能復活；保留 sequence、deadline 及 unknown pin。不更動 wire、既有 owner 或 no-idle-exit 範圍。

@@ -12,9 +12,11 @@ struct Lease {
     deadline: Instant,
     sequence: u64,
     released: bool,
+    expired: bool,
 }
 struct Offer {
     deadline: Instant,
+    expired: bool,
     lease: Option<Lease>,
 }
 #[derive(Default)]
@@ -29,12 +31,19 @@ impl Registry {
             self.unknown_pin = true;
         }
         self.last_now = Some(now);
-        for offer in self.offers.values() {
-            let expired = match &offer.lease {
-                Some(lease) => !lease.released && now >= lease.deadline,
-                None => now >= offer.deadline,
-            };
-            self.unknown_pin |= expired;
+        for offer in self.offers.values_mut() {
+            // Expiration is a terminal state, not a predicate that clock rollback
+            // can reverse. Consumed offers follow their lease's own deadline.
+            match &mut offer.lease {
+                Some(lease) => {
+                    lease.expired |= !lease.released && now >= lease.deadline;
+                    self.unknown_pin |= lease.expired;
+                }
+                None => {
+                    offer.expired |= now >= offer.deadline;
+                    self.unknown_pin |= offer.expired;
+                }
+            }
         }
     }
     pub(super) fn offer(&mut self, now: Instant) -> Option<String> {
@@ -49,6 +58,7 @@ impl Registry {
             id.clone(),
             Offer {
                 deadline: now + OFFER_TTL,
+                expired: false,
                 lease: None,
             },
         );
@@ -58,7 +68,7 @@ impl Registry {
         self.observe(now);
         let offer = self.offers.get_mut(offer).ok_or("Unknown UI lease offer")?;
         if offer.lease.is_none() {
-            if now >= offer.deadline {
+            if offer.expired {
                 return Err("UI lease offer expired".into());
             }
             offer.lease = Some(Lease {
@@ -66,6 +76,7 @@ impl Registry {
                 deadline: now + LEASE_TTL,
                 sequence: 0,
                 released: false,
+                expired: false,
             });
         }
         Self::reply(offer.lease.as_ref().unwrap(), now)
@@ -78,7 +89,7 @@ impl Registry {
     ) -> Result<Response, String> {
         self.observe(now);
         let lease = self.find(id)?;
-        if lease.released || now >= lease.deadline {
+        if lease.released || lease.expired || now >= lease.deadline {
             return Err("UI lease is no longer valid".into());
         }
         if sequence != lease.sequence {
@@ -103,7 +114,7 @@ impl Registry {
             .ok_or_else(|| "Unknown UI lease".into())
     }
     fn reply(lease: &Lease, now: Instant) -> Result<Response, String> {
-        if lease.released || now >= lease.deadline {
+        if lease.released || lease.expired || now >= lease.deadline {
             return Err("UI lease is no longer valid".into());
         }
         Ok(Response::UiLease {
@@ -127,20 +138,19 @@ impl Host {
 impl Registry {
     pub(super) fn evidence(&mut self, now: Instant) -> (usize, usize, bool) {
         self.observe(now);
-        let live = self
-            .offers
-            .values()
-            .filter(|offer| {
-                offer
-                    .lease
-                    .as_ref()
-                    .is_some_and(|lease| !lease.released && now < lease.deadline)
-            })
-            .count();
+        let live =
+            self.offers
+                .values()
+                .filter(|offer| {
+                    offer.lease.as_ref().is_some_and(|lease| {
+                        !lease.released && !lease.expired && now < lease.deadline
+                    })
+                })
+                .count();
         let pending = self
             .offers
             .values()
-            .filter(|offer| offer.lease.is_none())
+            .filter(|offer| offer.lease.is_none() && !offer.expired)
             .count();
         (live, pending, self.unknown_pin)
     }
@@ -225,6 +235,75 @@ mod tests {
         }
         assert!(registry.offer(now + OFFER_TTL).is_none());
         assert_eq!(registry.offers.len(), MAX_OFFERS);
+    }
+    #[test]
+    fn expired_lease_stays_expired_after_clock_rollback_for_every_observation_path() {
+        let now = Instant::now();
+        for observation in 0..3 {
+            let mut registry = Registry::default();
+            let offer = registry.offer(now).unwrap();
+            let id = acquired(&mut registry, &offer, now);
+            let deadline = now + LEASE_TTL;
+            match observation {
+                0 => registry.observe(deadline),
+                1 => assert!(registry.renew(&id, 1, deadline).is_err()),
+                2 => assert!(registry.acquire(&offer, deadline).is_err()),
+                _ => unreachable!(),
+            }
+            for at in [
+                deadline - Duration::from_secs(1),
+                now,
+                deadline + Duration::from_secs(1),
+            ] {
+                assert!(
+                    registry.renew(&id, 0, at).is_err(),
+                    "expired duplicate renew revived: {observation}"
+                );
+                assert!(
+                    registry.renew(&id, 1, at).is_err(),
+                    "expired next renew revived: {observation}"
+                );
+                assert!(
+                    registry.acquire(&offer, at).is_err(),
+                    "expired acquire replay revived: {observation}"
+                );
+                assert_eq!(registry.evidence(at).0, 0);
+                assert!(registry.unknown_pin);
+                let lease = registry.find(&id).unwrap();
+                assert_eq!(lease.sequence, 0);
+                assert_eq!(lease.deadline, deadline);
+            }
+            registry.release(&id, now).unwrap();
+            registry.release(&id, now).unwrap();
+            assert!(registry.renew(&id, 1, now).is_err());
+            assert!(registry.unknown_pin);
+        }
+    }
+    #[test]
+    fn expired_offer_stays_unredeemable_after_clock_rollback() {
+        let now = Instant::now();
+        for observation in 0..2 {
+            let mut registry = Registry::default();
+            let offer = registry.offer(now).unwrap();
+            let deadline = now + OFFER_TTL;
+            match observation {
+                0 => registry.observe(deadline),
+                1 => assert!(registry.acquire(&offer, deadline).is_err()),
+                _ => unreachable!(),
+            }
+            for at in [
+                deadline - Duration::from_secs(1),
+                now,
+                deadline + Duration::from_secs(1),
+            ] {
+                assert!(
+                    registry.acquire(&offer, at).is_err(),
+                    "expired offer redeemed: {observation}"
+                );
+                assert!(registry.offers[&offer].lease.is_none());
+                assert!(registry.unknown_pin);
+            }
+        }
     }
     #[test]
     fn clock_regression_fails_closed() {

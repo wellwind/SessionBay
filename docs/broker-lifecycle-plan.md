@@ -122,7 +122,9 @@ Hello request 維持原 v1 格式，只在 response 加能力與一次性 offer�
 
 ### L1b 本機驗證（2026-10-18，Apple Silicon macOS）
 
-- Rust 1.99、既有 sparse cache、`--locked --offline`：最終 core 587 passed／3 ignored，desktop feature 591 passed／3 ignored；兩種 feature 的 all-targets Clippy（`-D warnings`）、rustfmt 與 diff whitespace check 通過。
+- 初版 head `bf03f72`：Rust 1.99、既有 sparse cache、`--locked --offline`，core 587 passed／3 ignored，desktop feature 591 passed／3 ignored；兩種 feature 的 all-targets Clippy（`-D warnings`）、rustfmt 與 diff whitespace check 通過。
 - 10 項新增測試涵蓋 acquire／renew lost reply 不延長、release／expiry 不復活、legacy dormant Hello／容量／clock pin、generation／mutex poison、舊 response decoder／能力協商、單一 native owner、renew 與 close gate。Service 關閉後隔離 idle Shell 仍保有同一 identity，能接收輸入並以 0 退出。
 - 沒有安裝工具／套件、沒有讀取真實對話或啟動模型；重用單一約 2.1 GiB target、低並行、專用 `/private/tmp/sessionbay-l1-tests`。測試以合成時間與 channel 排序驗證邊界，不宣稱 Mac／Windows 的實際 suspend／crash 原生驗收已完成。
 - Linux exact-head CI 與修正後獨立 review 留待 PR；無自退／drain／多版本 owner routing，完整 L1 仍不勾選。
+
+L1b review 另發現到期後時鐘回退可讓 lease／offer 重新有效；unknown pin 雖保守保留 broker，但不能替代不可復活契約。修正為鎖內永久 expired flag，所有 acquire／renew／有效 lease 統計尊重此旗標。新增兩項組合回歸先於原碼失敗，修正後六項 lease 單元測試通過；完整 Mac 與 exact-head Linux 重跑結果以 PR 紀錄為準，不沿用初版 head 的成功宣稱修正版本已通過。
