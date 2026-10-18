@@ -218,6 +218,7 @@ test('history density, divider and queued undo toast retain geometry at CSS zoom
   await page.setViewportSize({ width: 900, height: 850 });
   await page.goto('/tests/browser/workspace-tabs.html?history=1&theme=light');
   await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab b', exact: true }).click();
+  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
   const panel = page.locator('.activity-panel-shell:visible');
   await expect(panel).toBeVisible();
   expect(await panel.evaluate(el => getComputedStyle(el).borderLeftWidth)).toBe('1px');
