@@ -1,6 +1,5 @@
 /* Focus is app chrome presentation, never another workspace or native fullscreen. */
 .app-shell.workspace-focus > .app-topbar,
-.app-shell.workspace-focus > .app-body > .sidebar,
 .app-shell.workspace-focus .project-header,
 .app-shell.workspace-focus > .statusbar:not(.statusbar-important) {
   display: none;

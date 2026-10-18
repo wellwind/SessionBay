@@ -689,3 +689,10 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 - 沿用 owner-authenticated broker IPC，以記憶體內 capability／runtime generation 綁定單一 ordered publisher；不新增 listener、永久憑證或修改 Agent 設定。
 - 獨立 activity cursor／revision／剩餘 TTL 傳到 App，不使用 PTY output ACK；未知、過期、失聯立即保守隱藏。
 - 真實 CLI callbacks 尚無可靠因果 bridge，預設全部關閉。合成 socket 與 actual-App seams 詳見 [傳輸設計](agent-activity-transport.md)，不等於真實 CLI／三平台 native 驗收。
+## 2026-10-18：專案內右側 Activity Bar
+
+原先全域三功能方案經畫面回饋撤回：切換全域 Sessions 卻保留目錄總覽造成脈絡混淆，並有額外留白。依確認後的新方案，左側恢復專案／所有目錄，工具限於選定專案，位於最右側，歷史 Sessions 第一、Files 第二；Projects 不再是工具 contribution。
+
+工具面板向左展開，一次一個，收合不保留寬度；總覽不顯示工具。中央檢視與工具選取按專案保留，正常／專注工具狀態分開；專注預設收合右工具並隱藏左導航。圖示與專注切換不替換中央內容或重啟 Runtime。首次進入無工作專案開歷史，有工作專案恢復工作分頁。
+
+保留內部 typed contribution contract：功能提供 ID、圖示、名稱、renderer、availability、badge 與啟用 callback，shell 負責順序、選取／收合、鍵盤、首次延遲掛載、狀態保留與 overflow。功能 renderer 從專案 context 取得資料；不建立第三方插件平台或尚未實作的 Git 按鈕。

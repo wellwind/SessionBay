@@ -274,3 +274,7 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 | [OpenCode plugin events](https://opencode.ai/docs/plugins#events)、[v1.18.18 schema](https://github.com/anomalyco/opencode/blob/v1.18.18/packages/sdk/js/src/v2/gen/types.gen.ts)、[開發版 schema](https://github.com/anomalyco/opencode/blob/8c173a8f3805d8e749d44311054b07e37a1b2ce1/packages/client/src/promise/generated/types.ts) | 此輪僅 v1 properties envelope 的 session.status；v2 data envelope 明確拒絕，不推導所有安裝版本相容 |
 
 所有來源只驗證解析契約，不代表已安裝或執行真實 hooks。保守 TTL、binding 與失效規則是 SessionBay 設計，不是 provider 保證。
+## 2026-10-18：Activity Bar 參考
+
+- [VS Code User Interface](https://code.visualstudio.com/docs/editing/getting-started/userinterface)：Activity Bar 選擇 Primary Side Bar 的功能，中央編輯區獨立。
+- [VS Code Custom Layout](https://code.visualstudio.com/docs/configure/custom-layout)：側欄顯示切換與 Zen Mode。Session Bay 僅採功能／內容分離原則，保留自己的專注模式快捷入口。

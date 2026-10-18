@@ -4,6 +4,45 @@ import type { Terminal } from '@xterm/xterm';
 import { fitTerminal } from './terminal-fit';
 
 describe('public fit rounding reconciliation', () => {
+  it('requires a post-render reconciliation when a hidden renderer defers its dimensions', () => {
+    // CI narrow geometry: body 576px minus 14px outer padding gives a 562px
+    // host; installed FitAddon reserves another 14px for its scrollbar.
+    const host = document.createElement('div');
+    host.style.width = '562px'; host.style.height = '259px';
+    const element = document.createElement('div'); element.style.padding = '0px'; host.append(element);
+    document.body.append(host);
+    let renderedCols = 100;
+    let paused = true;
+    const terminal = {
+      cols: 100, rows: 30, element, options: { scrollback: 1000, overviewRuler: { width: 0 } },
+      resize(cols: number, rows: number) {
+        this.cols = cols; this.rows = rows;
+        // RenderService.handleResize defers this update while its
+        // IntersectionObserver considers the terminal hidden.
+        if (!paused) renderedCols = cols;
+      },
+    };
+    const dimensions = { css: { cell: { get width() { return Math.round(7.826 * renderedCols) / renderedCols; }, height: 15 } } };
+    Object.assign(terminal, { _core: { _renderService: { dimensions, clear() {} } } });
+    const addon = new FitAddon(); addon.activate(terminal as unknown as Terminal);
+    try {
+      fitTerminal(terminal, addon);
+      expect(terminal.cols).toBe(69);
+      expect(addon.proposeDimensions()?.cols).toBe(69); // synchronous recheck is still stale
+      paused = false;
+      renderedCols = terminal.cols; // renderer flush on reveal
+      expect(addon.proposeDimensions()?.cols).toBe(70);
+      fitTerminal(terminal, addon);
+      expect(terminal.cols).toBe(70);
+      expect(terminal.rows).toBe(17);
+      terminal.resize(31, 14); // the visible split renderer updates immediately
+      fitTerminal(terminal, addon);
+      expect(terminal.cols).toBe(70);
+      expect(terminal.rows).toBe(17);
+    } finally {
+      host.remove(); addon.dispose();
+    }
+  });
   it('rechecks installed FitAddon after rounded cell width changes with column count', () => {
     const host = document.createElement('div');
     host.style.width = '1986px'; host.style.height = '1140px';

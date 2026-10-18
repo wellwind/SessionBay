@@ -5,10 +5,64 @@
 .project-files-sidebar-host[hidden], .project-file-document-host[hidden] { display: none; }
 .project-file-document-host { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; }
 .project-file-tabs-host { display: contents; }
-.project-files-toggle { flex: 0 0 auto; gap: 5px; padding-inline: 10px; min-height: 39px; border-left: 1px solid var(--border); border-radius: 0; }
-.project-files-toggle[aria-expanded='true'] { color: var(--accent); background: var(--accent-bg); }
 .project-work-content .workspace-canvas, .project-work-content .workspace-canvas-body { border-radius: 0; }
 @media (max-width: 650px) {
   .project-files-sidebar-host { max-width: 48%; }
-  .project-files-toggle span { display: none; }
 }
+
+/* Activity selection controls only the adjacent panel, never the work surface. */
+.activity-sessions-panel { display: flex; min-width: 0; min-height: 0; background: var(--panel); }
+.activity-sessions-panel[hidden] { display: none; }
+.activity-history-browser { width: 100%; min-width: 0; overflow: hidden; }
+.activity-history-browser .history-controls { padding: 12px; flex-wrap: wrap; gap: 6px; }
+.activity-history-browser .search-field { flex-basis: 100%; }
+.activity-history-browser .history-caption { padding: 0 12px 10px; }
+.activity-history-browser .filter-bar { padding: 0 12px 10px; }
+.activity-history-browser .session-column { flex: 1; border: 0; border-top: 1px solid var(--border); }
+.activity-history-browser .session-list { padding-inline: 8px; }
+.activity-history-browser .session-card { border-radius: 3px; }
+.activity-history-preview .transcript-column { flex: 1; min-width: 0; }
+.activity-history-browser .history-controls .search-field { min-width: 0; width: 100%; }
+.activity-history-browser .history-agent-filter { max-width: 100%; }
+.activity-history-browser .filter-bar > * { max-width: 100%; }
+.activity-history-browser .empty-state { padding: 20px 12px; }
+.activity-history-controls { flex: 0 1 auto; min-height: 0; max-height: 50%; overflow: auto; }
+.activity-history-browser .search-field input { min-width: 0; }
+/* Left project navigation remains independent of right-hand tools. */
+.sidebar .navigation-tabs { display: flex; margin-bottom: 12px; gap: 0; border-radius: 0; padding: 0; }
+.sidebar .navigation-tabs > button { flex: 1; min-width: 0; padding: 8px 4px; border-radius: 0; }
+.activity-panel > .project-files-sidebar-host { max-width: 100%; }
+.activity-history-heading { margin: 0; padding: 12px 12px 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Project navigation is independent of the project-scoped right-hand tools. */
+.app-body > .sidebar[hidden], .project-activity-tools[hidden] { display: none; }
+.app-body > .sidebar { width: 236px; padding: 12px 10px 0; }
+.project-activity-tools { display: flex; flex: 0 0 auto; min-width: 0; min-height: 0; max-width: 45%; }
+.project-activity-tools .activity-panel { max-width: none; flex: 0 1 auto; border-left: 1px solid var(--border); }
+.project-activity-tools .activity-sessions-panel { flex: 0 1 320px; width: 320px; border-right: 0; }
+.project-activity-tools .workspace-activity-bar { border: 0; box-shadow: inset 1px 0 0 var(--border); }
+.project-activity-tools .workspace-activity[aria-pressed='true']::before { left: auto; right: 0; }
+.project-activity-tools .activity-overflow-menu { left: auto; right: 100%; }
+.project-activity-tools .project-files-sidebar-host { flex-shrink: 1; }
+.app-shell .project-header { flex-wrap: wrap; }
+.app-shell .project-header > .project-heading { flex-basis: 220px; }
+@media (max-width: 900px) {
+  .app-body > .sidebar { width: 180px; }
+  .project-activity-tools .activity-sessions-panel { flex-basis: 220px; width: 220px; }
+  .project-activity-tools .project-files-sidebar { max-width: 220px; min-width: 0; }
+}
+
+.project-files-sidebar[data-side="right"] { border-right: 0; }
+.project-files-sidebar[data-side="right"] .project-files-resize { right: auto; left: -2px; }
+.sidebar .navigation-tabs > button { gap: 4px; font-size: 12px; white-space: nowrap; }
+.sidebar .navigation-tabs > button > svg { flex-shrink: 0; width: 14px; }
+@media (max-width: 900px) {
+  .sidebar .navigation-tabs > button > svg, .sidebar .navigation-tabs > button > span { display: none; }
+}
+.activity-history-browser .session-card-top { flex-wrap: wrap; gap: 4px 8px; }
+.activity-history-browser .session-time { white-space: nowrap; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* Compact metadata must fit the existing virtual row height in narrow tools. */
+.activity-history-browser .session-card > .session-card-select { padding: 10px; }
+.activity-history-browser .session-card h3 { font-size: 13px; line-height: 1.4; margin: 8px 0 4px; }
+.activity-history-browser .session-snippet { margin: 4px 0; line-height: 1.4; }
+.activity-history-browser .agent-badge { padding: 0; }

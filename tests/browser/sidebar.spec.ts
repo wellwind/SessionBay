@@ -111,14 +111,14 @@ test(`sidebar drag, collapse, navigation and reload at ${viewport.width}x${viewp
   await page.mouse.up();
   await expect(handles.first()).toHaveAttribute('aria-label', '排序 API 開發');
   await page.screenshot({ path: info.outputPath('sidebar-expanded.png') });
-  await page.getByRole('button', { name: '專案', exact: true }).click();
+  await page.locator('.sidebar').getByRole('button', { name: '專案', exact: true }).click();
   await expect(page.getByRole('textbox', { name: '搜尋專案' })).toBeHidden();
   await expect(page.getByRole('button', { name: /開啟工作區/ })).toBeHidden();
   await page.reload();
-  await expect(page.getByRole('button', { name: '專案', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.sidebar').getByRole('button', { name: '專案', exact: true })).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('.open-workspaces')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('sidebar-collapsed.png') });
-  await page.getByRole('button', { name: '專案', exact: true }).click();
+  await page.locator('.sidebar').getByRole('button', { name: '專案', exact: true }).click();
   await expect(handles.first()).toHaveAttribute('aria-label', '排序 API 開發');
   await handles.first().focus(); await page.keyboard.press('Alt+ArrowDown');
   await expect(handles.nth(1)).toBeFocused();

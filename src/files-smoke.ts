@@ -41,8 +41,9 @@ export async function runFilesSmoke(): Promise<void> {
     .find(element => element.getBoundingClientRect().width > 0 && !!element.querySelector('.xterm-screen'));
   await waitFor(() => !!visibleTerminal(), 'visible terminal did not mount');
   const terminal = visibleTerminal()!;
-  const toggle = document.querySelector<HTMLButtonElement>('.project-files-toggle');
-  if (toggle?.getAttribute('aria-expanded') !== 'true') throw new Error('Files smoke: sidebar not visible by default');
+  const toggle = document.querySelector<HTMLButtonElement>('.workspace-activity[aria-label="Files"]');
+  click(toggle);
+  await waitFor(() => toggle?.getAttribute('aria-expanded') === 'true', 'Files activity did not open its sidebar');
   await waitFor(() => !!document.querySelector('.project-files-sidebar button[title="hello.txt"]'), 'native directory IPC did not render');
   click(document.querySelector<HTMLButtonElement>('.project-files-sidebar button[title="hello.txt"]'));
   await waitFor(() => document.querySelector('[aria-label="唯讀內容：hello.txt"]')?.textContent?.includes('<literal>安全文字</literal>') === true, 'native text IPC did not render literal content');

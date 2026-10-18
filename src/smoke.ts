@@ -164,6 +164,10 @@ export async function runSmokeInteraction(): Promise<void> {
     close();
     await waitFor(() => !dialog(), 'provider settings did not close');
     click(document.querySelector<HTMLButtonElement>('button[aria-label="瀏覽目錄 Harbor Console"]'));
+    await waitFor(() => (document.querySelector<HTMLButtonElement>('.workspace-activity[aria-label="歷史 Sessions"]')?.getBoundingClientRect().width ?? 0) > 0,
+      'fixture project tools did not open');
+    const sessionsActivity = document.querySelector<HTMLButtonElement>('.workspace-activity[aria-label="歷史 Sessions"]');
+    if (sessionsActivity?.getAttribute('aria-pressed') !== 'true') click(sessionsActivity);
     await waitFor(() => !!document.querySelector('#session-search'), 'fixture scoped history did not open');
     const buttonByText = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent?.trim() === label) ?? null;

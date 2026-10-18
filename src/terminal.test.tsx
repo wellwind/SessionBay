@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   focus: vi.fn(),
   options: [] as Record<string, unknown>[],
   input: undefined as undefined | ((value: string) => void),
+  renderCallbacks: new Set<() => void>(),
 }));
 vi.mock('./api', () => ({ errorMessage: (e: unknown) => String(e), api: mocks }));
 vi.mock('@xterm/xterm', () => ({
@@ -67,6 +68,10 @@ vi.mock('@xterm/xterm', () => ({
     onData(callback: (value: string) => void) {
       mocks.input = callback;
       return { dispose() {} };
+    }
+    onRender(callback: () => void) {
+      mocks.renderCallbacks.add(callback);
+      return { dispose() { mocks.renderCallbacks.delete(callback); } };
     }
     write(data: Uint8Array, callback: () => void) {
       mocks.termWrite(data, callback);
@@ -148,6 +153,7 @@ beforeEach(() => {
   mocks.initialRows = 24;
 
   mocks.options.length = 0;
+  mocks.renderCallbacks.clear();
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -1130,6 +1136,69 @@ it('non-terminal controls do not claim terminal keyboard focus', async () => {
   act(() => terminalInput.focus());
   expect(p.onFocus).not.toHaveBeenCalled();
   expect(mocks.write).not.toHaveBeenCalled();
+});
+
+it('reconciles the first ready render once per reveal without refocusing or fitting hidden panes', async () => {
+  const flushFrames = controlAnimationFrames();
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(562);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(259);
+  const p = props(makePane({ startToken: 1 }));
+  const view = render(<TerminalPane {...p} />);
+  await waitFor(() => expect(mocks.launch).toHaveBeenCalledOnce());
+  const firstRender = [...mocks.renderCallbacks][0];
+  expect(firstRender).toBeDefined(); // initial visible mount is covered too
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  act(() => firstRender()); // snapshot has not become ready yet
+  expect(mocks.fit).not.toHaveBeenCalled();
+  expect(mocks.resize).not.toHaveBeenCalled();
+  expect(mocks.renderCallbacks.size).toBe(1);
+  completeSnapshot(mocks.launch.mock.calls[0][1]);
+  flushFrames();
+  const input = screen.getByRole('textbox', { name: 'Mock xterm input' });
+  input.focus();
+  fireEvent.compositionStart(input);
+  mocks.fit.mockClear(); mocks.resize.mockClear(); mocks.focus.mockClear();
+  const resets = mocks.reset.mock.calls.length;
+  // A fit-triggered render must not recursively fit again.
+  mocks.fit.mockImplementationOnce(() => { firstRender(); });
+  await act(async () => firstRender());
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  expect(mocks.resize).toHaveBeenCalledOnce();
+  expect(mocks.renderCallbacks.size).toBe(0);
+  expect(input).toHaveFocus();
+  expect(mocks.focus).not.toHaveBeenCalled();
+  expect(mocks.reset).toHaveBeenCalledTimes(resets);
+  act(() => firstRender()); // even a queued obsolete callback is harmless
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  view.rerender(<TerminalPane {...p} focused={false} />);
+  expect(mocks.renderCallbacks.size).toBe(0); // focus alone does not rearm
+  view.rerender(<TerminalPane {...p} visible={false} focused={false} />);
+  view.rerender(<TerminalPane {...p} visible focused={false} />);
+  const revealedRender = [...mocks.renderCallbacks][0];
+  expect(revealedRender).toBeDefined();
+  flushFrames();
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  await act(async () => revealedRender());
+  expect(mocks.fit).toHaveBeenCalledOnce();
+  expect(mocks.resize).toHaveBeenCalledOnce();
+  view.rerender(<TerminalPane {...p} visible={false} />);
+  view.rerender(<TerminalPane {...p} visible />);
+  const hiddenRender = [...mocks.renderCallbacks][0];
+  view.rerender(<TerminalPane {...p} visible={false} />);
+  mocks.fit.mockClear(); mocks.resize.mockClear();
+  act(() => hiddenRender());
+  expect(mocks.fit).not.toHaveBeenCalled();
+  expect(mocks.resize).not.toHaveBeenCalled();
+  expect(mocks.renderCallbacks.size).toBe(0);
+  view.rerender(<TerminalPane {...p} visible />);
+  const unmountedRender = [...mocks.renderCallbacks][0];
+  view.unmount();
+  act(() => unmountedRender());
+  expect(mocks.renderCallbacks.size).toBe(0);
+  expect(mocks.fit).not.toHaveBeenCalled();
+  expect(mocks.resize).not.toHaveBeenCalled();
+  expect(mocks.launch).toHaveBeenCalledOnce();
+  expect(mocks.stop).not.toHaveBeenCalled();
 });
 
 it('refits after native page zoom without changing terminal font or runtime, and fits hidden panes on reveal', async () => {

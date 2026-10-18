@@ -5,7 +5,11 @@ for (const width of [1200, 720]) {
     await page.goto('/tests/browser/workspace-focus-mode.html');
     await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
     await page.locator('.sidebar .project-main').filter({ hasText: 'Synthetic other' }).click();
-    await expect(page.getByRole('button', { name: '隱藏 Files 側欄', exact: true })).toBeVisible();
+    await expect(page.locator('#activity-sessions-panel')).toBeVisible();
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#activity-sessions-panel')).toBeHidden();
+    await expect(page.locator('.sidebar')).toBeVisible();
     await expect(page.getByRole('button', { name: '.config', exact: true })).toBeVisible();
     await expect(page.getByRole('checkbox', { name: /隱藏/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '最大化檔案區' })).toHaveCount(0);
@@ -30,9 +34,20 @@ for (const width of [1200, 720]) {
       const files = document.querySelector('.project-files-sidebar:not([hidden])')!.getBoundingClientRect();
       const work = document.querySelector('.project-work-content')!.getBoundingClientRect();
       const preview = document.querySelector('[data-file-explorer]')!.getBoundingClientRect();
-      return { filesRight: files.right, workLeft: work.left, top: preview.top - work.top, bottom: work.bottom - preview.bottom, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
+      const panel = document.querySelector('#activity-files-panel')!.getBoundingClientRect();
+      const rail = document.querySelector('.workspace-activity-bar')!.getBoundingClientRect();
+      const body = document.querySelector('.app-body')!.getBoundingClientRect();
+      return { filesLeft: files.left, filesRight: files.right, workRight: work.right, workWidth: work.width,
+        panelRight: panel.right, railLeft: rail.left, railRight: rail.right, railWidth: rail.width, bodyRight: body.right,
+        top: preview.top - work.top, bottom: work.bottom - preview.bottom, scrollWidth: document.documentElement.scrollWidth, viewport: innerWidth };
     });
-    expect(geometry.filesRight).toBeLessThanOrEqual(geometry.workLeft);
+    expect(geometry.workRight).toBeLessThanOrEqual(geometry.filesLeft);
+    expect(geometry.filesRight).toBeLessThanOrEqual(geometry.railLeft);
+    expect(geometry.panelRight).toBeCloseTo(geometry.railLeft, 3);
+    // The app shell has an outer border; tools align with the inner workspace edge.
+    expect(geometry.railRight).toBe(geometry.bodyRight);
+    expect(geometry.railWidth).toBe(44);
+    expect(geometry.workWidth).toBeGreaterThan(0);
     expect(Math.abs(geometry.top)).toBeLessThan(1);
     expect(Math.abs(geometry.bottom)).toBeLessThan(1);
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport);
@@ -47,6 +62,7 @@ test('file tabs belong to the project across runtime switches and closing files 
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
   await expect(page.locator('.xterm')).toHaveCount(2);
   await page.evaluate(() => Object.assign(window, { savedTerminals: [...document.querySelectorAll('.xterm')] }));
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
   await page.getByRole('button', { name: 'README.md', exact: true }).dblclick();
   const tabs = page.locator('.project-file-tabs-host');
   await expect(tabs.getByRole('tab')).toHaveCount(1);
@@ -67,13 +83,14 @@ test('file tabs belong to the project across runtime switches and closing files 
   expect(calls.filter(call => call.command === 'attach_runtime')).toHaveLength(2);
 });
 
-test('split drag uses only terminal surface beside the project sidebar', async ({ page }) => {
+test('split drag uses only terminal surface between project navigation and Files panel', async ({ page }) => {
   await page.goto('/tests/browser/workspace-focus-mode.html?edge=1');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
   await page.getByRole('region', { name: 'Focus shell 終端面板', exact: true }).getByRole('button', { name: '左右分割', exact: true }).click();
   await page.getByRole('button', { name: '開始工作', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Files', exact: true }).click();
   await page.getByRole('button', { name: 'README.md', exact: true }).click();
   await expect(page.locator('.xterm-screen:visible')).toHaveCount(0);
   await page.locator('.workspace-tab-select').filter({ hasText: 'Focus shell' }).click();
