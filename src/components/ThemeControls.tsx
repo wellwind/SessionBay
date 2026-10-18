@@ -27,12 +27,12 @@ export function ThemeControls({ value, disabled = false, onChange }: {
       </div>
     </div>
     <label className="theme-field">
-      <span>介面色系 <small>深／淺色各 10 種</small></span>
+      <span>介面色系</span>
       <Select aria-label="介面色系" value={value.themePalette ?? 'bay'} disabled={disabled}
         options={paletteOptions(value.themePalette)} onChange={(themePalette) => onChange({ themePalette })} />
     </label>
     <label className="theme-field">
-      <span>終端色票 <small>獨立選擇，深／淺色各 10 種</small></span>
+      <span>終端色票</span>
       <Select aria-label="終端色票" value={value.terminalTheme} disabled={disabled}
         options={terminalOptions(value.terminalTheme)} onChange={(terminalTheme) => onChange({ terminalTheme })} />
     </label>

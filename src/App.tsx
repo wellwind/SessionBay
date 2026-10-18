@@ -1331,10 +1331,6 @@ export default function App() {
             onClick={() => openTemporaryTerminal()}>
             <TerminalSquare size={16} aria-hidden="true" /><span>臨時 Terminal</span>
           </button>
-          <span className="local-badge">
-            <span className="tiny-dot" />
-            本機優先
-          </span>
           <button className="icon-button theme-quick-trigger" aria-label="快速切換主題" title="快速切換主題"
             disabled={!settings || settingsOpen || themeSaving || palette}
             onClick={() => { setThemeSaveError(''); setQuickThemeOpen(true); }}>
@@ -1821,9 +1817,6 @@ export default function App() {
               }
             }}
           >
-            <p className="dialog-description">
-              在 {current?.name} 開始工作。Agent 沿用 CLI 本身的登入與權限設定。
-            </p>
             <div className="launch-kind-switch" role="group" aria-label="工作類型">
               <button type="button" aria-pressed={launcher.kind === 'shell'}
                 onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined })}>
@@ -1878,7 +1871,6 @@ export default function App() {
             </div>
             {launcher.kind !== 'shell' && settings.agentOptions?.[launcher.kind]?.bypassPermissions &&
               <p className="inline-warning">已啟用高風險權限模式。預設 {bypassFlags[launcher.kind]}；實際參數以上方預覽為準。Agent 可能不詢問就讀寫或刪除檔案。</p>}
-            <p className="small-muted">外部程序狀態未知。Session Bay 只管理自己啟動的程序。</p>
             {freshLaunchPending && <p className="small-muted" role="status">上一個 Agent 仍在啟動，請稍候再建立新的 Agent 工作。</p>}
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
