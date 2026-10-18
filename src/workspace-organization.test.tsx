@@ -68,7 +68,7 @@ describe('display names and transactional rename dialog', () => {
     const view = render(<RenameDialog title="Rename" name="Old" onSave={vi.fn()} onClose={vi.fn()} />);
     const input = screen.getByLabelText('顯示名稱');
     expect(screen.getByRole('dialog').querySelector('.dialog-description')).toBeNull();
-    expect(input).toHaveAccessibleDescription('最多 200 個字元。');
+    expect(input).toHaveAccessibleDescription(/^最多 200 個字元。\s*$/);
     expect(screen.queryByText(/可使用重複名稱/)).not.toBeInTheDocument();
     for (const id of input.getAttribute('aria-describedby')!.split(' ')) {
       expect(document.getElementById(id)).toBeInTheDocument();

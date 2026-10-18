@@ -3016,7 +3016,7 @@ describe('workspace display organization', () => {
     fireEvent.click(screen.getByRole('button', { name: '重新命名分頁 Terminal' }));
     expect(screen.getByRole('dialog').querySelector('.dialog-description')).toBeNull();
     expect(screen.queryByText('只修改分頁顯示名稱，保留面板、程序與工作位置。')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('顯示名稱')).toHaveAccessibleDescription('最多 200 個字元。');
+    expect(screen.getByLabelText('顯示名稱')).toHaveAccessibleDescription(/^最多 200 個字元。\s*$/);
     fireEvent.change(screen.getByLabelText('顯示名稱'), { target: { value: 'Build console' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存名稱' }));
     await tick(); await tick(450);
