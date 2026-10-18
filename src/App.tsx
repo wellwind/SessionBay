@@ -519,28 +519,48 @@ export default function App() {
     const timer = setTimeout(() => setToast(''), 10000);
     return () => clearTimeout(timer);
   }, [toast]);
+  const persistCurrentWorkspace = useCallback(async () => {
+    if (stateRef.current.boot) {
+      await saveQueue.current;
+      // Forget and layout persistence form one close operation. Project
+      // successful cleanups into the snapshot even before React commits.
+      const snapshotNow = () => serializeWorkspace([...cleanedExits.current.values()]
+        .reduce(closeSuccessfulExit, [...closedPaneSnapshots.current.values()]
+          .reduce(closeConfirmedPane, stateRef.current.workspace)));
+      for (;;) {
+        await Promise.all([...exitCleanupPending.current.values(), ...pendingPaneClosures.current].map((task) => task.catch(() => undefined)));
+        const snapshot = snapshotNow();
+        const signature = JSON.stringify(snapshot);
+        if (signature !== persistedWorkspace.current) {
+          await api.saveWorkspace(snapshot);
+          persistedWorkspace.current = signature;
+        }
+        if (!exitCleanupPending.current.size && !pendingPaneClosures.current.size && JSON.stringify(snapshotNow()) === signature) break;
+      }
+    }
+  }, []);
+  const reloadWindow = useCallback(async () => {
+    if (closingApp.current) throw new Error('視窗正在儲存或關閉，請稍後再試。');
+    closingApp.current = true;
+    try {
+      await persistCurrentWorkspace();
+      startup.reloadWindow();
+    } catch (error) {
+      closingApp.current = false;
+      setWorkspace((current) => ({ ...current }));
+      throw new Error(`重新載入已取消，工作區儲存失敗：${errorMessage(error)}`);
+    }
+  }, [persistCurrentWorkspace]);
+  useEffect(() => {
+    // Keep the last committed handler after a fatal React unmount so the
+    // dependency-free startup fallback can still persist the latest workspace.
+    window.SessionBayReload = reloadWindow;
+  }, [reloadWindow]);
   const closeApplication = useCallback(() => {
     const action = async () => {
       closingApp.current = true;
       try {
-        if (stateRef.current.boot) {
-          await saveQueue.current;
-          // Forget and layout persistence form one close operation. Project
-          // successful cleanups into the snapshot even before React commits.
-          const snapshotNow = () => serializeWorkspace([...cleanedExits.current.values()]
-            .reduce(closeSuccessfulExit, [...closedPaneSnapshots.current.values()]
-              .reduce(closeConfirmedPane, stateRef.current.workspace)));
-          for (;;) {
-            await Promise.all([...exitCleanupPending.current.values(), ...pendingPaneClosures.current].map((task) => task.catch(() => undefined)));
-            const snapshot = snapshotNow();
-            const signature = JSON.stringify(snapshot);
-            if (signature !== persistedWorkspace.current) {
-              await api.saveWorkspace(snapshot);
-              persistedWorkspace.current = signature;
-            }
-            if (!exitCleanupPending.current.size && !pendingPaneClosures.current.size && JSON.stringify(snapshotNow()) === signature) break;
-          }
-        }
+        await persistCurrentWorkspace();
         nativeCloseSealed.current = true;
         await api.close();
       } catch (error) {
@@ -551,7 +571,7 @@ export default function App() {
       }
     };
     if (!closingApp.current) void action().catch(notify);
-  }, [notify]);
+  }, [notify, persistCurrentWorkspace]);
   useEffect(() => {
     if (!desktop) return;
     let disposed = false;
@@ -1015,6 +1035,8 @@ export default function App() {
       },
       disabled: !focusPane,
     },
+    { id: 'reload-window', label: '重新載入視窗（Reload Window）',
+      run: () => { void reloadWindow().catch(notify); } },
     ...(['ui', 'terminal'] as const).map(target => ({
       id: `theme-${target}`,
       label: target === 'ui' ? '切換介面主題' : '切換 Terminal theme',
@@ -1678,7 +1700,7 @@ export default function App() {
         </div>
         <div>
           <span>{activeCount} 個執行中程序</span>
-          {visibleSettings && <span role="status" aria-live="polite" title={workspaceZoomShortcutHelp}>工作台 {appliedZoom ?? 100}%{zoomError ? ' · 縮放套用失敗' : appliedZoom !== zoomPercent ? ' · 套用中' : ''}{themeSaving ? ' · 儲存中' : ''}</span>}
+          {visibleSettings && <span role="status" aria-live="polite" title={`調整介面與 Terminal 顯示大小。${workspaceZoomShortcutHelp}`}>縮放 {appliedZoom ?? 100}%{zoomError ? ' · 縮放套用失敗' : appliedZoom !== zoomPercent ? ' · 套用中' : ''}{themeSaving ? ' · 儲存中' : ''}</span>}
           <span className="status-separator">│</span>
           <span>
             {focusPane && view === 'workspace'

@@ -704,3 +704,9 @@ PR31 的 Mac 拖入 PNG 已證明 bytes 暫存與 PTY 路徑輸入，但唯一�
 危險操作採清楚確認與可驗證復原點，防止 Agent／外部編輯造成過期寫入；一般 push 不自動推送所有 tag。GitHub／自架 GitLab 採多主機／帳號架構，PR／MR review／合併在應用內完成；CI 先狀態與外連，logs／retry／cancel 後續。Worktree 管理後續，識別能力不能延後。
 
 完整規劃與八個實作 PR 的相依／驗收見 [Git 工作台](git-workbench-plan.md)。本次只新增文件，所有 Git 功能均未完成／未驗收；Monaco 等文字引擎仍是候選，沒有選定或安裝。本文件不授權對使用者 repo 執行破壞操作或自動配置憑證。
+
+## 2026-10-18：Reload Window 只重新載入前端
+
+命令面板提供「重新載入視窗（Reload Window）」。重新載入前沿用關閉視窗的序列化保存流程，等待既有保存與面板清理，再以瀏覽器 reload 重新 bootstrap、接回 broker runtime。不呼叫 close／stop／launch。儲存失敗取消重新載入並顯示錯誤。
+
+模組載入失敗或 React 畫面崩潰時，最早載入的 dependency-free startup overlay 另提供同名按鈕。已有 App 時保留最後 committed 保存 handler；App 尚未載入時直接 reload，不覆寫尚未讀取的工作區。這是復原入口，不修復造成錯誤的根因。
