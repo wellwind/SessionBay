@@ -26,6 +26,10 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     }).toBe(true);
     await editor.focus(); await page.keyboard.press('Control+f'); await expect(find).toBeFocused();
     await page.keyboard.press('Escape');
+    await expect(page.locator('.monaco-editor .find-widget')).toHaveAttribute('aria-hidden', 'true');
+    // Closing Find removes a 27px view zone synchronously; Monaco paints its
+    // new scroll offset on the next frame. Do not snapshot the stale DOM style.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const scroll = await editor.locator('.lines-content').getAttribute('style');
     expect(scroll).toMatch(/top:\s*-/);
     await tabs.getByRole('tab', { name: /README.md/ }).click();
