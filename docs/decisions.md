@@ -819,3 +819,7 @@ Fresh Agent 僅在 typed 本地能力 preflight 明確零 Launch 拒絕後，顯
 獨立 review 發現 UI 點擊確認就清除 intent，加上取消共用 fresh mutex，使確認等待 catalog writer 時無法及時取消。確認送出後仍保留 in-flight ref，直到 IPC 結束；導航、關閉、reload、unmount 仍送取消。後端以獨立、有界且沿用原期限的 admission registry 保存原子狀態，不需取得 fresh／settings／catalog 鎖即可取消；cancel 與 consume 使用 CAS 排序。取消先成功則零 Launch，consume 先成功則後續取消不停止、不重送既有或結果未知的 Agent。此截止點依後端原子狀態判定，不依點擊時間或假定 IPC 速度。
 
 新增確定性 barrier 測試：外部持有 catalog write transaction，確認取得 fresh 後取消，再釋放 writer，驗證零 Launch；另驗證等待 fresh、consume 後取消及 UI 延遲確認／回覆。保留原 fresh→catalog→settings 鎖序，沒有為取消反轉鎖序。
+
+## 2026-10-18：Agent 面板右側只顯示可靠活動與必要生命週期
+
+正常存活的 Agent 不再顯示「執行中」、「已啟動，待確認 Session」或重複的「程序存活」徽章。右側只投影既有 store 的明確 busy／idle／retry、等待輸入／權限及原生終端狀態；事件型 observation、未知與過期資料留白，不由 PTY 輸出推測。終端來源保留「（終端回報）」；閒置不等於成功。啟動、重新附接、斷線、中斷、失敗、退出與還原布局提示優先，普通 Shell 維持原生命週期文字。訂閱隔離在小型文字元件，沿用既有 TTL、lease 與 runtime 隔離，不新增輪詢或 provider parsing。合成元件與瀏覽器測試不代替真實 Agent／原生跨平台驗收。
