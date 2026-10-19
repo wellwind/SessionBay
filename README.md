@@ -36,6 +36,8 @@ npm run tauri -- build
 
 ## 文件導覽
 
+- [UI UX Pro Max 設計技能](.agents/skills/ui-ux-pro-max/UPSTREAM.md)：固定 v2.15.0 的 repo-local UI／UX 參考資料、MIT 授權與使用限制。
+
 - [工作區檔案預覽](docs/workspace-file-preview.md)：唯讀目錄、文字限制及平台安全邊界。
 
 | 文件 | 內容 |
