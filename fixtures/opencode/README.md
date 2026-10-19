@@ -10,4 +10,5 @@
 
 測試刻意產生缺欄位、未知版本、截斷 JSON、損毀 SQLite／WAL、重複序號、revert、compaction 等失敗情境。這些異常是負面測試，不代表官方有效資料格式。
 
-- [v2 reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts) 會清除 v2 state，但不清除 legacy message/part。測試模擬 v2 全刪後仍有 v1 rows，確認 reader 不復原權威性不明的文字。v1-only 測試會移除 session_message table；這是 reader 的保守支援邊界，不宣稱所有官方版本都以此區分 projection。
+- [cli-1.19.x-v1-only.sql](cli-1.19.x-v1-only.sql) 例外：DDL 取自 2026-10-19 真實 CLI 1.19.3／1.19.2 寫入的 opencode.db（只正規化空白，並以最小 project 表滿足外鍵），row JSON 保留真實鍵結構，ID、路徑、提問、回覆、工具輸出與 hash 全為合成。session_message 刻意留空，對應穩定版 CLI 只寫 v1 的實際行為。
+- [v2 reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts) 會清除 v2 state，但不清除 legacy message/part。測試模擬 v2 全刪後仍有 v1 rows，確認 reader 不復原權威性不明（v1 明顯舊於 session.time_updated）的文字。v1-only 測試會移除 session_message table；這是 reader 的保守支援邊界，不宣稱所有官方版本都以此區分 projection。

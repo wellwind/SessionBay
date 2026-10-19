@@ -158,7 +158,7 @@
         "supported": true,
         "sourceEnv": null,
         "rootPlaceholder": "/Users/you/.local/share/opencode",
-        "description": "唯讀讀取來源目錄內 opencode.db（依官方 v1.19.2 結構）；支援搜尋、預覽與 --session 接續。舊 JSON 與自訂 DB 檔名尚未支援；未執行真實 CLI 驗收。",
+        "description": "唯讀讀取來源目錄內 opencode.db（依官方 v1.19.2／1.19.3 結構）；支援搜尋、預覽與 --session 接續。舊 JSON 與自訂 DB 檔名尚未支援；Linux 已以真實 CLI 1.19.2／1.19.3 寫入的資料庫驗收。",
         "parserId": "opencode",
         "defaultDirectory": ".local/share/opencode",
         "probeDirectory": null

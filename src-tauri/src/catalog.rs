@@ -3273,6 +3273,7 @@ fn index_opencode(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(error)?;
     let mut seen = HashSet::new();
+    let opencode_parser_version = PARSER_VERSION * 100 + crate::opencode::READER_REVISION;
     for record in index.records.values() {
         if cancel.load(Ordering::Relaxed) {
             return Err("Indexing cancelled".into());
@@ -3286,18 +3287,19 @@ fn index_opencode(
             record.id
         );
         seen.insert(path.clone());
-        let previous: Option<(i64, String)> = tx
+        let previous: Option<(i64, String, i64)> = tx
             .query_row(
-                "SELECT id,prefix_hash FROM files WHERE source_id=?1 AND path=?2",
+                "SELECT id,prefix_hash,parser_version FROM files WHERE source_id=?1 AND path=?2",
                 params![source.id, path],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(error)?;
-        if previous
-            .as_ref()
-            .is_some_and(|(_, hash)| hash == &index.fingerprint)
-        {
+        // An unchanged database must still be re-read after a reader upgrade;
+        // otherwise sessions stay stuck in the older reader's partial state.
+        if previous.as_ref().is_some_and(|(_, hash, version)| {
+            hash == &index.fingerprint && *version == opencode_parser_version
+        }) {
             continue;
         }
         let state = ParsedState {
@@ -3312,7 +3314,7 @@ fn index_opencode(
             unknown_events: u64::from(record.partial),
             ..Default::default()
         };
-        tx.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived,trailing_partial) VALUES(?1,?2,?3,?10,0,'',0,?4,?5,?6,?7,?8,?9) ON CONFLICT(source_id,path) DO UPDATE SET session_id=excluded.session_id,identity=excluded.identity,lines=excluded.lines,prefix_hash=excluded.prefix_hash,parser_version=excluded.parser_version,state=excluded.state,archived=excluded.archived,trailing_partial=excluded.trailing_partial", params![source.id,path,id,record.messages.len(),index.fingerprint,PARSER_VERSION,serde_json::to_string(&state).map_err(error)?,record.archived,record.partial,index.identity]).map_err(error)?;
+        tx.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived,trailing_partial) VALUES(?1,?2,?3,?10,0,'',0,?4,?5,?6,?7,?8,?9) ON CONFLICT(source_id,path) DO UPDATE SET session_id=excluded.session_id,identity=excluded.identity,lines=excluded.lines,prefix_hash=excluded.prefix_hash,parser_version=excluded.parser_version,state=excluded.state,archived=excluded.archived,trailing_partial=excluded.trailing_partial", params![source.id,path,id,record.messages.len(),index.fingerprint,opencode_parser_version,serde_json::to_string(&state).map_err(error)?,record.archived,record.partial,index.identity]).map_err(error)?;
         let file_id: i64 = tx
             .query_row(
                 "SELECT id FROM files WHERE source_id=?1 AND path=?2",
