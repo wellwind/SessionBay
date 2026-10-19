@@ -247,3 +247,36 @@ test('history density, divider and queued undo toast retain geometry at CSS zoom
   await page.getByRole('button', { name: '復原刪除', exact: true }).click();
   await expect(page.getByText('還有 1 筆可依序復原。')).toHaveCount(0);
 });
+
+test('queued Undo cannot escape a later delete confirmation and returns after cancel', async ({ page }) => {
+  await page.goto('/tests/browser/workspace-tabs.html?history=1');
+  await page.getByRole('button', { name: '開啟工作區 工作台介面 Tab b', exact: true }).click();
+  await page.getByRole('button', { name: '歷史 Sessions', exact: true }).click();
+  const deletes = page.locator('.activity-panel-shell:visible').getByRole('button', { name: /^刪除 Session/ });
+  await deletes.first().click();
+  await page.getByRole('button', { name: '確認移入資源回收筒', exact: true }).click();
+  const toast = page.locator('.history-undo');
+  await expect(toast).toBeVisible();
+  const pending = await toast.innerText();
+  await deletes.first().click();
+  const dialog = page.getByRole('dialog', { name: '移入資源回收筒？', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(toast).toBeHidden();
+  for (const button of await toast.locator('button').all()) {
+    expect(await button.evaluate((element: HTMLButtonElement) => {
+      const r = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      element.focus();
+      return { hit: element.contains(hit), focused: document.activeElement === element };
+    })).toEqual({ hit: false, focused: false });
+  }
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press('Tab');
+    expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
+  }
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(toast).toBeVisible(); await expect(toast).toHaveText(pending);
+  const undo = toast.getByRole('button', { name: '復原刪除', exact: true });
+  await undo.focus(); await expect(undo).toBeFocused(); await page.keyboard.press('Enter');
+  await expect(toast).toHaveCount(0);
+});

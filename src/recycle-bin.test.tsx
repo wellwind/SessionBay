@@ -271,3 +271,21 @@ it('keeps consecutive deletions queued in a portal toast and restores each origi
   fireEvent.click(screen.getByRole('button', { name: '復原刪除' }));
   await waitFor(() => expect(api.restoreSession).toHaveBeenCalledWith('second'));
 });
+
+it('preserves queued Undo and rejects synthetic actions while another delete dialog is open', async () => {
+  render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
+  fireEvent.click(screen.getByRole('button', { name: '確認移入資源回收筒' }));
+  const undo = await screen.findByRole('button', { name: '復原刪除' });
+  await waitFor(() => expect(undo).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
+  expect(document.querySelector('.history-undo')).toHaveAttribute('inert');
+  fireEvent.click(undo);
+  fireEvent.click(document.querySelector('.history-undo button[aria-label="關閉復原提示"]')!);
+  expect(api.restoreSession).not.toHaveBeenCalled();
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '取消' }));
+  expect(document.querySelector('.history-undo')).not.toHaveAttribute('inert');
+  fireEvent.click(undo);
+  await waitFor(() => expect(api.restoreSession).toHaveBeenCalledWith(entry.id));
+});

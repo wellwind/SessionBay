@@ -98,7 +98,7 @@ export function HistoryView({
   const undoButton = useRef<HTMLButtonElement>(null);
   const [undoQueue, setUndoQueue] = useState<{ id: string; title: string }[]>([]);
   const undoId = undoQueue[0]?.id;
-  const dismissUndo = () => setUndoQueue(queue => queue.slice(1));
+  const dismissUndo = () => { if (!hasBlockingDialog()) setUndoQueue(queue => queue.slice(1)); };
   // A completed deletion may still be awaiting a parent refresh. Any newer
   // interaction owns focus; a delayed completion must never reclaim it.
   useEffect(() => {
@@ -274,7 +274,7 @@ export function HistoryView({
     finally { trashLock.current = false; setTrashBusy(false); }
   };
   const undoTrash = async () => {
-    if (!undoId || trashLock.current) return;
+    if (!undoId || trashLock.current || hasBlockingDialog()) return;
     trashLock.current = true;
     setTrashBusy(true);
     setTrashError('');
@@ -296,7 +296,7 @@ export function HistoryView({
     filters.children;
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
   const controls = <>
-      {(undoId || (trashError && !trashTarget)) && createPortal(<div className="toast history-undo" aria-label="歷史刪除通知">
+      {(undoId || (trashError && !trashTarget)) && createPortal(<div className="toast history-undo" aria-label="歷史刪除通知" inert={!!trashTarget}>
         <div className="history-undo-message" role="status" aria-live="polite" aria-atomic="true">
           {undoId && <><p>已移入資源回收筒：{undoQueue[0].title}</p>
             {undoQueue.length > 1 && <small>還有 {undoQueue.length - 1} 筆可依序復原。</small>}</>}
@@ -304,7 +304,7 @@ export function HistoryView({
         </div>
         <div className="history-undo-actions">
           {undoId && <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>}
-          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => { dismissUndo(); setTrashError(''); }}><X size={15} /></button>
+          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => { if (!hasBlockingDialog()) { dismissUndo(); setTrashError(''); } }}><X size={15} /></button>
         </div>
       </div>, document.body)}
       {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
