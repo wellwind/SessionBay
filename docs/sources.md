@@ -119,7 +119,7 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 ## 輸入與工作分頁修正（2026-10-15）
 
-- [xterm.js CompositionHelper 原始碼](https://github.com/xtermjs/xterm.js/blob/master/src/browser/input/CompositionHelper.ts)：本輪測試讀取 lockfile 鎖定的 xterm 5.5.0 實作，重現 Caps Lock 提前 finalize 後 compositionend 重送；合成事件不代替真實 macOS 輸入法驗收。
+- [xterm.js CompositionHelper 原始碼](https://github.com/xtermjs/xterm.js/blob/master/src/browser/input/CompositionHelper.ts)：本輪測試讀取 lockfile 鎖定的 xterm 5.5.0 實作，重現 Caps Lock 提前 finalize 後 compositionend 重送；合成事件不代替真實 macOS 輸入法驗收。2026-10-20 另讀 xterm 6 同檔的 `_handleAnyTextareaChanges` 與 `_finalizeComposition`，以 WebKitGTK 4.1＋fcitx5 chewing 實測事件順序確認 commit-only 雙送。
 - [Chrome 鍵盤快捷鍵](https://support.google.com/chrome/answer/157179?co=GENIE.Platform%3DDesktop&hl=en)：使用者指定的工作分頁操作參考；應用保留鍵、組字與模態對話框邊界見 UX 規格，不宣稱攔截所有 OS 全域快捷鍵。
 
 ## Antigravity CLI 持久化格式補充（2026-10-15）

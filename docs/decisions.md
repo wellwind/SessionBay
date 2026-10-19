@@ -896,3 +896,10 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 ## 2026-10-19：OpenCode 真實 CLI 的 v1-only 歷史
 
 使用者以真實 OpenCode 1.19.2／1.19.3 試用時，三個 Session 全部只顯示 metadata，無預覽、無法接續。實測穩定版 CLI 只寫 v1 message/part，session_message table 存在但為空；原本「有 v2 table、無 v2 rows」一律視為歧義的規則因此擋下所有真實歷史。使用者核准修正：v1 最新更新與 session.time_updated 相差 60 秒內時視為現行投影；v1 明顯過舊（例如刪除 v2 後殘留）仍 metadata-only。另經原始碼比對確認 1.19.3 未改 schema，版本上限延伸至 1.19.3；catalog 依 reader revision 重讀未變更的 DB。
+
+## 2026-10-20：Terminal commit-only IME
+
+- 問題（backlog #07）：Linux WebKitGTK 4.1＋fcitx5 新酷音在游標前已有文字時，`echo 中文` 送進 PTY 變成 `中文文` 或 `\u00a0 中文`。
+- 根因：此組合的 preedit 留在輸入法，頁面只收到 `keydown(229, isComposing=false)` → `input(insertFromComposition)` → `compositionend`，沒有 `compositionstart`。xterm 6 `CompositionHelper` 的 229 分支以 `newValue.replace(oldValue, '')` 送出差異，孤立的 compositionend 又以過期的 `_compositionPosition.start + _dataAlreadySent.length` 取子字串再送；helper textarea 只在 Enter／Ctrl+C 清空，前面累積的空白與先前確認字使兩者重疊。
+- 決策：Mike 同意修正。只接管 commit-only 路徑：組字外的 229 keydown 透過公開 custom key handler 略過 xterm 處理；host capture 階段的孤立 compositionend 以 `event.data` 經 `terminal.input` 送一次並停止傳到 xterm；229 後無組字的 `insertText` 也只送一次。有 `compositionstart` 的組字、Backspace 改 preedit 仍由 xterm 處理。不做文字去重、不改 xterm 套件。
+- Shift＋Enter 在一般 Shell 顯示 `;2u`：維持 2026-10-17 使用者選擇的「一律 CSI-u、不從前景程式推測」，本次不改。
