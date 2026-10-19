@@ -26,6 +26,28 @@ pub(super) struct Registry {
     last_now: Option<Instant>,
 }
 impl Registry {
+    pub(super) fn pin_unknown(&mut self) {
+        self.unknown_pin = true;
+    }
+    pub(super) fn has_live(&mut self, now: Instant) -> bool {
+        self.observe(now);
+        self.offers.values().any(|offer| {
+            offer
+                .lease
+                .as_ref()
+                .is_some_and(|lease| !lease.released && !lease.expired && now < lease.deadline)
+        })
+    }
+    pub(super) fn idle_clear(&mut self, now: Instant) -> bool {
+        self.observe(now);
+        !self.unknown_pin
+            && self.offers.values().all(|offer| {
+                offer
+                    .lease
+                    .as_ref()
+                    .is_some_and(|lease| lease.released && !lease.expired)
+            })
+    }
     fn observe(&mut self, now: Instant) {
         if self.last_now.is_some_and(|previous| now < previous) {
             self.unknown_pin = true;

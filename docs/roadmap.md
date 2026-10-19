@@ -312,3 +312,7 @@ L1a 保守 runtime 證據記帳與原子 admission seal 已於 #82 合併，revi
 ### 工作區 UI 密度與 Zen 索引穩定性（候選）
 
 分頁列固定控制、自動揭露選取項、兩類分頁樣式、Activity 分隔線與歷史 Undo toast 已有候選實作。Zen 保留固定高度狀態列，避免索引狀態插拔改變 Terminal 高度。新增窄版／縮放／主題／拖曳及索引幾何驗收；Ubuntu 主機記憶體不足，瀏覽器與原生桌面驗收仍待完成，不視為已通過。
+
+### L1c 未使用 broker 退休候選
+
+工作區 UI #86 已合併並通過 main CI，恢復 broker→Snap 順序。L1c 首版僅涵蓋明確從未嘗試工作的 lineage、完整 IPC admission、UI lease 與 30 秒 grace；任何工作嘗試或未知狀態保留 broker。候選實作與 focused tests 待獨立 review，尚未發布；Stop all／版本 routing／Snap 仍待後續。

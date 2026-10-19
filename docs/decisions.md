@@ -872,3 +872,13 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 依使用者要求，右側 Activity 面板改實體分隔線，Zen 控制固定在水平捲動區外，檔案／Terminal 分頁統一直角與頂部選取樣式。active tab 變更及 viewport 寬度變更才揭露分頁，不因輸出或一般重繪重設手動捲動。歷史列表加大文字、縮小垂直間距並同步虛擬列高度；刪除結果使用保留逐筆 Undo 的 toast，確認流程不變。
 
 使用者指出 Zen 索引開始時底部 bar 出現並擠壓畫面，並明確要求 Zen 可以顯示底部 statusbar。採用所有索引狀態共用固定高度狀態列，移除 Zen 的條件隱藏，不改 Terminal 程序／串流契約。程式可確認原 CSS 隱藏條件受 index.running 影響；可見閃爍是否消失仍待合成輸出瀏覽器回歸，不能僅以靜態修改宣稱已驗收。
+
+## 2026-10-19：L1c 僅可信未使用 broker 自退（待 review）
+
+接續隔離保存的 WIP，僅對 Linux／macOS 新建 runtime 目錄啟用 virgin-only 退休。建立者在 owner lock 內以 create_new 寫入 v2 envelope，舊 Vec decoder 會拒絕此格式；既有 v1 array（包含空陣列）、缺檔、未知版本或不明紀錄都不能升格為從未工作。既有格式仍以既有格式寫回，不遷移 settings／catalog／workspace。這是有意的舊 binary 拒絕降版界線，不是完整 L2–L4 升級協作。
+
+任何 Launch 在 validation、hook helper 或 spawn 之前，永久記錄 workAttempted 並完成 metadata／目錄同步；任何嘗試、失敗、Forget、重啟都不重新授予退休資格。完整外部 IPC 從 accept admission 到 frame／handler／response 均計入；Hello、lease 與請求取消 grace。只有零 lease／offer／unknown、零 in-flight、空歷史紀錄、可信 RuntimeManager quiescence 才能在 30 秒後以 writer→lifecycle→lease→runtime 鎖序原子封閉入口。未知／mutex poison／時鐘回退／傳輸失敗保守保留。自退不呼叫 Stop／Forget／Shutdown、不發 signal；UI 關閉仍只釋放自己的 lease，已嘗試過的工作 lineage 永不走這條退休路徑。
+
+本次只交最小退休切片與合成測試供 review。Stop all、版本 routing 及 Snap 待後續；原始 WIP 保持原樣。未宣稱 Windows、macOS 原生驗收或完整 L1 完成。
+
+獨立 review 發現 connect 可能撞上 broker 已 seal 但尚未釋鎖的窗口：原本只在 retry loop 前判斷一次是否 spawn，會在舊 owner 釋鎖後仍重試 Hello 至超時。改為在同一個 12 秒 bounded loop 內，每次 Hello 失敗後重新確認 ownership；仍持鎖時不啟動 replacement，每個 connect 最多啟動一個候選，候選仍須取得既有的獨占 lifetime lock 才能建立 listener。合成測試暫停已 seal 的舊 owner、確認 connect 已進入 retry 且尚未啟動 replacement，再釋鎖並驗證不同 generation 的新 owner 成功回應。

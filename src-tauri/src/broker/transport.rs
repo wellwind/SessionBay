@@ -29,7 +29,7 @@ pub fn private_directory(parent: &Path) -> io::Result<PathBuf> {
     {
         use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
         match fs::DirBuilder::new().mode(0o700).create(&directory) {
-            Ok(()) => (),
+            Ok(()) => super::storage::initialize_fresh(&directory)?,
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => (),
             Err(error) => return Err(error),
         }
@@ -553,6 +553,9 @@ mod ownership_tests {
     fn invalid_lock_is_reported_before_attempting_to_spawn_or_retry() {
         let root = tempfile::tempdir().unwrap();
         let directory = private_directory(root.path()).unwrap();
+        // Fresh-store initialization creates and releases the ownership lock.
+        #[cfg(unix)]
+        std::fs::remove_file(directory.join("broker.lock")).unwrap();
         std::fs::create_dir(directory.join("broker.lock")).unwrap();
         assert_ne!(
             ownership_available(&directory).unwrap_err().kind(),
