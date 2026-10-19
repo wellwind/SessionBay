@@ -30,10 +30,64 @@ function Harness({ hidden = false }: { hidden?: boolean }) {
     const next = { ...preferences, width }; saveSidebarPreferences(next); setPreferences(next);
   }}>content</ProjectNavigation>;
 }
-beforeEach(() => { localStorage.clear(); vi.stubGlobal('innerWidth', 1440); vi.stubGlobal('PointerEvent', TestPointerEvent); });
-afterEach(() => vi.unstubAllGlobals());
+let layoutWidth: number | null = null;
+let notifyLayoutResize: () => void;
+beforeEach(() => {
+  layoutWidth = null;
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => layoutWidth ?? window.innerWidth);
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: () => void) { notifyLayoutResize = callback; }
+    observe() {}
+    disconnect() {}
+  });
+  localStorage.clear(); vi.stubGlobal('innerWidth', 1440); vi.stubGlobal('PointerEvent', TestPointerEvent); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('project navigation resizing', () => {
+  it('measures the layout independently of the viewport and hides an immovable handle', () => {
+    vi.stubGlobal('innerWidth', 450); layoutWidth = 700;
+    render(<Harness />);
+    const separator = screen.getByRole('separator');
+    expect(separator).toHaveAttribute('aria-valuemax', '180');
+    expect(separator).toHaveAttribute('aria-valuenow', '180');
+    capture(separator);
+    pointer(separator, 'pointerdown', 180); pointer(separator, 'pointermove', 170);
+    expect(separator).toHaveAttribute('aria-valuenow', '170');
+    act(() => { layoutWidth = 600; notifyLayoutResize(); });
+    expect(separator).not.toBeVisible();
+    expect(separator.hasPointerCapture(7)).toBe(false);
+    pointer(separator, 'pointerup', 170);
+    expect(separator).toHaveAttribute('tabindex', '-1');
+    expect(readSidebarPreferences().width).toBe(236);
+    act(() => { layoutWidth = 960; notifyLayoutResize(); });
+    expect(separator).toBeVisible();
+    expect(separator).toHaveAttribute('aria-valuemax', '384');
+    expect(separator).toHaveAttribute('aria-valuenow', '236');
+  });
+  it('measures while initially hidden and permits dragging after becoming visible', () => {
+    vi.stubGlobal('innerWidth', 450); layoutWidth = 700;
+    const { rerender, container } = render(<Harness hidden />);
+    const separator = container.querySelector<HTMLElement>('[role="separator"]')!;
+    expect(separator).not.toBeVisible();
+    expect(separator).toHaveAttribute('aria-valuemax', '180');
+    rerender(<Harness />);
+    expect(separator).toBeVisible();
+    capture(separator);
+    pointer(separator, 'pointerdown', 180); pointer(separator, 'pointermove', 170); pointer(separator, 'pointerup', 170);
+    expect(separator).toHaveAttribute('aria-valuenow', '170');
+    expect(readSidebarPreferences().width).toBe(170);
+  });
+  it('does not cancel a draft when the observer reports the same layout width', () => {
+    render(<Harness />);
+    const separator = screen.getByRole('separator'); capture(separator);
+    pointer(separator, 'pointerdown', 236); pointer(separator, 'pointermove', 300);
+    act(() => notifyLayoutResize());
+    expect(separator.hasPointerCapture(7)).toBe(true);
+    expect(separator).toHaveAttribute('aria-valuenow', '300');
+    expect(readSidebarPreferences().width).toBe(236);
+    pointer(separator, 'pointerup', 300);
+    expect(readSidebarPreferences().width).toBe(300);
+  });
   it('retains persisted preference after a clamped click, blocked drag, or return to start', () => {
     const { unmount } = render(<Harness />);
     const separator = screen.getByRole('separator'); capture(separator);

@@ -320,3 +320,7 @@ L1a 保守 runtime 證據記帳與原子 admission seal 已於 #82 合併，revi
 ### 左側專案導覽 resize（2026-10-19）
 
 加入共用寬度偏好及可鍵盤操作的分隔線。單元／回歸與原生 WebKitGTK 合成畫面的驗證結果見交付報告；完整 Tauri backend／安裝版驗收不以 mock QA 代替。邊界與操作見 [左側專案導覽寬度](project-navigation-resize.md)。
+
+### 左側導覽原生縮放範圍修正（待審查）
+
+改依實際布局容器計算範圍，避免縮放後 viewport 小於畫布造成 min=max。完整 App 真實 mouse 與 aside 幾何回歸納入 focus-mode 測試組；原生 WebKit 與 macOS 實際症狀的驗證界線見交付報告，不以 Ubuntu 通過概括 macOS。
