@@ -2,17 +2,20 @@ import type { Project } from './types';
 
 export const sidebarStorageKey = 'sessionbay.sidebar.v1';
 export interface SidebarPreferences {
+  width: number;
   projectOrder: string[];
   projectsCollapsed: boolean;
   directoriesCollapsed: boolean;
   workspacesCollapsed: boolean;
 }
-export const defaultSidebarPreferences = (): SidebarPreferences => ({ projectOrder: [], projectsCollapsed: false, directoriesCollapsed: false, workspacesCollapsed: false });
+export const defaultSidebarPreferences = (): SidebarPreferences => ({ width: 236, projectOrder: [], projectsCollapsed: false, directoriesCollapsed: false, workspacesCollapsed: false });
 export function readSidebarPreferences(): SidebarPreferences {
   try {
     const value = JSON.parse(localStorage.getItem(sidebarStorageKey) || 'null');
     if (!value || value.version !== 1) return defaultSidebarPreferences();
     return {
+      width: typeof value.width === 'number' && Number.isFinite(value.width)
+        ? Math.max(160, Math.min(480, Math.round(value.width))) : 236,
       projectOrder: Array.isArray(value.projectOrder) ? [...new Set<string>(value.projectOrder.filter((id: unknown) => typeof id === 'string' && id.length > 0))] : [],
       projectsCollapsed: value.projectsCollapsed === true,
       directoriesCollapsed: value.directoriesCollapsed === true,

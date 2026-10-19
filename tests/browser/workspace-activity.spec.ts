@@ -428,7 +428,7 @@ test('shared panel width survives feature/project switches and Zen, with accessi
   await filesButton(page).click();
   expect((await shell.boundingBox())!.width).toBe(width);
   await expectAdjacentSurfaces(page, 'files');
-  await expect(page.getByRole('separator')).toHaveCount(1);
+  await expect(resize).toHaveCount(1);
   await filesButton(page).click();
   await expect(shell).toBeHidden();
   await sessionsButton(page).click();

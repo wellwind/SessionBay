@@ -1,0 +1,10 @@
+/* Share the right activity panel's 5px separator and theme accent. Keep the
+   handle outside the scrolling navigation, without consuming extra width. */
+.project-navigation-resize {
+  position: relative; z-index: 3; flex: 0 0 5px; margin-left: -5px;
+  align-self: stretch; cursor: col-resize; touch-action: none; user-select: none;
+}
+.project-navigation-resize[hidden] { display: none; }
+.project-navigation-resize:hover, .project-navigation-resize:focus-visible {
+  background: var(--accent); outline: none;
+}
