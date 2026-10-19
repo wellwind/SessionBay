@@ -892,3 +892,9 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 ## 2026-10-19：左側導覽範圍依實際布局容器計算
 
 原生縮放後 CSS viewport 可小於 App 的實際布局寬度，直接用 viewport 扣除 520px 會使可調範圍退化為 160–160。改量測導覽父容器 clientWidth，並觀察容器 resize；沿用原本 40%、480px 上限及可行時保留 520px 的政策，不複製 CSS 最小畫布常數。真正無可調空間時不顯示可拖曳把手。此修正處理已重現的範圍退化，不代表已確認 macOS 使用者的全部症狀；短視窗布局與原生 scrollbar 假說另行處理。
+## 2026-10-20：Terminal commit-only IME
+
+- 問題（backlog #07）：Linux WebKitGTK 4.1＋fcitx5 新酷音在游標前已有文字時，`echo 中文` 送進 PTY 變成 `中文文` 或 `\u00a0 中文`。
+- 根因：此組合的 preedit 留在輸入法，頁面只收到 `keydown(229, isComposing=false)` → `input(insertFromComposition)` → `compositionend`，沒有 `compositionstart`。xterm 6 `CompositionHelper` 的 229 分支以 `newValue.replace(oldValue, '')` 送出差異，孤立的 compositionend 又以過期的 `_compositionPosition.start + _dataAlreadySent.length` 取子字串再送；helper textarea 只在 Enter／Ctrl+C 清空，前面累積的空白與先前確認字使兩者重疊。
+- 決策：Mike 同意修正。只接管 commit-only 路徑：組字外的 229 keydown 透過公開 custom key handler 略過 xterm 處理；host capture 階段的孤立 compositionend 以 `event.data` 經 `terminal.input` 送一次並停止傳到 xterm；229 後無組字的 `insertText` 也只送一次。有 `compositionstart` 的組字、Backspace 改 preedit 仍由 xterm 處理。不做文字去重、不改 xterm 套件。
+- Shift＋Enter 在一般 Shell 顯示 `;2u`：維持 2026-10-17 使用者選擇的「一律 CSI-u、不從前景程式推測」，本次不改。

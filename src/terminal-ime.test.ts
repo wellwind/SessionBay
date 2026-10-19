@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ts from 'typescript';
 import compositionSource from '../node_modules/@xterm/xterm/src/browser/input/CompositionHelper.ts?raw';
 import terminalSource from '../node_modules/@xterm/xterm/src/browser/CoreBrowserTerminal.ts?raw';
-import { shouldHandleTerminalKey } from './terminal-ime';
+import { shouldHandleTerminalKey, TerminalImeCommitGuard } from './terminal-ime';
 import { handleTerminalKey, shiftEnterSequence } from './terminal-keyboard';
 import { TerminalInputQueue } from './terminal-queue';
 
@@ -341,5 +341,89 @@ describe('upstream 6.0 with a public composing-key hook', () => {
     h.textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', keyCode: 65, isComposing: true, bubbles: true }));
     h.textarea.value = 'à'; h.end(); vi.runAllTimers();
     expect(h.sent).toEqual(['à']); h.dispose();
+  });
+});
+
+// Event order recorded in the real app (WebKitGTK 4.1 + fcitx5 chewing, DISPLAY=:1):
+// the preedit stays in the IME, so only the commit reaches the page.
+//   keydown(229, isComposing=false) → input(insertFromComposition) → compositionend
+// with no compositionstart. The textarea keeps earlier spaces/commits until Enter.
+describe('commit-only IME input (no compositionstart) with installed xterm CompositionHelper', () => {
+  const k229 = () => new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 229, bubbles: true, cancelable: true });
+  function commitOnly(useGuard: boolean, before: string) {
+    const h = harness(false);
+    const guard = new TerminalImeCommitGuard((data) => h.sent.push(data));
+    h.textarea.value = before;
+    return {
+      sent: h.sent, guard, textarea: h.textarea,
+      commit(text: string) {
+        const key = k229();
+        if (!useGuard || !guard.suppressXtermKey(key)) h.helper.keydown(key);
+        h.textarea.value += text; // native insertFromComposition
+        if (!useGuard || !guard.input({ inputType: 'insertFromComposition', data: text })) { /* xterm ignores it */ }
+        if (!useGuard || !guard.compositionEnd({ data: text })) h.helper.compositionend();
+        vi.runAllTimers();
+      },
+      start(text: string) { guard.compositionStart(); h.start(text); },
+      end() { if (!guard.compositionEnd({ data: '' })) h.end(); vi.runAllTimers(); },
+    };
+  }
+
+  it('reproduces the upstream duplicate when the textarea already holds text', () => {
+    const h = commitOnly(false, '');
+    h.commit('中'); h.commit('文');
+    expect(h.sent).toEqual(['中', '文', '文']);
+    const spaced = commitOnly(false, '\u00a0 ');
+    spaced.commit('中文');
+    expect(spaced.sent.join('')).not.toBe('中文');
+  });
+
+  it('sends each commit exactly once after existing text, spaces and earlier commits', () => {
+    for (const before of ['', ' ', '\u00a0 ', '  中文 ', 'echo abc ']) {
+      const h = commitOnly(true, before);
+      h.commit('中'); h.commit('文'); h.commit('，');
+      expect(h.sent).toEqual(['中', '文', '，']);
+    }
+  });
+
+  it('sends a commit whose preedit was edited with Backspace in the IME once', () => {
+    // Backspace inside an IME-owned preedit never reaches the page; only the final commit does.
+    const h = commitOnly(true, ' x');
+    h.commit('中文');
+    expect(h.sent).toEqual(['中文']);
+  });
+
+  it('sends plain IME text after a 229 keydown once when no composition follows', () => {
+    const sent: string[] = [];
+    const guard = new TerminalImeCommitGuard((data) => sent.push(data));
+    expect(guard.suppressXtermKey(k229())).toBe(true);
+    expect(guard.input({ inputType: 'insertText', data: '1' })).toBe(true);
+    expect(guard.input({ inputType: 'insertText', data: '1' })).toBe(false);
+    expect(sent).toEqual(['1']);
+  });
+
+  it('leaves a real composition (with compositionstart) to xterm, including Backspace in preedit', () => {
+    const h = commitOnly(true, 'echo ');
+    expect(h.guard.suppressXtermKey(k229())).toBe(true); // keydown that opens the composition
+    h.start('ㄓㄨ');
+    expect(h.guard.composing).toBe(true);
+    const composingKey = new KeyboardEvent('keydown', { key: 'Unidentified', keyCode: 229, isComposing: true });
+    expect(h.guard.suppressXtermKey(composingKey)).toBe(false);
+    // Backspace mid-composition: the IME rewrites the preedit, nothing is sent.
+    h.textarea.value = 'echo ㄓ';
+    expect(h.sent).toEqual([]);
+    h.textarea.value = 'echo 中文';
+    h.end();
+    expect(h.sent).toEqual(['中文']);
+    expect(h.guard.composing).toBe(false);
+  });
+
+  it('does not touch ordinary keys or Enter', () => {
+    const guard = new TerminalImeCommitGuard(() => { throw new Error('must not send'); });
+    for (const init of [{ key: 'a', keyCode: 65 }, { key: 'Enter', keyCode: 13 }, { key: 'Enter', keyCode: 13, shiftKey: true }]) {
+      expect(guard.suppressXtermKey(new KeyboardEvent('keydown', init))).toBe(false);
+      expect(guard.suppressXtermKey(new KeyboardEvent('keyup', { ...init, keyCode: 229 }))).toBe(false);
+    }
+    expect(guard.input({ inputType: 'insertText', data: 'a' })).toBe(false);
   });
 });

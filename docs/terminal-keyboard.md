@@ -12,7 +12,7 @@ CSI-u 編碼一致，不代表任意 Shell／CLI 都能將它解讀為換行。�
 
 - 只攔截沒有 Ctrl／Alt／Meta 的 Shift＋Enter。只在 keydown 送一次，keypress／keyup 不再送；按住重複按鍵依每次 keydown 傳送一個 modified key。
 - 送出的是按鍵編碼，沒有 LF／CR，也不額外送 Enter。這不是「任意程式都不會送出」的保證；例如 Grok 的官方多行模式故意把 Shift＋Enter 當送出。
-- IME composition、isComposing、keyCode 229 不攔截；CapsLock 的既有修正保留。一般 Enter、其他修飾鍵、貼上與 bracketed paste 不改寫。
+- IME composition、isComposing 不攔截；CapsLock 的既有修正保留。組字外的 keyCode 229 只略過 xterm 的 textarea diff（不取消原生事件），由 `TerminalImeCommitGuard` 以 compositionend／input 的 data 送出一次，見 [decisions](decisions.md)。一般 Enter、其他修飾鍵、貼上與 bracketed paste 不改寫。
 - 相容按鍵經公開的 xterm.input API 和既有有界輸入佇列，沒有直接繞過 API 寫 PTY。必須是可見且聚焦的面板與 Terminal 輸入框，snapshot 完成且目標 runtime 存活、已連線；開著阻擋式對話框、退出或連線中斷時不送。
 - Shift＋Enter 保留給 Terminal 輸入，不可設為全域工作區動作。沒有 LF／CR fallback 或額外的 Enter；未支援 CSI-u 的程式不會自動改用其他編碼。
 
