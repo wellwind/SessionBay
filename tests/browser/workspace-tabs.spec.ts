@@ -275,7 +275,7 @@ test('queued Undo cannot escape a later delete confirmation and returns after ca
     expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
   }
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
-  await expect(toast).toBeVisible(); await expect(toast).toHaveText(pending);
+  await expect(toast).toBeVisible(); await expect(toast).toHaveText(pending, { useInnerText: true });
   const undo = toast.getByRole('button', { name: '復原刪除', exact: true });
   await undo.focus(); await expect(undo).toBeFocused(); await page.keyboard.press('Enter');
   await expect(toast).toHaveCount(0);
