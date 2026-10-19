@@ -35,6 +35,7 @@ import {
 import { api, errorMessage, isDesktop } from './api';
 import { closeFocusedExplorer } from './components/explorer-focus';
 import { SidebarProjectList } from './components/SidebarProjectList';
+import { ProjectNavigation } from './components/ProjectNavigation';
 import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
 import type { SidebarPreferences } from './sidebar-preferences';
 import { startup } from './startup';
@@ -1351,7 +1352,8 @@ export default function App() {
       available: filesAvailable,
       renderSidebar: () => <div className="project-files-sidebar-host" ref={setFileSidebarHost} /> },
   ];
-  const projectNavigation = <aside className="sidebar" hidden={!sidebarOpen || compactWorkspace} aria-label="專案導覽">
+  const projectNavigation = <ProjectNavigation hidden={!sidebarOpen || compactWorkspace}
+    preferredWidth={sidebar.width} onWidthChange={width => updateSidebar({ width })}>
         <div className="navigation-tabs" role="tablist" aria-label="導覽頁面">
             {(['projects', 'directories'] as const).map((page) => <button key={page} type="button"
               id={`navigation-${page}`} role="tab" aria-selected={navigation === page}
@@ -1454,7 +1456,7 @@ export default function App() {
                 </nav>
               </section>
             )}
-          </aside>;
+          </ProjectNavigation>;
   return (
     <RuntimeActivityProvider><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">跳至主要工作區</a>

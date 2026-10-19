@@ -23,9 +23,15 @@ describe('sidebar preferences', () => {
   });
   it('round trips independent collapse states and order without touching other storage', () => {
     localStorage.setItem('settings', 'untouched');
-    const value = { ...defaultSidebarPreferences(), projectsCollapsed: true, workspacesCollapsed: true, projectOrder: ['b', 'a'] };
+    const value = { ...defaultSidebarPreferences(), width: 352, projectsCollapsed: true, workspacesCollapsed: true, projectOrder: ['b', 'a'] };
     saveSidebarPreferences(value); expect(readSidebarPreferences()).toEqual(value);
     expect(localStorage.getItem('settings')).toBe('untouched');
+  });
+  it('validates stored widths and upgrades older preferences', () => {
+    for (const [width, expected] of [[null, 236], ['300', 236], [-2, 160], [900, 480], [311.8, 312]] as const) {
+      localStorage.setItem(sidebarStorageKey, JSON.stringify({version: 1, width}));
+      expect(readSidebarPreferences().width).toBe(expected);
+    }
   });
   it('defensively restores malformed data', () => {
     localStorage.setItem(sidebarStorageKey, '{'); expect(readSidebarPreferences()).toEqual(defaultSidebarPreferences());

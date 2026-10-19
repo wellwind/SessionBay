@@ -316,3 +316,7 @@ L1a 保守 runtime 證據記帳與原子 admission seal 已於 #82 合併，revi
 ### L1c 未使用 broker 退休候選
 
 工作區 UI #86 已合併並通過 main CI，恢復 broker→Snap 順序。L1c 首版僅涵蓋明確從未嘗試工作的 lineage、完整 IPC admission、UI lease 與 30 秒 grace；任何工作嘗試或未知狀態保留 broker。候選實作與 focused tests 待獨立 review，尚未發布；Stop all／版本 routing／Snap 仍待後續。
+
+### 左側專案導覽 resize（2026-10-19）
+
+加入共用寬度偏好及可鍵盤操作的分隔線。單元／回歸與原生 WebKitGTK 合成畫面的驗證結果見交付報告；完整 Tauri backend／安裝版驗收不以 mock QA 代替。邊界與操作見 [左側專案導覽寬度](project-navigation-resize.md)。

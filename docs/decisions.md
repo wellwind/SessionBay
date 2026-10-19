@@ -882,3 +882,9 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 本次只交最小退休切片與合成測試供 review。Stop all、版本 routing 及 Snap 待後續；原始 WIP 保持原樣。未宣稱 Windows、macOS 原生驗收或完整 L1 完成。
 
 獨立 review 發現 connect 可能撞上 broker 已 seal 但尚未釋鎖的窗口：原本只在 retry loop 前判斷一次是否 spawn，會在舊 owner 釋鎖後仍重試 Hello 至超時。改為在同一個 12 秒 bounded loop 內，每次 Hello 失敗後重新確認 ownership；仍持鎖時不啟動 replacement，每個 connect 最多啟動一個候選，候選仍須取得既有的獨占 lifetime lock 才能建立 listener。合成測試暫停已 seal 的舊 owner、確認 connect 已進入 retry 且尚未啟動 replacement，再釋鎖並驗證不同 generation 的新 owner 成功回應。
+
+## 2026-10-19：左側專案導覽共用可調寬度
+
+依使用者要求，左側「專案／所有目錄」共用可拖曳寬度，存入既有 `sessionbay.sidebar.v1` 偏好。預設 236 CSS px、偏好範圍 160–480；實際寬度依原生縮放後的 viewport clamp，最多 40% 並在可行時保留 520 CSS px 給左側導覽以外的區域（包含右側工具面板，不保證中央內容區有 520px）。既有 700px 最小畫布與整體捲動策略維持不變。小視窗 clamp 不覆寫偏好，視窗放大、reload、導覽頁面／收合／Zen 切換均保留使用者選擇。
+
+分隔線沿用右側面板的 5px hit area、accent hover/focus 與方向鍵／Home／End 操作；左側向右增寬。把手在捲動列表之外，不攔截列表排序或文字選取。拖曳使用 pointer capture；只有結束時的有效寬度不同於拖曳起點才儲存；單純點擊、被 clamp 阻擋而未改變寬度、拖回起點均不覆寫偏好。Escape、pointercancel、失去 capture、window blur、視窗 resize、隱藏或卸載均清理拖曳，取消不儲存草稿。此變更不接觸 runtime、Agent 或原始歷史。原生 Ubuntu 驗證與完整 Tauri 驗收的差異需在交付紀錄中標明。
