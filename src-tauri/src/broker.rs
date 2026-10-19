@@ -7,7 +7,9 @@ mod preflight;
 pub(crate) use preflight::LaunchPreflightError;
 mod provider_hooks;
 pub use provider_hooks::{send_provider_callback, send_provider_state};
+mod retirement;
 mod screen;
+mod storage;
 mod transport;
 mod ui_lease;
 mod ui_owner;
@@ -307,14 +309,27 @@ struct Host {
     shutdown_reply_complete: tokio::sync::Notify,
     persisted: Mutex<Vec<u8>>,
     ui_leases: Mutex<ui_lease::Registry>,
+    storage_kind: storage::Kind,
+    retirement: Mutex<retirement::Gate>,
+    retirement_policy: retirement::Policy,
 }
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 impl Host {
+    #[cfg(test)]
     fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
+        Self::open_with_policy(directory, retirement::Policy::default())
+    }
+    fn open_with_policy(
+        directory: PathBuf,
+        retirement_policy: retirement::Policy,
+    ) -> Result<Arc<Self>, String> {
         let mut entries = HashMap::new();
+        // Missing metadata is historical uncertainty, never pristine evidence.
+        let mut storage_kind = storage::Kind::Legacy;
+        let mut work_attempted = true;
         let path = directory.join("sessions.json");
         if path.exists() {
             let mut bytes = Vec::new();
@@ -328,9 +343,11 @@ impl Host {
                     "Runtime metadata exceeds its size limit; original file preserved".into(),
                 );
             }
-            let records: Vec<RuntimeRecord> = serde_json::from_slice(&bytes).map_err(|e| {
+            let (kind, attempted, records) = storage::decode(&bytes).map_err(|e| {
                 format!("Cannot restore runtime metadata; original file preserved: {e}")
             })?;
+            storage_kind = kind;
+            work_attempted = attempted;
             if records.len() > MAX_RECORDS {
                 return Err("Too many saved runtime records".into());
             }
@@ -365,6 +382,9 @@ impl Host {
             shutdown_reply_complete: tokio::sync::Notify::new(),
             persisted: Mutex::new(Vec::new()),
             ui_leases: Mutex::new(ui_lease::Registry::default()),
+            storage_kind,
+            retirement: Mutex::new(retirement::Gate::new(work_attempted)),
+            retirement_policy,
         });
         host.persist()?;
         Ok(host)
@@ -389,11 +409,21 @@ impl Host {
     fn persist(&self) -> Result<(), String> {
         // Only identity / project / status. Never executable arguments, environment,
         // input, output, PID, or authentication material.
-        let bytes = serde_json::to_vec(&self.records()).map_err(|e| e.to_string())?;
+        // Serialize snapshots inside the writer fence: a delayed writer must not
+        // overwrite the durable work-attempt bit with an older pristine snapshot.
+        let mut persisted = self
+            .persisted
+            .lock()
+            .map_err(|_| "Runtime writer integrity unavailable")?;
+        let attempted = self
+            .retirement
+            .lock()
+            .map_err(|_| "Broker admission integrity unavailable")?
+            .work_attempted;
+        let bytes = storage::encode(self.storage_kind, attempted, self.records())?;
         if bytes.len() > 1024 * 1024 {
             return Err("Runtime metadata exceeds its size limit".into());
         }
-        let mut persisted = lock(&self.persisted);
         if *persisted == bytes {
             return Ok(());
         }
@@ -411,7 +441,8 @@ impl Host {
         let result = (|| {
             file.write_all(&bytes)?;
             file.sync_all()?;
-            fs::rename(&temporary, self.directory.join("sessions.json"))
+            fs::rename(&temporary, self.directory.join("sessions.json"))?;
+            storage::sync_directory(&self.directory)
         })();
         if result.is_err() {
             let _ = fs::remove_file(&temporary);
@@ -421,6 +452,7 @@ impl Host {
         Ok(())
     }
     fn handle(self: &Arc<Self>, request: Request) -> Result<Response, String> {
+        let _admission = self.admit()?;
         if self.shutdown.load(std::sync::atomic::Ordering::Acquire) {
             return Err("The runtime broker is shutting down".into());
         }
@@ -429,6 +461,27 @@ impl Host {
             .is_some_and(|generation| generation != self.generation)
         {
             return Err("The runtime broker restarted. Refresh its authoritative status before taking another action.".into());
+        }
+        // Hello leaves an offer for legacy clients. Requests without any live
+        // lease cannot establish that all clients have departed, even if another
+        // client previously released its own lease.
+        if !matches!(
+            &request,
+            Request::Hello { .. }
+                | Request::AcquireUiLease { .. }
+                | Request::RenewUiLease { .. }
+                | Request::ReleaseUiLease { .. }
+        ) {
+            match self.ui_leases() {
+                Ok(mut leases) => {
+                    if !leases.has_live(self.now()) {
+                        leases.pin_unknown();
+                    }
+                }
+                // Uncertain lease evidence prevents retirement, not existing
+                // terminal interaction or the explicit stop path.
+                Err(_) => self.mark_fault(),
+            }
         }
         match request {
             Request::Hello { protocol } => {
@@ -445,18 +498,14 @@ impl Host {
                         TERMINAL_STATUS_CAPABILITY.into(),
                         crate::provider_hooks::CAPABILITY.into(),
                     ],
-                    ui_lease_offer: self.ui_leases()?.offer(Instant::now()),
+                    ui_lease_offer: self.ui_leases()?.offer(self.now()),
                 })
             }
-            Request::AcquireUiLease { offer, .. } => {
-                self.ui_leases()?.acquire(&offer, Instant::now())
-            }
+            Request::AcquireUiLease { offer, .. } => self.ui_leases()?.acquire(&offer, self.now()),
             Request::RenewUiLease {
                 lease, sequence, ..
-            } => self.ui_leases()?.renew(&lease, sequence, Instant::now()),
-            Request::ReleaseUiLease { lease, .. } => {
-                self.ui_leases()?.release(&lease, Instant::now())
-            }
+            } => self.ui_leases()?.renew(&lease, sequence, self.now()),
+            Request::ReleaseUiLease { lease, .. } => self.ui_leases()?.release(&lease, self.now()),
             Request::List { .. } => Ok(Response::Records {
                 records: self.records(),
             }),
@@ -474,6 +523,8 @@ impl Host {
                 rows,
                 ..
             } => {
+                // Durable before preflight, hook preparation, or any spawn attempt.
+                self.mark_work_attempt()?;
                 if home_directory
                     && (kind != "shell"
                         || project_id.is_some()
@@ -838,15 +889,35 @@ impl Host {
 /// The same installed executable enters this mode before creating any WebView.
 /// No autostart service is installed; broker lifetime is independent of UI clients.
 pub fn run(directory: PathBuf) -> Result<(), String> {
+    run_with_policy(directory, retirement::Policy::default())
+}
+fn run_with_policy(directory: PathBuf, policy: retirement::Policy) -> Result<(), String> {
     let directory = transport::private_directory(&directory).map_err(|e| e.to_string())?;
-    let _ownership = transport::lock(&directory)
-        .map_err(|e| format!("Runtime broker already active or lock unavailable: {e}"))?;
+    // A concurrent directory creator can briefly hold this same owner lock
+    // while synchronizing the initial envelope. Never displace a live owner.
+    let ownership_deadline = Instant::now() + Duration::from_secs(1);
+    let _ownership = loop {
+        match transport::lock(&directory) {
+            Ok(owner) => break owner,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    && Instant::now() < ownership_deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Runtime broker already active or lock unavailable: {error}"
+                ))
+            }
+        }
+    };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     let result = runtime.block_on(async move {
-        let host = Host::open(directory.clone())?;
+        let host = Host::open_with_policy(directory.clone(), policy)?;
         let listener = transport::listener(&directory).map_err(|e| e.to_string())?;
         let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CLIENTS));
         let mut last_persist = Instant::now();
@@ -855,12 +926,23 @@ pub fn run(directory: PathBuf) -> Result<(), String> {
             // unbounded connection queue or thread for a slow/malicious peer.
             match tokio::time::timeout(Duration::from_millis(250), listener.accept()).await {
                 Ok(Ok(stream)) => {
+                    // Admission covers accepted-but-unread requests, not only handle().
+                    let Ok(admission) = host.admit() else {
+                        // A concurrent explicit Shutdown still owns its reply.
+                        // Drop this late stream and let the normal exit path wait.
+                        continue;
+                    };
                     if let Ok(permit) = Arc::clone(&permits).try_acquire_owned() {
                         let host = Arc::clone(&host);
                         tokio::spawn(async move {
                             let _permit = permit;
-                            let _ = serve(stream, host).await;
+                            let _admission = admission;
+                            if serve(stream, host.clone()).await.is_err() {
+                                host.pin_unknown_client();
+                            }
                         });
+                    } else {
+                        host.pin_unknown_client();
                     }
                 }
                 Ok(Err(error)) => return Err(format!("Runtime IPC listener failed: {error}")),
@@ -869,8 +951,14 @@ pub fn run(directory: PathBuf) -> Result<(), String> {
             if last_persist.elapsed() >= Duration::from_secs(2) {
                 // Exit metadata is best effort here; the previous running record
                 // safely becomes interrupted after a crash, never falsely live.
-                let _ = host.persist();
+                if host.persist().is_err() {
+                    host.mark_fault();
+                }
                 last_persist = Instant::now();
+            }
+            if host.try_idle_exit() {
+                // No Shutdown request exists whose reply could notify us.
+                host.shutdown_reply_complete.notify_one();
             }
         }
         drop(listener);
@@ -892,6 +980,7 @@ impl Drop for ShutdownReply<'_> {
     }
 }
 async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
+    let _admission = host.admit()?;
     transport::authenticate(&stream).map_err(|e| e.to_string())?;
     let bytes = tokio::time::timeout(
         transport::REQUEST_TIMEOUT,
@@ -921,9 +1010,12 @@ async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
                     Err(message) => Response::Error { message },
                 }
             }
-            Err(_) => Response::Error {
-                message: "Invalid runtime request".into(),
-            },
+            Err(_) => {
+                host.pin_unknown_client();
+                Response::Error {
+                    message: "Invalid runtime request".into(),
+                }
+            }
         }
     };
     // Keep the completion guard alive across write/flush. Cancellation by the

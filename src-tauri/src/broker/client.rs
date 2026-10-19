@@ -16,6 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+type ChildExit = Arc<Mutex<Option<std::io::Result<Option<i32>>>>>;
+
 struct Subscription {
     lease: String,
     cancelled: AtomicBool,
@@ -92,73 +94,89 @@ impl BrokerClient {
         Err("Runtime broker has not released its ownership lock after explicit stop".into())
     }
     pub fn connect(parent: &Path, executable: &Path) -> Result<Self, String> {
+        Self::connect_with_start(parent, || Self::spawn_broker(parent, executable))
+    }
+    pub(super) fn connect_with_start(
+        parent: &Path,
+        start: impl FnOnce() -> Result<ChildExit, String>,
+    ) -> Result<Self, String> {
         let directory = transport::private_directory(parent).map_err(|e| e.to_string())?;
-        if let Ok(client) = Self::existing(&directory) {
-            return Ok(client);
-        }
-        // A held lock is evidence of a possibly unhealthy live broker. Never
-        // displace it, kill a PID, or silently launch a second runtime owner.
-        let available = transport::ownership_available(&directory)
-            .map_err(|error| format!("Cannot verify runtime broker ownership lock: {error}"))?;
-        let child_exit = Arc::new(Mutex::new(None));
-        if available {
-            let mut command = Command::new(executable);
-            command
-                .arg("--sessionbay-runtime-broker")
-                .arg(parent)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            #[cfg(unix)]
-            {
-                use std::os::unix::process::CommandExt;
-                // SAFETY: only async-signal-safe setsid is called between fork/exec.
-                unsafe {
-                    command.pre_exec(|| {
-                        if libc::setsid() == -1 {
-                            Err(std::io::Error::last_os_error())
-                        } else {
-                            Ok(())
-                        }
-                    });
-                }
-            }
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                use windows_sys::Win32::System::Threading::{
-                    CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS,
-                };
-                command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
-            }
-            let mut child = command
-                .spawn()
-                .map_err(|e| format!("Cannot start detached runtime broker: {e}"))?;
-            // Reap if it exits while this UI remains open. Do not wait on or
-            // retain ownership that kills the detached child when the UI closes.
-            let child_exit = Arc::clone(&child_exit);
-            thread::spawn(move || {
-                // Store only bounded exit status, never inherited environment,
-                // terminal content, metadata, or potentially sensitive stderr.
-                *lock(&child_exit) = Some(child.wait().map(|status| status.code()));
-            });
-        }
         let deadline = Instant::now() + Duration::from_secs(12);
+        let mut start = Some(start);
+        let mut child_exit = None;
         let mut last_error = String::new();
         while Instant::now() < deadline {
             match Self::existing(&directory) {
                 Ok(client) => return Ok(client),
                 Err(error) => last_error = error,
             }
+            if Instant::now() >= deadline {
+                break;
+            }
+            // A retiring owner can reject Hello before releasing its lock.
+            // Recheck after each failed handshake; never displace a held owner.
+            // Each connect starts at most one candidate. Concurrent candidates
+            // still compete for the broker's exclusive lifetime lock in run().
+            if start.is_some()
+                && transport::ownership_available(&directory).map_err(|error| {
+                    format!("Cannot verify runtime broker ownership lock: {error}")
+                })?
+            {
+                child_exit = Some(start.take().expect("checked startup candidate")()?);
+            }
             thread::sleep(Duration::from_millis(50));
         }
-        let startup = match lock(&child_exit).as_ref() {
+        let startup = child_exit.map_or_else(String::new, |status| match lock(&status).as_ref() {
             Some(Ok(Some(code))) => format!(" Spawned broker exited with code {code}."),
             Some(Ok(None)) => " Spawned broker exited without an exit code.".into(),
             Some(Err(_)) => " Could not observe the spawned broker's exit status.".into(),
             None => String::new(),
-        };
+        });
         Err(format!("Cannot connect to the runtime broker. Existing sessions were not restarted: {last_error}.{startup}"))
+    }
+    fn spawn_broker(parent: &Path, executable: &Path) -> Result<ChildExit, String> {
+        let child_exit = Arc::new(Mutex::new(None));
+        let mut command = Command::new(executable);
+        command
+            .arg("--sessionbay-runtime-broker")
+            .arg(parent)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: only async-signal-safe setsid is called between fork/exec.
+            unsafe {
+                command.pre_exec(|| {
+                    if libc::setsid() == -1 {
+                        Err(std::io::Error::last_os_error())
+                    } else {
+                        Ok(())
+                    }
+                });
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            use windows_sys::Win32::System::Threading::{
+                CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS,
+            };
+            command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
+        }
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("Cannot start detached runtime broker: {e}"))?;
+        // Reap if it exits while this UI remains open. Do not wait on or
+        // retain ownership that kills the detached child when the UI closes.
+        let reaped = Arc::clone(&child_exit);
+        thread::spawn(move || {
+            // Store only bounded exit status, never inherited environment,
+            // terminal content, metadata, or potentially sensitive stderr.
+            *lock(&reaped) = Some(child.wait().map(|status| status.code()));
+        });
+        Ok(child_exit)
     }
     fn existing(directory: &Path) -> Result<Self, String> {
         Self::from_hello(

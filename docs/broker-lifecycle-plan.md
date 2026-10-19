@@ -128,3 +128,15 @@ Hello request 維持原 v1 格式，只在 response 加能力與一次性 offer�
 - Linux exact-head CI 與修正後獨立 review 留待 PR；無自退／drain／多版本 owner routing，完整 L1 仍不勾選。
 
 L1b review 另發現到期後時鐘回退可讓 lease／offer 重新有效；unknown pin 雖保守保留 broker，但不能替代不可復活契約。修正為鎖內永久 expired flag，所有 acquire／renew／有效 lease 統計尊重此旗標。新增兩項組合回歸先於原碼失敗，修正後六項 lease 單元測試通過；完整 Mac 與 exact-head Linux 重跑結果以 PR 紀錄為準，不沿用初版 head 的成功宣稱修正版本已通過。
+
+### L1c 最小切片（2026-10-19，待 review）
+
+目前候選只讓新建、可證明從未嘗試 Launch 的 Linux／macOS broker 在無 UI 證據及無 in-flight IPC 後等待 30 秒退休。工作嘗試先持久化，既有／未知 metadata 保守 pin；不啟用任何已執行工作後的自退、不改 UI close、不加入 Stop all 或版本 routing。新 metadata 使用 v2 envelope，舊 binary 明確拒絕，v1 array 保持原格式且不退休。合成 focused tests 的實測結果另行記錄；未 review／未 CI／未原生跨平台驗收前不勾選完整 L1。
+
+Ubuntu 24.04 x86_64 低資源驗證：沿用 target、單 job／單測試執行緒、`--locked --offline --no-default-features`。broker 單元測試 85 passed／1 ignored（包含新增 retirement 14、storage 4），runtime_quiescence 4 passed，persistence 7 passed／1 ignored（該 subprocess fixture 另由父測試實際執行並通過）。涵蓋 admission 與 seal 排序、未讀 IPC、lease release／新 owner、失敗及延遲寫入、legacy／未知 metadata、poison／clock rollback，並驗證釋放 UI 後合成 Shell 仍可互動，退出並 Forget 後仍不得自退。未啟動真實 Agent 或完整桌面 build。
+
+同一候選的 no-default-features lib／all-targets Clippy（`-D warnings`）、rustfmt 與 diff whitespace check 通過。桌面 feature、完整 core suite、macOS／Windows 原生驗收及 Snap 未執行。
+
+保守限制：native owner 的 Release 仍是既有非同步行為；UI process 若在送出前退出，broker 可能因過期 lease 被永久 pin，不能宣稱每次關閉空 UI 都會回收。未使用過的舊 runtime 目錄也不自動升格。這些情形保留 broker，不改為推測安全後終止。
+
+review 後修正 seal／釋鎖窗口的 connect race：bounded Hello retry 內重查 ownership，每個 connect 最多啟動一個 replacement 候選，真正 owner 仍由既有 lifetime lock 排他選出。新增 deterministic 測試以 channel 暫停舊 sealed owner 至 connect 已重試，再釋鎖，確認沒有提前啟動 replacement，且新 generation 成功連線。修正後 broker 86 passed／1 ignored（retirement 15），persistence 7 passed／1 ignored，no-default-features all-targets Clippy、fmt、diff check 通過。
