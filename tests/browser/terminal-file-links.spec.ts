@@ -150,6 +150,9 @@ test('file and runtime tabs share rectangular geometry and active borders', asyn
   };
   const file = await page.locator('.project-file-tab.active').evaluate(style);
   await page.locator('.workspace-tab-select').filter({ hasText: 'Focus shell' }).click();
+  // Compare the same non-hovered state and allow the existing color transition to settle.
+  await page.mouse.move(0, 0);
+  await expect.poll(() => page.locator('.workspace-tab.active').evaluate(style)).toEqual(file);
   const runtime = await page.locator('.workspace-tab.active').evaluate(style);
   expect(file).toEqual(runtime);
   expect(runtime.radius).toBe('0px'); expect(runtime.border).toBe('2px');
