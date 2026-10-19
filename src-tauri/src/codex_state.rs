@@ -328,7 +328,7 @@ mod unix {
             net::UnixStream,
             process::ExitStatusExt,
         },
-        process::{Child, Command, ExitStatus, Stdio},
+        process::{Child, ExitStatus, Stdio},
         thread,
         time::{Duration, Instant},
     };
@@ -531,7 +531,7 @@ mod unix {
 
     fn native_fallback(executable: &OsString, args: &[String]) -> Result<i32, String> {
         eprintln!("Session Bay: live Codex status unavailable for this launch; continuing in the native TUI.");
-        let child = Command::new(executable)
+        let child = crate::host_environment::command(executable)?
             .args(args)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -574,7 +574,7 @@ mod unix {
         let directory = private_directory()?;
         let socket_path = directory.path().join("state.sock");
         let endpoint = format!("unix://{}", socket_path.display());
-        let server = Command::new(&executable)
+        let server = crate::host_environment::command(&executable)?
             .args(server_args)
             .args(["app-server", "--listen", &endpoint])
             // Disable persisted remote-control enrollment only for this owned
@@ -597,7 +597,7 @@ mod unix {
             }
             thread::sleep(Duration::from_millis(80));
         };
-        let mut tui_command = Command::new(&executable);
+        let mut tui_command = crate::host_environment::command(&executable)?;
         tui_command.args(["--remote", &endpoint]);
         if !has_explicit_cwd(&tui_args) {
             // An explicit remote cwd preserves the native directory-trust

@@ -303,6 +303,8 @@ impl RuntimeManager {
         let mut command = CommandBuilder::new(&spec.executable);
         if isolated {
             command.env_clear();
+        } else {
+            crate::host_environment::pty(&mut command)?;
         }
         command.args(&spec.args);
         command.cwd(&spec.cwd);

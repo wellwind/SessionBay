@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+: "${SNAP:?Snap mount is required}"
+# Capture before applying GUI overrides. Empty and unset are distinct.
+save() {
+  export "SESSIONBAY_HOST_ENV_${1}_SET=$2"
+  export "SESSIONBAY_HOST_ENV_${1}_VALUE=$3"
+}
+save WEBKIT_EXEC_PATH "${WEBKIT_EXEC_PATH+x}" "${WEBKIT_EXEC_PATH-}"
+save GSETTINGS_SCHEMA_DIR "${GSETTINGS_SCHEMA_DIR+x}" "${GSETTINGS_SCHEMA_DIR-}"
+save XDG_DATA_DIRS "${XDG_DATA_DIRS+x}" "${XDG_DATA_DIRS-}"
+save GIO_MODULE_DIR "${GIO_MODULE_DIR+x}" "${GIO_MODULE_DIR-}"
+save GIO_EXTRA_MODULES "${GIO_EXTRA_MODULES+x}" "${GIO_EXTRA_MODULES-}"
+save FONTCONFIG_FILE "${FONTCONFIG_FILE+x}" "${FONTCONFIG_FILE-}"
+save FONTCONFIG_PATH "${FONTCONFIG_PATH+x}" "${FONTCONFIG_PATH-}"
+save FONTCONFIG_SYSROOT "${FONTCONFIG_SYSROOT+x}" "${FONTCONFIG_SYSROOT-}"
+export SESSIONBAY_HOST_ENV_VERSION=1
+export WEBKIT_EXEC_PATH="$SNAP/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1"
+export GSETTINGS_SCHEMA_DIR="$SNAP/usr/share/glib-2.0/schemas"
+export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GIO_MODULE_DIR="$SNAP/usr/lib/x86_64-linux-gnu/gio/modules"
+unset GIO_EXTRA_MODULES FONTCONFIG_PATH FONTCONFIG_SYSROOT
+export FONTCONFIG_FILE="$SNAP/usr/share/sessionbay/fonts.conf"
+exec "$SNAP/usr/bin/sessionbay" "$@"

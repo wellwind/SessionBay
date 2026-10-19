@@ -7,7 +7,7 @@ use crate::{runtime::LaunchSpec, service::LaunchRequest};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Condvar, Mutex,
@@ -136,7 +136,7 @@ impl BrokerClient {
     }
     fn spawn_broker(parent: &Path, executable: &Path) -> Result<ChildExit, String> {
         let child_exit = Arc::new(Mutex::new(None));
-        let mut command = Command::new(executable);
+        let mut command = crate::host_environment::command(executable)?;
         command
             .arg("--sessionbay-runtime-broker")
             .arg(parent)

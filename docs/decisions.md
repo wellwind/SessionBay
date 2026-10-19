@@ -882,3 +882,7 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 本次只交最小退休切片與合成測試供 review。Stop all、版本 routing 及 Snap 待後續；原始 WIP 保持原樣。未宣稱 Windows、macOS 原生驗收或完整 L1 完成。
 
 獨立 review 發現 connect 可能撞上 broker 已 seal 但尚未釋鎖的窗口：原本只在 retry loop 前判斷一次是否 spawn，會在舊 owner 釋鎖後仍重試 Hello 至超時。改為在同一個 12 秒 bounded loop 內，每次 Hello 失敗後重新確認 ownership；仍持鎖時不啟動 replacement，每個 connect 最多啟動一個候選，候選仍須取得既有的獨占 lifetime lock 才能建立 listener。合成測試暫停已 seal 的舊 owner、確認 connect 已進入 retry 且尚未啟動 replacement，再釋鎖並驗證不同 generation 的新 owner 成功回應。
+
+## 2026-10-19：Snap 宿主子程序環境相依修正（待 review）
+
+將打包 GUI 變數的保存／設定集中在專用 launcher；應用共用 helper 僅還原新建宿主 Command／PTY 的原值與 unset 狀態，不修改程序全域環境。非 Snap 無 marker 的啟動不受影響，OpenCode 原有隔離探測不放寬。正式 broker 仍以 current_exe 執行，測試 harness 不是產品包前提。獨立於打包 candidate 交付；review 合併後才更新 pinned source 與 recipe 接線，詳見 [Snap 環境隔離](snap-host-environment.md)。
