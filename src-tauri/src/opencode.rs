@@ -1,4 +1,5 @@
-//! Read-only, bounded OpenCode SQLite reader. Official v1.19.2 source contract:
+//! Read-only, bounded OpenCode SQLite reader. Official v1.19.2 source contract
+//! (v1.19.3 changes no database, migration, or session schema files):
 //! https://github.com/anomalyco/opencode/tree/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session
 //! Both v1 message/part and v2 session_message projections are supported. SQLite
 //! only sees private copies; database/WAL identities and hashes are checked before
@@ -27,6 +28,14 @@ const MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TITLE_BYTES: usize = 16 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_ERROR_BYTES: usize = 2048;
+/// A v1 projection is current only when its newest row is at least this close
+/// to `session.time_updated`. Real 1.19.2/1.19.3 CLI runs differ by <20 ms;
+/// older residue (for example after v2 rows were deleted) stays metadata-only.
+/// Bump when the reader output changes for an unchanged database, so catalog
+/// rows written by an older reader are re-read instead of reused by fingerprint.
+/// Revision 1: v1 fallback for empty v2 projections and the 1.19.3 version gate.
+pub const READER_REVISION: i64 = 1;
+const LEGACY_FRESHNESS_MS: i64 = 60_000;
 
 #[derive(Debug, Clone)]
 pub struct ConversationMetadata {
@@ -715,7 +724,7 @@ fn reviewed_version(version: &str) -> bool {
         return false;
     }
     let parsed: Option<Vec<u32>> = parts.into_iter().map(|p| p.parse().ok()).collect();
-    parsed.is_some_and(|p| p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 2)))
+    parsed.is_some_and(|p| p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 3)))
 }
 fn read_connection(
     connection: &Connection,
@@ -764,12 +773,12 @@ fn read_connection(
     require_columns(
         connection,
         "message",
-        &["id", "session_id", "time_created", "data"],
+        &["id", "session_id", "time_created", "time_updated", "data"],
     )?;
     require_columns(
         connection,
         "part",
-        &["id", "session_id", "message_id", "data"],
+        &["id", "session_id", "message_id", "time_updated", "data"],
     )?;
     let mut records = HashMap::new();
     let mut warnings = Vec::new();
@@ -790,7 +799,8 @@ fn read_connection(
         let cwd: String = row.get(1).map_err(sql_error)?;
         let title: String = row.get(2).map_err(sql_error)?;
         let version: String = row.get(3).map_err(sql_error)?;
-        let updated_at = millis(row.get(4).map_err(sql_error)?);
+        let updated_raw: i64 = row.get(4).map_err(sql_error)?;
+        let updated_at = millis(updated_raw);
         let parent_id: Option<String> = row.get(5).map_err(sql_error)?;
         let archived = row.get::<_, Option<i64>>(6).map_err(sql_error)?.is_some();
         let reverted: bool = row.get(7).map_err(sql_error)?;
@@ -833,16 +843,18 @@ fn read_connection(
             if v2 {
                 read_v2(connection, &mut record, cancel, &mut output_bytes, limits)?;
             } else if has_v2 {
-                // A v2 reset can leave the legacy projection behind. Empty v2
-                // is not evidence that legacy text is current. Without a proven
-                // authority marker, expose metadata only for ambiguous sessions.
-                record.partial = connection
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM message WHERE session_id=?1)",
-                        [&id],
-                        |row| row.get(0),
-                    )
-                    .map_err(sql_error)?;
+                // The stable 1.19.x CLI writes only the v1 message/part
+                // projection, so an empty v2 projection alone is not a
+                // conflict. v1 is read only when it is as fresh as the
+                // session row; stale v1 residue (for example after v2 rows
+                // were deleted) is still treated as ambiguous metadata-only.
+                match latest_legacy_update(connection, &id)? {
+                    None => {}
+                    Some(latest) if latest.saturating_add(LEGACY_FRESHNESS_MS) >= updated_raw => {
+                        read_v1(connection, &mut record, cancel, &mut output_bytes, limits)?;
+                    }
+                    Some(_) => record.partial = true,
+                }
             } else {
                 read_v1(connection, &mut record, cancel, &mut output_bytes, limits)?;
             }
@@ -888,6 +900,15 @@ fn push_message(
         fallback: false,
     });
     Ok(())
+}
+fn latest_legacy_update(connection: &Connection, id: &str) -> Result<Option<i64>, String> {
+    connection
+        .query_row(
+            "SELECT max(t) FROM (SELECT max(time_updated) AS t FROM message WHERE session_id=?1 UNION ALL SELECT max(time_updated) FROM part WHERE session_id=?1)",
+            [id],
+            |row| row.get(0),
+        )
+        .map_err(sql_error)
 }
 fn read_v2(
     connection: &Connection,
