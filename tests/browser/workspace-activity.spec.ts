@@ -75,9 +75,13 @@ async function expectAdjacentSurfaces(page: Page, panel?: 'sessions' | 'files') 
   if (value.header.width) near(value.header.left, value.content.left);
   near(value.rail.right, value.body.right);
   near(value.rail.width, 44);
+  expect(await rail(page).evaluate(el => getComputedStyle(el, '::after').borderLeftWidth)).toBe('1px');
   if (panel) {
+    const shell = (await page.locator('.activity-panel-shell:visible').boundingBox())!;
     const side = (await page.locator(`#activity-${panel}-panel`).boundingBox())!;
-    near(value.content.right, side.x);
+    near(value.content.right, shell.x);
+    near(side.x, shell.x + 1); // The shell's visible divider occupies one pixel.
+    near(shell.x + shell.width, value.rail.left);
     near(side.x + side.width, value.rail.left);
   } else near(value.content.right, value.rail.left);
   const terminal = page.locator('.terminal-pane:visible');

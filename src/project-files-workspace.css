@@ -35,7 +35,9 @@
 .app-body > .sidebar { width: 236px; padding: 12px 10px 0; }
 .project-activity-tools { display: flex; flex: 0 0 auto; min-width: 0; min-height: 0; max-width: 45%; }
 .project-activity-tools .activity-sessions-panel { flex: 1; width: 100%; border-right: 0; }
-.project-activity-tools .workspace-activity-bar { border: 0; border-left: 1px solid var(--border); }
+.project-activity-tools .workspace-activity-bar { border: 0; }
+/* Keep the divider inside the rail without reducing its 44px button targets. */
+.project-activity-tools .workspace-activity-bar::after { content: ''; position: absolute; inset: 0 auto 0 0; border-left: 1px solid var(--border); pointer-events: none; }
 .project-activity-tools .workspace-activity[aria-pressed='true']::before { left: auto; right: 0; }
 .project-activity-tools .activity-overflow-menu, .project-activity-tools .activity-tooltip { left: auto; right: 100%; }
 .project-activity-tools .project-files-sidebar-host { flex-shrink: 1; }
