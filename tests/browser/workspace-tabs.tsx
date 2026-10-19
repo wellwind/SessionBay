@@ -53,6 +53,9 @@ if (params.has('history')) {
     snippet: 'Synthetic multiline content 中文內容提供閱讀脈絡與長段文字，確認放大後仍可辨認並保持穩定行距。', trashIdentity: `identity-${i}` }));
   const deleted = new Set<string>();
   api.sessions = async () => { const items = sessions.filter(item => !deleted.has(item.id)); return { catalogRevision: `fixture-${deleted.size}`, items, total: items.length }; };
+  // History selects the first result even while its sidebar is closed. Keep
+  // that preview on the typed synthetic bridge instead of the generic IPC stub.
+  api.transcript = async () => ({ messages: [], hasMore: false, beforeLine: null, stale: false, warning: null });
   api.trashSession = async id => { deleted.add(id); return id; };
   api.restoreSession = async id => { deleted.delete(id); };
 }
