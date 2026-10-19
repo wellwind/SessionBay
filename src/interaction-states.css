@@ -23,11 +23,11 @@
 .project-row > .project-main,
 .workspace-tab > .workspace-tab-select { align-self: stretch; }
 
-.workspace-tab { border-radius: var(--interaction-radius) var(--interaction-radius) 0 0; }
+.workspace-tab { border-radius: 0; }
 .workspace-tab:has(> .workspace-tab-select:hover) { background: var(--surface-hover); }
 .workspace-tab.active { background: var(--accent-bg); }
 .workspace-tab.active:has(> .workspace-tab-select:hover) { background: var(--interaction-selected-hover); }
-.workspace-tab > .workspace-tab-select { --interaction-hover: transparent; border-radius: var(--interaction-radius); }
+.workspace-tab > .workspace-tab-select { --interaction-hover: transparent; border-radius: 0; }
 .workspace-tab > button + button { min-height: 28px; height: 28px; border-radius: var(--interaction-radius); }
 
 /* Separate sibling buttons, with a reserved action rail: labels never jump. */

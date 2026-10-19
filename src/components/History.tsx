@@ -96,7 +96,9 @@ export function HistoryView({
   const trashTrigger = useRef<HTMLButtonElement | null>(null);
   const focusUndo = useRef<{ trigger: HTMLButtonElement | null } | null>(null);
   const undoButton = useRef<HTMLButtonElement>(null);
-  const [undoId, setUndoId] = useState<string | null>(null);
+  const [undoQueue, setUndoQueue] = useState<{ id: string; title: string }[]>([]);
+  const undoId = undoQueue[0]?.id;
+  const dismissUndo = () => { if (!hasBlockingDialog()) setUndoQueue(queue => queue.slice(1)); };
   // A completed deletion may still be awaiting a parent refresh. Any newer
   // interaction owns focus; a delayed completion must never reclaim it.
   useEffect(() => {
@@ -260,7 +262,7 @@ export function HistoryView({
     try {
       const id = await api.trashSession(trashTarget.id, trashTarget.trashIdentity);
       focusUndo.current = { trigger: trashTrigger.current };
-      setUndoId(id);
+      setUndoQueue(queue => [...queue, { id, title: trashTarget.title || trashTarget.externalId }]);
       setTrashTarget(null);
       setSelected(previous => previous?.id === trashTarget.id ? null : previous);
       setHistoryRevision((value) => value + 1);
@@ -272,13 +274,13 @@ export function HistoryView({
     finally { trashLock.current = false; setTrashBusy(false); }
   };
   const undoTrash = async () => {
-    if (!undoId || trashLock.current) return;
+    if (!undoId || trashLock.current || hasBlockingDialog()) return;
     trashLock.current = true;
     setTrashBusy(true);
     setTrashError('');
     try {
       await api.restoreSession(undoId);
-      setUndoId(null);
+      setUndoQueue(queue => queue.filter(item => item.id !== undoId));
       setHistoryRevision((value) => value + 1);
       await onHistoryChanged?.();
     } catch (reason) { setTrashError(errorMessage(reason)); }
@@ -294,14 +296,17 @@ export function HistoryView({
     filters.children;
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
   const controls = <>
-      {undoId && <div className="history-undo" role="status">
-        <p>已移入資源回收筒。</p>
-        <div className="history-undo-actions">
-          <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>
-          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => setUndoId(null)}><X size={15} /></button>
+      {(undoId || (trashError && !trashTarget)) && createPortal(<div className="toast history-undo" aria-label="歷史刪除通知" inert={!!trashTarget}>
+        <div className="history-undo-message" role="status" aria-live="polite" aria-atomic="true">
+          {undoId && <><p>已移入資源回收筒：{undoQueue[0].title}</p>
+            {undoQueue.length > 1 && <small>還有 {undoQueue.length - 1} 筆可依序復原。</small>}</>}
+          {trashError && !trashTarget && <p role="alert">{trashError}</p>}
         </div>
-      </div>}
-      {trashError && !trashTarget && <p className="inline-error" role="alert">{trashError}</p>}
+        <div className="history-undo-actions">
+          {undoId && <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>}
+          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => { if (!hasBlockingDialog()) { dismissUndo(); setTrashError(''); } }}><X size={15} /></button>
+        </div>
+      </div>, document.body)}
       {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
         <p>「{trashTarget.title || trashTarget.externalId}」將從 Session Bay 歷史與搜尋隱藏，之後可從資源回收筒還原。</p>
         <p>原始 Agent 歷史會保留，執行中的工作會繼續。</p>
@@ -419,7 +424,7 @@ export function HistoryView({
             </div>
           ) : (
             <VirtualSessionList key={feedKey} items={page.items} total={page.total} label="Session 清單"
-              className="session-list" rowHeight={190} scrollMemory={scrollMemory}
+              className="session-list" rowHeight={176} scrollMemory={scrollMemory}
               loading={loading} done={page.done} error={error} loadMore={page.loadMore} retry={page.retry}
               renderRow={(session) => (
                 <div

@@ -1633,7 +1633,7 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tabs">
+              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar"><div className="workspace-tabs">
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
                   onSelect={(tab) => {
@@ -1654,6 +1654,7 @@ export default function App() {
                     <Plus size={16} />
                   </button>
                 )}
+                </div>
                 {focusAvailable && <FocusModeButton buttonRef={focusToggle} active={focusMode} onClick={toggleFocusMode} />}
               </div>}
               <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
@@ -1778,7 +1779,7 @@ export default function App() {
           {index.running ? (
             <>
               <LoaderCircle className="spin" size={12} />
-              <span>
+              <span role="status" aria-live="polite">
                 正在更新索引 {index.processed} / {index.total}
               </span>
               <button
@@ -1792,7 +1793,7 @@ export default function App() {
           ) : (
             <>
               <span className={`tiny-dot ${index.errors.length ? 'warn' : ''}`} />
-              <span>
+              <span role="status" aria-live="polite" title={index.errors.join("\n") || undefined}>
                 {!desktop
                   ? '網頁預覽 · 桌面功能未連線'
                   : index.cancelled

@@ -38,12 +38,15 @@ for (const theme of ['dark', 'light']) {
     await expect(undo).toBeFocused();
     const undoBox = await undo.boundingBox();
     const dismissBox = await dismiss.boundingBox();
-    const statusBox = await page.getByRole('status').filter({ hasText: '已移入資源回收筒。' }).boundingBox();
+    const toast = page.locator('.toast.history-undo');
+    await expect(toast).toHaveCSS('position', 'fixed');
+    await expect(toast.getByRole('status')).toContainText('已移入資源回收筒：修正鍵盤焦點');
+    const statusBox = await toast.getByRole('status').boundingBox();
     expect(undoBox && dismissBox && statusBox).toBeTruthy();
-    expect(undoBox!.x).toBeGreaterThan(statusBox!.x + statusBox!.width / 2);
+    expect(undoBox!.x).toBeGreaterThanOrEqual(statusBox!.x + statusBox!.width);
     expect(dismissBox!.x).toBeGreaterThan(undoBox!.x + undoBox!.width);
     expect(dismissBox!.x - (undoBox!.x + undoBox!.width)).toBeLessThan(20);
-    await page.screenshot({ path: info.outputPath(`${theme}-undo-banner.png`) });
+    await page.screenshot({ path: info.outputPath(`${theme}-undo-toast.png`) });
     await expect(page.locator('.sidebar')).toBeVisible();
     await expect(page.locator('#activity-sessions-panel')).toBeVisible();
     const project = page.locator('.project-main').first();

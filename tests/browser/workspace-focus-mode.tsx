@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Channel } from '@tauri-apps/api/core';
 import { defaultAgentOptions } from '../../src/agents';
-import type { Bootstrap, LaunchRequest, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
+import type { Bootstrap, IndexStatus, LaunchRequest, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
 import '../../src/styles.css';
 import '../../src/workbench.css';
 
@@ -89,7 +89,12 @@ const imagePacket = (svg: boolean): ArrayBuffer => {
 const generatedLine = 'synthetic row '.padEnd(127, '.') + '\n';
 const fileVersion = (projectId: unknown, path: unknown) => `fixture:${projectId}:${path}:1`;
 const calls: { projectId?: string; query?: SessionQuery; sessionId?: string; command: string; data?: string; runtimeId?: string; paneId?: string; cols?: number; rows?: number; showHidden?: boolean; path?: string; version?: string; offset?: number; maxBytes?: number }[] = [];
-Object.assign(window, { isTauri: true, focusFixture: { calls } });
+let stream: Channel<TerminalEvent> | undefined;
+let streamSequence = 1;
+Object.assign(window, { isTauri: true, focusFixture: { calls,
+  setIndex: (status: Partial<IndexStatus>) => { bootstrap.index = { ...bootstrap.index, ...status }; },
+  output: (text: string) => stream?.onmessage({ type: 'output', runtimeId: runtime.id, sequence: ++streamSequence, data: Array.from(new TextEncoder().encode(text)) }),
+} });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
@@ -211,6 +216,7 @@ mockIPC((command, payload = {}) => {
         'BLOCK /outside/secret.ts:1',
         '$ ',
       ].join('\r\n') : Array.from({ length: 100 }, (_, i) => `Synthetic focus output ${i + 1}\r\n`).join('') + '$ '));
+      if (target.id === runtime.id) stream = args.onEvent as Channel<TerminalEvent>;
       (args.onEvent as Channel<TerminalEvent>).onmessage({ type: 'snapshot', runtimeId: target.id, sequence: 1, data, cols: 100, rows: 30, truncated: false });
       return target;
     }

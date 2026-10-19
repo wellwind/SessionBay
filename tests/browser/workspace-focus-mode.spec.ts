@@ -371,7 +371,7 @@ test('default Zen shortcut toggles symmetrically without writing to PTY', async 
 });
 
 test('Zen has one icon-only toggle, no project control, and hover/focus tooltips', async ({ page }, info) => {
-  const toggle = page.locator('.workspace-tabs > .focus-mode-toggle');
+  const toggle = page.locator('.workspace-tab-bar > .focus-mode-toggle');
   for (const active of [false, true]) {
     const label = active ? '退出專注模式' : '進入專注模式';
     await expect(page.locator('.focus-mode-toggle')).toHaveCount(1);
@@ -413,4 +413,37 @@ test('hover tooltip Escape and chrome shortcut never write to the terminal', asy
   }
   expect(await page.evaluate(() => (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture.calls.filter(call => call.command === 'write_runtime'))).toEqual([]);
   await sameTerminal(page);
+});
+
+for (const zen of [false, true]) test(`index progress keeps terminal geometry and attachment stable in ${zen ? 'Zen' : 'normal'}`, async ({ page }, info) => {
+  test.setTimeout(60_000);
+  if (zen) await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
+  await expect(page.locator('.statusbar')).toBeVisible();
+  await page.waitForTimeout(300); // allow the deliberate mode-change fit to settle
+  const before = await geometry(page);
+  const size = await latestSize(page);
+  const resizes = () => page.evaluate(() => (window as unknown as { focusFixture: { calls: Call[] } }).focusFixture.calls.filter(call => call.command === 'resize_runtime').length);
+  const baselineResizes = await resizes();
+  const statuses = [
+    { running: true, processed: 1, total: 20, errors: [], text: '正在更新索引 1 / 20' },
+    { running: true, processed: 19, total: 20, errors: [], text: '正在更新索引 19 / 20' },
+    { running: false, processed: 20, total: 20, errors: [], text: '本機索引就緒' },
+    { running: true, processed: 1, total: 30, errors: [], text: '正在更新索引 1 / 30' },
+    { running: false, processed: 2, total: 30, errors: ['Synthetic source failure'], text: '1 個來源問題' },
+    { running: false, processed: 30, total: 30, errors: [], text: '本機索引就緒' },
+  ];
+  for (const [index, status] of statuses.entries()) {
+    await page.evaluate(({ status, index }) => {
+      const fixture = (window as unknown as { focusFixture: { setIndex: (value: unknown) => void; output: (text: string) => void } }).focusFixture;
+      fixture.setIndex({ running: status.running, processed: status.processed, total: status.total, errors: status.errors, revision: index + 1 });
+      fixture.output(`\r\nSynthetic index output ${index}\r\n`);
+    }, { status, index });
+    await expect(page.locator('.statusbar')).toContainText(status.text);
+    await expect(page.locator('.xterm-rows')).toContainText(`Synthetic index output ${index}`);
+    expect(await geometry(page)).toEqual(before);
+    expect(await latestSize(page)).toEqual(size);
+    expect(await resizes()).toBe(baselineResizes);
+    await sameTerminal(page);
+  }
+  await page.screenshot({ path: info.outputPath(`stable-index-${zen}.png`), fullPage: true });
 });
