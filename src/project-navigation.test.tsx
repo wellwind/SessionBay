@@ -77,6 +77,19 @@ describe('project navigation resizing', () => {
     expect(separator).toHaveAttribute('aria-valuenow', '170');
     expect(readSidebarPreferences().width).toBe(170);
   });
+  it('does not save a draft when pointerup beats the layout resize notification', () => {
+    render(<Harness />);
+    const separator = screen.getByRole('separator'); capture(separator);
+    const saved = localStorage.getItem('sessionbay.sidebar.v1');
+    pointer(separator, 'pointerdown', 236); pointer(separator, 'pointermove', 300);
+    layoutWidth = 600; // Layout has changed, but neither resize callback ran yet.
+    pointer(separator, 'pointerup', 300);
+    expect(localStorage.getItem('sessionbay.sidebar.v1')).toBe(saved);
+    act(() => notifyLayoutResize());
+    expect(separator).not.toBeVisible();
+    act(() => { layoutWidth = 1440; notifyLayoutResize(); });
+    expect(separator).toHaveAttribute('aria-valuenow', '236');
+  });
   it('does not cancel a draft when the observer reports the same layout width', () => {
     render(<Harness />);
     const separator = screen.getByRole('separator'); capture(separator);

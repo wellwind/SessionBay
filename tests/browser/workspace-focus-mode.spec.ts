@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Locator } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
 type Call = { command: string; data?: string; cols?: number; rows?: number };
@@ -24,6 +24,11 @@ async function openWorkspace(page: Page) {
   await expect.poll(() => page.locator('.xterm-rows').innerText()).toContain('Synthetic focus output');
   await expect.poll(() => latestSize(page)).toBeTruthy();
   expect(await lifecycle(page)).toEqual([{ command: 'attach_runtime' }]);
+}
+async function paneAction(pane: Locator, name: string) {
+  const button = pane.getByRole('button', { name, exact: true });
+  if (!await button.isVisible()) await pane.getByRole('button', { name: /^面板選項 / }).click();
+  await button.click();
 }
 async function sameTerminal(page: Page) {
   expect(await page.evaluate(() => {
@@ -214,7 +219,7 @@ for (const [normalOpen, zenOpen] of [[true, false], [false, true]]) {
 }
 
 // CSS zoom exercises renderer geometry only; native Tauri/WebView zoom remains
-// desktop acceptance. Every case respects the existing 700×420 CSS-pixel shell.
+// desktop acceptance. Native viewport constraints have their own regression matrix.
 for (const [size, width, height, zoom] of [
   ['normal', 1200, 850, 1],
   ['narrow', 800, 650, 1],
@@ -308,7 +313,7 @@ for (const [size, width, height, zoom] of [
       await expect.poll(async () => (await originalSize())?.cols ?? 0).toBeGreaterThan(1);
       const initialSize = await originalSize();
       await page.screenshot({ path: testInfo.outputPath('single-before.png'), fullPage: true });
-      await original.getByRole('button', { name: '左右分割', exact: true }).click();
+      await paneAction(original, '左右分割');
       await page.getByRole('button', { name: '開始工作', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.locator('.terminal-pane:visible')).toHaveCount(2);
@@ -330,10 +335,12 @@ for (const [size, width, height, zoom] of [
       await assertPreserved();
       await page.screenshot({ path: testInfo.outputPath('split.png'), fullPage: true });
       // Maximizing a split is presentation only and must not become single-pane.
-      await original.getByRole('button', { name: '最大化面板', exact: true }).click();
+      await paneAction(original, '最大化面板');
+      await expect(original.locator('.xterm-helper-textarea')).toBeFocused();
       await expect(page.locator('.workspace-canvas')).not.toHaveClass(/single-pane/);
-      await original.getByRole('button', { name: '還原面板', exact: true }).click();
-      await second.getByRole('button', { name: '關閉面板', exact: true }).click();
+      await paneAction(original, '還原面板');
+      await expect(original.locator('.xterm-helper-textarea')).toBeFocused();
+      await paneAction(second, '關閉面板');
       await page.getByRole('button', { name: '結束並關閉', exact: true }).click();
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await expect(page.locator('.terminal-pane:visible')).toHaveCount(1);

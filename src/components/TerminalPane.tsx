@@ -1,10 +1,12 @@
+import { followTerminalResize } from '../terminal-resize-follow';
+import { ResponsiveControls } from './ResponsiveControls';
 import { isAgentHooksEnabled } from '../settings';
 import { fitTerminal } from '../terminal-fit';
 import { useRuntimeActivity } from './RuntimeActivity';
 import { PaneRuntimeStatus } from './PaneRuntimeStatus';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
 import './agent-status.css';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -82,6 +84,34 @@ export function TerminalPane({
   onAlreadyOpen: (runtime: RuntimeInfo) => void;
   onOpenFileLink?: (request: TerminalFileOpen) => void;
 }) {
+  const paneElement = useRef<HTMLElement>(null);
+  const [minimalChrome, setMinimalChrome] = useState(false);
+  const restoreChromeFocus = useRef(false);
+  useLayoutEffect(() => {
+    const element = paneElement.current;
+    if (!element) return;
+    const measure = () => {
+      if (element.clientHeight > 0) {
+        const next = element.clientHeight < 180;
+        if (next !== element.classList.contains('minimal-chrome') &&
+            document.activeElement instanceof Element && document.activeElement.closest('.pane-footer') &&
+            element.contains(document.activeElement)) restoreChromeFocus.current = true;
+        setMinimalChrome(next);
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    if (!restoreChromeFocus.current) return;
+    restoreChromeFocus.current = false;
+    const element = paneElement.current;
+    const footerButton = element?.querySelector<HTMLElement>('.pane-footer button');
+    if (footerButton && !footerButton.closest('[hidden]')) footerButton.focus();
+    else element?.querySelector<HTMLElement>('.compact-control-heading button')?.focus();
+  }, [minimalChrome]);
   const activity = useRuntimeActivity();
   useEffect(() => { activity?.visible(pane.id, activityVisible); }, [activity, pane.id, activityVisible]);
   const host = useRef<HTMLDivElement>(null);
@@ -117,6 +147,8 @@ export function TerminalPane({
   useEffect(() => {
     actionGeneration.current += 1;
   }, [pane.id, pane.runtimeId, pane.startToken, pane.state, visible, focused, searchOpen, renameOpen]);
+  const pendingFollow = useRef<ReturnType<typeof followTerminalResize>>(null);
+  const cancelFollow = useCallback(() => { pendingFollow.current?.dispose(); pendingFollow.current = null; }, []);
   const fitNow = useCallback(() => {
     if (
       !latest.current.visible ||
@@ -127,10 +159,14 @@ export function TerminalPane({
       return;
     if (attachment.current && !attachment.current.ready) return;
     try {
-      if (fit.current) fitTerminal(term.current, fit.current);
       const t = term.current;
+      const size = fit.current?.proposeDimensions();
+      if (size && (size.cols !== t.cols || size.rows !== t.rows) && !pendingFollow.current?.active)
+        pendingFollow.current = followTerminalResize(t);
+      if (fit.current) fitTerminal(t, fit.current);
       // Keep renderer geometry within the broker's bounded screen allocation.
       if (t.cols > 320 || t.rows > 120) t.resize(Math.min(320, t.cols), Math.min(120, t.rows));
+      pendingFollow.current?.resizeComplete();
       if (runtime.current && t.cols >= 2 && t.rows >= 1) {
         resizePending.current = { id: runtime.current, cols: t.cols, rows: t.rows };
         if (!resizing.current) {
@@ -151,6 +187,7 @@ export function TerminalPane({
         }
       }
     } catch {
+      pendingFollow.current?.dispose();
       /* A hidden webview can briefly report zero dimensions. */
     }
   }, []);
@@ -283,6 +320,7 @@ export function TerminalPane({
       element.removeEventListener('drop', dropFiles, true);
       clipboardBlock.dispose();
       links.dispose();
+      cancelFollow();
       terminal.dispose();
       term.current = null;
     };
@@ -291,7 +329,7 @@ export function TerminalPane({
   }, []);
   useEffect(() => {
     const terminal = term.current;
-    if (!visible || !terminal) return;
+    if (!visible || !terminal) { cancelFollow(); return; }
     let pending = true;
     // A hidden xterm renderer defers its rounded cell measurements until it
     // paints again. Reconcile once after that first ready render, rather than
@@ -304,7 +342,7 @@ export function TerminalPane({
       fitNow();
     });
     return () => { pending = false; rendered.dispose(); };
-  }, [visible, fitNow]);
+  }, [visible, fitNow, cancelFollow]);
   useEffect(() => {
     if (term.current) {
       term.current.options.fontSize = settings.fontSize;
@@ -673,11 +711,49 @@ export function TerminalPane({
       finishAction();
     }
   };
+  const paneMetadata = (<div className="pane-meta">
+        <span title={pane.cwd}>{pane.cwd || '未指定目錄'}</span>
+        <PaneRuntimeStatus pane={pane} connecting={connecting} />
+      </div>);
+  const paneFooter = (pane.state !== 'placeholder' && (
+        <div className="pane-footer">
+          <span>
+            {pane.sessionId
+              ? `Session ${pane.sessionId.slice(-12)}`
+              : pane.kind === 'shell'
+                ? '普通 Shell · 不自動關聯 Agent'
+                : '新的 Agent 工作'}
+          </span>
+          {pane.state === 'disconnected' ? (
+            <button disabled={connecting} onClick={() => setReconnect((value) => value + 1)}>重新連線</button>
+          ) : live ? (
+            <button
+              disabled={pane.state === 'starting' || !connected || confirming}
+              onClick={() => void stop()}
+            >
+              <Square size={11} />
+              停止
+            </button>
+          ) : (
+            <button onClick={onStart}>
+              <Play size={12} />
+              重新啟動
+            </button>
+          )}
+        </div>
+      ));
   return (
-    <section
-      className={`terminal-pane ${focused ? 'focused' : ''}`}
+    <section ref={paneElement}
+      className={`terminal-pane ${focused ? 'focused' : ''}${minimalChrome ? ' minimal-chrome' : ''}`}
       aria-label={`${pane.title} 終端面板`}
-      onPointerDown={onFocus}
+      onWheelCapture={cancelFollow}
+      onKeyDownCapture={event => {
+        if (event.shiftKey && ['PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) cancelFollow();
+      }}
+      onPointerDown={event => {
+        if (event.target instanceof Element && event.target.closest('.scrollbar')) cancelFollow();
+        onFocus();
+      }}
       onFocusCapture={(event) => {
         // Keyboard navigation into xterm must own the pane just like a pointer click.
         if (!focused && visible && mounted.current && !hasBlockingDialog() && event.target === term.current?.textarea) onFocus();
@@ -690,15 +766,17 @@ export function TerminalPane({
           {/* Reserve the badge slot so pointerdown focus cannot move toolbar actions before click. */}
           <span className="focus-label" style={{ visibility: focused ? undefined : 'hidden' }} aria-hidden={!focused}>焦點</span>
           <span className={`runtime-dot ${pane.state}`} />
+          {minimalChrome && <PaneRuntimeStatus pane={pane} connecting={connecting} />}
           {isAgentPane(pane) && pane.state !== 'running' && <span className={`agent-lifecycle ${pane.state}`} title={agentLifecycleText(pane.state)}>{agentLifecycleText(pane.state)}</span>}
         </div>
+        <ResponsiveControls label={`面板選項 ${pane.title}`} narrowWidth={600} forceCompact={minimalChrome} closeOnAction>
         <div className="pane-actions">
           <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
           <button
             className="icon-button"
             title="搜尋終端文字"
             aria-label="搜尋終端文字"
-            onClick={() => setSearchOpen(!searchOpen)}
+            onClick={() => { cancelFollow(); setSearchOpen(!searchOpen); }}
           >
             <Search size={14} />
           </button>
@@ -742,7 +820,11 @@ export function TerminalPane({
             className="icon-button"
             title={maximized ? '還原面板' : '最大化面板'}
             aria-label={maximized ? '還原面板' : '最大化面板'}
-            onClick={onMaximize}
+            onClick={() => {
+              // A restored narrow toolbar must not reopen solely to retain this action's focus.
+              term.current?.focus();
+              onMaximize();
+            }}
           >
             {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
@@ -750,11 +832,10 @@ export function TerminalPane({
             <X size={14} />
           </button>
         </div>
+        {minimalChrome && <>{paneMetadata}{paneFooter}</>}
+        </ResponsiveControls>
       </div>
-      <div className="pane-meta">
-        <span title={pane.cwd}>{pane.cwd || '未指定目錄'}</span>
-        <PaneRuntimeStatus pane={pane} connecting={connecting} />
-      </div>
+      {!minimalChrome && paneMetadata}
       {renameOpen && <RenameDialog title="重新命名面板" name={pane.title}
         description="只修改面板顯示名稱，保留執行中的程序、終端輸出與工作目錄。"
         onClose={() => setRenameOpen(false)} onSave={(title) => onPatch(pane.id, { title })} />}
@@ -763,7 +844,7 @@ export function TerminalPane({
           className="terminal-search search-field"
           onSubmit={(event) => {
             event.preventDefault();
-            search.current?.findNext(needle);
+            cancelFollow(); search.current?.findNext(needle);
           }}
         >
           <Search size={14} />
@@ -772,15 +853,16 @@ export function TerminalPane({
             autoFocus
             value={needle}
             onChange={(event) => {
+              cancelFollow();
               setNeedle(event.target.value);
               search.current?.findNext(event.target.value, { incremental: true });
             }}
           />
-          <button type="button" onClick={() => search.current?.findPrevious(needle)}>
+          <button type="button" onClick={() => { cancelFollow(); search.current?.findPrevious(needle); }}>
             上一個
           </button>
           <button type="submit">下一個</button>
-          <button type="button" aria-label="關閉終端搜尋" onClick={() => setSearchOpen(false)}>
+          <button type="button" aria-label="關閉終端搜尋" onClick={() => { setSearchOpen(false); term.current?.focus(); }}>
             <X size={14} />
           </button>
         </form>
@@ -811,33 +893,7 @@ export function TerminalPane({
           </div>
         )}
       </div>
-      {pane.state !== 'placeholder' && (
-        <div className="pane-footer">
-          <span>
-            {pane.sessionId
-              ? `Session ${pane.sessionId.slice(-12)}`
-              : pane.kind === 'shell'
-                ? '普通 Shell · 不自動關聯 Agent'
-                : '新的 Agent 工作'}
-          </span>
-          {pane.state === 'disconnected' ? (
-            <button disabled={connecting} onClick={() => setReconnect((value) => value + 1)}>重新連線</button>
-          ) : live ? (
-            <button
-              disabled={pane.state === 'starting' || !connected || confirming}
-              onClick={() => void stop()}
-            >
-              <Square size={11} />
-              停止
-            </button>
-          ) : (
-            <button onClick={onStart}>
-              <Play size={12} />
-              重新啟動
-            </button>
-          )}
-        </div>
-      )}
+      {!minimalChrome && paneFooter}
     </section>
   );
 }

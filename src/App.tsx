@@ -1,3 +1,4 @@
+import { ResponsiveControls } from './components/ResponsiveControls';
 import { TerminalFileDialog } from './components/TerminalFileDialog';
 import type { TerminalFileOpen } from './terminal-file-links';
 import type { FileReference, Pane as FileLinkPane } from './types';
@@ -1469,7 +1470,7 @@ export default function App() {
             Session Bay<span className="brand-tag">WORKSPACE</span>
           </span>
         </div>
-        <button className="global-search" onClick={() => runCommand('command-palette')}>
+        <button className="global-search" aria-label="搜尋專案或執行命令" onClick={() => runCommand('command-palette')}>
           <Search size={15} />
           <span>搜尋專案或執行命令</span>
           <kbd>⌘ / Ctrl ⇧ P</kbd>
@@ -1501,6 +1502,7 @@ export default function App() {
         {projectNavigation}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
+            <ResponsiveControls label="專案資訊與操作" summary={temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}>
             <div className="project-heading">
               <nav className="breadcrumb" aria-label="目前位置">
                 {!sidebarOpen && (
@@ -1572,6 +1574,7 @@ export default function App() {
                 <FolderPlus size={16} />加入／建立專案
               </button>}
             </div>
+            </ResponsiveControls>
           </div>
           {!desktop ? (
             <div className="runtime-unavailable">

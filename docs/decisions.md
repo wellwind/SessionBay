@@ -892,3 +892,14 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 ## 2026-10-19：左側導覽範圍依實際布局容器計算
 
 原生縮放後 CSS viewport 可小於 App 的實際布局寬度，直接用 viewport 扣除 520px 會使可調範圍退化為 160–160。改量測導覽父容器 clientWidth，並觀察容器 resize；沿用原本 40%、480px 上限及可行時保留 520px 的政策，不複製 CSS 最小畫布常數。真正無可調空間時不顯示可拖曳把手。此修正處理已重現的範圍退化，不代表已確認 macOS 使用者的全部症狀；短視窗布局與原生 scrollbar 假說另行處理。
+
+
+## 2026-10-19：短視窗與高縮放保留中央工作區
+
+取代 700×420 最小畫布：外框服從實際 viewport，tabs/statusbar 固定為非收縮列，中央 Terminal 使用剩餘高度，不讓整區 main 捲動或以 320px 下限撐高。短視窗／窄主區的專案資訊與次要操作收進可鍵盤使用的選項入口；Terminal 工具列避免換行，執行狀態持續顯示。選項可用 Escape 關閉並返回入口焦點，內容自身可捲動。正常 1440×940 沿用原排列。
+
+移除最小畫布後，左側導覽繼續量測實際容器；無可調範圍時隱藏把手，小視窗不覆寫使用者寬度偏好。原生白殘影仍未重現，不加入猜測修正。驗收需分別記錄 Chromium、原生 WebKit 與包含本次前端的隔離 Tauri 結果。
+
+長標題的較矮初始 Terminal 暴露 main 已存在的 xterm scrollbar 同步問題：首次 fit 後 buffer 已移到底部，但同一 render turn 的 scrollbar 同步會恢復舊 viewportY。僅對 resize 前已在底部的 Terminal，在下一次 onRender 的 microtask 完成一次底部校正；閱讀 scrollback 時不啟動，使用者捲動／隱藏／卸載會取消。不加入固定延遲、重試迴圈或 scrollIntoView。
+
+Review 補強：選單收合只在焦點仍留於即將隱藏內容時返回入口，不覆寫動作已選擇的 Terminal／搜尋／對話框焦點；179↔181px footer 搬移及窄版入口消失均明確交接到可見控制項。底部校正綁定原 buffer，搜尋、選取及 fit 後的非內部捲動會取消，buffer 切換亦取消。非 Terminal 的 runtime unavailable 與空狀態改由自身捲動區承載溢出，保持外框固定。

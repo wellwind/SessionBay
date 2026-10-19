@@ -18,13 +18,24 @@ async function open(page: Page) {
   await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
   await expect(page.locator('.xterm-rows')).toContainText('Synthetic focus output');
 }
-for (const [viewport, maximum] of [[900, 360], [720, 200], [600, 180], [450, 180]]) {
+for (const [viewport, maximum] of [[900, 360], [720, 200], [600, 160], [450, 160]]) {
   test(`full App pointer changes aside geometry and persists at CSS width ${viewport}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport, height: 620 });
     await page.addInitScript(() => {
       if (!localStorage.getItem('sessionbay.sidebar.v1')) localStorage.setItem('sessionbay.sidebar.v1', JSON.stringify({ version: 1, width: 170 }));
     });
     await open(page);
+    if (maximum === 160) {
+      await expect(handle(page)).toHaveCount(0);
+      await expect.poll(() => width(page)).toBe(160);
+      expect(await stored(page)).toBe(170);
+      await page.reload();
+      await expect.poll(() => width(page)).toBe(160);
+      expect(await stored(page)).toBe(170);
+      await page.setViewportSize({ width: 1440, height: 940 });
+      await expect.poll(() => width(page)).toBe(170);
+      return;
+    }
     await expect(handle(page)).toHaveAttribute('aria-valuemin', '160');
     await expect(handle(page)).toHaveAttribute('aria-valuemax', String(maximum));
     await expect.poll(() => width(page)).toBe(170);
@@ -56,12 +67,12 @@ test('full App cancels real pointer drafts and preserves preference through resi
   await drag(page, 40, false);
   await page.setViewportSize({ width: 600, height: 413 });
   await page.mouse.up();
-  await expect.poll(() => width(page)).toBe(180);
+  await expect.poll(() => width(page)).toBe(160);
   expect(await stored(page)).toBe(300);
   await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
   await expect(handle(page)).toHaveCount(0);
   await page.getByRole('button', { name: '退出專注模式', exact: true }).click();
-  await expect.poll(() => width(page)).toBe(180);
+  await expect.poll(() => width(page)).toBe(160);
   await page.setViewportSize({ width: 1200, height: 850 });
   await expect.poll(() => width(page)).toBe(300);
   expect(await page.evaluate(() => document.querySelector('.xterm') === (window as unknown as { originalTerminal: Element }).originalTerminal)).toBe(true);

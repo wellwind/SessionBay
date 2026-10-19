@@ -324,3 +324,5 @@ L1a 保守 runtime 證據記帳與原子 admission seal 已於 #82 合併，revi
 ### 左側導覽原生縮放範圍修正（待審查）
 
 改依實際布局容器計算範圍，避免縮放後 viewport 小於畫布造成 min=max。完整 App 真實 mouse 與 aside 幾何回歸納入 focus-mode 測試組；原生 WebKit 與 macOS 實際症狀的驗證界線見交付報告，不以 Ubuntu 通過概括 macOS。
+
+- 短視窗／高縮放候選：撤除外框 700×420 下限，以固定 tabs/status bar 及中央剩餘高度分配；增加專案／面板選項入口。Chromium、Ubuntu 原生 WebKit 與隔離 Tauri 的驗收結果分別記錄，尚未宣稱 macOS 驗收；白色殘影未重現，未加入推測修正。
