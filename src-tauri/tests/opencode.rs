@@ -390,3 +390,106 @@ fn removal_inspection_marks_database_shared_without_exposing_virtual_file_keys()
         before
     );
 }
+
+/// Real 1.19.2/1.19.3 `opencode run` writes only v1 rows while the v2 table exists.
+#[test]
+fn real_cli_v1_only_databases_for_1_19_2_and_1_19_3_are_fully_indexed() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("cli source");
+    fs::create_dir(&root).unwrap();
+    #[cfg(unix)]
+    let root = root.canonicalize().unwrap();
+    Connection::open(root.join("opencode.db"))
+        .unwrap()
+        .execute_batch(include_str!(
+            "../../fixtures/opencode/cli-1.19.x-v1-only.sql"
+        ))
+        .unwrap();
+    let catalog = Catalog::open(&temp.path().join("catalog.db")).unwrap();
+    let source = HistorySource {
+        id: "opencode-cli".into(),
+        kind: AgentKind::OpenCode,
+        root: root.to_string_lossy().into_owned(),
+        enabled: true,
+    };
+    let status = catalog
+        .sync(
+            std::slice::from_ref(&source),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    assert!(status.errors.is_empty(), "{:?}", status.errors);
+    let sessions = catalog.query(&SessionQuery::default()).unwrap().items;
+    assert_eq!(sessions.len(), 2);
+    for version in ["1.19.2", "1.19.3"] {
+        let session = sessions
+            .iter()
+            .find(|s| s.title.contains(version))
+            .unwrap_or_else(|| panic!("missing {version}"));
+        assert!(!session.partial, "{version} marked partial");
+        assert!(session.resume_disabled_reason.is_none());
+        assert!(catalog.resume_source(&session.id).is_ok());
+        let page = catalog.transcript(&session.id, None, 200).unwrap();
+        assert!(page.warning.is_none(), "{:?}", page.warning);
+        let texts: Vec<_> = page.messages.into_iter().map(|m| m.text).collect();
+        assert_eq!(
+            texts,
+            [
+                format!("Synthetic CLI question {version}"),
+                format!("Synthetic CLI answer {version}")
+            ]
+        );
+    }
+    // Rows written by an older reader for the same unchanged database must be
+    // re-read after an upgrade instead of being reused by fingerprint.
+    Connection::open(temp.path().join("catalog.db"))
+        .unwrap()
+        .execute_batch("UPDATE files SET parser_version=4; DELETE FROM messages;")
+        .unwrap();
+    let status = catalog
+        .sync(
+            std::slice::from_ref(&source),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    assert!(status.errors.is_empty(), "{:?}", status.errors);
+    for (needle, hits) in [
+        ("Synthetic CLI answer 1.19.3", 1),
+        ("hidden reasoning", 0),
+        ("tool output", 0),
+    ] {
+        let found = catalog
+            .query(&SessionQuery {
+                query: Some(needle.into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .total;
+        assert_eq!(found, hits, "{needle}");
+    }
+}
+
+#[test]
+fn fresh_v1_rows_after_v2_deletion_still_require_matching_session_time() {
+    let h = Harness::new();
+    // Legacy rows that are as fresh as session.time_updated are the current projection.
+    h.db()
+        .execute_batch(&format!(
+            "INSERT INTO message VALUES('msg_fresh','{ID}',1760000000500,1760000000900,'{{\"role\":\"user\"}}');
+             INSERT INTO part VALUES('prt_fresh','{ID}','msg_fresh',1760000000500,1760000000900,'{{\"type\":\"text\",\"text\":\"Fresh legacy question\"}}');"
+        ))
+        .unwrap();
+    h.sync();
+    assert_eq!(h.texts(), ["Fresh legacy question"]);
+    assert!(!h.session().partial);
+    // A later session update without matching v1 rows is ambiguous again.
+    h.db()
+        .execute("UPDATE session SET time_updated=1760009999000", [])
+        .unwrap();
+    h.sync();
+    assert!(h.texts().is_empty());
+    assert!(h.session().partial);
+    assert_eq!(h.search("Fresh"), 0);
+}

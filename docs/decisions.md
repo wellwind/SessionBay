@@ -892,3 +892,7 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 ## 2026-10-19：左側導覽範圍依實際布局容器計算
 
 原生縮放後 CSS viewport 可小於 App 的實際布局寬度，直接用 viewport 扣除 520px 會使可調範圍退化為 160–160。改量測導覽父容器 clientWidth，並觀察容器 resize；沿用原本 40%、480px 上限及可行時保留 520px 的政策，不複製 CSS 最小畫布常數。真正無可調空間時不顯示可拖曳把手。此修正處理已重現的範圍退化，不代表已確認 macOS 使用者的全部症狀；短視窗布局與原生 scrollbar 假說另行處理。
+
+## 2026-10-19：OpenCode 真實 CLI 的 v1-only 歷史
+
+使用者以真實 OpenCode 1.19.2／1.19.3 試用時，三個 Session 全部只顯示 metadata，無預覽、無法接續。實測穩定版 CLI 只寫 v1 message/part，session_message table 存在但為空；原本「有 v2 table、無 v2 rows」一律視為歧義的規則因此擋下所有真實歷史。使用者核准修正：v1 最新更新與 session.time_updated 相差 60 秒內時視為現行投影；v1 明顯過舊（例如刪除 v2 後殘留）仍 metadata-only。另經原始碼比對確認 1.19.3 未改 schema，版本上限延伸至 1.19.3；catalog 依 reader revision 重讀未變更的 DB。
