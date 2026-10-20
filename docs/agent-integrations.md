@@ -12,7 +12,7 @@ Agent 整合採內建、具型別的分派：工具偵測與啟動規格涵蓋�
 | Claude Code CLI／`claude` | `claude` | 支援既有本機 JSONL adapter | 新工作、索引 Session 恢復 |
 | Grok Build／`grok` | `grok` | 本批新增唯讀 summary／updates adapter | 新工作、索引 Session 或手動 ID 恢復 |
 | Antigravity CLI／`antigravity` | `agy` | CLI metadata＋持久化 step 防禦 reader；1.3.5 真實樣本待驗證 | 新工作、手動 ID；通過原生來源／身份檢查的索引 Session 接續 |
-| OpenCode／`opencode` | `opencode` | 官方 v1.19.2 SQLite v1/v2 唯讀 reader；舊 JSON 尚不支援 | 新工作、索引 Session 或手動 ses_ ID 恢復 |
+| OpenCode／`opencode` | `opencode` | 官方 v1.19.2／1.19.3 SQLite v1/v2 唯讀 reader（含 CLI 實際寫入的 v1-only 狀態）；舊 JSON 尚不支援 | 新工作、索引 Session 或手動 ses_ ID 恢復 |
 | Gemini CLI、Aider 等 | 未整合 | 個別研究 | 後續候選 |
 | 各工具桌面版、IDE 與雲端紀錄 | 分別評估 | 不因 CLI 支援就假定涵蓋 | 不自動附接外部程序 |
 

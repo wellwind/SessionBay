@@ -1011,10 +1011,33 @@ describe('inline Shift+Enter routing', () => {
     expect(h.press()).toBe(true);
     fireEvent.compositionEnd(h.textarea);
     expect(h.press('keydown', { isComposing: true })).toBe(true);
-    expect(h.press('keydown', { keyCode: 229 })).toBe(true);
+    // An IME-owned 229 keydown outside composition skips xterm (commit-only guard) and sends nothing.
+    expect(h.press('keydown', { keyCode: 229 })).toBe(false);
     expect(mocks.write).not.toHaveBeenCalled();
     expect(h.press()).toBe(false);
     await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(1));
+  });
+  it('sends a commit-only IME result once after existing text and stops xterm from resending it', async () => {
+    const h = await ready('shell');
+    act(() => mocks.input!('echo abc '));
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(1));
+    const area = h.textarea as HTMLTextAreaElement;
+    area.value = '\u00a0 ';
+    const xtermEnd = vi.fn();
+    h.textarea.addEventListener('compositionend', xtermEnd);
+    // WebKitGTK + fcitx5: keydown(229) → input(insertFromComposition) → compositionend, no compositionstart.
+    expect(h.press('keydown', { key: 'Unidentified', keyCode: 229, shiftKey: false })).toBe(false);
+    area.value += '中文';
+    fireEvent.input(h.textarea, { inputType: 'insertFromComposition', data: '中文' });
+    fireEvent.compositionEnd(h.textarea, { data: '中文' });
+    await waitFor(() => expect(mocks.write).toHaveBeenCalledTimes(2));
+    expect(mocks.write.mock.calls.map(([, value]) => value)).toEqual(['echo abc ', '中文']);
+    expect(xtermEnd).not.toHaveBeenCalled();
+    // A composition that does start stays with xterm: its compositionend reaches the textarea.
+    fireEvent.compositionStart(h.textarea);
+    fireEvent.compositionEnd(h.textarea, { data: '文' });
+    expect(xtermEnd).toHaveBeenCalledTimes(1);
+    expect(mocks.write).toHaveBeenCalledTimes(2);
   });
   it('does not emit before snapshot readiness or after disconnect/exit', async () => {
     const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));

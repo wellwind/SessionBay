@@ -903,3 +903,27 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 長標題的較矮初始 Terminal 暴露 main 已存在的 xterm scrollbar 同步問題：首次 fit 後 buffer 已移到底部，但同一 render turn 的 scrollbar 同步會恢復舊 viewportY。僅對 resize 前已在底部的 Terminal，在下一次 onRender 的 microtask 完成一次底部校正；閱讀 scrollback 時不啟動，使用者捲動／隱藏／卸載會取消。不加入固定延遲、重試迴圈或 scrollIntoView。
 
 Review 補強：選單收合只在焦點仍留於即將隱藏內容時返回入口，不覆寫動作已選擇的 Terminal／搜尋／對話框焦點；179↔181px footer 搬移及窄版入口消失均明確交接到可見控制項。底部校正綁定原 buffer，搜尋、選取及 fit 後的非內部捲動會取消，buffer 切換亦取消。非 Terminal 的 runtime unavailable 與空狀態改由自身捲動區承載溢出，保持外框固定。
+
+## 2026-10-19：OpenCode 真實 CLI 的 v1-only 歷史
+
+使用者以真實 OpenCode 1.19.2／1.19.3 試用時，三個 Session 全部只顯示 metadata，無預覽、無法接續。實測穩定版 CLI 只寫 v1 message/part，session_message table 存在但為空；原本「有 v2 table、無 v2 rows」一律視為歧義的規則因此擋下所有真實歷史。使用者核准修正：v1 最新更新與 session.time_updated 相差 60 秒內時視為現行投影；v1 明顯過舊（例如刪除 v2 後殘留）仍 metadata-only。另經原始碼比對確認 1.19.3 未改 schema，版本上限延伸至 1.19.3；catalog 依 reader revision 重讀未變更的 DB。
+
+## 2026-10-20：Terminal commit-only IME
+
+- 問題（backlog #07）：Linux WebKitGTK 4.1＋fcitx5 新酷音在游標前已有文字時，`echo 中文` 送進 PTY 變成 `中文文` 或 `\u00a0 中文`。
+- 根因：此組合的 preedit 留在輸入法，頁面只收到 `keydown(229, isComposing=false)` → `input(insertFromComposition)` → `compositionend`，沒有 `compositionstart`。xterm 6 `CompositionHelper` 的 229 分支以 `newValue.replace(oldValue, '')` 送出差異，孤立的 compositionend 又以過期的 `_compositionPosition.start + _dataAlreadySent.length` 取子字串再送；helper textarea 只在 Enter／Ctrl+C 清空，前面累積的空白與先前確認字使兩者重疊。
+- 決策：Mike 同意修正。只接管 commit-only 路徑：組字外的 229 keydown 透過公開 custom key handler 略過 xterm 處理；host capture 階段的孤立 compositionend 以 `event.data` 經 `terminal.input` 送一次並停止傳到 xterm；229 後無組字的 `insertText` 也只送一次。有 `compositionstart` 的組字、Backspace 改 preedit 仍由 xterm 處理。不做文字去重、不改 xterm 套件。
+- Shift＋Enter 在一般 Shell 顯示 `;2u`：維持 2026-10-17 使用者選擇的「一律 CSI-u、不從前景程式推測」，本次不改。
+
+## 2026-10-20：OpenCode 大型資料庫（持續區塊鏡像與增量索引）
+
+使用者實際的 opencode.db 已達 2 GB，舊版因「DB/WAL 各 512 MiB、合計 768 MiB」快照上限直接拒讀（「OpenCode history file exceeds the snapshot byte limit」）。使用者要求高效能解法，不只是放寬上限。
+
+- **不直接以 SQLite 開啟原始 DB**：read-only 連線在 WAL 模式仍需建立／寫入 `-shm` 並取得共享鎖；長讀取交易會擋住 checkpoint 重設 WAL、讓 OpenCode 的 WAL 持續變大；`-shm` 不存在時會在使用者資料夾產生檔案。`immutable=1` 對正在寫入的 DB 會讀到錯誤資料，`nolock` 會讀到撕裂頁面。這些都違反「不寫、不鎖、不影響 OpenCode」的既有保證，所以保留「SQLite 只看私人副本」的原則。
+- **持續區塊鏡像**：鏡像放在使用者 cache 目錄、owner-only 0700，並以檔案鎖跨執行緒／程序序列化。主 DB 戳記（device/inode、大小、奈秒 mtime／ctime）未變時零複製；變了（通常是 checkpoint）就逐 1 MiB 區塊比對，只寫入差異。WAL 每次完整複製並 hash，前後各驗一次。
+- **一致性**：主 DB 不再做前後兩次全檔 SHA-256，改以讀取前後戳記完全相同作為未被寫入的證明；所有寫入（含 checkpoint）都會更新 mtime／ctime。只有秒級時間解析度的檔案系統風險較高，記為已知限制。WAL／journal 仍比對內容 hash。
+- **增量**：每 Session 指紋涵蓋 DB 身分、session 列、message/part/session_message 的筆數，以及 message 的 max(time_created／time_updated)，只用索引和小列，不碰大型 part payload。未變的 Session 不讀內容；預覽與冷接續只驗證該 Session，其他 Session 寫入不再讓它變成 stale。只更新 part 內容、但 session／message 時間都沒變的寫入不會被偵測到；實測 1.19.x 的 session.time_updated 與最新列相差 <20 ms，因此一般寫入都會改變指紋。
+- **預算**：改成每 Session 預算，超出時只標記該 Session partial 並警告。catalog 以串流方式寫入，記憶體不再隨整個 DB 成長。`quick_check` 只在鏡像主 DB 變更後執行，或 DB ≤64 MiB 時每次執行；WAL frame 每次都驗 checksum。
+- READER_REVISION 升為 2，舊快取會全部重讀一次。鏡像在移除來源後不會自動刪除，可以手動清掉 cache 目錄。
+- 量測（Linux box，合成 2.0 GiB／3,928 Sessions，release `opencode_benchmark` 跑 catalog sync，檔案在 page cache 內）：舊版直接拒讀；只放寬上限的舊演算法冷索引 24.4 s，未變更 10.3 s，WAL 寫入一筆 25.2 s，峰值 RSS 約 78 MiB。新版冷索引 16.4 s／15 MiB，未變更 0.06 s／11 MiB，WAL 寫入一筆 0.08 s，checkpoint 後 2.0 s（2 GiB 區塊比對，只寫入差異）。
+

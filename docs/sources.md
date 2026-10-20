@@ -119,7 +119,7 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 
 ## 輸入與工作分頁修正（2026-10-15）
 
-- [xterm.js CompositionHelper 原始碼](https://github.com/xtermjs/xterm.js/blob/master/src/browser/input/CompositionHelper.ts)：本輪測試讀取 lockfile 鎖定的 xterm 5.5.0 實作，重現 Caps Lock 提前 finalize 後 compositionend 重送；合成事件不代替真實 macOS 輸入法驗收。
+- [xterm.js CompositionHelper 原始碼](https://github.com/xtermjs/xterm.js/blob/master/src/browser/input/CompositionHelper.ts)：本輪測試讀取 lockfile 鎖定的 xterm 5.5.0 實作，重現 Caps Lock 提前 finalize 後 compositionend 重送；合成事件不代替真實 macOS 輸入法驗收。2026-10-20 另讀 xterm 6 同檔的 `_handleAnyTextareaChanges` 與 `_finalizeComposition`，以 WebKitGTK 4.1＋fcitx5 chewing 實測事件順序確認 commit-only 雙送。
 - [Chrome 鍵盤快捷鍵](https://support.google.com/chrome/answer/157179?co=GENIE.Platform%3DDesktop&hl=en)：使用者指定的工作分頁操作參考；應用保留鍵、組字與模態對話框邊界見 UX 規格，不宣稱攔截所有 OS 全域快捷鍵。
 
 ## Antigravity CLI 持久化格式補充（2026-10-15）
@@ -166,7 +166,8 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [SQLite schema](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session/sql.ts)、[v1 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/v1/session.ts)、[v2 types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/session-message.ts)：reader 與獨立合成 fixture 欄位依據，非穩定外部 API 保證。
 - [Global XDG paths](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/global.ts)、[DB override](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/database.ts)、[TUI argv](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/cli/cmd/tui.ts)、[global --pure](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/opencode/src/index.ts)：路徑、精確來源與權限選項依據。
 
-- OpenCode v2 reset 與原生讀取權威性（2026-10-16，固定 v1.19.2 source）：[reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts)、[V2Session reader](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session.ts)、[v2 experimental specification](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/specs/v2/session.md)。v2 state reset 不代表 v1 rows 仍屬現行 transcript；無權威標記的混合狀態採 metadata-only partial，不自動 fallback。
+- OpenCode v2 reset 與原生讀取權威性（2026-10-16，固定 v1.19.2 source）：[reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts)、[V2Session reader](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session.ts)、[v2 experimental specification](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/specs/v2/session.md)。v2 state reset 不代表 v1 rows 仍屬現行 transcript；無權威標記的混合狀態採 metadata-only partial。2026-10-19 起，v1 與 session.time_updated 同步（60 秒內）時視為現行投影，依據為真實 CLI 1.19.2／1.19.3 只寫 v1 的實測，見 [OpenCode 整合](opencode-integration.md#真實-cli-驗收2026-10-19linux)。
+- [v1.19.2…v1.19.3 compare](https://github.com/anomalyco/opencode/compare/v1.19.2...v1.19.3)（查閱 2026-10-19）：4 commits、36 files，僅 provider 與套件版本，無 database／migration／session 檔案變更。
 
 ## 索引效能與暫存候選索引
 

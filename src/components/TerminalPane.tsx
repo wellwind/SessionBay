@@ -34,6 +34,7 @@ import { workspaceZoomEvent } from '../workspace-zoom';
 import { fileInputChangesPrompt, fileLimits, fileProvider, fileUnsupportedReason, fileInputGuidance, insertFiles, hasDirectory, FileInputError, clipboardFileName, displayFileName } from '../file-input';
 import { embeddedLinkLabel, fileLinkModifier, terminalFileLinkProvider, type TerminalFileOpen } from '../terminal-file-links';
 import { handleTerminalKey } from '../terminal-keyboard';
+import { TerminalImeCommitGuard } from '../terminal-ime';
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
   lease: string;
@@ -218,11 +219,18 @@ export function TerminalPane({
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(searchAddon);
     const element = host.current;
-    let composing = false;
-    const compositionStart = () => { composing = true; };
-    const compositionEnd = () => { composing = false; };
+    // Capture on the host runs before xterm's textarea listeners (see terminal-ime).
+    const ime = new TerminalImeCommitGuard((data) => terminal.input(data, true));
+    const compositionStart = (event: Event) => { if (event.target === terminal.textarea) ime.compositionStart(); };
+    const compositionEnd = (event: CompositionEvent) => {
+      if (event.target === terminal.textarea && ime.compositionEnd(event)) event.stopImmediatePropagation();
+    };
+    const imeInput = (event: Event) => {
+      if (event.target === terminal.textarea && ime.input(event as InputEvent)) event.stopImmediatePropagation();
+    };
     element.addEventListener('compositionstart', compositionStart, true);
     element.addEventListener('compositionend', compositionEnd, true);
+    element.addEventListener('input', imeInput, true);
     const pasteFiles = (event: ClipboardEvent) => {
       if (event.target !== terminal.textarea || !event.clipboardData) return;
       if (hasDirectory(event.clipboardData.items)) {
@@ -253,8 +261,9 @@ export function TerminalPane({
     terminal.attachCustomKeyEventHandler((event) => {
       const current = latest.current;
       const active = attachment.current;
+      if (!hasBlockingDialog() && ime.suppressXtermKey(event)) return false;
       return handleTerminalKey(event, {
-        composing,
+        composing: ime.composing,
         blocked: hasBlockingDialog(),
         canInput: mounted.current && current.visible && current.focused && document.activeElement === terminal.textarea &&
           current.pane.state === 'running' && !!runtime.current && current.pane.runtimeId === runtime.current &&
@@ -315,6 +324,7 @@ export function TerminalPane({
       input.dispose();
       element.removeEventListener('compositionstart', compositionStart, true);
       element.removeEventListener('compositionend', compositionEnd, true);
+      element.removeEventListener('input', imeInput, true);
       element.removeEventListener('paste', pasteFiles, true);
       element.removeEventListener('dragover', dragFiles, true);
       element.removeEventListener('drop', dropFiles, true);
