@@ -8,6 +8,16 @@ use sessionbay_lib::{
 };
 use std::{fs, path::PathBuf, sync::atomic::AtomicBool};
 const ID: &str = "ses_syntheticAlpha";
+/// Keep test mirrors out of the user's cache directory.
+fn isolate_mirror() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::env::set_var(
+            opencode::MIRROR_DIR_ENV,
+            std::env::temp_dir().join("sessionbay-test-opencode-mirror"),
+        )
+    });
+}
 struct Harness {
     _temp: tempfile::TempDir,
     root: PathBuf,
@@ -16,6 +26,7 @@ struct Harness {
 }
 impl Harness {
     fn new() -> Self {
+        isolate_mirror();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("OpenCode history with spaces");
         fs::create_dir(&root).unwrap();
@@ -492,4 +503,288 @@ fn fresh_v1_rows_after_v2_deletion_still_require_matching_session_time() {
     assert!(h.texts().is_empty());
     assert!(h.session().partial);
     assert_eq!(h.search("Fresh"), 0);
+}
+
+fn large_root(sessions: usize, payload: usize) -> (tempfile::TempDir, PathBuf) {
+    isolate_mirror();
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("large");
+    fs::create_dir(&root).unwrap();
+    let db = Connection::open(root.join("opencode.db")).unwrap();
+    db.execute_batch(include_str!("../../fixtures/opencode/schema.sql"))
+        .unwrap();
+    db.execute_batch("PRAGMA journal_mode=WAL; BEGIN;").unwrap();
+    for s in 0..sessions {
+        let id = format!("ses_large{s}");
+        db.execute("INSERT INTO session VALUES(?1,'global','/synthetic/large','Large','1.19.2',1,1760000001000,NULL,NULL,NULL)", [&id]).unwrap();
+        for m in 0..4 {
+            let message = format!("msg_large{s}x{m}");
+            db.execute(
+                "INSERT INTO message VALUES(?1,?2,?3,1760000001000,?4)",
+                params![message, id, m, json!({"role":"user"}).to_string()],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO part VALUES(?1,?2,?3,1,1760000001000,?4)",
+                params![
+                    format!("prt_large{s}x{m}a"),
+                    id,
+                    message,
+                    json!({"type":"text","text":format!("needle {s} {m}")}).to_string()
+                ],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO part VALUES(?1,?2,?3,1,1760000001000,?4)",
+                params![
+                    format!("prt_large{s}x{m}b"),
+                    id,
+                    message,
+                    json!({"type":"tool","state":{"output":"z".repeat(payload)}}).to_string()
+                ],
+            )
+            .unwrap();
+        }
+    }
+    db.execute_batch("COMMIT; PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
+    (temp, root)
+}
+
+fn small_limits() -> opencode::Limits {
+    opencode::Limits {
+        file_bytes: 1 << 30,
+        wal_bytes: 1 << 30,
+        rows: 10_000,
+        output_bytes: 4096,
+        block_bytes: 4096,
+        always_check_bytes: 0,
+    }
+}
+
+fn read_all(
+    root: &std::path::Path,
+    known: &std::collections::HashMap<String, String>,
+    limits: opencode::Limits,
+) -> Result<
+    (
+        Vec<opencode::ConversationMetadata>,
+        opencode::IndexSummary,
+        opencode::MirrorStats,
+    ),
+    String,
+> {
+    let mut records = Vec::new();
+    let (summary, stats) =
+        opencode::read_with_limits(root, &AtomicBool::new(false), limits, known, &mut |r| {
+            records.push(r);
+            Ok(())
+        })?;
+    Ok((records, summary, stats))
+}
+
+#[test]
+fn database_beyond_the_old_snapshot_limit_is_mirrored_incrementally() {
+    // Scaled down 1024x: the old 768 MiB snapshot limit corresponds to 768 KiB
+    // here, with 4 KiB mirror blocks standing in for 1 MiB blocks.
+    let (_temp, root) = large_root(120, 3000);
+    let size = fs::metadata(root.join("opencode.db")).unwrap().len();
+    assert!(size > 768 * 1024, "{size}");
+    let (records, summary, stats) = read_all(&root, &Default::default(), small_limits()).unwrap();
+    assert_eq!(records.len(), 120);
+    assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
+    assert!(stats.database_refreshed && stats.integrity_checked);
+    assert_eq!(stats.database_bytes_written, size);
+    assert!(records.iter().all(|r| r.messages.len() == 4 && !r.partial));
+
+    // Unchanged database: nothing is copied, every session is skipped.
+    let known: std::collections::HashMap<_, _> = records
+        .iter()
+        .map(|r| (r.id.clone(), r.fingerprint.clone()))
+        .collect();
+    let (again, _, stats) = read_all(&root, &known, small_limits()).unwrap();
+    assert!(!stats.database_refreshed);
+    assert_eq!((stats.sessions_read, stats.sessions_skipped), (0, 120));
+    assert!(again.iter().all(|r| r.unchanged && r.messages.is_empty()));
+
+    // One appended message, then a checkpoint into the main database: only the
+    // changed blocks are written and only that session is re-read.
+    let db = Connection::open(root.join("opencode.db")).unwrap();
+    db.execute(
+        "INSERT INTO message VALUES('msg_new','ses_large7',9,1760000002000,?1)",
+        [json!({"role":"user"}).to_string()],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO part VALUES('prt_new','ses_large7','msg_new',9,1760000002000,?1)",
+        [json!({"type":"text","text":"fresh needle"}).to_string()],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE session SET time_updated=1760000002000 WHERE id='ses_large7'",
+        [],
+    )
+    .unwrap();
+    let (records, _, stats) = read_all(&root, &known, small_limits()).unwrap();
+    assert_eq!((stats.sessions_read, stats.sessions_skipped), (1, 119));
+    let changed = records.iter().find(|r| r.id == "ses_large7").unwrap();
+    assert_eq!(changed.messages.last().unwrap().text, "fresh needle");
+    db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
+    let (_, _, stats) = read_all(&root, &known, small_limits()).unwrap();
+    assert!(stats.database_refreshed);
+    assert_eq!(
+        stats.database_bytes_read,
+        fs::metadata(root.join("opencode.db")).unwrap().len()
+    );
+    assert!(
+        stats.database_bytes_written * 10 < size,
+        "{} of {size}",
+        stats.database_bytes_written
+    );
+}
+
+#[test]
+fn per_session_budget_marks_only_the_oversized_session_partial() {
+    let (_temp, root) = large_root(3, 10);
+    let db = Connection::open(root.join("opencode.db")).unwrap();
+    db.execute(
+        "INSERT INTO message VALUES('msg_big','ses_large1',99,1760000001000,?1)",
+        [json!({"role":"user"}).to_string()],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO part VALUES('prt_big','ses_large1','msg_big',1,1760000001000,?1)",
+        [json!({"type":"text","text":"y".repeat(8192)}).to_string()],
+    )
+    .unwrap();
+    let (records, summary, _) = read_all(&root, &Default::default(), small_limits()).unwrap();
+    assert_eq!(records.len(), 3);
+    for record in records {
+        assert_eq!(record.partial, record.id == "ses_large1", "{}", record.id);
+        assert_eq!(record.messages.len(), 4);
+    }
+    assert!(summary
+        .warnings
+        .iter()
+        .any(|w| w.contains("per-session read budget")));
+}
+
+#[test]
+fn concurrent_writer_is_never_blocked_and_reads_are_consistent_or_retryable() {
+    let (_temp, root) = large_root(20, 2000);
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let writer = {
+        let (root, stop) = (root.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let db = Connection::open(root.join("opencode.db")).unwrap();
+            // A tiny autocheckpoint forces checkpoints into the main database
+            // while the reader is mirroring it.
+            db.execute_batch("PRAGMA wal_autocheckpoint=4;").unwrap();
+            let mut n = 0;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) && n < 2000 {
+                let message = format!("msg_live{n}");
+                // Never SQLITE_BUSY: the reader holds no lock on the source.
+                db.execute_batch("BEGIN IMMEDIATE").unwrap();
+                db.execute(
+                    "INSERT INTO message VALUES(?1,'ses_large3',?2,1760000003000,?3)",
+                    params![message, 100 + n, json!({"role":"user"}).to_string()],
+                )
+                .unwrap();
+                db.execute(
+                    "INSERT INTO part VALUES(?1,'ses_large3',?2,1,1760000003000,?3)",
+                    params![
+                        format!("prt_live{n}"),
+                        message,
+                        json!({"type":"text","text":format!("live {n}")}).to_string(),
+                    ],
+                )
+                .unwrap();
+                db.execute_batch("COMMIT").unwrap();
+                n += 1;
+            }
+            n
+        })
+    };
+    let mut ok = 0;
+    let mut last = 0;
+    for _ in 0..40 {
+        match read_all(
+            &root,
+            &Default::default(),
+            opencode::Limits {
+                output_bytes: 1 << 20,
+                ..small_limits()
+            },
+        ) {
+            Ok((records, _, _)) => {
+                ok += 1;
+                let live = records.iter().find(|r| r.id == "ses_large3").unwrap();
+                // Each committed write adds exactly one message: a consistent
+                // view never has a message without its text part.
+                let count = live.messages.len();
+                assert!(live.messages[4..]
+                    .iter()
+                    .enumerate()
+                    .all(|(i, m)| m.text == format!("live {i}")));
+                assert!(count >= last, "went backwards: {count} < {last}");
+                last = count;
+            }
+            Err(error) => assert!(
+                error.contains("changed") || error.contains("grew") || error.contains("WAL"),
+                "{error}"
+            ),
+        }
+    }
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let written = writer.join().unwrap();
+    let (records, _, _) = read_all(
+        &root,
+        &Default::default(),
+        opencode::Limits {
+            output_bytes: 1 << 20,
+            ..small_limits()
+        },
+    )
+    .unwrap();
+    let live = records.iter().find(|r| r.id == "ses_large3").unwrap();
+    assert_eq!(live.messages.len(), 4 + written);
+    let _ = ok;
+}
+
+#[test]
+fn catalog_refresh_reindexes_only_changed_sessions_and_keeps_other_previews_fresh() {
+    let h = Harness::new();
+    let db = h.db();
+    db.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+    db.execute("INSERT INTO session VALUES('ses_otherBeta','global','/synthetic/b','Other','1.19.2',1,1760000001000,NULL,NULL,NULL)", []).unwrap();
+    h.v2(0, "user", json!({"text":"alpha first"}));
+    db.execute(
+        "INSERT INTO session_message VALUES('msg_b0','ses_otherBeta','user',0,1,1,?1)",
+        [json!({"text":"beta only"}).to_string()],
+    )
+    .unwrap();
+    h.sync();
+    let beta = h
+        .catalog
+        .query(&SessionQuery {
+            query: Some("beta".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .remove(0);
+    h.v2(1, "user", json!({"text":"alpha appended"}));
+    db.execute(
+        "UPDATE session SET time_updated=1760000009000 WHERE id=?1",
+        [ID],
+    )
+    .unwrap();
+    // The other session's preview stays valid across an unrelated write.
+    let page = h.catalog.transcript(&beta.id, None, 20).unwrap();
+    assert!(!page.stale);
+    assert_eq!(page.messages[0].text, "beta only");
+    h.sync();
+    assert_eq!(h.search("appended"), 1);
+    assert!(!h.catalog.transcript(&beta.id, None, 20).unwrap().stale);
 }

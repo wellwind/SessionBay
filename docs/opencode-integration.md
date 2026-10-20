@@ -17,11 +17,11 @@
 
 ## 唯讀與來源身份
 
-原始 DB、WAL、journal 只以唯讀、非 symlink／reparse 的普通檔案開啟。Unix 使用 device/inode，Windows 實作使用平台 PR 的 volume/128-bit file identity 與唯讀 no-reparse handle；Windows 路徑已 cross-compile，但原生安全／執行測試仍未完成。SQLite library 只收到私人暫存 copy，避免 read-only SQLite 仍產生 shm 等 sidecar。檢查來源 before/after 的檔案身分、大小、時間與內容 hash；非空 rollback journal、截斷 WAL、checksum／schema／integrity 不符時保留已提交索引並回報來源錯誤。此保留不代表可預覽／接續：每次預覽與冷接續都重新驗證快照。
+原始 DB、WAL、journal 只以唯讀、非 symlink／reparse 的普通檔案開啟。Unix 使用 device/inode，Windows 實作使用平台 PR 的 volume/128-bit file identity 與唯讀 no-reparse handle；Windows 路徑已 cross-compile，但原生安全／執行測試仍未完成。SQLite library 只開啟私人、owner-only（0700）的持續鏡像（使用者 cache 目錄 `sessionbay/opencode-mirror/<root hash>`），從不開啟原始檔，因此不會在來源產生 shm、取鎖或觸發 checkpoint。主 DB 的身分戳記（device/inode、大小、奈秒 mtime／ctime）不變時直接沿用鏡像；改變時逐 1 MiB 區塊比對，只寫入不同的區塊。WAL 每次完整複製並 hash。讀取前後檢查所有來源戳記，WAL／journal 另比對內容 hash；非空 rollback journal、截斷 WAL、checksum／schema／integrity 不符時保留已提交索引並回報來源錯誤。每次預覽與冷接續只重新驗證該 Session 的指紋。
 
 所有 source ID、Session ID、db 身分與 snapshot token 分開保存。相同 native ID 在不同啟用來源時阻擋冷接續。已活躍的同來源 runtime 依 DB 實體身分與 provider-qualified key 聚焦，正常 DB 追加不重開程序；runtime key 也固定包含啟動時的 DB 實體身分，即使同路徑換檔後重新索引，也不會冒充舊 runtime。手動接續同樣要求來源 DB 已存在且可安全取得身分。
 
-界限：DB/WAL 各最多 512 MiB，合計 768 MiB；最多 50,000 Sessions、每 Session 100,000 messages、每 v1 message 10,000 parts，單段 JSON 8 MiB、總搜尋文字 32 MiB。超限會明確錯誤，不悄悄只索引前半。預覽每頁至多 200 messages／1 MiB，每則 64 KiB。完整快照與完整性檢查以正確性優先；大型資料庫的差分索引留待專門效能工作。
+界限：DB 安全上限 64 GiB、WAL 2 GiB（WAL 每次整份複製，過大時請讓 OpenCode checkpoint）；最多 50,000 Sessions。每個 Session 各自有預算：100,000 messages、每 v1 message 10,000 parts、16 MiB 搜尋文字；超出只索引前段，該 Session 標為 partial 並明確警告，不再讓整個來源失敗。單段 JSON 8 MiB。預覽每頁至多 200 messages／1 MiB，每則 64 KiB。增量：每 Session 指紋涵蓋 DB 身分、session 列、message/part/session_message 的筆數與 message 時間；未變的 Session 不讀內容。主 DB 變更或 ≤64 MiB 時才跑 `quick_check`。
 
 ## 啟動與安裝
 

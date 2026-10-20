@@ -2,8 +2,11 @@
 //! (v1.19.3 changes no database, migration, or session schema files):
 //! https://github.com/anomalyco/opencode/tree/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session
 //! Both v1 message/part and v2 session_message projections are supported. SQLite
-//! only sees private copies; database/WAL identities and hashes are checked before
-//! and after reading. The snapshot algorithm is shared in design with Antigravity.
+//! only sees a private, persistent, owner-only mirror: the main database is
+//! refreshed block-by-block (only changed blocks are written) when its identity
+//! stamp changes, and the WAL is re-copied and hashed every read. Source
+//! identity stamps are checked before and after reading, so no source file is
+//! ever opened by SQLite, locked, checkpointed, or given a `-shm` sidecar.
 //! No CLI, auth file, network request, source migration, or source write is used.
 use chrono::{DateTime, SecondsFormat};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
@@ -14,17 +17,30 @@ use std::fs;
 use std::{
     collections::{HashMap, HashSet},
     fs::{File, Metadata, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::SystemTime,
 };
 
 const DATABASE_NAME: &str = "opencode.db";
-const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
-const MAX_SNAPSHOT_BYTES: u64 = 768 * 1024 * 1024;
+/// Sanity bounds only; real 2 GiB+ databases are expected. Cost now scales
+/// with changed blocks and changed sessions, not with the file size.
+const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+const MAX_WAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_METADATA_ROWS: usize = 50_000;
-const MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
+/// Searchable text budget per session; beyond it the session is indexed up to
+/// the budget and marked partial, instead of failing the whole source.
+const MAX_SESSION_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+const MIRROR_BLOCK_BYTES: usize = 1024 * 1024;
+/// Databases at or below this size are always integrity-checked; larger ones
+/// only after their mirrored main database changed.
+const ALWAYS_CHECK_BYTES: u64 = 64 * 1024 * 1024;
+/// Test/advanced override for the private mirror location.
+pub const MIRROR_DIR_ENV: &str = "SESSIONBAY_OPENCODE_MIRROR_DIR";
+const BUDGET_ERROR: &str = "OpenCode session exceeds the per-session read budget";
+pub const PARTIAL_WARNING: &str = "Some OpenCode sessions contain unknown versions, incomplete or ambiguous projections, or an active revert. Unsupported content is omitted; refresh after changes. Indexed resume is disabled for partial sessions.";
+const BUDGET_WARNING: &str = "Some OpenCode sessions exceed the per-session read budget (100,000 messages, 10,000 parts per message, or 16 MiB of searchable text); only the leading part is searchable and those sessions are marked partial.";
 const MAX_TITLE_BYTES: usize = 16 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_ERROR_BYTES: usize = 2048;
@@ -34,7 +50,8 @@ const MAX_ERROR_BYTES: usize = 2048;
 /// Bump when the reader output changes for an unchanged database, so catalog
 /// rows written by an older reader are re-read instead of reused by fingerprint.
 /// Revision 1: v1 fallback for empty v2 projections and the 1.19.3 version gate.
-pub const READER_REVISION: i64 = 1;
+/// Revision 2: persistent block mirror, per-session fingerprints/budgets.
+pub const READER_REVISION: i64 = 2;
 const LEGACY_FRESHNESS_MS: i64 = 60_000;
 
 #[derive(Debug, Clone)]
@@ -47,6 +64,32 @@ pub struct ConversationMetadata {
     pub archived: bool,
     pub partial: bool,
     pub messages: Vec<crate::adapters::ParsedMessage>,
+    /// Per-session content fingerprint (database identity, session row, and
+    /// projection row counts/timestamps). Changes whenever the session changes.
+    pub fingerprint: String,
+    /// Database identity (device/inode or Windows file id).
+    pub identity: String,
+    /// True when the caller already holds this fingerprint; messages were not read.
+    pub unchanged: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct IndexSummary {
+    pub fingerprint: String,
+    pub identity: String,
+    pub warnings: Vec<String>,
+    pub sessions: usize,
+}
+
+/// Counters for tests and benchmarks.
+#[derive(Debug, Clone, Default)]
+pub struct MirrorStats {
+    pub database_bytes_read: u64,
+    pub database_bytes_written: u64,
+    pub database_refreshed: bool,
+    pub integrity_checked: bool,
+    pub sessions_read: usize,
+    pub sessions_skipped: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -57,21 +100,25 @@ pub struct MetadataIndex {
     pub warnings: Vec<String>,
 }
 
-#[derive(Clone, Copy)]
-struct Limits {
-    file_bytes: u64,
-    snapshot_bytes: u64,
-    rows: usize,
-    output_bytes: usize,
+#[derive(Clone, Copy, Debug)]
+pub struct Limits {
+    pub file_bytes: u64,
+    pub wal_bytes: u64,
+    pub rows: usize,
+    pub output_bytes: usize,
+    pub block_bytes: usize,
+    pub always_check_bytes: u64,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
             file_bytes: MAX_FILE_BYTES,
-            snapshot_bytes: MAX_SNAPSHOT_BYTES,
+            wal_bytes: MAX_WAL_BYTES,
             rows: MAX_METADATA_ROWS,
-            output_bytes: MAX_OUTPUT_BYTES,
+            output_bytes: MAX_SESSION_OUTPUT_BYTES,
+            block_bytes: MIRROR_BLOCK_BYTES,
+            always_check_bytes: ALWAYS_CHECK_BYTES,
         }
     }
 }
@@ -137,13 +184,86 @@ enum SnapshotStage {
 
 /// Returns a complete bounded index or an error. Missing metadata is explicitly
 /// distinguished from unreadable, changing, oversized, or unsupported metadata.
+/// Collects every session in memory; the catalog uses [`read_sessions`].
 pub fn read_metadata(root: &Path, cancel: &AtomicBool) -> Result<MetadataIndex, String> {
+    let mut records = HashMap::new();
+    let summary = read_sessions(root, cancel, &HashMap::new(), &mut |record| {
+        records.insert(record.id.clone(), record);
+        Ok(())
+    })?;
+    Ok(MetadataIndex {
+        records,
+        fingerprint: summary.fingerprint,
+        identity: summary.identity,
+        warnings: summary.warnings,
+    })
+}
+
+/// Streams sessions to `sink`. Sessions whose fingerprint equals `known[id]`
+/// are emitted with `unchanged = true` and no messages, so refresh cost is
+/// proportional to changed sessions. The result is publishable only if this
+/// returns `Ok`: sources are re-verified after the last sink call.
+pub fn read_sessions(
+    root: &Path,
+    cancel: &AtomicBool,
+    known: &HashMap<String, String>,
+    sink: &mut dyn FnMut(ConversationMetadata) -> Result<(), String>,
+) -> Result<IndexSummary, String> {
+    read_with_limits(root, cancel, Limits::default(), known, sink).map(|(summary, _)| summary)
+}
+
+/// Like [`read_sessions`] with injected limits; returns mirror counters.
+#[doc(hidden)]
+pub fn read_with_limits(
+    root: &Path,
+    cancel: &AtomicBool,
+    limits: Limits,
+    known: &HashMap<String, String>,
+    sink: &mut dyn FnMut(ConversationMetadata) -> Result<(), String>,
+) -> Result<(IndexSummary, MirrorStats), String> {
     // Unix uses device/inode identity; Windows uses the platform read-only
     // no-reparse handle and volume/128-bit file identity implementation.
     if !cfg!(any(unix, windows)) {
         return Err("Safe OpenCode history snapshots are unsupported on this platform".into());
     }
-    read_metadata_inner(root, cancel, Limits::default(), &mut |_| {}).map_err(bound_error)
+    let mut stats = MirrorStats::default();
+    read_metadata_inner(
+        root,
+        cancel,
+        limits,
+        Mode::Full(known),
+        &mut |_| {},
+        sink,
+        &mut stats,
+    )
+    .map(|summary| (summary, stats))
+    .map_err(bound_error)
+}
+
+/// Verified current fingerprint of one session (None when it no longer
+/// exists). Used before previews and cold resumes; reads no message rows.
+pub fn session_fingerprint(root: &Path, id: &str) -> Result<Option<String>, String> {
+    let mut found = None;
+    read_metadata_inner(
+        root,
+        &AtomicBool::new(false),
+        Limits::default(),
+        Mode::Only(id),
+        &mut |_| {},
+        &mut |record| {
+            found = Some(record.fingerprint);
+            Ok(())
+        },
+        &mut MirrorStats::default(),
+    )
+    .map_err(bound_error)?;
+    Ok(found)
+}
+
+#[derive(Clone, Copy)]
+enum Mode<'a> {
+    Full(&'a HashMap<String, String>),
+    Only(&'a str),
 }
 
 fn bound_error(mut error: String) -> String {
@@ -162,8 +282,11 @@ fn read_metadata_inner(
     root: &Path,
     cancel: &AtomicBool,
     limits: Limits,
+    mode: Mode,
     hook: &mut dyn FnMut(SnapshotStage),
-) -> Result<MetadataIndex, String> {
+    sink: &mut dyn FnMut(ConversationMetadata) -> Result<(), String>,
+    stats: &mut MirrorStats,
+) -> Result<IndexSummary, String> {
     check_cancel(cancel)?;
     let sources = inspect_sources(root, limits)?;
     let Some(database_stamp) = sources.database.as_ref() else {
@@ -176,10 +299,10 @@ fn read_metadata_inner(
         hook(SnapshotStage::MissingChecked);
         check_cancel(cancel)?;
         ensure_sources(root, &sources, limits)?;
-        return Ok(MetadataIndex {
-            records: HashMap::new(),
+        return Ok(IndexSummary {
             identity: "missing".into(),
             fingerprint: format!("{:x}", Sha256::digest(b"opencode-metadata-v1:missing")),
+            sessions: 0,
             warnings: vec![if root.join("storage/session").exists() {
                 "Legacy OpenCode JSON storage is not supported. OpenCode must perform its own migration; Session Bay never migrates or writes history.".into()
             } else {
@@ -188,17 +311,46 @@ fn read_metadata_inner(
         });
     };
 
-    let temporary = tempfile::Builder::new()
-        .prefix("sessionbay-opencode-metadata-")
-        .tempdir()
-        .map_err(|error| format!("Cannot create private OpenCode history snapshot: {error}"))?;
+    let mirror = open_mirror(root)?;
     let database_path = root.join(DATABASE_NAME);
-    let database_copy = temporary.path().join(DATABASE_NAME);
-    let database_hash = copy_and_hash(&database_path, &database_copy, database_stamp, cancel)?;
+    let database_copy = mirror.dir.join(DATABASE_NAME);
+    let stamp_file = mirror.dir.join("source.stamp");
+    let stamp_text = format!("{database_stamp:?}");
+    let previous_state = std::fs::read_to_string(&stamp_file).ok();
+    let reusable = previous_state
+        .as_deref()
+        .and_then(|text| text.split_once('\n'))
+        .is_some_and(|(stamp, _)| stamp == stamp_text)
+        && std::fs::symlink_metadata(&database_copy)
+            .is_ok_and(|meta| meta.is_file() && meta.len() == database_stamp.len);
+    let previously_checked = reusable
+        && previous_state
+            .as_deref()
+            .is_some_and(|text| text.ends_with("\nchecked"));
+    if !reusable {
+        let _ = std::fs::remove_file(&stamp_file);
+        refresh_database(
+            &database_path,
+            database_stamp,
+            &database_copy,
+            limits,
+            cancel,
+            stats,
+        )?;
+        stats.database_refreshed = true;
+    }
+    // SQLite only ever sees the mirror; drop stale sidecars from earlier reads.
+    for suffix in ["wal", "shm", "journal"] {
+        match std::fs::remove_file(sidecar(&mirror.dir, suffix)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("Cannot reset private OpenCode mirror: {error}")),
+        }
+    }
     let wal_hash = match sources.wal.as_ref() {
         Some(stamp) => Some(copy_and_hash(
             &sidecar(root, "wal"),
-            &sidecar(temporary.path(), "wal"),
+            &sidecar(&mirror.dir, "wal"),
             stamp,
             cancel,
         )?),
@@ -211,46 +363,48 @@ fn read_metadata_inner(
         .map(|stamp| hash_source(&sidecar(root, "journal"), stamp, cancel))
         .transpose()?;
     hook(SnapshotStage::Copied);
-    verify_snapshot_sources(
-        root,
-        &sources,
-        [
-            &database_hash,
-            wal_hash.as_deref().unwrap_or(""),
-            journal_hash.as_deref().unwrap_or(""),
-        ],
-        limits,
-        cancel,
-    )?;
+    let hashes = [
+        wal_hash.as_deref().unwrap_or(""),
+        journal_hash.as_deref().unwrap_or(""),
+    ];
+    // Main-database consistency is proven by its identity stamp (device/inode,
+    // size, nanosecond mtime/ctime) being identical before and after: every
+    // write, including checkpoints, updates mtime/ctime. WAL/journal content is
+    // small and is additionally re-hashed.
+    verify_snapshot_sources(root, &sources, hashes, limits, cancel)?;
+    if !reusable {
+        write_stamp(&stamp_file, &stamp_text, false)?;
+    }
 
     let snapshot_warning =
         validate_sqlite_files(&database_copy, sources.wal.is_some(), limits, cancel)?;
     check_cancel(cancel)?;
-    let mut index = read_copy(&database_copy, limits, cancel)?;
+    let integrity = !previously_checked || database_stamp.len <= limits.always_check_bytes;
+    stats.integrity_checked = integrity;
+    let identity = stamp_identity(database_stamp);
+    let mut summary = read_copy(
+        &database_copy,
+        limits,
+        cancel,
+        integrity,
+        mode,
+        &identity,
+        sink,
+        stats,
+    )?;
+    if integrity && !previously_checked {
+        write_stamp(&stamp_file, &stamp_text, true)?;
+    }
     if let Some(warning) = snapshot_warning {
-        index.warnings.insert(0, warning.into());
+        summary.warnings.insert(0, warning.into());
     }
     hook(SnapshotStage::Parsed);
     // A result based on a source that changed during parsing is not publishable.
-    verify_snapshot_sources(
-        root,
-        &sources,
-        [
-            &database_hash,
-            wal_hash.as_deref().unwrap_or(""),
-            journal_hash.as_deref().unwrap_or(""),
-        ],
-        limits,
-        cancel,
-    )?;
+    verify_snapshot_sources(root, &sources, hashes, limits, cancel)?;
     let mut fingerprint = Sha256::new();
-    fingerprint.update(b"opencode-metadata-v1\0");
+    fingerprint.update(b"opencode-metadata-v2\0");
     fingerprint.update(format!("{sources:?}").as_bytes());
-    for hash in [
-        Some(database_hash.as_str()),
-        wal_hash.as_deref(),
-        journal_hash.as_deref(),
-    ] {
+    for hash in [wal_hash.as_deref(), journal_hash.as_deref()] {
         match hash {
             Some(hash) => {
                 fingerprint.update(b"present:");
@@ -260,9 +414,149 @@ fn read_metadata_inner(
         }
         fingerprint.update([0]);
     }
-    index.identity = stamp_identity(database_stamp);
-    index.fingerprint = format!("{:x}", fingerprint.finalize());
-    Ok(index)
+    summary.identity = identity;
+    summary.fingerprint = format!("{:x}", fingerprint.finalize());
+    Ok(summary)
+}
+
+fn write_stamp(path: &Path, stamp: &str, checked: bool) -> Result<(), String> {
+    let state = if checked { "checked" } else { "copied" };
+    std::fs::write(path, format!("{stamp}\n{state}"))
+        .map_err(|error| format!("Cannot record private OpenCode mirror state: {error}"))
+}
+
+struct Mirror {
+    dir: PathBuf,
+    _lock: File,
+}
+
+fn mirror_base() -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os(MIRROR_DIR_ENV).filter(|path| !path.is_empty()) {
+        return Ok(PathBuf::from(path));
+    }
+    dirs::cache_dir()
+        .map(|dir| dir.join("sessionbay").join("opencode-mirror"))
+        .ok_or_else(|| "Cannot locate a private cache directory for the OpenCode mirror".into())
+}
+
+fn private_dir(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    let created = {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)
+    };
+    #[cfg(not(unix))]
+    let created = std::fs::create_dir_all(path);
+    created.map_err(|error| format!("Cannot create private OpenCode mirror: {error}"))?;
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| format!("Cannot inspect private OpenCode mirror: {error}"))?;
+    if !metadata.file_type().is_dir() {
+        return Err("Private OpenCode mirror must be a real, non-symlink directory".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        // SAFETY: geteuid has no preconditions.
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err("Private OpenCode mirror is owned by another user".into());
+        }
+        if metadata.mode() & 0o077 != 0 {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+                .map_err(|error| format!("Cannot restrict private OpenCode mirror: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// One mirror per source root, serialized across threads and processes.
+fn open_mirror(root: &Path) -> Result<Mirror, String> {
+    let base = mirror_base()?;
+    let key = format!("{:x}", Sha256::digest(root.as_os_str().as_encoded_bytes()));
+    let dir = base.join(&key[..32]);
+    private_dir(&base)?;
+    private_dir(&dir)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dir.join("lock"))
+        .map_err(|error| format!("Cannot open private OpenCode mirror lock: {error}"))?;
+    lock.lock()
+        .map_err(|error| format!("Cannot lock private OpenCode mirror: {error}"))?;
+    Ok(Mirror { dir, _lock: lock })
+}
+
+fn read_full(file: &mut File, buffer: &mut [u8]) -> Result<usize, String> {
+    let mut filled = 0;
+    while filled < buffer.len() {
+        match file.read(&mut buffer[filled..]) {
+            Ok(0) => break,
+            Ok(count) => filled += count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(format!("Cannot read private OpenCode mirror: {error}")),
+        }
+    }
+    Ok(filled)
+}
+
+/// Brings the private mirror byte-identical to the source database, writing
+/// only blocks that differ. The source identity must be unchanged afterwards.
+fn refresh_database(
+    source_path: &Path,
+    expected: &Stamp,
+    mirror_path: &Path,
+    limits: Limits,
+    cancel: &AtomicBool,
+    stats: &mut MirrorStats,
+) -> Result<(), String> {
+    let mut source = open_source(source_path, expected)?;
+    if std::fs::symlink_metadata(mirror_path).is_ok_and(|meta| !meta.is_file()) {
+        return Err("Private OpenCode mirror database is not a regular file".into());
+    }
+    let mut mirror = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(mirror_path)
+        .map_err(|error| format!("Cannot open private OpenCode mirror: {error}"))?;
+    let block = limits.block_bytes.max(4096);
+    let mut wanted = vec![0_u8; block];
+    let mut current = vec![0_u8; block];
+    let mut offset = 0_u64;
+    while offset < expected.len {
+        check_cancel(cancel)?;
+        let count = usize::try_from((expected.len - offset).min(block as u64)).unwrap();
+        source
+            .read_exact(&mut wanted[..count])
+            .map_err(|error| format!("OpenCode history could not be read completely: {error}"))?;
+        let have = read_full(&mut mirror, &mut current[..count])?;
+        if have < count || wanted[..count] != current[..count] {
+            mirror
+                .seek(SeekFrom::Start(offset))
+                .and_then(|_| mirror.write_all(&wanted[..count]))
+                .map_err(|error| format!("Cannot write private OpenCode mirror: {error}"))?;
+            stats.database_bytes_written += count as u64;
+        }
+        stats.database_bytes_read += count as u64;
+        offset += count as u64;
+    }
+    let mut extra = [0_u8; 1];
+    if source
+        .read(&mut extra)
+        .map_err(|error| format!("Cannot finish OpenCode history source read: {error}"))?
+        != 0
+    {
+        return Err("OpenCode history grew while reading".into());
+    }
+    mirror
+        .set_len(expected.len)
+        .map_err(|error| format!("Cannot size private OpenCode mirror: {error}"))?;
+    verify_file_identity(source_path, &source, expected)
 }
 
 fn check_cancel(cancel: &AtomicBool) -> Result<(), String> {
@@ -289,7 +583,10 @@ fn inspect_file(path: &Path, limits: Limits) -> Result<Option<Stamp>, String> {
             #[cfg(windows)]
             let stamp = windows_stamp(&metadata)?;
             if stamp.len > limits.file_bytes {
-                return Err("OpenCode history file exceeds the snapshot byte limit".into());
+                return Err(format!(
+                    "OpenCode history file is larger than the {} GiB safety bound",
+                    limits.file_bytes >> 30
+                ));
             }
             Ok(Some(stamp))
         }
@@ -307,13 +604,16 @@ fn inspect_sources(root: &Path, limits: Limits) -> Result<Sources, String> {
     if sources.journal.as_ref().is_some_and(|stamp| stamp.len != 0) {
         return Err("OpenCode history has a nonempty rollback journal; a hot or uncertain journal cannot be safely read".into());
     }
-    let total = [&sources.database, &sources.wal, &sources.journal]
-        .into_iter()
-        .flatten()
-        .try_fold(0_u64, |sum, stamp| sum.checked_add(stamp.len))
-        .ok_or_else(|| "OpenCode history snapshot size overflow".to_string())?;
-    if total > limits.snapshot_bytes {
-        return Err("OpenCode history exceeds the total snapshot byte limit".into());
+    // The WAL is copied in full on every read, so it keeps its own bound.
+    if sources
+        .wal
+        .as_ref()
+        .is_some_and(|stamp| stamp.len > limits.wal_bytes)
+    {
+        return Err(
+            "OpenCode history WAL exceeds the copy byte limit; let OpenCode checkpoint and refresh"
+                .into(),
+        );
     }
     Ok(sources)
 }
@@ -445,14 +745,13 @@ fn copy_and_hash(
 fn verify_snapshot_sources(
     root: &Path,
     expected: &Sources,
-    hashes: [&str; 3],
+    hashes: [&str; 2],
     limits: Limits,
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     check_cancel(cancel)?;
     ensure_sources(root, expected, limits)?;
     for ((path, stamp), expected_hash) in [
-        (root.join(DATABASE_NAME), &expected.database),
         (sidecar(root, "wal"), &expected.wal),
         (sidecar(root, "journal"), &expected.journal),
     ]
@@ -621,18 +920,33 @@ fn sql_error(error: rusqlite::Error) -> String {
     format!("Cannot read OpenCode history snapshot: {error}")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_copy(
     database: &Path,
     limits: Limits,
     cancel: &AtomicBool,
-) -> Result<MetadataIndex, String> {
+    integrity: bool,
+    mode: Mode,
+    identity: &str,
+    sink: &mut dyn FnMut(ConversationMetadata) -> Result<(), String>,
+    stats: &mut MirrorStats,
+) -> Result<IndexSummary, String> {
     let connection = Connection::open_with_flags(
         database,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(sql_error)?;
     with_sqlite_cancellation(&connection, cancel, || {
-        read_connection(&connection, limits, cancel)
+        read_connection(
+            &connection,
+            limits,
+            cancel,
+            integrity,
+            mode,
+            identity,
+            sink,
+            stats,
+        )
     })
 }
 
@@ -726,21 +1040,32 @@ fn reviewed_version(version: &str) -> bool {
     let parsed: Option<Vec<u32>> = parts.into_iter().map(|p| p.parse().ok()).collect();
     parsed.is_some_and(|p| p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 3)))
 }
+#[allow(clippy::too_many_arguments)]
 fn read_connection(
     connection: &Connection,
     limits: Limits,
     cancel: &AtomicBool,
-) -> Result<MetadataIndex, String> {
+    integrity: bool,
+    mode: Mode,
+    identity: &str,
+    sink: &mut dyn FnMut(ConversationMetadata) -> Result<(), String>,
+    stats: &mut MirrorStats,
+) -> Result<IndexSummary, String> {
     connection
         .execute_batch(
             "PRAGMA trusted_schema=OFF; PRAGMA query_only=ON; PRAGMA cell_size_check=ON;",
         )
         .map_err(sql_error)?;
-    let integrity: String = connection
-        .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
-        .map_err(sql_error)?;
-    if integrity != "ok" {
-        return Err("OpenCode snapshot failed SQLite integrity checking".into());
+    // quick_check is O(database). It runs whenever the mirrored main database
+    // changed (or is small); WAL frames are checksum-validated on every read
+    // and B-tree corruption still fails queries via cell_size_check.
+    if integrity {
+        let integrity: String = connection
+            .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+            .map_err(sql_error)?;
+        if integrity != "ok" {
+            return Err("OpenCode snapshot failed SQLite integrity checking".into());
+        }
     }
     require_columns(
         connection,
@@ -780,16 +1105,27 @@ fn read_connection(
         "part",
         &["id", "session_id", "message_id", "time_updated", "data"],
     )?;
-    let mut records = HashMap::new();
-    let mut warnings = Vec::new();
-    let mut output_bytes = 0usize;
+    let mut seen = HashSet::new();
+    let mut warnings: Vec<String> = Vec::new();
+    let only = match mode {
+        Mode::Only(id) => Some(id),
+        Mode::Full(_) => None,
+    };
     let mut statement = connection.prepare(
-        "SELECT id,directory,title,version,time_updated,parent_id,time_archived,revert IS NOT NULL FROM session LIMIT ?1"
+        "SELECT id,directory,title,version,time_updated,parent_id,time_archived,revert IS NOT NULL FROM session WHERE ?2 IS NULL OR id=?2 LIMIT ?1"
     ).map_err(sql_error)?;
-    let mut rows = statement.query([limits.rows + 1]).map_err(sql_error)?;
+    let counts_sql = if has_v2 {
+        "SELECT (SELECT count(*) FROM message WHERE session_id=?1),(SELECT max(time_created) FROM message WHERE session_id=?1),(SELECT max(time_updated) FROM message WHERE session_id=?1),(SELECT count(*) FROM part WHERE session_id=?1),(SELECT count(*) FROM session_message WHERE session_id=?1),(SELECT max(seq) FROM session_message WHERE session_id=?1)"
+    } else {
+        "SELECT (SELECT count(*) FROM message WHERE session_id=?1),(SELECT max(time_created) FROM message WHERE session_id=?1),(SELECT max(time_updated) FROM message WHERE session_id=?1),(SELECT count(*) FROM part WHERE session_id=?1),0,NULL"
+    };
+    let mut counts = connection.prepare(counts_sql).map_err(sql_error)?;
+    let mut rows = statement
+        .query(rusqlite::params![limits.rows + 1, only])
+        .map_err(sql_error)?;
     while let Some(row) = rows.next().map_err(sql_error)? {
         check_cancel(cancel)?;
-        if records.len() >= limits.rows {
+        if seen.len() >= limits.rows {
             return Err("OpenCode session count exceeds the read limit".into());
         }
         let id: String = row.get(0).map_err(sql_error)?;
@@ -811,14 +1147,35 @@ fn read_connection(
         {
             return Err("OpenCode session metadata exceeds supported bounds".into());
         }
-        output_bytes += id.len()
-            + title.len()
-            + cwd.len()
-            + version.len()
-            + parent_id.as_ref().map_or(0, String::len);
-        if output_bytes > limits.output_bytes {
-            return Err("OpenCode metadata exceeds the output limit".into());
+        if !seen.insert(id.clone()) {
+            return Err("Multiple OpenCode rows claim the same session identity".into());
         }
+        // Index-only counts plus small message rows; large part payloads
+        // (tool output) are never touched to fingerprint a session.
+        let projection: (i64, Option<i64>, Option<i64>, i64, i64, Option<i64>) = counts
+            .query_row([&id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })
+            .map_err(sql_error)?;
+        let mut digest = Sha256::new();
+        digest.update(
+            format!(
+                "opencode-session-v{READER_REVISION}\0{identity}\0{id}\0{cwd}\0{title}\0{version}\0{updated_raw}\0{parent_id:?}\0{archived}\0{reverted}\0{projection:?}"
+            )
+            .as_bytes(),
+        );
+        let fingerprint = format!("{:x}", digest.finalize());
+        let unchanged = match mode {
+            Mode::Only(_) => true,
+            Mode::Full(known) => known.get(&id) == Some(&fingerprint),
+        };
         let mut record = ConversationMetadata {
             id: id.clone(),
             title: Some(title),
@@ -828,10 +1185,23 @@ fn read_connection(
             archived,
             partial: !reviewed_version(&version) || reverted,
             messages: vec![],
+            fingerprint,
+            identity: identity.to_owned(),
+            unchanged,
         };
+        if unchanged {
+            stats.sessions_skipped += 1;
+            sink(record)?;
+            continue;
+        }
+        stats.sessions_read += 1;
+        let mut output_bytes = 0usize;
         // Unknown producer versions and reverted sessions expose metadata only.
         // Never resurrect hidden content from an older projection or compaction.
-        if !record.partial {
+        let content = (|| -> Result<(), String> {
+            if record.partial {
+                return Ok(());
+            }
             let v2: bool = has_v2
                 && connection
                     .query_row(
@@ -858,19 +1228,28 @@ fn read_connection(
             } else {
                 read_v1(connection, &mut record, cancel, &mut output_bytes, limits)?;
             }
+            Ok(())
+        })();
+        match content {
+            Ok(()) => {}
+            Err(error) if error == BUDGET_ERROR => {
+                record.partial = true;
+                if !warnings.iter().any(|warning| warning == BUDGET_WARNING) {
+                    warnings.push(BUDGET_WARNING.into());
+                }
+            }
+            Err(error) => return Err(error),
         }
         record.partial |= record.updated_at.is_none();
-        if record.partial && warnings.is_empty() {
-            warnings.push("Some OpenCode sessions contain unknown versions, incomplete or ambiguous projections, or an active revert. Unsupported content is omitted; refresh after changes. Indexed resume is disabled for partial sessions.".into());
+        if record.partial && !warnings.iter().any(|warning| warning == PARTIAL_WARNING) {
+            warnings.push(PARTIAL_WARNING.into());
         }
-        if records.insert(id, record).is_some() {
-            return Err("Multiple OpenCode rows claim the same session identity".into());
-        }
+        sink(record)?;
     }
-    Ok(MetadataIndex {
-        records,
+    Ok(IndexSummary {
         fingerprint: String::new(),
         identity: String::new(),
+        sessions: seen.len(),
         warnings,
     })
 }
@@ -889,7 +1268,7 @@ fn push_message(
         .checked_add(text.len())
         .ok_or("OpenCode output size overflow")?;
     if *output > limits.output_bytes {
-        return Err("OpenCode searchable text exceeds the snapshot output limit".into());
+        return Err(BUDGET_ERROR.into());
     }
     record.partial |= timestamp.is_none();
     record.messages.push(crate::adapters::ParsedMessage {
@@ -925,7 +1304,7 @@ fn read_v2(
         check_cancel(cancel)?;
         count += 1;
         if count > 100_000 {
-            return Err("OpenCode message count exceeds the per-session limit".into());
+            return Err(BUDGET_ERROR.into());
         }
         let kind: String = row.get(0).map_err(sql_error)?;
         let sequence: i64 = row.get(1).map_err(sql_error)?;
@@ -990,7 +1369,7 @@ fn read_v1(
         check_cancel(cancel)?;
         count += 1;
         if count > 100_000 {
-            return Err("OpenCode message count exceeds the per-session limit".into());
+            return Err(BUDGET_ERROR.into());
         }
         let id: String = row.get(0).map_err(sql_error)?;
         let timestamp = millis(row.get(1).map_err(sql_error)?);
@@ -1023,7 +1402,7 @@ fn read_v1(
         for (index, part) in values.enumerate() {
             check_cancel(cancel)?;
             if index == 10_000 {
-                return Err("OpenCode part count exceeds the per-message limit".into());
+                return Err(BUDGET_ERROR.into());
             }
             let Some(value) = part
                 .map_err(sql_error)?
@@ -1049,7 +1428,7 @@ fn read_v1(
                     if let Some(value) = value.get("text").and_then(Value::as_str) {
                         bytes += value.len();
                         if bytes > limits.output_bytes {
-                            return Err("OpenCode message exceeds the output limit".into());
+                            return Err(BUDGET_ERROR.into());
                         }
                         text.push(value.to_owned());
                     } else {

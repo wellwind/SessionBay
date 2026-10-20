@@ -1403,11 +1403,11 @@ impl Catalog {
                     |row| row.get(0),
                 )
                 .map_err(error)?;
-            let current =
-                crate::opencode::read_metadata(Path::new(&source.root), &AtomicBool::new(false))?;
-            if current.fingerprint != expected
-                || !current.records.contains_key(&session.external_id)
-            {
+            let current = crate::opencode::session_fingerprint(
+                Path::new(&source.root),
+                &session.external_id,
+            )?;
+            if current.as_deref() != Some(expected.as_str()) {
                 return Err(
                     "OpenCode history changed after indexing. Refresh before resuming.".into(),
                 );
@@ -3268,67 +3268,83 @@ fn index_opencode(
     source: &HistorySource,
     cancel: &AtomicBool,
 ) -> Result<SourceHealth, String> {
-    let index = crate::opencode::read_metadata(Path::new(&source.root), cancel)?;
+    let opencode_parser_version = PARSER_VERSION * 100 + crate::opencode::READER_REVISION;
+    let database = Path::new(&source.root).join("opencode.db");
+    let prefix = format!("{}#", database.display());
+    // Per-session fingerprints from the last committed index. Sessions whose
+    // fingerprint is unchanged are not re-read; a reader upgrade (parser
+    // version) re-reads everything.
+    let known: HashMap<String, String> = conn
+        .prepare("SELECT path,prefix_hash FROM files WHERE source_id=?1 AND parser_version=?2")
+        .map_err(error)?
+        .query_map(params![source.id, opencode_parser_version], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(error)?
+        .filter_map(|row| {
+            row.ok()
+                .and_then(|(path, hash)| path.strip_prefix(&prefix).map(|id| (id.to_owned(), hash)))
+        })
+        .collect();
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(error)?;
     let mut seen = HashSet::new();
-    let opencode_parser_version = PARSER_VERSION * 100 + crate::opencode::READER_REVISION;
-    for record in index.records.values() {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("Indexing cancelled".into());
-        }
-        let id = session_identity(source, &record.id);
-        // Logical per-session records share one physical SQLite snapshot. This
-        // path is only a catalog key; it is never opened as a transcript file.
-        let path = format!(
-            "{}#{}",
-            Path::new(&source.root).join("opencode.db").display(),
-            record.id
-        );
-        seen.insert(path.clone());
-        let previous: Option<(i64, String, i64)> = tx
-            .query_row(
-                "SELECT id,prefix_hash,parser_version FROM files WHERE source_id=?1 AND path=?2",
-                params![source.id, path],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .optional()
-            .map_err(error)?;
-        // An unchanged database must still be re-read after a reader upgrade;
-        // otherwise sessions stay stuck in the older reader's partial state.
-        if previous.as_ref().is_some_and(|(_, hash, version)| {
-            hash == &index.fingerprint && *version == opencode_parser_version
-        }) {
-            continue;
-        }
-        let state = ParsedState {
-            external_id: Some(record.id.clone()),
-            cwd: record.cwd.clone(),
-            title: record.title.clone(),
-            event_at: record.updated_at.clone(),
-            parent_external: record.parent_id.clone(),
-            child: record.parent_id.is_some(),
-            recognized: true,
-            authoritative_cwd: true,
-            unknown_events: u64::from(record.partial),
-            ..Default::default()
-        };
-        tx.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived,trailing_partial) VALUES(?1,?2,?3,?10,0,'',0,?4,?5,?6,?7,?8,?9) ON CONFLICT(source_id,path) DO UPDATE SET session_id=excluded.session_id,identity=excluded.identity,lines=excluded.lines,prefix_hash=excluded.prefix_hash,parser_version=excluded.parser_version,state=excluded.state,archived=excluded.archived,trailing_partial=excluded.trailing_partial", params![source.id,path,id,record.messages.len(),index.fingerprint,opencode_parser_version,serde_json::to_string(&state).map_err(error)?,record.archived,record.partial,index.identity]).map_err(error)?;
-        let file_id: i64 = tx
-            .query_row(
-                "SELECT id FROM files WHERE source_id=?1 AND path=?2",
-                params![source.id, path],
-                |row| row.get(0),
-            )
-            .map_err(error)?;
-        tx.execute("DELETE FROM messages WHERE file_id=?1", [file_id])
-            .map_err(error)?;
-        for (line, message) in record.messages.iter().enumerate() {
-            tx.execute("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text) VALUES(?1,?2,0,0,?3,?4,?5)", params![file_id,line+1,message.role,message.timestamp,message.text]).map_err(error)?;
-        }
-        rebuild_session(&tx, source, &id)?;
-    }
+    let mut sessions = 0usize;
+    let summary = crate::opencode::read_sessions(
+        Path::new(&source.root),
+        cancel,
+        &known,
+        &mut |record| {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("Indexing cancelled".into());
+            }
+            sessions += 1;
+            let id = session_identity(source, &record.id);
+            // Logical per-session records share one physical SQLite database.
+            // This path is only a catalog key; it is never opened as a file.
+            let path = format!("{prefix}{}", record.id);
+            seen.insert(path.clone());
+            if record.unchanged {
+                return Ok(());
+            }
+            let state = ParsedState {
+                external_id: Some(record.id.clone()),
+                cwd: record.cwd.clone(),
+                title: record.title.clone(),
+                event_at: record.updated_at.clone(),
+                parent_external: record.parent_id.clone(),
+                child: record.parent_id.is_some(),
+                recognized: true,
+                authoritative_cwd: true,
+                unknown_events: u64::from(record.partial),
+                ..Default::default()
+            };
+            tx.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived,trailing_partial) VALUES(?1,?2,?3,?10,0,'',0,?4,?5,?6,?7,?8,?9) ON CONFLICT(source_id,path) DO UPDATE SET session_id=excluded.session_id,identity=excluded.identity,lines=excluded.lines,prefix_hash=excluded.prefix_hash,parser_version=excluded.parser_version,state=excluded.state,archived=excluded.archived,trailing_partial=excluded.trailing_partial", params![source.id,path,id,record.messages.len(),record.fingerprint,opencode_parser_version,serde_json::to_string(&state).map_err(error)?,record.archived,record.partial,record.identity]).map_err(error)?;
+            let file_id: i64 = tx
+                .query_row(
+                    "SELECT id FROM files WHERE source_id=?1 AND path=?2",
+                    params![source.id, path],
+                    |row| row.get(0),
+                )
+                .map_err(error)?;
+            tx.execute("DELETE FROM messages WHERE file_id=?1", [file_id])
+                .map_err(error)?;
+            let mut insert = tx.prepare_cached("INSERT INTO messages(file_id,line,byte_offset,byte_len,role,timestamp,search_text) VALUES(?1,?2,0,0,?3,?4,?5)").map_err(error)?;
+            for (line, message) in record.messages.iter().enumerate() {
+                insert
+                    .execute(params![
+                        file_id,
+                        line + 1,
+                        message.role,
+                        message.timestamp,
+                        message.text
+                    ])
+                    .map_err(error)?;
+            }
+            rebuild_session(&tx, source, &id)
+        },
+    )?;
     let old = tx
         .prepare("SELECT id,path,session_id FROM files WHERE source_id=?1")
         .map_err(error)?
@@ -3352,11 +3368,27 @@ fn index_opencode(
     if cancel.load(Ordering::Relaxed) {
         return Err("Indexing cancelled".into());
     }
+    let mut warnings = summary.warnings;
+    // Unchanged sessions were not re-read; keep reporting their partial state.
+    let partial: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM files WHERE source_id=?1 AND trailing_partial=1)",
+            [&source.id],
+            |row| row.get(0),
+        )
+        .map_err(error)?;
+    if partial
+        && !warnings
+            .iter()
+            .any(|w| w == crate::opencode::PARTIAL_WARNING)
+    {
+        warnings.push(crate::opencode::PARTIAL_WARNING.into());
+    }
     tx.commit().map_err(error)?;
     Ok(SourceHealth {
         source_id: source.id.clone(),
-        status: if index.warnings.is_empty() {
-            if index.records.is_empty() {
+        status: if warnings.is_empty() {
+            if sessions == 0 {
                 "empty"
             } else {
                 "ready"
@@ -3365,8 +3397,8 @@ fn index_opencode(
             "partial"
         }
         .into(),
-        files: index.records.len(),
-        message: (!index.warnings.is_empty()).then(|| index.warnings.join(" ")),
+        files: sessions,
+        message: (!warnings.is_empty()).then(|| warnings.join(" ")),
     })
 }
 
@@ -3386,10 +3418,10 @@ fn opencode_transcript(
             |row| row.get(0),
         )
         .map_err(error)?;
-    let current = crate::opencode::read_metadata(Path::new(&root), &AtomicBool::new(false));
-    if !current.is_ok_and(|index| {
-        index.fingerprint == expected && index.records.contains_key(&session.external_id)
-    }) {
+    // Verifies only this session's fingerprint against the refreshed mirror;
+    // other sessions changing no longer makes this preview stale.
+    let current = crate::opencode::session_fingerprint(Path::new(&root), &session.external_id);
+    if !current.is_ok_and(|fingerprint| fingerprint.as_deref() == Some(expected)) {
         return Ok(stale_page("OpenCode database or WAL changed or cannot be verified. Refresh before loading the transcript."));
     }
     let limit = limit.clamp(1, 200);
