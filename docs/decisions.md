@@ -883,6 +883,10 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 
 獨立 review 發現 connect 可能撞上 broker 已 seal 但尚未釋鎖的窗口：原本只在 retry loop 前判斷一次是否 spawn，會在舊 owner 釋鎖後仍重試 Hello 至超時。改為在同一個 12 秒 bounded loop 內，每次 Hello 失敗後重新確認 ownership；仍持鎖時不啟動 replacement，每個 connect 最多啟動一個候選，候選仍須取得既有的獨占 lifetime lock 才能建立 listener。合成測試暫停已 seal 的舊 owner、確認 connect 已進入 retry 且尚未啟動 replacement，再釋鎖並驗證不同 generation 的新 owner 成功回應。
 
+## 2026-10-19：Snap 宿主子程序環境相依修正（待 review）
+
+將打包 GUI 變數的保存／設定集中在專用 launcher；應用共用 helper 僅還原新建宿主 Command／PTY 的原值與 unset 狀態，不修改程序全域環境。非 Snap 無 marker 的啟動不受影響，OpenCode 原有隔離探測不放寬。正式 broker 仍以 current_exe 執行，測試 harness 不是產品包前提。獨立於打包 candidate 交付；review 合併後才更新 pinned source 與 recipe 接線，詳見 [Snap 環境隔離](snap-host-environment.md)。
+
 ## 2026-10-19：左側專案導覽共用可調寬度
 
 依使用者要求，左側「專案／所有目錄」共用可拖曳寬度，存入既有 `sessionbay.sidebar.v1` 偏好。預設 236 CSS px、偏好範圍 160–480；實際寬度依導覽所在布局容器的 clientWidth clamp（含原生縮放後的實際畫布），最多 40% 並在可行時保留 520 CSS px 給左側導覽以外的區域（包含右側工具面板，不保證中央內容區有 520px）。既有 700px 最小畫布與整體捲動策略維持不變。小視窗 clamp 不覆寫偏好，視窗放大、reload、導覽頁面／收合／Zen 切換均保留使用者選擇。

@@ -9,7 +9,7 @@ use std::{
 #[cfg(unix)]
 use std::{
     io::Read,
-    process::{Command, Stdio},
+    process::Stdio,
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
@@ -63,7 +63,7 @@ fn drain_version(stdout: &mut impl Read, output: &mut Vec<u8>) -> Result<(), Str
 #[cfg(unix)]
 fn version(spec: &LaunchSpec) -> Result<Vec<u8>, String> {
     use std::os::fd::AsRawFd;
-    let mut child = Command::new(&spec.executable)
+    let mut child = crate::host_environment::command(&spec.executable)?
         .arg("--version")
         .current_dir(&spec.cwd)
         .envs(&spec.env)
