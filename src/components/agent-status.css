@@ -13,5 +13,5 @@
 .agent-status-project button { width: 100%; text-align: left; padding: 6px; border: 0; background: transparent; border-radius: 4px; }
 .agent-status-project button:hover { background: var(--surface-hover); }
 .agent-status-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-lifecycle { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.agent-lifecycle { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .pane-title .agent-lifecycle { overflow: hidden; text-overflow: ellipsis; }

@@ -55,7 +55,7 @@
 }
 .settings-eyebrow {
   color: var(--settings-muted);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.18em;
   font-weight: 700;
 }
@@ -135,7 +135,7 @@
   align-items: flex-start;
   gap: 9px;
   color: var(--settings-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.9;
   padding: 22px 11px 0;
   margin-top: auto;
@@ -181,7 +181,7 @@
   margin-top: 30px;
 }
 .settings-count {
-  font-size: 10px;
+  font-size: 11px;
   background: var(--settings-surface);
   border: 1px solid var(--settings-border);
   color: var(--settings-muted);
@@ -215,7 +215,7 @@
 .settings-button.compact {
   min-height: 30px;
   padding: 6px 10px;
-  font-size: 10px;
+  font-size: 11px;
 }
 .settings-button.secondary {
   color: var(--settings-text);
@@ -310,11 +310,11 @@
 }
 .settings-installation-top .settings-status {
   margin-left: auto;
-  font-size: 9px;
+  font-size: 11px;
 }
 .settings-version {
   margin: 9px 0 16px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--settings-muted);
   overflow-wrap: anywhere;
 }
@@ -333,7 +333,7 @@
   color: var(--settings-muted);
   font-weight: 400;
   margin-left: 6px;
-  font-size: 10px;
+  font-size: 11px;
 }
 .settings-panel input:not([type='checkbox']),
 .settings-panel select,
@@ -379,7 +379,7 @@
 }
 .settings-field-error {
   color: var(--danger, #e79486);
-  font-size: 10px;
+  font-size: 11px;
   display: flex;
   align-items: flex-start;
   gap: 5px;
@@ -392,20 +392,20 @@
 }
 .settings-help {
   color: var(--settings-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.7;
   margin: 7px 0 0;
 }
 .settings-detected-path {
   font-family: ui-monospace, monospace;
   color: var(--settings-muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.6;
   margin: -4px 0 0;
   overflow-wrap: anywhere;
 }
 .settings-subtle-warning {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--danger, #e79486);
   margin: 8px 0 0;
   line-height: 1.6;
@@ -415,7 +415,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   padding: 3px 6px;
   border-radius: 4px;
@@ -516,7 +516,7 @@
 }
 .settings-index-errors {
   color: #e1bc83;
-  font-size: 10px;
+  font-size: 11px;
   margin-top: 14px;
   line-height: 1.7;
 }
@@ -607,7 +607,7 @@
 .settings-preview-label {
   display: block;
   font-family: system-ui, sans-serif;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   color: #828d82;
   margin-bottom: 14px;
@@ -666,7 +666,7 @@
 .settings-shortcut-row small {
   display: block;
   font-family: ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 11px;
   margin-top: 5px;
   color: var(--settings-muted);
 }
@@ -688,7 +688,7 @@
 .settings-footer-status {
   margin-right: auto;
   color: var(--settings-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.65;
   min-width: 0;
 }
@@ -783,7 +783,7 @@
   }
   .settings-nav > button {
     padding: 9px;
-    font-size: 10px;
+    font-size: 11px;
     gap: 6px;
   }
   .settings-nav > button > svg:last-child:not(:first-child),
@@ -797,7 +797,7 @@
     padding: 14px 18px;
   }
   .settings-footer-status {
-    font-size: 9px;
+    font-size: 11px;
   }
 }
 @media (max-width: 500px) {
@@ -820,7 +820,7 @@
     gap: 10px;
   }
   .settings-section-heading p {
-    font-size: 10px;
+    font-size: 11px;
   }
   .settings-footer {
     flex-wrap: wrap;

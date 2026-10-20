@@ -2,6 +2,7 @@ import { ArrowRight, Folder, AlertTriangle, Check } from 'lucide-react';
 import type { Project } from '../types';
 import { agentName, dateLabel } from './History';
 import { AgentIcon } from './AgentIcon';
+import { projectCountLabel } from '../project-runtime';
 
 interface Props {
   page: 'projects' | 'directories';
@@ -12,10 +13,12 @@ interface Props {
   onMembership: (project: Project, curated: boolean) => Promise<void>;
   onAdd: () => void;
   onDirectories: () => void;
+  /** Starting/running runtimes per project id; absent means 0. */
+  openCounts?: Record<string, number>;
 }
 
 /** Directory-first overview: no cross-directory history query until explicitly requested. */
-export function DirectoryOverview({ page, projects, searching, busy, onSelect, onMembership, onDirectories }: Props) {
+export function DirectoryOverview({ page, projects, searching, busy, onSelect, onMembership, onDirectories, openCounts = {} }: Props) {
   const curated = page === 'projects';
   return <section className={`directory-overview ${curated ? 'projects-overview' : 'all-directories-overview'}`} aria-label={curated ? '專案管理總覽' : '所有目錄總覽'}>
     <div className="directory-overview-heading">
@@ -29,7 +32,7 @@ export function DirectoryOverview({ page, projects, searching, busy, onSelect, o
           </div>
         <p className="directory-card-path" title={project.path || '未記錄工作目錄'}>{project.path || '未分類 · 未記錄工作目錄'}</p>
         {project.launchPath && <p className="directory-card-relocation">啟動位置：{project.launchPath}</p>}
-        <div className="directory-card-details"><span>{project.sessionCount} 個工作階段</span>
+        <div className="directory-card-details"><span className="directory-card-counts">{projectCountLabel(project.sessionCount, openCounts[project.id] ?? 0)}</span>
           <span className="directory-agents">{project.agents.length ? project.agents.map((kind) => <span key={kind} title={agentName(kind)}><AgentIcon kind={kind} /><span>{agentName(kind)}</span></span>) : '尚無歷史'}</span></div>
         <div className="directory-location-state">{!project.exists ? <><AlertTriangle size={13} aria-hidden="true" />{project.path ? '目錄需重新定位' : '工作目錄未記錄'}</> : <><Check size={13} aria-hidden="true" />{project.launchPath ? '使用重新定位目錄' : '目錄可用'}</>}</div>
         <div className="directory-card-activity"><span>{dateLabel(project.updatedAt)}</span><ArrowRight size={16} /></div>

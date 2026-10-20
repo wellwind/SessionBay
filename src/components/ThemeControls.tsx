@@ -1,7 +1,8 @@
 import { useId } from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 import type { Appearance } from '../themes';
-import { paletteOptions, terminalOptions, terminalTheme } from '../themes';
+import { effectiveTerminalTheme, paletteOptions, terminalOptions } from '../themes';
+import { useResolvedColorMode } from '../use-ui-theme';
 import { Select } from './controls';
 import './themes.css';
 
@@ -36,11 +37,17 @@ export function ThemeControls({ value, disabled = false, onChange }: {
       <Select aria-label="終端色票" value={value.terminalTheme} disabled={disabled}
         options={terminalOptions(value.terminalTheme)} onChange={(terminalTheme) => onChange({ terminalTheme })} />
     </label>
+    <label className="theme-terminal-dark">
+      <input type="checkbox" className="checkbox" checked={value.terminalAlwaysDark ?? false} disabled={disabled}
+        onChange={(event) => onChange({ terminalAlwaysDark: event.currentTarget.checked })} />
+      <span>終端固定用深色</span>
+      <small>關閉時，終端會跟著介面模式切換深淺色。</small>
+    </label>
   </div>;
 }
 
 export function TerminalPreview({ value }: { value: Appearance }) {
-  const colors = terminalTheme(value.terminalTheme);
+  const colors = effectiveTerminalTheme(value, useResolvedColorMode(value.theme));
   return <div className="theme-terminal-preview" aria-label="終端色票與字型預覽" style={{
     background: colors.background, color: colors.foreground,
     fontFamily: value.fontFamily || 'monospace',

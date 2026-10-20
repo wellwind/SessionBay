@@ -476,7 +476,8 @@ export function SettingsPanel({
     void run(async () => {
       await onSave({
         ...prepared.settings,
-        onboardingComplete: onboarding ? true : prepared.settings.onboardingComplete,
+        // Any explicit save completes onboarding, including from the gear after 「稍後設定」.
+        onboardingComplete: true,
       });
       onClose();
     });

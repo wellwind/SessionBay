@@ -42,7 +42,7 @@
 .explorer-tab > button:first-child > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .explorer-tab > button:last-child { width: 28px; flex: 0 0 28px; padding: 0; }
 .explorer-tab.preview > button:first-child { font-style: italic; }
-.explorer-tab small { font-size: 10px; color: var(--muted); }
+.explorer-tab small { font-size: 11px; color: var(--muted); }
 .explorer-tab-actions { display: flex; align-items: center; flex: 0 0 28px; padding: 0 4px; border-bottom: 1px solid var(--border); }
 .explorer-tab-actions > span { flex: 1; }
 .explorer-tab-actions button { font-size: 11px; padding: 2px 5px; }
