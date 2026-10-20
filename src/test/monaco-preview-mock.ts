@@ -27,7 +27,8 @@ export const monaco = {
         setScrollPosition: vi.fn((value: { scrollTop: number; scrollLeft: number }) => { top = value.scrollTop; left = value.scrollLeft; }),
         restoreViewState: vi.fn(), saveViewState: vi.fn(() => ({ viewState: { scrollTop: top } })),
         getScrollTop: () => top, getScrollLeft: () => left,
-        onDidScrollChange: () => ({ dispose: vi.fn() }), onDidChangeCursorSelection: () => ({ dispose: vi.fn() }),
+        onDidScrollChange: () => ({ dispose: vi.fn() }), onDidContentSizeChange: () => ({ dispose: vi.fn() }),
+        setScrollLeft: vi.fn((value: number) => { left = value; }), onDidChangeCursorSelection: () => ({ dispose: vi.fn() }),
         layout: vi.fn(), focus: vi.fn(), getModel: () => options.model,
         setPosition: vi.fn(), revealPositionInCenter: vi.fn(),
         getAction: vi.fn(() => ({ run: vi.fn(() => {

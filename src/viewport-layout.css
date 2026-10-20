@@ -68,3 +68,8 @@ body #root .app-shell { min-width: 0; min-height: 0; width: 100%; height: 100%; 
 .main-content > .runtime-unavailable { margin-block: 0; }
 .main-content > .runtime-unavailable > *, .main-content > .empty-state > *,
 .project-work-content > .empty-state > *, .session-column > .empty-state > * { flex-shrink: 0; }
+/* Anchor the project menu below its header so the open popover never covers
+   its own trigger (the fixed 48px offset assumed the header started at 0). */
+.app-shell .project-header > .is-compact > .responsive-control-content:not([hidden]) {
+  position: absolute; inset: calc(100% + 4px) 12px auto auto; max-height: calc(100vh - 140px);
+}
