@@ -36,6 +36,8 @@ npm run tauri -- build
 
 ## 文件導覽
 
+- [UI UX Pro Max 設計技能](.agents/skills/ui-ux-pro-max/UPSTREAM.md)：固定 v2.15.0 的 repo-local UI／UX 參考資料、MIT 授權與使用限制。
+
 - [工作區檔案預覽](docs/workspace-file-preview.md)：唯讀目錄、文字限制及平台安全邊界。
 
 | 文件 | 內容 |
@@ -134,3 +136,4 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 - [大型文字檔閱讀](docs/large-file-reading.md)：分級開啟、取消、有界 IPC 與分段。
 
 - [Snap 宿主程序環境隔離](docs/snap-host-environment.md)：launcher 協定、啟動點盤點、低資源測試與待接線項目。
+- [左側專案導覽寬度](docs/project-navigation-resize.md)：共用寬度偏好、拖曳與鍵盤調整。

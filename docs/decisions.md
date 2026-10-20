@@ -886,3 +886,37 @@ file:line:column 透過既有 Monaco 唯讀模型定位並有界 clamp；既有 
 ## 2026-10-19：Snap 宿主子程序環境相依修正（待 review）
 
 將打包 GUI 變數的保存／設定集中在專用 launcher；應用共用 helper 僅還原新建宿主 Command／PTY 的原值與 unset 狀態，不修改程序全域環境。非 Snap 無 marker 的啟動不受影響，OpenCode 原有隔離探測不放寬。正式 broker 仍以 current_exe 執行，測試 harness 不是產品包前提。獨立於打包 candidate 交付；review 合併後才更新 pinned source 與 recipe 接線，詳見 [Snap 環境隔離](snap-host-environment.md)。
+
+## 2026-10-19：左側專案導覽共用可調寬度
+
+依使用者要求，左側「專案／所有目錄」共用可拖曳寬度，存入既有 `sessionbay.sidebar.v1` 偏好。預設 236 CSS px、偏好範圍 160–480；實際寬度依導覽所在布局容器的 clientWidth clamp（含原生縮放後的實際畫布），最多 40% 並在可行時保留 520 CSS px 給左側導覽以外的區域（包含右側工具面板，不保證中央內容區有 520px）。既有 700px 最小畫布與整體捲動策略維持不變。小視窗 clamp 不覆寫偏好，視窗放大、reload、導覽頁面／收合／Zen 切換均保留使用者選擇。
+
+分隔線沿用右側面板的 5px hit area、accent hover/focus 與方向鍵／Home／End 操作；左側向右增寬。把手在捲動列表之外，不攔截列表排序或文字選取。拖曳使用 pointer capture；只有結束時的有效寬度不同於拖曳起點才儲存；單純點擊、被 clamp 阻擋而未改變寬度、拖回起點均不覆寫偏好。Escape、pointercancel、失去 capture、window blur、視窗 resize、隱藏或卸載均清理拖曳，取消不儲存草稿。此變更不接觸 runtime、Agent 或原始歷史。原生 Ubuntu 驗證與完整 Tauri 驗收的差異需在交付紀錄中標明。
+
+## 2026-10-19：左側導覽範圍依實際布局容器計算
+
+原生縮放後 CSS viewport 可小於 App 的實際布局寬度，直接用 viewport 扣除 520px 會使可調範圍退化為 160–160。改量測導覽父容器 clientWidth，並觀察容器 resize；沿用原本 40%、480px 上限及可行時保留 520px 的政策，不複製 CSS 最小畫布常數。真正無可調空間時不顯示可拖曳把手。此修正處理已重現的範圍退化，不代表已確認 macOS 使用者的全部症狀；短視窗布局與原生 scrollbar 假說另行處理。
+
+## 2026-10-19：OpenCode 真實 CLI 的 v1-only 歷史
+
+使用者以真實 OpenCode 1.19.2／1.19.3 試用時，三個 Session 全部只顯示 metadata，無預覽、無法接續。實測穩定版 CLI 只寫 v1 message/part，session_message table 存在但為空；原本「有 v2 table、無 v2 rows」一律視為歧義的規則因此擋下所有真實歷史。使用者核准修正：v1 最新更新與 session.time_updated 相差 60 秒內時視為現行投影；v1 明顯過舊（例如刪除 v2 後殘留）仍 metadata-only。另經原始碼比對確認 1.19.3 未改 schema，版本上限延伸至 1.19.3；catalog 依 reader revision 重讀未變更的 DB。
+
+## 2026-10-20：Terminal commit-only IME
+
+- 問題（backlog #07）：Linux WebKitGTK 4.1＋fcitx5 新酷音在游標前已有文字時，`echo 中文` 送進 PTY 變成 `中文文` 或 `\u00a0 中文`。
+- 根因：此組合的 preedit 留在輸入法，頁面只收到 `keydown(229, isComposing=false)` → `input(insertFromComposition)` → `compositionend`，沒有 `compositionstart`。xterm 6 `CompositionHelper` 的 229 分支以 `newValue.replace(oldValue, '')` 送出差異，孤立的 compositionend 又以過期的 `_compositionPosition.start + _dataAlreadySent.length` 取子字串再送；helper textarea 只在 Enter／Ctrl+C 清空，前面累積的空白與先前確認字使兩者重疊。
+- 決策：Mike 同意修正。只接管 commit-only 路徑：組字外的 229 keydown 透過公開 custom key handler 略過 xterm 處理；host capture 階段的孤立 compositionend 以 `event.data` 經 `terminal.input` 送一次並停止傳到 xterm；229 後無組字的 `insertText` 也只送一次。有 `compositionstart` 的組字、Backspace 改 preedit 仍由 xterm 處理。不做文字去重、不改 xterm 套件。
+- Shift＋Enter 在一般 Shell 顯示 `;2u`：維持 2026-10-17 使用者選擇的「一律 CSI-u、不從前景程式推測」，本次不改。
+
+## 2026-10-20：OpenCode 大型資料庫（持續區塊鏡像與增量索引）
+
+使用者實際的 opencode.db 已達 2 GB，舊版因「DB/WAL 各 512 MiB、合計 768 MiB」快照上限直接拒讀（「OpenCode history file exceeds the snapshot byte limit」）。使用者要求高效能解法，不只是放寬上限。
+
+- **不直接以 SQLite 開啟原始 DB**：read-only 連線在 WAL 模式仍需建立／寫入 `-shm` 並取得共享鎖；長讀取交易會擋住 checkpoint 重設 WAL、讓 OpenCode 的 WAL 持續變大；`-shm` 不存在時會在使用者資料夾產生檔案。`immutable=1` 對正在寫入的 DB 會讀到錯誤資料，`nolock` 會讀到撕裂頁面。這些都違反「不寫、不鎖、不影響 OpenCode」的既有保證，所以保留「SQLite 只看私人副本」的原則。
+- **持續區塊鏡像**：鏡像放在使用者 cache 目錄、owner-only 0700，並以檔案鎖跨執行緒／程序序列化。主 DB 戳記（device/inode、大小、奈秒 mtime／ctime）未變時零複製；變了（通常是 checkpoint）就逐 1 MiB 區塊比對，只寫入差異。WAL 每次完整複製並 hash，前後各驗一次。
+- **一致性**：主 DB 不再做前後兩次全檔 SHA-256，改以讀取前後戳記完全相同作為未被寫入的證明；所有寫入（含 checkpoint）都會更新 mtime／ctime。只有秒級時間解析度的檔案系統風險較高，記為已知限制。WAL／journal 仍比對內容 hash。
+- **增量**：每 Session 指紋涵蓋 DB 身分、session 列、message/part/session_message 的筆數，以及 message 的 max(time_created／time_updated)，只用索引和小列，不碰大型 part payload。未變的 Session 不讀內容；預覽與冷接續只驗證該 Session，其他 Session 寫入不再讓它變成 stale。只更新 part 內容、但 session／message 時間都沒變的寫入不會被偵測到；實測 1.19.x 的 session.time_updated 與最新列相差 <20 ms，因此一般寫入都會改變指紋。
+- **預算**：改成每 Session 預算，超出時只標記該 Session partial 並警告。catalog 以串流方式寫入，記憶體不再隨整個 DB 成長。`quick_check` 只在鏡像主 DB 變更後執行，或 DB ≤64 MiB 時每次執行；WAL frame 每次都驗 checksum。
+- READER_REVISION 升為 2，舊快取會全部重讀一次。鏡像在移除來源後不會自動刪除，可以手動清掉 cache 目錄。
+- 量測（Linux box，合成 2.0 GiB／3,928 Sessions，release `opencode_benchmark` 跑 catalog sync，檔案在 page cache 內）：舊版直接拒讀；只放寬上限的舊演算法冷索引 24.4 s，未變更 10.3 s，WAL 寫入一筆 25.2 s，峰值 RSS 約 78 MiB。新版冷索引 16.4 s／15 MiB，未變更 0.06 s／11 MiB，WAL 寫入一筆 0.08 s，checkpoint 後 2.0 s（2 GiB 區塊比對，只寫入差異）。
+

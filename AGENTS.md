@@ -53,3 +53,8 @@ PR 應說明目的、影響文件、驗證方式與未定事項；有相關 issu
 
 原始 Agent 歷史維持唯讀。範例與 fixtures 使用合成或去識別資料；勿提交憑證、真實對話或本機索引。啟動程序使用 executable、args 與 cwd 分別傳入，避免將不可信內容組成 Shell 指令。
 
+## UI／UX 設計技能
+
+涉及介面結構、視覺設計、互動、響應式版面或可用性／無障礙檢查時，先讀 [UI UX Pro Max](.agents/skills/ui-ux-pro-max/SKILL.md)，按任務選擇 domain 或實際 stack 搜尋。SessionBay 目前 UI 使用 React／TypeScript，先核對依賴與既有 `docs/ux-spec.md`、`docs/ui-design-system.md`；搜尋建議不能覆蓋專案規格。純後端工作不需載入。
+
+來源、MIT 授權、本地路徑、驗證限制與更新方式見 [技能來源說明](.agents/skills/ui-ux-pro-max/UPSTREAM.md)。`--persist` 只用於任務需要的 repo 內輸出；先讀既有設計文件，`--force` 覆寫須明確授權。

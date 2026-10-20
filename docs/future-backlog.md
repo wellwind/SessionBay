@@ -56,6 +56,7 @@
 - 需求與驗收重點：使用者回報，根因待重現。以平台、WebView、輸入法及 Agent 版本建立測例，涵蓋組字、選字、Enter 確認與貼上；一次輸入不能產生重複文字，不破壞一般鍵盤輸入。
 
 - 2026-10-15 追加範圍：本 PR 已針對 CapsLock 中斷組字造成 xterm 5.5.0 雙送的特定事件路徑加入最小修正與合成回歸；真實 macOS IME 及其他輸入問題仍待驗收，本項尚未勾選。
+- 2026-10-20 Linux 重現與修正：WebKitGTK 4.1＋fcitx5 新酷音（preedit 留在輸入法）只送 `keydown(229)`→`input(insertFromComposition)`→`compositionend`，沒有 `compositionstart`。xterm 6 的 229 textarea diff 與孤立 compositionend 各送一次；游標前已有文字時重複最後一字或連同空白（WebKit 轉 NBSP）重送。現由 `TerminalImeCommitGuard` 接管這條 commit-only 路徑，每次確認只送一次；有 `compositionstart` 的一般組字仍交給 xterm。已以 PTY 原始位元組實測 Shell 與 OpenCode（手動重現：在 Terminal 執行 `python3 scripts/manual-ime-pty-bytes.py`，Ctrl+Q 離開）；macOS／Windows IME 仍待驗收，本項尚未勾選。
 
 ## 08 Shift＋Enter 換行
 
