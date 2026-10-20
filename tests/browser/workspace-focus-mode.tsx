@@ -38,6 +38,7 @@ const bootstrap: Bootstrap = {
 const edgeFixture = new URLSearchParams(location.search).has('edge');
 const fixtureParams = new URLSearchParams(location.search);
 const temporaryFixture = fixtureParams.has('temporary');
+if (fixtureParams.has('long')) bootstrap.projects[0].name = '中文長專案名稱與非常長的工作內容驗收測試'.repeat(3);
 if (fixtureParams.get('theme') === 'light') bootstrap.settings.theme = 'light';
 if (['bay', 'code-modern', 'code-2026'].includes(fixtureParams.get('palette') ?? ''))
   bootstrap.settings.themePalette = fixtureParams.get('palette')!;

@@ -124,6 +124,23 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
           run(current => { current.layout(); if (!revealed.current) restore(); reveal(current); });
         });
         own(() => cancelAnimationFrame(restoreFrame));
+        // Monaco measures long lines lazily; when a taller viewport renders wider
+        // lines after restore, its cursor reveal can shift scrollLeft. Until the
+        // user interacts, keep the retained offset authoritative.
+        const retainedLeft = retained.viewState ? ownedWidget.getScrollLeft() : retained.left;
+        let settling = true;
+        const settle = () => { settling = false; };
+        const settleTimer = window.setTimeout(settle, 1000);
+        own(() => clearTimeout(settleTimer));
+        for (const type of ['pointerdown', 'wheel', 'keydown'] as const) {
+          host.addEventListener(type, settle, { capture: true, once: true });
+          own(() => host.removeEventListener(type, settle, { capture: true }));
+        }
+        const contentSize = ownedWidget.onDidContentSizeChange(event => {
+          if (!settling || revealed.current || !event.contentWidthChanged) return;
+          if (ownedWidget.getScrollLeft() !== retainedLeft) ownedWidget.setScrollLeft(retainedLeft);
+        });
+        own(() => contentSize.dispose());
         save = () => latest.current.onScroll({ top: ownedWidget.getScrollTop(), left: ownedWidget.getScrollLeft(), viewState: ownedWidget.saveViewState() });
         const scroll = ownedWidget.onDidScrollChange(() => run(() => save?.()));
         own(() => scroll.dispose());

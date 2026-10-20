@@ -62,11 +62,27 @@ for (const [name, width, height, zoom] of [
     const geometryPath = testInfo.outputPath('geometry.json');
     await writeFile(geometryPath, JSON.stringify({ browser: browser.version(), channel: 'chrome', before, after }, null, 2));
     await testInfo.attach('geometry', { path: geometryPath, contentType: 'application/json' });
-    await page.getByRole('button', { name: '搜尋終端文字', exact: true }).click();
+    const search = page.getByRole('button', { name: '搜尋終端文字', exact: true });
+    const options = page.getByRole('button', { name: '面板選項 Shell', exact: true });
+    // Narrow panes expose secondary actions through the responsive toolbar.
+    // Exercise the actual keyboard entry point instead of bypassing hidden UI.
+    if (width < 600) {
+      await expect(search).toBeHidden();
+      await expect(options).toHaveAttribute('aria-expanded', 'false');
+      await options.focus();
+      await options.press('Enter');
+      await expect(options).toHaveAttribute('aria-expanded', 'true');
+    } else {
+      await expect(options).toHaveCount(0);
+    }
+    await expect(search).toBeVisible();
+    await search.click();
     await expect(page.getByRole('textbox', { name: '終端搜尋', exact: true })).toBeFocused();
+    if (width < 600) await expect(options).toHaveAttribute('aria-expanded', 'false');
     await expect.poll(async () => (await bounds(page)).screen.bottom <= (await bounds(page)).footer.top).toBe(true);
     await page.getByRole('button', { name: '關閉終端搜尋', exact: true }).click();
     await expect(page.getByRole('textbox', { name: '終端搜尋', exact: true })).toHaveCount(0);
+    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
     await expect.poll(async () => {
       const restored = await bounds(page);
       return restored.screen.bottom <= restored.footer.top &&

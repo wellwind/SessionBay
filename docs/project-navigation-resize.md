@@ -9,3 +9,5 @@
 驗證方式：`npm run typecheck`，以及 `vitest run src/project-navigation.test.tsx src/sidebar-preferences.test.ts src/sidebar-project-list.test.tsx src/activity-shell.test.tsx src/focus-mode-button.test.tsx --maxWorkers=1`。原生 WebKitGTK 合成資料驗證不等同完整 Tauri backend／安裝包驗收。
 
 範圍使用導覽所在布局容器的實際 clientWidth，而非縮放後可能更小的 window.innerWidth；ResizeObserver 隨容器更新並取消未完成拖曳。若實際容器沒有可調範圍，隱藏分隔線並移出 Tab 順序。
+
+短視窗布局已移除 700px 最小畫布；實際容器縮至 680px 或以下時，現行保留空間規則使範圍退化為 160–160，因此把手隱藏。放大後恢復既有偏好，不把暫時 160px 寫入 storage。

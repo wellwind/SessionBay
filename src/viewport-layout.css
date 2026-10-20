@@ -1,0 +1,75 @@
+/* The viewport owns the outer shell; each content surface owns its scrolling. */
+html body #root { overflow: hidden; min-width: 0; min-height: 0; }
+body #root .app-shell { min-width: 0; min-height: 0; width: 100%; height: 100%; overflow: hidden; }
+.app-shell .app-body { min-width: 0; min-height: 0; }
+.app-shell .main-content { min-width: 0; min-height: 0; overflow: hidden; }
+.responsive-controls, .responsive-control-content { display: contents; }
+.responsive-control-content[hidden] { display: none; }
+.app-shell .project-header .project-heading { min-width: 0; flex: 1 1 220px; }
+.project-header .header-buttons { align-items: center; flex-shrink: 0; }
+.project-header .header-buttons > button { flex-shrink: 0; }
+.responsive-controls.is-compact { display: block; min-width: 0; }
+.app-shell .project-header:has(> .is-compact) { position: relative; padding: 4px 12px; flex-wrap: nowrap; min-height: 40px; gap: 0; }
+.project-header > .is-compact { width: 100%; }
+.compact-control-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.compact-control-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.compact-control-heading .icon-button { flex-shrink: 0; }
+.is-compact > .responsive-control-content:not([hidden]) {
+  position: fixed; z-index: 80; inset: 48px 12px auto auto;
+  display: flex; flex-direction: column; align-items: stretch; gap: 12px;
+  width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px);
+  overflow: auto; padding: 16px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 6px;
+}
+.project-header .is-compact .project-heading { flex-basis: auto; min-width: 0; }
+.project-header .is-compact .header-buttons { padding-top: 0; flex-wrap: wrap; }
+.project-header .is-compact .breadcrumb { flex-wrap: wrap; }
+.project-header .is-compact .project-path { flex-wrap: wrap; }
+.terminal-pane:has(.is-compact) .pane-toolbar { flex-wrap: nowrap; min-height: 32px; }
+.terminal-pane:has(.is-compact) .pane-title { flex: 1; min-width: 0; }
+.terminal-pane:has(.is-compact) .pane-title strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.terminal-pane .is-compact .pane-actions { flex-wrap: wrap; }
+.terminal-pane:has(.is-compact) .pane-footer { min-height: 22px; padding-block: 2px; }
+.terminal-pane:has(.is-compact) .pane-footer > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.terminal-pane:has(.is-compact) .pane-meta { min-height: 22px; padding-block: 2px; }
+@media (max-height: 640px), (max-width: 900px) {
+  .app-shell .app-topbar { height: 44px; min-height: 44px; padding: 4px 12px; gap: 8px; }
+  .app-topbar .brand { min-width: 0; gap: 6px; }
+  .app-topbar .brand-tag, .app-topbar .global-search kbd, .app-topbar .temporary-terminal-button span { display: none; }
+  .app-topbar .global-search { min-width: 32px; width: auto; flex: 1; }
+  .app-topbar .global-search span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-topbar .topbar-actions { gap: 4px; }
+  .app-shell .statusbar { padding-inline: 8px; gap: 8px; }
+  .statusbar > div { min-width: 0; }
+  .statusbar > div:last-child > span:last-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}
+@media (max-width: 700px) {
+  .app-topbar .brand > span, .app-topbar .global-search span { display: none; }
+  .app-topbar .global-search { flex: 0 0 32px; justify-content: center; padding: 4px; }
+  .app-topbar .topbar-actions { margin-left: auto; }
+  .app-shell .main-content { min-width: min(180px, 40vw); }
+  .app-shell .project-activity-tools { flex-shrink: 1; min-width: 44px; }
+  .statusbar > div:last-child > .status-separator, .statusbar > div:last-child > span:last-child { display: none; }
+}
+
+.terminal-pane:has(.is-compact) .compact-control-heading .icon-button { width: 24px; height: 24px; min-height: 24px; }
+/* Split panes spend their small height on at least two text rows. */
+.terminal-pane.minimal-chrome .pane-toolbar { min-height: 28px; padding: 2px 5px; flex-shrink: 0; }
+.terminal-pane.minimal-chrome .terminal-body { padding: 0 4px; }
+@media (max-height: 640px) {
+  .workspace-canvas:not(.single-pane) { inset: 2px; }
+  .workspace-canvas:not(.single-pane) .pane-position { padding: 2px; }
+}
+/* Standalone non-workspace states must scroll inside the fixed shell too. */
+.main-content > .runtime-unavailable, .main-content > .empty-state,
+.project-work-content > .empty-state, .session-column > .empty-state {
+  min-height: 0; overflow: auto; flex: 1 1 0; justify-content: safe center;
+}
+.main-content > .runtime-unavailable { margin-block: 0; }
+.main-content > .runtime-unavailable > *, .main-content > .empty-state > *,
+.project-work-content > .empty-state > *, .session-column > .empty-state > * { flex-shrink: 0; }
+/* Anchor the project menu below its header so the open popover never covers
+   its own trigger (the fixed 48px offset assumed the header started at 0). */
+.app-shell .project-header > .is-compact > .responsive-control-content:not([hidden]) {
+  position: absolute; inset: calc(100% + 4px) 12px auto auto; max-height: calc(100vh - 140px);
+}

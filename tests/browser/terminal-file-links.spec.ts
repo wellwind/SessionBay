@@ -110,6 +110,9 @@ test('late results cannot open a file after navigation away and back', async ({ 
 });
 test('narrow keyboard dialog keeps full paths visible without horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 800 }); await openWorkspace(page);
+  // Narrow panes collapse their actions into a keyboard-operable menu.
+  const paneMenu = page.getByRole('button', { name: /^面板選項 / }).first();
+  if (await paneMenu.isVisible()) await paneMenu.click();
   await page.getByRole('button', { name: '開啟終端檔案路徑', exact: true }).click();
   const input = page.getByRole('textbox', { name: '檔案路徑（可含 :行:欄）' });
   await input.fill('same.ts'); await page.keyboard.press('Enter');

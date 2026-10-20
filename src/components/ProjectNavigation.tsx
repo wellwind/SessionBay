@@ -66,6 +66,8 @@ export function ProjectNavigation({ hidden, preferredWidth, onWidthChange, child
       }}
       onPointerUp={event => {
         if (drag.current?.pointer !== event.pointerId) return;
+        // ResizeObserver/window resize may be delivered after this pointer event.
+        if (sidebar.current?.parentElement?.clientWidth !== layoutWidth) { cancel(); return; }
         const { current: next, width: initialWidth } = drag.current;
         release(); setDraft(null);
         if (next !== initialWidth) onWidthChange(next);
