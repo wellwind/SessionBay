@@ -123,6 +123,8 @@ export interface Settings {
   /** Optional for pre-palette version 1 settings; omitted means Bay. */
   themePalette?: string;
   terminalTheme: string;
+  /** 「終端固定用深色」. Absent/false: the terminal follows the UI light/dark mode. */
+  terminalAlwaysDark?: boolean;
   fontFamily: string;
   fontSize: number;
   /** Percentage; absent in older version 1 settings means 100. */

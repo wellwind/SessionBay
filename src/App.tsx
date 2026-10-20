@@ -3,7 +3,7 @@ import { TerminalFileDialog } from './components/TerminalFileDialog';
 import type { TerminalFileOpen } from './terminal-file-links';
 import type { FileReference, Pane as FileLinkPane } from './types';
 import { RuntimeActivityProvider, RuntimeActivityIndicator } from './components/RuntimeActivity';
-import { tabRuntimeSummary } from './project-runtime';
+import { projectOpenCount, tabRuntimeSummary } from './project-runtime';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -105,6 +105,7 @@ import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 import { WorkspaceFiles } from './components/WorkspaceFiles';
 import './project-files-workspace.css';
+import { markWelcomeSeen, shouldShowWelcome } from './welcome';
 interface Launcher {
   resumeId?: string;
   kind: 'shell' | AgentKind;
@@ -167,6 +168,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [appearancePreview, setAppearancePreview] = useState<Partial<Appearance> | null>(null);
   const [quickThemeOpen, setQuickThemeOpen] = useState(false);
   const [themeSaving, setThemeSaving] = useState(false);
@@ -531,7 +533,9 @@ export default function App() {
       observedWorkspace.current = JSON.stringify(serializeWorkspace(saved));
       persistedWorkspace.current = observedWorkspace.current;
       setWorkspace(restored);
-      setSettingsOpen(!data.settings.onboardingComplete);
+      const welcome = shouldShowWelcome(data.settings.onboardingComplete);
+      setWelcomeOpen(welcome);
+      setSettingsOpen(welcome);
       if (data.warnings.length) notify(data.warnings.join('；'));
       if (data.settings.onboardingComplete && !data.index.running)
         void api.scan(false).then(setIndex).catch(notify);
@@ -1227,6 +1231,7 @@ export default function App() {
     settingsRef.current = saved;
     setBoot((b) => (b ? { ...b, settings: saved, installations: [] } : b));
     setSettingsOpen(false);
+    if (welcomeOpen) { markWelcomeSeen(); setWelcomeOpen(false); }
     void detectAgents().catch(notify);
     if (first) void scan(false).catch(notify);
   };
@@ -1325,6 +1330,8 @@ export default function App() {
     .sort((a, b) => navigation === 'projects'
       ? (orderIndex.get(a.id) ?? Infinity) - (orderIndex.get(b.id) ?? Infinity) || legacyProjectOrder(a, b)
       : legacyProjectOrder(a, b));
+  const projectOpenCounts = Object.fromEntries(sortedProjects.map((p) =>
+    [p.id, projectOpenCount(workspace.tabs.filter((tab) => tab.projectId === p.id), workspace.panes)]));
   const listCollapsed = navigation === 'projects' ? sidebar.projectsCollapsed : sidebar.directoriesCollapsed;
   const selectNavigation = (page: 'projects' | 'directories') => {
     setNavigation(page);
@@ -1691,7 +1698,8 @@ export default function App() {
                   /></div>}
                   {!historyVisible && <DirectoryOverview page={navigation} projects={sortedProjects} searching={!!projectSearch}
                     busy={projectBusy} onSelect={selectProject} onMembership={saveMembership}
-                    onAdd={() => setProjectDialog({})} onDirectories={() => selectNavigation('directories')} />}
+                    onAdd={() => setProjectDialog({})} onDirectories={() => selectNavigation('directories')}
+                    openCounts={projectOpenCounts} />}
                 </div>
                 {settings && (
                   <WorkspaceCanvas
@@ -1857,9 +1865,12 @@ export default function App() {
           settings={settings}
           installations={boot.installations}
           index={index}
-          onboarding={!settings.onboardingComplete}
+          onboarding={welcomeOpen}
           onSave={saveSettings}
-          onClose={() => { setAppearancePreview(null); setSettingsOpen(false); }}
+          onClose={() => {
+            setAppearancePreview(null); setSettingsOpen(false);
+            if (welcomeOpen) { markWelcomeSeen(); setWelcomeOpen(false); }
+          }}
           onPreviewAppearance={setAppearancePreview}
           onScan={scan}
           onCancelScan={api.cancelScan}

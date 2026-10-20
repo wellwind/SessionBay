@@ -42,6 +42,8 @@ if (fixtureParams.has('long')) bootstrap.projects[0].name = '中文長專案名�
 if (fixtureParams.get('theme') === 'light') bootstrap.settings.theme = 'light';
 if (['bay', 'code-modern', 'code-2026'].includes(fixtureParams.get('palette') ?? ''))
   bootstrap.settings.themePalette = fixtureParams.get('palette')!;
+// First-launch fixture: onboarding is incomplete, so the welcome wizard may appear.
+if (fixtureParams.has('welcome')) bootstrap.settings.onboardingComplete = false;
 const runtimes = [runtime];
 if (edgeFixture) {
   const workspace = bootstrap.workspace as Workspace;

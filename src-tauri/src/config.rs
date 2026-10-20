@@ -111,6 +111,9 @@ pub struct Settings {
     #[serde(default = "default_theme_palette")]
     pub theme_palette: String,
     pub terminal_theme: String,
+    /// 「終端固定用深色」: opt out of the terminal following the UI light/dark mode.
+    #[serde(default)]
+    pub terminal_always_dark: bool,
     pub font_family: String,
     pub font_size: u16,
     #[serde(default = "default_app_zoom")]
@@ -157,6 +160,7 @@ impl Default for Settings {
             theme: "dark".into(),
             theme_palette: default_theme_palette(),
             terminal_theme: "bay".into(),
+            terminal_always_dark: false,
             font_family: "ui-monospace, SFMono-Regular, Menlo, monospace".into(),
             font_size: 14,
             app_zoom: default_app_zoom(),
@@ -1107,6 +1111,17 @@ mod tests {
         assert!(migrated.validate().is_ok());
     }
 
+    #[test]
+    fn legacy_settings_default_terminal_to_following_the_ui_mode() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("terminalAlwaysDark");
+        let migrated: Settings = serde_json::from_value(old).unwrap();
+        assert!(!migrated.terminal_always_dark);
+        let mut pinned = serde_json::to_value(Settings::default()).unwrap();
+        pinned["terminalAlwaysDark"] = true.into();
+        let pinned: Settings = serde_json::from_value(pinned).unwrap();
+        assert!(pinned.terminal_always_dark);
+    }
     #[test]
     fn future_theme_ids_roundtrip_without_resetting_settings() {
         let dir = tempfile::tempdir().unwrap();

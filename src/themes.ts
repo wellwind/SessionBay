@@ -50,7 +50,7 @@ const legacyTerminalThemes: Record<string, ITheme> = {
 };
 
 export type ColorMode = 'dark' | 'light';
-export type Appearance = Pick<Settings, 'theme' | 'themePalette' | 'terminalTheme' | 'fontSize' | 'fontFamily' | 'appZoom'>;
+export type Appearance = Pick<Settings, 'theme' | 'themePalette' | 'terminalTheme' | 'terminalAlwaysDark' | 'fontSize' | 'fontFamily' | 'appZoom'>;
 export interface ThemePalette {
   id: string;
   label: string;
@@ -121,11 +121,15 @@ const darkAnsi = {
   brightBlack: '#aab6c3', brightRed: '#ff9caa', brightGreen: '#b4efd3', brightYellow: '#f0d6a3',
   brightBlue: '#b5d4f7', brightMagenta: '#dfbdec', brightCyan: '#abe6ec', brightWhite: '#ffffff',
 };
+// Light ANSI is tuned for every light palette background (see terminal-contrast.test.ts):
+// normal colors stay >= 6:1, bright colors are lighter/more saturated so they stay
+// distinguishable while still >= 4.5:1. `white`/`brightWhite` intentionally map to
+// slate grays: real white on a light background would be invisible.
 const lightAnsi = {
-  black: '#18212d', red: '#9b2335', green: '#155e37', yellow: '#715200',
-  blue: '#205398', magenta: '#783991', cyan: '#145a68', white: '#475569',
-  brightBlack: '#526070', brightRed: '#a3243c', brightGreen: '#206637', brightYellow: '#79540c',
-  brightBlue: '#285d9d', brightMagenta: '#813e98', brightCyan: '#176575', brightWhite: '#536274',
+  black: '#1b2430', red: '#a8253a', green: '#17663b', yellow: '#7a5300',
+  blue: '#1f58a8', magenta: '#7f3a9c', cyan: '#0f6070', white: '#4d5a6b',
+  brightBlack: '#5a6778', brightRed: '#c4283f', brightGreen: '#1d7a43', brightYellow: '#8c5d00',
+  brightBlue: '#2f6bd0', brightMagenta: '#9a3fb8', brightCyan: '#0f7385', brightWhite: '#627083',
 };
 export const terminalPresets = (['dark', 'light'] as const).flatMap((mode) => themePalettes.map((palette) => ({
   id: `${palette.id}-${mode}`,
@@ -146,6 +150,22 @@ export const terminalPresets = (['dark', 'light'] as const).flatMap((mode) => th
 export function terminalTheme(id: string): ITheme {
   return terminalPresets.find((preset) => preset.id === id)?.colors ?? (Object.hasOwn(legacyTerminalThemes, id) ? legacyTerminalThemes[id] : legacyTerminalThemes.bay);
 }
+/**
+ * The terminal preset actually shown. By default the terminal follows the UI mode:
+ * a preset family keeps its palette and swaps to the matching light/dark variant, and
+ * legacy dark palettes (`bay`, `classic`) stay exact in dark mode but use the UI
+ * palette's light preset in light mode. `alwaysDark` pins the dark variant.
+ */
+export function resolveTerminalThemeId(id: string, mode: ColorMode, alwaysDark = false, uiPalette = 'bay'): string {
+  const target: ColorMode = alwaysDark ? 'dark' : mode;
+  const preset = /^(.+)-(dark|light)$/.exec(id);
+  if (preset && themePalettes.some((palette) => palette.id === preset[1])) return `${preset[1]}-${target}`;
+  if (target === 'dark') return id;
+  return themePalettes.some((palette) => palette.id === uiPalette) ? `${uiPalette}-light` : 'bay-light';
+}
+export function effectiveTerminalTheme(appearance: Pick<Appearance, 'terminalTheme' | 'terminalAlwaysDark' | 'themePalette'>, mode: ColorMode): ITheme {
+  return terminalTheme(resolveTerminalThemeId(appearance.terminalTheme, mode, appearance.terminalAlwaysDark ?? false, appearance.themePalette ?? 'bay'));
+}
 export function paletteOptions(id = 'bay') {
   const options = themePalettes.map((palette) => ({ value: palette.id, label: palette.label }));
   return options.some((option) => option.value === id) ? options : [{ value: id, label: `${id} · 未知色系（暫用 Bay）` }, ...options];
@@ -159,6 +179,6 @@ export function terminalOptions(id: string) {
 }
 export function validThemeId(id: string) { return /^[a-z0-9][a-z0-9-]{0,63}$/.test(id); }
 export function appearanceOf(settings: Settings): Appearance {
-  return { theme: settings.theme, themePalette: settings.themePalette, terminalTheme: settings.terminalTheme,
+  return { theme: settings.theme, themePalette: settings.themePalette, terminalTheme: settings.terminalTheme, terminalAlwaysDark: settings.terminalAlwaysDark ?? false,
     fontSize: settings.fontSize, fontFamily: settings.fontFamily, appZoom: settings.appZoom ?? 100 };
 }

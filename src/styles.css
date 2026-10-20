@@ -18,6 +18,7 @@
   --muted: #8a949e;
   --subtle: #606c77;
   --border: #2a3038;
+  --control-border: #646e7a;
   --accent: #a8dfc4;
   --accent-strong: #bcebd4;
   --accent-bg: #a8dfc414;
@@ -47,9 +48,10 @@ body {
   --surface: #f0f3f1;
   --surface-hover: #e7eee9;
   --text: #24352c;
-  --muted: #69776d;
+  --muted: #5c6a60;
   --subtle: #8a978f;
   --border: #dce4de;
+  --control-border: #7f8c83;
   --accent: #267450;
   --accent-strong: #1a6341;
   --accent-bg: #2674500c;
@@ -90,7 +92,7 @@ select,
 textarea {
   color: var(--text);
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border, var(--border));
   border-radius: 6px;
   padding: 9px 11px;
   min-width: 0;
@@ -182,7 +184,7 @@ svg {
 }
 kbd {
   font-family: inherit;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--subtle);
   padding: 3px 5px;
   border: 1px solid var(--border);
@@ -203,7 +205,7 @@ kbd {
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 1.4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--muted);
 }
@@ -287,7 +289,7 @@ kbd {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
 }
 .app-body {
@@ -311,7 +313,7 @@ kbd {
   justify-content: space-between;
   padding-left: 10px;
   color: var(--subtle);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 1px;
   margin-bottom: 10px;
 }
@@ -330,14 +332,14 @@ kbd {
 }
 .sidebar-global span {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.65;
 }
 .sidebar-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.6px;
   color: var(--muted);
   padding: 20px 7px 8px;
@@ -400,7 +402,7 @@ kbd {
 }
 .project-main small {
   display: block;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--subtle);
   margin-top: 5px;
   overflow: hidden;
@@ -408,7 +410,7 @@ kbd {
   white-space: nowrap;
 }
 .project-count {
-  font-size: 10px;
+  font-size: 11px;
   align-self: flex-start;
   padding-top: 2px;
   margin-right: 3px;
@@ -427,7 +429,7 @@ kbd {
   color: var(--muted);
   margin: 14px 5px;
   padding: 9px;
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--control-border, var(--border));
   border-radius: 6px;
 }
 .main-content {
@@ -447,7 +449,7 @@ kbd {
   flex-shrink: 0;
 }
 .breadcrumb {
-  font-size: 10px;
+  font-size: 11px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -483,7 +485,7 @@ kbd {
   text-overflow: ellipsis;
 }
 .project-path button {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   text-decoration: underline;
   white-space: nowrap;
@@ -541,7 +543,7 @@ kbd {
   border-radius: 4px;
 }
 .workspace-tab span {
-  font-size: 9px;
+  font-size: 11px;
   background: var(--surface);
   border-radius: 3px;
   padding: 2px 5px;
@@ -608,7 +610,7 @@ kbd {
   align-items: center;
   justify-content: space-between;
   padding: 0 30px 15px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--subtle);
 }
 .filter-bar {
@@ -623,15 +625,15 @@ kbd {
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .filter-bar input,
 .filter-bar select {
-  font-size: 10px;
+  font-size: 11px;
   padding: 5px 7px;
 }
 .filter-bar button {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--accent);
 }
 .checkbox-label input {
@@ -682,7 +684,7 @@ kbd {
   gap: 8px;
 }
 .agent-badge {
-  font-size: 9px;
+  font-size: 11px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -701,7 +703,7 @@ kbd {
   color: #ceaa8b;
 }
 .session-time {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--subtle);
 }
 .session-card h3 {
@@ -728,7 +730,7 @@ kbd {
   gap: 10px;
   justify-content: space-between;
   margin-top: 12px;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--subtle);
 }
 .session-card-meta > span:first-child {
@@ -747,7 +749,7 @@ kbd {
   justify-content: space-between;
   padding: 9px 25px;
   border-top: 1px solid var(--border);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   height: 40px;
   flex-shrink: 0;
@@ -800,11 +802,11 @@ kbd {
   overflow-wrap: anywhere;
 }
 .transcript-header .eyebrow {
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.8px;
 }
 .transcript-header .primary {
-  font-size: 10px;
+  font-size: 11px;
   padding: 7px 10px;
   min-height: 30px;
 }
@@ -814,7 +816,7 @@ kbd {
   flex-wrap: wrap;
   gap: 12px;
   align-items: center;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--subtle);
 }
 .transcript-meta > span {
@@ -825,7 +827,7 @@ kbd {
 .transcript-source {
   padding: 11px 25px 16px;
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.7;
   overflow-wrap: anywhere;
   border-bottom: 1px solid var(--border);
@@ -843,12 +845,12 @@ kbd {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text);
   margin-bottom: 10px;
 }
 .message-avatar {
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
   width: 23px;
   height: 23px;
@@ -870,7 +872,7 @@ kbd {
 }
 .message-heading time {
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
   margin-left: auto;
 }
 .message-text {
@@ -888,7 +890,7 @@ kbd {
 .load-earlier {
   display: flex;
   margin: 10px auto;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   border: 1px solid var(--border);
   padding: 6px 12px;
@@ -907,7 +909,7 @@ kbd {
 }
 .inline-warning button,
 .project-warning button {
-  font-size: 10px;
+  font-size: 11px;
   margin-left: auto;
   color: var(--warning);
   text-decoration: underline;
@@ -998,7 +1000,7 @@ kbd {
 }
 .runtime-unavailable .eyebrow {
   margin: 18px 0 12px;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 2px;
 }
 .runtime-unavailable h2 {
@@ -1031,7 +1033,7 @@ kbd {
 }
 .runtime-note span {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.6;
   color: var(--subtle);
   margin-top: 5px;
@@ -1042,7 +1044,7 @@ kbd {
   flex-wrap: wrap;
   justify-content: center;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 .runtime-features span {
   display: flex;
@@ -1058,7 +1060,7 @@ kbd {
   align-items: center;
   justify-content: space-between;
   padding: 0 15px;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--muted);
   gap: 20px;
 }
@@ -1136,7 +1138,7 @@ kbd {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: 10px;
+  font-size: 11px;
 }
 .pane-title strong {
   white-space: nowrap;
@@ -1146,7 +1148,7 @@ kbd {
   font-weight: 500;
 }
 .focus-label {
-  font-size: 8px;
+  font-size: 11px;
   color: var(--accent);
   padding: 1px 3px;
   border: 1px solid #9bd9bd30;
@@ -1181,7 +1183,7 @@ kbd {
   justify-content: space-between;
   padding: 6px 9px;
   gap: 8px;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--subtle);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -1236,7 +1238,7 @@ kbd {
   border-top: 1px solid var(--border);
   padding: 5px 10px;
   color: var(--subtle);
-  font-size: 9px;
+  font-size: 11px;
   gap: 7px;
   min-height: 29px;
 }
@@ -1247,7 +1249,7 @@ kbd {
 }
 .pane-footer button {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   padding: 2px 4px;
   white-space: nowrap;
 }
@@ -1255,7 +1257,7 @@ kbd {
   padding: 8px;
   background: #4d2a29;
   color: #f6b2ad;
-  font-size: 10px;
+  font-size: 11px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1279,7 +1281,7 @@ kbd {
   padding: 5px 7px;
 }
 .terminal-search button {
-  font-size: 9px;
+  font-size: 11px;
   white-space: nowrap;
   padding: 3px;
 }
@@ -1391,7 +1393,7 @@ kbd {
 .search-field:focus-within > svg { color: var(--accent); }
 .search-field > input { color: var(--text); }
 .small-muted {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--subtle);
   line-height: 1.7;
   margin: 14px 0;
@@ -1464,10 +1466,10 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--subtle);
-  font-size: 10px;
+  font-size: 11px;
 }
 .palette-results kbd {
-  font-size: 9px;
+  font-size: 11px;
 }
 ::-webkit-scrollbar {
   width: 7px;
@@ -1567,7 +1569,7 @@ kbd {
   }
   .transcript-header .primary {
     padding: 7px;
-    font-size: 9px;
+    font-size: 11px;
   }
   .transcript-header .primary svg {
     display: none;
@@ -1590,7 +1592,7 @@ kbd {
 .open-workspaces nav button span { min-width: 0; }
 .open-workspaces strong, .open-workspaces small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-workspaces strong { font-size: 11px; font-weight: 500; }
-.open-workspaces small { font-size: 10px; color: var(--subtle); margin-top: 3px; }
+.open-workspaces small { font-size: 11px; color: var(--subtle); margin-top: 3px; }
 .project-mode { display: flex; gap: 8px; margin: 12px 0; }
 .project-mode button { flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 6px; }
 .project-mode button.selected { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
@@ -1619,7 +1621,7 @@ kbd {
 .directory-card-title{display:flex;align-items:center;gap:10px;color:var(--accent)}
 .directory-card-title h3{font-size:15px;line-height:1.5;flex:1;min-width:0;overflow-wrap:anywhere;color:var(--text);margin:0}
 .directory-card-path{min-height:36px;margin:12px 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
-.directory-card-relocation{font-size:10px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+.directory-card-relocation{font-size: 11px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
 .directory-card-details,.directory-card-activity,.directory-card-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
 .directory-card-details{margin:14px 0}.directory-card-activity>svg{color:var(--accent)}
 .directory-card-actions{padding:12px 16px;border-top:1px solid var(--border)}

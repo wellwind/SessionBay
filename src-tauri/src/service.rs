@@ -243,6 +243,7 @@ impl Service {
             "theme",
             "themePalette",
             "terminalTheme",
+            "terminalAlwaysDark",
             "fontFamily",
             "fontSize",
             "appZoom",

@@ -1,6 +1,6 @@
 .select-control { position: relative; min-width: 0; width: 100%; }
 .select-trigger, .date-field, .search-field {
-  border: 1px solid var(--border, #343a42);
+  border: 1px solid var(--control-border, var(--border, #343a42));
   border-radius: 7px;
   background: var(--bg, #15191e);
   color: var(--text, #e5e9ec);
@@ -54,7 +54,7 @@
 .calendar-heading > span { font-weight: 600; font-size: 13px; }
 .calendar-heading > button { width: 30px; height: 30px; border-radius: 5px; }
 .calendar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; margin-bottom: 3px; }
-.calendar-week > [role='columnheader'] { text-align: center; color: var(--muted, #8a949e); padding: 4px 0 7px; font-size: 10px; }
+.calendar-week > [role='columnheader'] { text-align: center; color: var(--muted, #8a949e); padding: 4px 0 7px; font-size: 11px; }
 .calendar-day { display: flex; align-items: center; justify-content: center; width: 100%; height: 32px; padding: 0; border-radius: 6px; font-size: 12px; border: 1px solid transparent; }
 .calendar-day.outside-month { color: var(--subtle, #606c77); }
 .calendar-day[aria-current='date'] { border-color: var(--accent, #a8dfc4); }

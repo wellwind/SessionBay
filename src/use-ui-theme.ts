@@ -1,5 +1,5 @@
-import { useLayoutEffect } from 'react';
-import type { Appearance } from './themes';
+import { useLayoutEffect, useSyncExternalStore } from 'react';
+import type { Appearance, ColorMode } from './themes';
 import { uiTokens } from './themes';
 
 /** Restore only the CSS tokens this owner installed when it leaves the screen. */
@@ -31,4 +31,21 @@ export function useUiTheme(appearance: Appearance | undefined) {
       });
     };
   }, [theme, palette]);
+}
+
+const darkQuery = '(prefers-color-scheme: dark)';
+function subscribeColorScheme(onChange: () => void) {
+  if (typeof window === 'undefined' || !window.matchMedia) return () => {};
+  const media = window.matchMedia(darkQuery);
+  media.addEventListener('change', onChange);
+  return () => media.removeEventListener('change', onChange);
+}
+function systemPrefersDark() {
+  return typeof window === 'undefined' || !window.matchMedia ? true : window.matchMedia(darkQuery).matches;
+}
+/** Concrete light/dark mode for a UI theme setting, tracking the OS for 'system'. */
+export function useResolvedColorMode(theme: Appearance['theme'] | undefined): ColorMode {
+  const prefersDark = useSyncExternalStore(subscribeColorScheme, systemPrefersDark, () => true);
+  if (theme === 'light' || theme === 'dark') return theme;
+  return prefersDark ? 'dark' : 'light';
 }

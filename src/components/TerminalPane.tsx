@@ -48,7 +48,8 @@ interface Attachment {
   lastAcknowledged: number;
   info?: RuntimeInfo;
 }
-import { terminalTheme } from '../themes';
+import { effectiveTerminalTheme } from '../themes';
+import { useResolvedColorMode } from '../use-ui-theme';
 
 import { RenameDialog } from './RenameDialog';
 import { hasBlockingDialog } from '../dialog-focus';
@@ -114,6 +115,9 @@ export function TerminalPane({
     else element?.querySelector<HTMLElement>('.compact-control-heading button')?.focus();
   }, [minimalChrome]);
   const activity = useRuntimeActivity();
+  const colorMode = useResolvedColorMode(settings.theme);
+  // Stable preset objects: identity only changes when the effective palette does.
+  const terminalColors = effectiveTerminalTheme(settings, colorMode);
   useEffect(() => { activity?.visible(pane.id, activityVisible); }, [activity, pane.id, activityVisible]);
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -208,7 +212,7 @@ export function TerminalPane({
       },
       fontSize: settings.fontSize,
       fontFamily: settings.fontFamily,
-      theme: terminalTheme(settings.terminalTheme),
+      theme: terminalColors,
       cursorBlink: true,
       allowProposedApi: false,
       convertEol: false,
@@ -362,8 +366,8 @@ export function TerminalPane({
   }, [settings.fontSize, settings.fontFamily, fitNow]);
   useEffect(() => {
     // Colors never resize, reset, refocus or reconnect a running terminal.
-    if (term.current) term.current.options.theme = terminalTheme(settings.terminalTheme);
-  }, [settings.terminalTheme]);
+    if (term.current) term.current.options.theme = terminalColors;
+  }, [terminalColors]);
   const previousHookOptIn = useRef(pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind));
   useEffect(() => {
     const enabled = pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind);
@@ -885,7 +889,7 @@ export function TerminalPane({
           </button>
         </div>
       )}
-      <div className="terminal-body" style={{ backgroundColor: terminalTheme(settings.terminalTheme).background }}>
+      <div className="terminal-body" style={{ backgroundColor: terminalColors.background }}>
         <div className="xterm-host" ref={host} />
         {pane.state === 'placeholder' && (
           <div className="terminal-placeholder">

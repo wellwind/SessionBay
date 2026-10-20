@@ -14,3 +14,5 @@
 .theme-quick-error { color: var(--danger); font-size: 13px; line-height: 1.7; }
 
 .theme-quick-trigger { min-width: 44px; min-height: 44px; }
+.theme-terminal-dark { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 10px; row-gap: 2px; font-size: 13px; cursor: pointer; }
+.theme-terminal-dark > small { grid-column: 2; color: var(--muted); font-size: 12px; }

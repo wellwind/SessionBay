@@ -32,3 +32,16 @@ export function projectRuntimeSummary(tabs: WorkspaceTab[], panes: Workspace['pa
   const attention = new Set(tabs.flatMap(tab => paneIds(tab.layout)).filter(id => panes[id] && ['failed', 'interrupted', 'disconnected'].includes(panes[id].state)).map(id => panes[id].runtimeId ? `runtime:${panes[id].runtimeId}` : `pane:${id}`)).size;
   return `${tabs.length} 分頁 · ${agents.size} Agent${attention ? ` · ${attention} 需注意` : ''}`;
 }
+/** Live work for a project: unique runtimes (split panes share one) that are starting or running. */
+export function projectOpenCount(tabs: WorkspaceTab[], panes: Workspace['panes']): number {
+  const open = new Set<string>();
+  for (const id of tabs.flatMap(tab => paneIds(tab.layout))) {
+    const pane = panes[id];
+    if (pane && (pane.state === 'running' || pane.state === 'starting')) open.add(pane.runtimeId ? `runtime:${pane.runtimeId}` : `pane:${id}`);
+  }
+  return open.size;
+}
+/** Project card count label: history and live work are separate facts. */
+export function projectCountLabel(historyCount: number, openCount: number): string {
+  return `歷史 ${historyCount} · 開啟中 ${openCount}`;
+}

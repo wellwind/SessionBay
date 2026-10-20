@@ -674,17 +674,22 @@ describe('live terminal palette updates', () => {
     const first = props(makePane({ state: 'running', startToken: 1 }));
     const second = props(makePane({ id: 'second', state: 'running', startToken: 1 }));
     mocks.launch.mockImplementation(async (request) => ({ ...info, id: request.paneId, paneId: request.paneId }));
-    const panes = (terminalTheme: string) => <>
-      <TerminalPane {...first} settings={{ ...settings, terminalTheme }} />
-      <TerminalPane {...second} settings={{ ...settings, terminalTheme }} visible={false} focused={false} />
+    const panes = (terminalTheme: string, extra: Partial<typeof settings> = {}) => <>
+      <TerminalPane {...first} settings={{ ...settings, ...extra, terminalTheme }} />
+      <TerminalPane {...second} settings={{ ...settings, ...extra, terminalTheme }} visible={false} focused={false} />
     </>;
     const view = render(panes('classic'));
     await waitFor(() => expect(mocks.launch).toHaveBeenCalledTimes(2));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
     const snapshots = { reset: mocks.reset.mock.calls.length, fit: mocks.fit.mock.calls.length, focus: mocks.focus.mock.calls.length };
-    for (const id of ['rose-light', 'ocean-dark', 'unknown-future-theme', 'classic']) {
-      view.rerender(panes(id));
-      const expected = id === 'classic' ? '#090909' : id === 'rose-light' ? '#fcf4f6' : id === 'ocean-dark' ? '#0d1929' : '#11151a';
+    // Dark UI: a light preset follows the UI to its dark variant. Light UI: the
+    // dark preset follows to light unless 「終端固定用深色」 pins it.
+    for (const [id, extra, expected] of [
+      ['rose-light', { theme: 'dark' }, '#21171c'], ['ocean-dark', { theme: 'dark' }, '#0d1929'],
+      ['ocean-dark', { theme: 'light' }, '#f3f7fc'], ['ocean-dark', { theme: 'light', terminalAlwaysDark: true }, '#0d1929'],
+      ['unknown-future-theme', { theme: 'dark' }, '#11151a'], ['classic', { theme: 'dark' }, '#090909'],
+    ] as const) {
+      view.rerender(panes(id, extra));
       for (const options of mocks.options) expect(options.theme).toMatchObject({ background: expected });
       expect(view.container.querySelectorAll('.terminal-body')).toHaveLength(2);
       for (const body of view.container.querySelectorAll('.terminal-body')) {
