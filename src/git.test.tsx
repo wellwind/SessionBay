@@ -93,6 +93,14 @@ describe('useGitWorkbench', () => {
     expect(discover).toHaveBeenCalledTimes(1);
     expect(stop).not.toHaveBeenCalled();
   });
+  it('treats a malformed discovery response as an error instead of crashing', async () => {
+    vi.spyOn(api, 'discoverGit').mockResolvedValue(1 as unknown as GitDiscovery);
+    vi.spyOn(api, 'cancelGitDiscovery').mockResolvedValue(false);
+    const { result } = renderHook(() => useGitWorkbench('p1', false));
+    await waitFor(() => expect(result.current.error).toContain('格式無效'));
+    expect(result.current.discovery).toBeNull();
+    expect(result.current.selectedId).toBeNull();
+  });
   it('drops stale results after switching project and cancels the old scan', async () => {
     let resolveFirst: (value: GitDiscovery) => void = () => {};
     vi.spyOn(api, 'discoverGit').mockImplementation(project => project === 'p1'

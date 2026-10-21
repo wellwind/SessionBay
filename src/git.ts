@@ -14,7 +14,7 @@ export const GIT_STATE_LABELS: Record<GitProbeState, string> = {
 
 /** Only a discovery with at least one validated work tree offers Git tools. */
 export const hasOperableRepository = (discovery: GitDiscovery | null | undefined) =>
-  !!discovery && discovery.gitAvailable && discovery.repositories.length > 0;
+  !!discovery && discovery.gitAvailable === true && Array.isArray(discovery.repositories) && discovery.repositories.length > 0;
 
 /** Keep the user's selection by repository identity; otherwise prefer the repo containing the project. */
 export function pickRepository(repositories: GitRepository[], previousId: string | null): string | null {
@@ -75,7 +75,7 @@ export function useGitWorkbench(projectId: string | null, panelVisible: boolean)
   const discoveryRef = useRef<GitDiscovery | null>(null);
 
   const loadStatuses = useCallback(async (project: string, found: GitDiscovery, gen: number) => {
-    for (const repo of found.repositories) {
+    for (const repo of Array.isArray(found?.repositories) ? found.repositories : []) {
       if (generation.current !== gen) return;
       let result: GitStatusSummary | { error: string };
       try { result = await api.gitStatus(project, repo.worktreeRoot); } catch (e) { result = { error: errorMessage(e) }; }
@@ -92,6 +92,7 @@ export function useGitWorkbench(projectId: string | null, panelVisible: boolean)
     try {
       const found = await api.discoverGit(projectId);
       if (generation.current !== gen) return;
+      if (!found || !Array.isArray(found.repositories) || !Array.isArray(found.issues)) throw new Error('Git 探測回傳格式無效');
       discoveryRef.current = found;
       setDiscovery(found);
       setError(null);
