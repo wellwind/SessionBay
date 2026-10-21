@@ -325,3 +325,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 ## Terminal 檔案連結（2026-10-18）
 
 - 已鎖定的 `@xterm/xterm` 6.0.0 官方套件：`typings/xterm.d.ts` 的 `ILinkProvider`、`IBufferCell.isUnderline/isInvisible` 與 `ILinkHandler`；`src/common/buffer/AttributeData.ts` 核對 URL 屬性也回報底線，`src/browser/Linkifier.ts` 核對內建 OSC8 provider 優先。來源：[xterm.js 6.0.0](https://github.com/xtermjs/xterm.js/tree/6.0.0)。實作僅呼叫公開 API；底線文字保守回退手動路徑輸入。
+
+## Git CLI（2026-10-21）
+
+- [git-rev-parse](https://git-scm.com/docs/git-rev-parse)：`--show-toplevel`、`--absolute-git-dir`、`--git-common-dir`、`--is-bare-repository`、`--show-superproject-working-tree` 與 `--path-format=absolute`（Git 2.31 新增）。用於 G1 repo 身分；最低版本尚未三平台實測。
+- [git-status](https://git-scm.com/docs/git-status#_porcelain_format_version_2)：porcelain v2 `-z` 的 `# branch.*` 標頭、`1`／`2`／`u`／`?` 紀錄格式；rename 紀錄多一個 NUL 分隔的原路徑。
+- [git 環境變數](https://git-scm.com/docs/git#_environment_variables)：`GIT_OPTIONAL_LOCKS=0` 讓 status 不寫 index；`GIT_DIR`／`GIT_WORK_TREE` 等會改變目標，因此探測前清除。
+- 本機實測環境：Linux box、git 2.47.3。

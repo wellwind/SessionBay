@@ -30,6 +30,18 @@ Implementation baseline 2026-10-15. All Rust structs use `#[serde(rename_all = "
 - RuntimeInfo: `{ id, paneId, sessionId: string | null, state: string, cwd: string, exitCode: number | null }`.
 - TerminalEvent: tagged `type` enum `{type:'output',runtimeId,sequence:number,data:number[]}` | `{type:'exit',runtimeId,exitCode:number|null}` | `{type:'error',runtimeId,message:string}`. Uint8Array feeds xterm directly. Callback ACK after xterm write.
 
+## Git（G1，唯讀）
+
+- GitProbeState: `repository` | `notRepository` | `bare` | `brokenGitDir` | `untrusted` | `gitMissing` | `failed`。
+- GitRepository: `{ id, name, worktreeRoot, gitDir, commonDir, kind: 'primary' | 'linkedWorktree' | 'submodule', superproject: string | null, relativePath: string | null, containsProject: boolean, parentId: string | null }`；`id` 為 canonical common dir＋worktree root 的 SHA-256 前 12 bytes（hex），同名 repo 不互撞。路徑皆為 canonical（Windows 去掉 `\\?\` 前綴、比較不分大小寫）。`relativePath` 以 `/` 分隔；repo 根在專案上層時為 null，`containsProject` 為 true。
+- GitProbe: `{ path, state, repository: GitRepository | null, gitDir: string | null, message: string | null }`。
+- GitDiscovery: `{ projectRoot, gitAvailable, gitVersion: string | null, root: GitProbe, repositories: GitRepository[], issues: GitProbe[], scannedDirectories, truncated, cancelled }`；`issues` 收錄 bare／broken／untrusted 位置，不出現在 `repositories`。
+- GitStatusSummary: `{ repoId, worktreeRoot, branch: string | null, oid: string | null, detached, unborn, upstream: string | null, ahead: number | null, behind: number | null, staged, unstaged, untracked, conflicted, limited }`；`limited` 表示輸出超過 8 MiB，計數為下限。
+- discover_git_repositories({projectId}) -> GitDiscovery：有界、可取消；同專案新探測會取消舊探測。
+- cancel_git_discovery({projectId}) -> boolean：有進行中的探測才回 true。
+- git_repository_status({projectId, worktreeRoot}) -> GitStatusSummary：後端重新探測該路徑，必須是有效 work tree，且在專案根目錄內或包含專案根目錄，否則拒絕。
+- 這三個命令不啟動 Agent、不改 Runtime／cwd，也不寫入 repository。
+
 ## Commands
 
 - frontend_diagnostic({phase,message}) -> boolean: opt-in startup／native UI smoke diagnostics; phases are `observer`, `module-loaded`, `mounted`, `ready`, `interaction`, `error`, `snapshot`. Messages are bounded to 2,048 characters, with at most 32 single-line JSON stderr records. Returns false without logging unless the native process explicitly has SESSIONBAY_SMOKE=1. No filesystem-path argument, file writes, remote transport, or Agent launch. Snapshot messages accept only `projects-dark`, `directories-dark`, `providers-dark`, `launcher-dark`, `calendar-dark` and their `-light` equivalents; unknown identifiers are rejected. A snapshot marker identifies the UI state for external capture; it does not capture an image or prove painted pixels. Existing ready／interaction／error checks remain required.

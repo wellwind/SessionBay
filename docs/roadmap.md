@@ -255,7 +255,7 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 
 完整範圍、風險與驗收見 [Git 工作台功能規劃](git-workbench-plan.md)。以下為八個預計實作 PR，全部未完成；不影響上述既有任務狀態。
 
-- [ ] G1 Git 基礎與多 repo。
+- [ ] G1 Git 基礎與多 repo。2026-10-21 已在 `feat/git-g1-foundation` 實作並通過本機 Linux 自動測試；尚未開 PR、未跑 CI、未原生驗收。
 - [ ] G2 文字 Diff 與同檔部分 hunk／行暫存。
 - [ ] G3 Commit、fetch／pull／push。
 - [ ] G4 第一階段歷史 graph 與 blame。

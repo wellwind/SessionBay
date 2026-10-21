@@ -931,3 +931,11 @@ Review 補強：選單收合只在焦點仍留於即將隱藏內容時返回入�
 - READER_REVISION 升為 2，舊快取會全部重讀一次。鏡像在移除來源後不會自動刪除，可以手動清掉 cache 目錄。
 - 量測（Linux box，合成 2.0 GiB／3,928 Sessions，release `opencode_benchmark` 跑 catalog sync，檔案在 page cache 內）：舊版直接拒讀；只放寬上限的舊演算法冷索引 24.4 s，未變更 10.3 s，WAL 寫入一筆 25.2 s，峰值 RSS 約 78 MiB。新版冷索引 16.4 s／15 MiB，未變更 0.06 s／11 MiB，WAL 寫入一筆 0.08 s，checkpoint 後 2.0 s（2 GiB 區塊比對，只寫入差異）。
 
+## 2026-10-21：Git 工作台以 git CLI 為唯一事實來源
+
+- 決策（Mike 核准）：Git 工作台一律呼叫使用者已安裝的 `git` 執行檔，不引入 libgit2／gitoxide。理由：與使用者終端和 Agent 看到的行為一致（設定、hooks、credential helper、`safe.directory`、sparse／partial clone、新版 index 格式），避免函式庫與 CLI 版本落差；代價是需要外部 Git、每次呼叫有程序啟動成本，且需解析 porcelain 輸出。
+- 探測使用 `git rev-parse --is-bare-repository --is-inside-work-tree --path-format=absolute --absolute-git-dir --git-common-dir`，再取 `--show-toplevel --show-superproject-working-tree`；狀態使用 `git status --porcelain=v2 --branch -z`。`--path-format=absolute` 需要 Git 2.31 以上；最低版本尚未在三平台實測。
+- 名為 `.git` 的資料夾或檔案只是「去問 Git」的提示；Git 不接受，或 Git 解析到上層 repo 時，該位置回報 `brokenGitDir`，不併入上層 repo。
+- 程序以 executable／argv／cwd 分開啟動，清除 `GIT_DIR`、`GIT_WORK_TREE`、`GIT_INDEX_FILE` 等會改變目標的環境變數，設 `GIT_OPTIONAL_LOCKS=0`、`GIT_TERMINAL_PROMPT=0`、`LC_ALL=C`；輸出有上限、有逾時，可取消。G1 只讀，不寫 index、refs 或工作檔。
+- 外部修改刷新：目前專案沒有檔案監看器，G1 不新增 watcher；以視窗 focus／可見性變化的 debounce 刷新（800 ms，距上次完整探測滿 30 秒才重新探測，否則只刷新狀態），以及 Git 面板開啟時每 10 秒刷新狀態。之後若加入 watcher 再改為事件驅動。
+- 探索略過 `.git` 與 `node_modules`，不跟隨 symlink；預設上限深度 6、5,000 個資料夾、64 個 repo、10 秒，超限回報 `truncated`。

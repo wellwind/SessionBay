@@ -33,7 +33,7 @@ const contribution: ActivityContribution = {
 
 含資料抓取與快取的功能自行管理資料生命週期；shell 保證首次開啟後側欄不因切換卸載。不要在 renderer 中依每次渲染產生新的元件型別或 key，避免破壞這項保證。History 與 Files 的中央內容仍由 App 持有，側欄使用穩定 portal host。
 
-這是內部擴充點，沒有插件下載、動態程式執行、權限委派或外部 API。Git 尚未實作，介面不顯示空按鈕。合成第四功能的單元測試驗證擴充、lazy mount、狀態保留、badge、availability 及 overflow。
+這是內部擴充點，沒有插件下載、動態程式執行、權限委派或外部 API。Git（G1，唯讀）只有在專案探測到至少一個有效 work tree 時才加入 contribution；非 repo、裸 repo、損壞 gitdir 或沒有 Git 時不顯示按鈕。面板提供 repo 選擇器與各 repo 狀態摘要，切換 repo 不改 Agent cwd、不重啟 Terminal；暫存、commit 與 diff 尚未提供。合成第四功能的單元測試驗證擴充、lazy mount、狀態保留、badge、availability 及 overflow。
 
 ## 驗證界線
 

@@ -1,6 +1,6 @@
 # Git 工作台功能規劃
 
-更新：2026-10-18。狀態：**需求已確認，功能尚未實作／驗收**。本文件只記錄方案與交付門檻，不代表任何 Git 操作已可在 Session Bay 使用。八個工作包是預計拆分的實作 PR，並非現有 PR 編號。
+更新：2026-10-21。狀態：**需求已確認；G1 已在 feature branch 實作（未合併、CI 未跑、未原生驗收），G2–G8 尚未實作**。本文件只記錄方案與交付門檻，不代表任何 Git 操作已可在 Session Bay 使用。八個工作包是預計拆分的實作 PR，並非現有 PR 編號。
 
 ## 產品目標與已確認範圍
 
@@ -99,6 +99,10 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 - [ ] G1 Git 基礎與多 repo
   - 有效探測、身分／能力契約、repo selector、狀態刷新、Activity Bar contribution。
   - 驗收：無 repo 不出現可操作 Git 工具；.git file、子目錄、linked worktree、兩個同名 repo 正確隔離；掃描可取消，外部修改會刷新。
+  - 2026-10-21 實作狀態（branch `feat/git-g1-foundation`，尚未推送）：
+    - 已實作：`src-tauri/src/git.rs` 的 CLI 探測、repo 身分、多 repo 探索與 porcelain v2 狀態；IPC 見 [IPC 契約](ipc-contract.md)；前端 repo 選擇器與 Activity Bar contribution。決策見 [決策紀錄](decisions.md)。
+    - 本機自動測試（Linux box）：Rust 合成 repo 整合測試涵蓋 .git file、子目錄開啟、linked worktree、同名 repo、bare、損壞 gitdir、巢狀 repo／submodule、取消與上限；前端 Vitest 與 Playwright 合成 fixture（720／1200 寬）。
+    - 尚未：exact-commit CI、macOS／Windows 原生驗收、深淺主題與 Zen Mode 的人工檢查、大量 repo 效能量測、最低 Git 版本實測。外部修改刷新為 focus／輪詢，不是檔案監看。
 - [ ] G2 Diff 與部分暫存（依賴 G1）
   - 文字比較來源、並排／行內、部分 hunk／行 stage 與 unstage。
   - 驗收：同檔同 hunk 的兩項修改只暫存所選一項；反向取消後其他 staged 內容不變；過期快照拒絕寫入；非文字只顯示變更資訊。
