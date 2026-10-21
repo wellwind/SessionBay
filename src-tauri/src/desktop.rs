@@ -171,6 +171,28 @@ async fn list_workspace_files(
     .await
 }
 #[tauri::command]
+async fn discover_git_repositories(
+    state: AppState<'_>,
+    project_id: String,
+) -> Result<crate::git::GitDiscovery, String> {
+    let s = state.inner().clone();
+    blocking(move || s.discover_git(&project_id)).await
+}
+#[tauri::command]
+async fn cancel_git_discovery(state: AppState<'_>, project_id: String) -> Result<bool, String> {
+    let s = state.inner().clone();
+    blocking(move || s.cancel_git_discovery(&project_id)).await
+}
+#[tauri::command]
+async fn git_repository_status(
+    state: AppState<'_>,
+    project_id: String,
+    worktree_root: String,
+) -> Result<crate::git::GitStatusSummary, String> {
+    let s = state.inner().clone();
+    blocking(move || s.git_status(&project_id, &worktree_root)).await
+}
+#[tauri::command]
 async fn search_workspace_files(
     state: AppState<'_>,
     project_id: String,
@@ -718,6 +740,9 @@ pub fn run() {
             save_settings,
             list_projects,
             list_workspace_files,
+            discover_git_repositories,
+            cancel_git_discovery,
+            git_repository_status,
             resolve_terminal_file,
             search_workspace_files,
             read_workspace_file,

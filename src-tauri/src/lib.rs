@@ -9,6 +9,7 @@ pub mod codex_state;
 pub mod config;
 pub mod file_input;
 pub mod fresh_launch;
+pub mod git;
 pub mod history_sources;
 mod host_environment;
 pub mod image_input;

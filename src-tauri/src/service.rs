@@ -83,6 +83,7 @@ pub struct Service {
     paused: AtomicBool,
     closed: AtomicBool,
     warnings: Vec<String>,
+    git_discoveries: Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
 }
 
 impl Service {
@@ -130,6 +131,7 @@ impl Service {
             paused: AtomicBool::new(false),
             closed: AtomicBool::new(false),
             warnings,
+            git_discoveries: Mutex::new(Default::default()),
         });
         Ok(service)
     }
@@ -161,6 +163,76 @@ impl Service {
     ) -> Result<WorkspaceFilePage, String> {
         let root = self.catalog.workspace_root(project_id)?;
         workspace_files::list(&root, path, offset, show_hidden)
+    }
+    /// Bounded, cancellable Git discovery for a project; read-only.
+    /// A newer discovery for the same project cancels the previous one.
+    pub fn discover_git(&self, project_id: &str) -> Result<crate::git::GitDiscovery, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        if !root.is_dir() {
+            return Err("專案目錄不存在，無法探測 Git".into());
+        }
+        let token = Arc::new(AtomicBool::new(false));
+        {
+            let mut map = self
+                .git_discoveries
+                .lock()
+                .map_err(|_| "Git 探測鎖定失敗")?;
+            if let Some(previous) = map.insert(project_id.to_string(), token.clone()) {
+                previous.store(true, Ordering::Relaxed);
+            }
+        }
+        let result = crate::git::GitCli::default().discover(
+            &root,
+            crate::git::DiscoveryLimits::default(),
+            &token,
+        );
+        if let Ok(mut map) = self.git_discoveries.lock() {
+            if map.get(project_id).is_some_and(|t| Arc::ptr_eq(t, &token)) {
+                map.remove(project_id);
+            }
+        }
+        Ok(result)
+    }
+    pub fn cancel_git_discovery(&self, project_id: &str) -> Result<bool, String> {
+        let map = self
+            .git_discoveries
+            .lock()
+            .map_err(|_| "Git 探測鎖定失敗")?;
+        Ok(map
+            .get(project_id)
+            .map(|t| t.store(true, Ordering::Relaxed))
+            .is_some())
+    }
+    /// Status for one repository of a project. The work tree is re-probed and
+    /// must be the project's own repository or lie inside the project root.
+    pub fn git_status(
+        &self,
+        project_id: &str,
+        worktree_root: &str,
+    ) -> Result<crate::git::GitStatusSummary, String> {
+        let root = crate::git::canonical(&self.catalog.workspace_root(project_id)?);
+        let git = crate::git::GitCli::default();
+        let probe = git.probe(std::path::Path::new(worktree_root), None);
+        let repo = match probe.repository {
+            Some(repo)
+                if crate::git::same_path(
+                    &repo.worktree_root,
+                    &crate::git::canonical(std::path::Path::new(worktree_root)).to_string_lossy(),
+                ) =>
+            {
+                repo
+            }
+            _ => {
+                return Err(probe
+                    .message
+                    .unwrap_or_else(|| "不是有效的 Git 工作目錄".into()))
+            }
+        };
+        let repo_root = std::path::Path::new(&repo.worktree_root);
+        if !(repo_root.starts_with(&root) || root.starts_with(repo_root)) {
+            return Err("repository 不屬於此專案".into());
+        }
+        git.status(&repo)
     }
     pub fn search_workspace_files(
         &self,
