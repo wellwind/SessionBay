@@ -32,6 +32,7 @@ import {
   Square,
   Compass,
   Palette,
+  GitBranch,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { closeFocusedExplorer } from './components/explorer-focus';
@@ -102,6 +103,8 @@ import type { Appearance } from './themes';
 import { useUiTheme } from './use-ui-theme';
 import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
+import { GitPanel } from './components/GitPanel';
+import { changeCount, hasOperableRepository, useGitWorkbench } from './git';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 import { WorkspaceFiles } from './components/WorkspaceFiles';
 import './project-files-workspace.css';
@@ -373,6 +376,9 @@ export default function App() {
   }, [current]);
   const filesAvailable = !!current && !current.workspaceOnly;
   const filesVisible = filesAvailable && activeActivity === 'files';
+  // Git is read-only here: discovery never changes Agent cwd or restarts terminals.
+  const git = useGitWorkbench(filesAvailable && current?.path ? current.id : null, activeActivity === 'git');
+  const gitAvailable = hasOperableRepository(git.discovery);
   const showSessions = () => setActiveActivity('sessions');
   const hideFilesSidebar = () => {
     setActiveActivity(null);
@@ -1360,6 +1366,12 @@ export default function App() {
       available: filesAvailable,
       renderSidebar: () => <div className="project-files-sidebar-host" ref={setFileSidebarHost} /> },
   ];
+  if (gitAvailable) {
+    const selectedStatus = git.selectedId ? git.statuses[git.selectedId] : undefined;
+    const changes = selectedStatus && !('error' in selectedStatus) ? changeCount(selectedStatus) : 0;
+    activities.push({ id: 'git', label: 'Git', icon: GitBranch, badge: changes || undefined,
+      renderSidebar: () => <GitPanel git={git} /> });
+  }
   const projectNavigation = <ProjectNavigation hidden={!sidebarOpen || compactWorkspace}
     preferredWidth={sidebar.width} onWidthChange={width => updateSidebar({ width })}>
         <div className="navigation-tabs" role="tablist" aria-label="導覽頁面">

@@ -286,3 +286,20 @@ export interface TerminalFileResolution {
   absolute: boolean; launchDirectory: string | null; candidates: TerminalFileCandidate[]; truncated: boolean;
 }
 export interface FileReference { line?: number; column?: number; version: string; nonce: number }
+
+export type GitProbeState = 'repository' | 'notRepository' | 'bare' | 'brokenGitDir' | 'untrusted' | 'gitMissing' | 'failed';
+export type GitRepositoryKind = 'primary' | 'linkedWorktree' | 'submodule';
+export interface GitRepository {
+  id: string; name: string; worktreeRoot: string; gitDir: string; commonDir: string; kind: GitRepositoryKind;
+  superproject: string | null; relativePath: string | null; containsProject: boolean; parentId: string | null;
+}
+export interface GitProbe { path: string; state: GitProbeState; repository: GitRepository | null; gitDir: string | null; message: string | null }
+export interface GitDiscovery {
+  projectRoot: string; gitAvailable: boolean; gitVersion: string | null; root: GitProbe; repositories: GitRepository[];
+  issues: GitProbe[]; scannedDirectories: number; truncated: boolean; cancelled: boolean;
+}
+export interface GitStatusSummary {
+  repoId: string; worktreeRoot: string; branch: string | null; oid: string | null; detached: boolean; unborn: boolean;
+  upstream: string | null; ahead: number | null; behind: number | null;
+  staged: number; unstaged: number; untracked: number; conflicted: number; limited: boolean;
+}

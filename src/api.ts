@@ -25,6 +25,8 @@ import type {
   TranscriptPage,
   TrashPage,
   RemovalInspection,
+  GitDiscovery,
+  GitStatusSummary,
 } from './types';
 export const isDesktop = () => isTauri();
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -56,6 +58,9 @@ export const api = {
   saveSettings: (settings: Settings) => call<Settings>('save_settings', { settings }),
   resolveTerminalFile: (projectId: string, paneId: string, runtimeId: string, path: string) =>
     call<TerminalFileResolution>('resolve_terminal_file', { projectId, paneId, runtimeId, path }),
+  discoverGit: (projectId: string) => call<GitDiscovery>('discover_git_repositories', { projectId }),
+  cancelGitDiscovery: (projectId: string) => call<boolean>('cancel_git_discovery', { projectId }),
+  gitStatus: (projectId: string, worktreeRoot: string) => call<GitStatusSummary>('git_repository_status', { projectId, worktreeRoot }),
   listWorkspaceFiles: (projectId: string, path: string, offset = 0, showHidden = false) =>
     call<WorkspaceFilePage>('list_workspace_files', { projectId, path, offset, showHidden }),
   searchWorkspaceFiles: (projectId: string, query: string) =>
