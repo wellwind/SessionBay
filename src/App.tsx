@@ -157,20 +157,26 @@ export default function App() {
   const [fileDocumentHost, setFileDocumentHost] = useState<HTMLDivElement | null>(null);
   const [visitedFileProjects, setVisitedFileProjects] = useState<string[]>([]);
   const [projectActivities, setProjectActivities] = useState<Record<string, { normal: string | null; zen: string | null }>>({});
-  const projectViews = useRef<Record<string, 'history' | 'workspace' | 'files'>>({});
+  const projectViews = useRef<Record<string, 'history' | 'workspace' | 'files' | 'git'>>({});
   const initialProjectActivities = useRef<Record<string, string | null>>({});
   const [historySidebarHost, setHistorySidebarHost] = useState<HTMLDivElement | null>(null);
   const filesToggle = useRef<HTMLButtonElement>(null);
   const gitToggle = useRef<HTMLButtonElement>(null);
   const [gitSidebarHost, setGitSidebarHost] = useState<HTMLDivElement | null>(null);
   const [visitedGitProjects, setVisitedGitProjects] = useState<string[]>([]);
+  const [gitTabsHost, setGitTabsHost] = useState<HTMLDivElement | null>(null);
+  const [gitDocumentHost, setGitDocumentHost] = useState<HTMLDivElement | null>(null);
+  const [gitDocumentCounts, setGitDocumentCounts] = useState<Record<string, number>>({});
+  const onGitDocumentsChange = useCallback((projectId: string, count: number) => {
+    setGitDocumentCounts(previous => previous[projectId] === count ? previous : { ...previous, [projectId]: count });
+  }, []);
   const projectsToggle = useRef<HTMLButtonElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
   const lastHistoryProject = useRef<string | null | undefined>(undefined);
-  const [view, setView] = useState<'history' | 'workspace' | 'files'>('history');
+  const [view, setView] = useState<'history' | 'workspace' | 'files' | 'git'>('history');
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -342,7 +348,7 @@ export default function App() {
     } }));
   };
   const currentProjectId = current?.id;
-  const hasProjectTabs = !!current && (workspace.tabs.some(tab => tab.projectId === current.id) || !!filePaths[current.id]?.length);
+  const hasProjectTabs = !!current && (workspace.tabs.some(tab => tab.projectId === current.id) || !!filePaths[current.id]?.length || !!gitDocumentCounts[current.id]);
   useEffect(() => {
     if (!currentProjectId) return;
     const hadTabs = hadProjectTabs.current[currentProjectId];
@@ -475,7 +481,7 @@ export default function App() {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || composing.current || event.keyCode === 229 || document.querySelector('[role="dialog"]')) return;
       const current = stateRef.current;
-      if (current.view === 'files' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
+      if ((current.view === 'files' || current.view === 'git') && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'w') {
         event.preventDefault(); event.stopPropagation();
         if (!event.repeat) requestCloseTab.current();
         return;
@@ -1052,6 +1058,10 @@ export default function App() {
     const current = stateRef.current;
     if (current.view === 'files') {
       document.querySelector<HTMLElement>('[data-file-explorer]')?.dispatchEvent(new Event('explorer-close-file'));
+      return;
+    }
+    if (current.view === 'git') {
+      document.querySelector<HTMLElement>('[data-git-workbench]')?.dispatchEvent(new Event('git-close-document'));
       return;
     }
     if (closeFocusedExplorer()) return;
@@ -1676,6 +1686,7 @@ export default function App() {
                   onClose={(tab) => removePanes(paneIds(tab.layout))}
                   onReorder={(id, targetId, after) => setWorkspace((w) => reorderWorkspaceTab(w, id, targetId, after))} />
                 <div className="project-file-tabs-host" ref={setFileTabsHost} />
+                <div className="project-file-tabs-host" ref={setGitTabsHost} />
                 {(current || temporaryWorkspace) && (
                   <button
                     className="icon-button"
@@ -1691,6 +1702,7 @@ export default function App() {
               <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
                 <div className="project-work-content">
                 <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
+                <div className="project-file-document-host" ref={setGitDocumentHost} hidden={view !== 'git'} />
                 {temporaryWorkspace && !activeTab && <div className="empty-state">
                   <TerminalSquare size={30} aria-hidden="true" /><h2>目前沒有臨時 Terminal</h2>
                   <p>隨時從家目錄開啟新的命令列，不需要建立專案。</p>
@@ -1800,8 +1812,10 @@ export default function App() {
                   }} onHideSidebar={hideFilesSidebar} />)}
                 {visitedGitProjects.filter((id) => projects.some((project) => project.id === id)).length > 0 && <Suspense fallback={null}>
                   {visitedGitProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <GitWorkbench key={id}
-                    projectId={id} visible={current?.id === id} sidebarVisible={current?.id === id && gitVisible}
-                    sidebarHost={gitSidebarHost} onHideSidebar={hideGitSidebar} />)}
+                    projectId={id} visible={current?.id === id} active={view === 'git' && current?.id === id}
+                    sidebarVisible={current?.id === id && gitVisible} sidebarHost={gitSidebarHost} tabsHost={gitTabsHost}
+                    documentHost={gitDocumentHost} onActivate={() => setView('git')} onDocumentsChange={onGitDocumentsChange}
+                    onEmpty={() => setView(activeTab ? 'workspace' : 'history')} onHideSidebar={hideGitSidebar} />)}
                 </Suspense>}
               </div>
             </>

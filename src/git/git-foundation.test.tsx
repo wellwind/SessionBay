@@ -19,7 +19,8 @@ const status = (repoId: string, extra: Partial<RepoStatus> = {}): RepoStatus => 
 function Host(props: { visible?: boolean }) {
   const host = document.createElement('div');
   document.body.append(host);
-  return <GitWorkbench projectId="p" visible={props.visible ?? true} sidebarVisible sidebarHost={host} onHideSidebar={vi.fn()} />;
+  return <GitWorkbench projectId="p" visible={props.visible ?? true} active={false} sidebarVisible sidebarHost={host}
+    tabsHost={null} documentHost={null} onActivate={vi.fn()} onEmpty={vi.fn()} onHideSidebar={vi.fn()} />;
 }
 
 beforeEach(() => {
