@@ -5,6 +5,7 @@
 //! writes are serialized per Git common dir and revalidate state first.
 pub mod diff;
 pub mod discovery;
+pub mod history;
 pub mod patch;
 pub mod path;
 pub mod refs;
@@ -108,6 +109,30 @@ pub enum GitRequest {
         repo_id: String,
         #[serde(flatten)]
         request: remote::PushRequest,
+    },
+    Log {
+        repo_id: String,
+        #[serde(default)]
+        filter: history::LogFilter,
+        #[serde(default)]
+        offset: usize,
+        limit: usize,
+    },
+    CommitDetail {
+        repo_id: String,
+        commit: String,
+    },
+    FileHistory {
+        repo_id: String,
+        path: RepoPath,
+        #[serde(default)]
+        offset: usize,
+        limit: usize,
+    },
+    Blame {
+        repo_id: String,
+        path: RepoPath,
+        rev: Option<String>,
     },
     /// Stops a running hook or network command of this repository.
     CancelOperation {
@@ -266,6 +291,32 @@ impl GitService {
                 });
                 self.end_operation(&repo_id);
                 json(result?)
+            }
+            GitRequest::Log {
+                repo_id,
+                filter,
+                offset,
+                limit,
+            } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(history::log(&runner, &repo, &filter, offset, limit)?)
+            }
+            GitRequest::CommitDetail { repo_id, commit } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(history::commit_detail(&runner, &repo, &commit)?)
+            }
+            GitRequest::FileHistory {
+                repo_id,
+                path,
+                offset,
+                limit,
+            } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(history::file_history(&runner, &repo, &path, offset, limit)?)
+            }
+            GitRequest::Blame { repo_id, path, rev } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(history::blame(&runner, &repo, &path, rev.as_deref())?)
             }
             GitRequest::CancelOperation { repo_id } => {
                 if let Some(flag) = self
