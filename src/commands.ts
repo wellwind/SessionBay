@@ -10,6 +10,7 @@ export const shortcutDefaults: Record<string, string> = {
   'project-quick-open': 'Mod+P',
   'toggle-project-sessions': 'Mod+Shift+H',
   'toggle-project-files': 'Mod+Shift+L',
+  'toggle-project-git': 'Mod+Shift+G',
   'new-terminal': 'Mod+Shift+T',
   'new-agent': 'Mod+Shift+A',
   'search-sessions': 'Mod+Shift+F',

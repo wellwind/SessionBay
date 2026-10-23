@@ -1,7 +1,7 @@
 /* Files belongs to the project, alongside history and runtime content. */
 .project-work-area { display: flex; min-width: 0; overflow: hidden; }
 .project-work-content { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.project-files-sidebar-host { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; }
+.project-files-sidebar-host, .project-git-sidebar-host { display: flex; flex: 1; width: 100%; min-width: 0; min-height: 0; }
 .project-files-sidebar-host[hidden], .project-file-document-host[hidden] { display: none; }
 .project-file-document-host { position: absolute; inset: 0; display: flex; min-width: 0; min-height: 0; }
 .project-file-tabs-host { display: contents; }
@@ -28,7 +28,7 @@
 /* Left project navigation remains independent of right-hand tools. */
 .sidebar .navigation-tabs { display: flex; margin-bottom: 12px; gap: 0; border-radius: 0; padding: 0; }
 .sidebar .navigation-tabs > button { flex: 1; min-width: 0; padding: 8px 4px; border-radius: 0; }
-.activity-panel > .project-files-sidebar-host { max-width: 100%; }
+.activity-panel > .project-files-sidebar-host, .activity-panel > .project-git-sidebar-host { max-width: 100%; }
 .activity-history-heading { margin: 0; padding: 12px 12px 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Project navigation is independent of the project-scoped right-hand tools. */
 .app-body > .sidebar[hidden], .project-activity-tools[hidden] { display: none; }
