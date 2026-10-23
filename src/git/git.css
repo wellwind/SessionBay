@@ -131,3 +131,18 @@
   .git-comparison { flex-direction: column; }
   .git-comparison-files { flex: 0 0 auto; max-width: none; max-height: 35%; border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+/* Commit and sync */
+.git-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.git-row > .git-muted { flex: 1; }
+.git-row select { min-width: 0; max-width: 100%; padding: 3px 6px; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--control-border); border-radius: 0; }
+.git-sidebar .git-row button, .git-form > button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 12px; }
+.git-sync-summary { font-size: 12px; }
+.git-sync-summary > span { display: inline-flex; align-items: center; gap: 2px; }
+.git-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0 0 10px; font-size: 12px; }
+.git-facts dt { color: var(--muted); }
+.git-facts dd { margin: 0; overflow-wrap: anywhere; }
+.git-message { margin: 0; white-space: pre-wrap; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 160px; overflow: auto; }
+.git-preview-files { max-height: 220px; overflow: auto; border: 1px solid var(--border); }
+.dialog .git-field, .dialog .git-check, .dialog .git-radio-row { margin-bottom: 8px; }
+.dialog .dialog-actions .git-muted { margin-right: auto; display: inline-flex; align-items: center; gap: 4px; }

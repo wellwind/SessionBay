@@ -8,6 +8,7 @@ pub mod discovery;
 pub mod patch;
 pub mod path;
 pub mod refs;
+pub mod remote;
 pub mod runner;
 pub mod status;
 
@@ -82,6 +83,36 @@ pub enum GitRequest {
         snapshot: String,
         selection: Selection,
     },
+    CommitPreview {
+        repo_id: String,
+    },
+    Commit {
+        repo_id: String,
+        message: String,
+        token: String,
+    },
+    PushPlan {
+        repo_id: String,
+    },
+    Fetch {
+        repo_id: String,
+        remote: Option<String>,
+        #[serde(default)]
+        prune: bool,
+    },
+    Pull {
+        repo_id: String,
+        strategy: remote::PullStrategy,
+    },
+    Push {
+        repo_id: String,
+        #[serde(flatten)]
+        request: remote::PushRequest,
+    },
+    /// Stops a running hook or network command of this repository.
+    CancelOperation {
+        repo_id: String,
+    },
 }
 
 #[derive(Default)]
@@ -90,6 +121,7 @@ pub struct GitService {
     discoveries: Mutex<HashMap<PathBuf, Discovery>>,
     cancels: Mutex<HashMap<PathBuf, Arc<AtomicBool>>>,
     write_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
+    operations: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 pub const STALE_SELECTION: &str =
@@ -195,6 +227,57 @@ impl GitService {
                     Ok(Value::Null)
                 })
             }
+            GitRequest::CommitPreview { repo_id } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(remote::commit_preview(&runner, &repo)?)
+            }
+            GitRequest::Commit {
+                repo_id,
+                message,
+                token,
+            } => {
+                let cancel = self.begin_operation(&repo_id)?;
+                let result = self.write(project_root, &repo_id, |runner, repo| {
+                    remote::commit(runner, repo, &message, &token, cancel)
+                });
+                self.end_operation(&repo_id);
+                json(result?)
+            }
+            GitRequest::PushPlan { repo_id } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(remote::push_plan(&runner, &repo)?)
+            }
+            GitRequest::Fetch {
+                repo_id,
+                remote: name,
+                prune,
+            } => self.long(project_root, &repo_id, |runner, repo, cancel| {
+                remote::fetch(runner, repo, name.as_deref(), prune, cancel)
+            }),
+            GitRequest::Pull { repo_id, strategy } => {
+                self.long(project_root, &repo_id, |runner, repo, cancel| {
+                    remote::pull(runner, repo, strategy, cancel)
+                })
+            }
+            GitRequest::Push { repo_id, request } => {
+                let cancel = self.begin_operation(&repo_id)?;
+                let result = self.write(project_root, &repo_id, |runner, repo| {
+                    remote::push(runner, repo, &request, cancel)
+                });
+                self.end_operation(&repo_id);
+                json(result?)
+            }
+            GitRequest::CancelOperation { repo_id } => {
+                if let Some(flag) = self
+                    .operations
+                    .lock()
+                    .map_err(|_| "Git 狀態鎖定失敗")?
+                    .get(&repo_id)
+                {
+                    flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                Ok(Value::Null)
+            }
             GitRequest::StageSelection {
                 repo_id,
                 path,
@@ -225,6 +308,36 @@ impl GitService {
                 Direction::Unstage,
             ),
         }
+    }
+
+    fn begin_operation(&self, repo_id: &str) -> Result<Arc<AtomicBool>, String> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.operations
+            .lock()
+            .map_err(|_| "Git 狀態鎖定失敗")?
+            .insert(repo_id.to_owned(), flag.clone());
+        Ok(flag)
+    }
+
+    fn end_operation(&self, repo_id: &str) {
+        if let Ok(mut operations) = self.operations.lock() {
+            operations.remove(repo_id);
+        }
+    }
+
+    /// A cancellable write returning Git's own (sanitized) output.
+    fn long(
+        &self,
+        project_root: &Path,
+        repo_id: &str,
+        action: impl FnOnce(&GitRunner, &RepoInfo, Arc<AtomicBool>) -> Result<String, String>,
+    ) -> Result<Value, String> {
+        let cancel = self.begin_operation(repo_id)?;
+        let result = self.write(project_root, repo_id, |runner, repo| {
+            action(runner, repo, cancel)
+        });
+        self.end_operation(repo_id);
+        Ok(serde_json::json!({ "output": result? }))
     }
 
     /// Runs a write while holding this repository's common-dir lock.

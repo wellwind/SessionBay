@@ -84,3 +84,19 @@ export interface Tag { name: string; oid: string; target: string; annotated: boo
 export interface Remote { name: string; url: string; pushUrl: string }
 export interface Worktree { path: string; head: string | null; branch: string | null; bare: boolean; detached: boolean; locked: boolean; prunable: boolean; current: boolean }
 export interface Refs { branches: Branch[]; tags: Tag[]; remotes: Remote[]; worktrees: Worktree[]; truncated: boolean }
+
+export interface CommitPreview {
+  repoId: string; branch: string | null; head: string | null; files: ChangedFile[]; truncated: boolean;
+  token: string; hooks: string[]; signing: string | null; author: string | null; operation: Operation | null;
+}
+export interface CommitResult { oid: string; summary: string; output: string }
+export type PullStrategy = 'merge' | 'rebase' | 'fastForwardOnly';
+export interface PushPlan {
+  branch: string | null; head: string | null; upstreamRemote: string | null; upstreamBranch: string | null;
+  pushRemote: string | null; remotes: string[]; ahead: number; behind: number; hooks: string[];
+  followTagsConfigured: boolean; pullRebaseConfigured: string | null;
+}
+export interface PushResult { output: string; confirmed: boolean; pushed: string }
+export const pullStrategyLabel: Record<PullStrategy, string> = {
+  merge: 'Merge（建立合併 commit）', rebase: 'Rebase（把本機 commit 接到遠端之後）', fastForwardOnly: '只允許 fast-forward',
+};

@@ -4,7 +4,11 @@ import GitWorkbench from './GitWorkbench';
 import { gitApi } from './git-api';
 import type { RepoInfo, RepoStatus } from './types';
 
-vi.mock('./git-api', () => ({ gitApi: { discover: vi.fn(), cancelDiscovery: vi.fn(), status: vi.fn() }, gitRequest: vi.fn() }));
+vi.mock('./git-api', () => ({ gitApi: {
+  discover: vi.fn(), cancelDiscovery: vi.fn(), status: vi.fn(),
+  // Sections beyond G1 read these; keep them inert here.
+  refs: vi.fn(() => new Promise(() => undefined)), pushPlan: vi.fn(() => new Promise(() => undefined)),
+}, gitRequest: vi.fn() }));
 
 const repo = (id: string, relativePath: string, extra: Partial<RepoInfo> = {}): RepoInfo => ({
   id, name: 'app', root: `/synthetic/${relativePath}`, relativePath, gitDir: `/synthetic/${relativePath}/.git`,
