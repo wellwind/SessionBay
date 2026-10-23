@@ -3,11 +3,13 @@
 //! Every request names a project and, where relevant, a repository identity
 //! from discovery. The repository must still be one the project contains;
 //! writes are serialized per Git common dir and revalidate state first.
+pub mod branches;
 pub mod diff;
 pub mod discovery;
 pub mod history;
 pub mod patch;
 pub mod path;
+pub mod recovery;
 pub mod refs;
 pub mod remote;
 pub mod runner;
@@ -134,6 +136,116 @@ pub enum GitRequest {
         path: RepoPath,
         rev: Option<String>,
     },
+    CreateBranch {
+        repo_id: String,
+        name: String,
+        start: Option<String>,
+        #[serde(default)]
+        switch: bool,
+    },
+    SwitchBranch {
+        repo_id: String,
+        name: String,
+    },
+    DeleteBranch {
+        repo_id: String,
+        name: String,
+        expected: String,
+        #[serde(default)]
+        force: bool,
+    },
+    Stashes {
+        repo_id: String,
+    },
+    StashPush {
+        repo_id: String,
+        #[serde(default)]
+        message: String,
+        #[serde(default)]
+        include_untracked: bool,
+        #[serde(default)]
+        keep_index: bool,
+    },
+    StashApply {
+        repo_id: String,
+        index: usize,
+        expected: String,
+        #[serde(default)]
+        pop: bool,
+        #[serde(default)]
+        restore_index: bool,
+    },
+    StashDrop {
+        repo_id: String,
+        index: usize,
+        expected: String,
+    },
+    StashClear {
+        repo_id: String,
+        expected: Vec<String>,
+    },
+    Reset {
+        repo_id: String,
+        target: String,
+        mode: branches::ResetMode,
+        expected_head: String,
+    },
+    Revert {
+        repo_id: String,
+        commit: String,
+        parent: Option<u32>,
+        expected_head: String,
+    },
+    Discard {
+        repo_id: String,
+        #[serde(default)]
+        paths: Vec<RepoPath>,
+        #[serde(default)]
+        untracked: Vec<RepoPath>,
+    },
+    CreateTag {
+        repo_id: String,
+        name: String,
+        target: Option<String>,
+        message: Option<String>,
+        #[serde(default)]
+        sign: bool,
+    },
+    DeleteTag {
+        repo_id: String,
+        name: String,
+        expected: String,
+    },
+    RemoteTags {
+        repo_id: String,
+        remote: String,
+    },
+    PushTag {
+        repo_id: String,
+        remote: String,
+        name: String,
+        #[serde(default)]
+        force: bool,
+    },
+    DeleteRemoteTag {
+        repo_id: String,
+        remote: String,
+        name: String,
+        expected: String,
+    },
+    RecoveryPoints {
+        repo_id: String,
+    },
+    RestoreRecovery {
+        repo_id: String,
+        id: String,
+        #[serde(default)]
+        allow_head_move: bool,
+    },
+    RemoveRecovery {
+        repo_id: String,
+        id: String,
+    },
     /// Stops a running hook or network command of this repository.
     CancelOperation {
         repo_id: String,
@@ -147,6 +259,7 @@ pub struct GitService {
     cancels: Mutex<HashMap<PathBuf, Arc<AtomicBool>>>,
     write_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
     operations: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    recovery_dir: Option<PathBuf>,
 }
 
 pub const STALE_SELECTION: &str =
@@ -178,6 +291,21 @@ fn json<T: Serialize>(value: T) -> Result<Value, String> {
 impl GitService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Destructive operations need somewhere to keep recovery points.
+    pub fn with_recovery_dir(directory: PathBuf) -> Self {
+        Self {
+            recovery_dir: Some(directory),
+            ..Self::default()
+        }
+    }
+
+    fn store(&self) -> Result<recovery::Store, String> {
+        self.recovery_dir
+            .clone()
+            .map(|directory| recovery::Store { directory })
+            .ok_or_else(|| "沒有可用的復原點儲存位置；已停止破壞性操作".into())
     }
 
     /// Only a successful detection is cached, so installing Git later works.
@@ -317,6 +445,207 @@ impl GitService {
             GitRequest::Blame { repo_id, path, rev } => {
                 let (runner, repo) = self.repo(project_root, &repo_id)?;
                 json(history::blame(&runner, &repo, &path, rev.as_deref())?)
+            }
+            GitRequest::CreateBranch {
+                repo_id,
+                name,
+                start,
+                switch,
+            } => self.write(project_root, &repo_id, |runner, repo| {
+                json(branches::create_branch(
+                    runner,
+                    repo,
+                    &name,
+                    start.as_deref(),
+                    switch,
+                )?)
+            }),
+            GitRequest::SwitchBranch { repo_id, name } => {
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(branches::switch_branch(runner, repo, &name)?)
+                })
+            }
+            GitRequest::DeleteBranch {
+                repo_id,
+                name,
+                expected,
+                force,
+            } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(branches::delete_branch(
+                        &store, runner, repo, &name, &expected, force,
+                    )?)
+                })
+            }
+            GitRequest::Stashes { repo_id } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(branches::stashes(&runner, &repo)?)
+            }
+            GitRequest::StashPush {
+                repo_id,
+                message,
+                include_untracked,
+                keep_index,
+            } => self.write(project_root, &repo_id, |runner, repo| {
+                json(branches::stash_push(
+                    runner,
+                    repo,
+                    &message,
+                    include_untracked,
+                    keep_index,
+                )?)
+            }),
+            GitRequest::StashApply {
+                repo_id,
+                index,
+                expected,
+                pop,
+                restore_index,
+            } => self.write(project_root, &repo_id, |runner, repo| {
+                json(branches::stash_apply(
+                    runner,
+                    repo,
+                    index,
+                    &expected,
+                    pop,
+                    restore_index,
+                )?)
+            }),
+            GitRequest::StashDrop {
+                repo_id,
+                index,
+                expected,
+            } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(branches::stash_drop(
+                        &store, runner, repo, index, &expected,
+                    )?)
+                })
+            }
+            GitRequest::StashClear { repo_id, expected } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(branches::stash_clear(&store, runner, repo, &expected)?)
+                })
+            }
+            GitRequest::Reset {
+                repo_id,
+                target,
+                mode,
+                expected_head,
+            } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(branches::reset(
+                        &store,
+                        runner,
+                        repo,
+                        &target,
+                        mode,
+                        &expected_head,
+                    )?)
+                })
+            }
+            GitRequest::Revert {
+                repo_id,
+                commit,
+                parent,
+                expected_head,
+            } => self.write(project_root, &repo_id, |runner, repo| {
+                json(branches::revert(
+                    runner,
+                    repo,
+                    &commit,
+                    parent,
+                    &expected_head,
+                )?)
+            }),
+            GitRequest::Discard {
+                repo_id,
+                paths,
+                untracked,
+            } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(branches::discard(&store, runner, repo, &paths, &untracked)?)
+                })
+            }
+            GitRequest::CreateTag {
+                repo_id,
+                name,
+                target,
+                message,
+                sign,
+            } => self.write(project_root, &repo_id, |runner, repo| {
+                json(branches::create_tag(
+                    runner,
+                    repo,
+                    &name,
+                    target.as_deref(),
+                    message.as_deref(),
+                    sign,
+                )?)
+            }),
+            GitRequest::DeleteTag {
+                repo_id,
+                name,
+                expected,
+            } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(branches::delete_tag(
+                        &store, runner, repo, &name, &expected,
+                    )?)
+                })
+            }
+            GitRequest::RemoteTags { repo_id, remote } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(branches::remote_tags(&runner, &repo, &remote)?)
+            }
+            GitRequest::PushTag {
+                repo_id,
+                remote,
+                name,
+                force,
+            } => self.write(project_root, &repo_id, |runner, repo| {
+                json(branches::push_tag(runner, repo, &remote, &name, force)?)
+            }),
+            GitRequest::DeleteRemoteTag {
+                repo_id,
+                remote,
+                name,
+                expected,
+            } => self.write(project_root, &repo_id, |runner, repo| {
+                json(branches::delete_remote_tag(
+                    runner, repo, &remote, &name, &expected,
+                )?)
+            }),
+            GitRequest::RecoveryPoints { repo_id } => {
+                let (_, repo) = self.repo(project_root, &repo_id)?;
+                json(
+                    self.store()
+                        .map(|store| store.list(&repo))
+                        .unwrap_or_default(),
+                )
+            }
+            GitRequest::RestoreRecovery {
+                repo_id,
+                id,
+                allow_head_move,
+            } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(store.restore(runner, repo, &id, allow_head_move)?)
+                })
+            }
+            GitRequest::RemoveRecovery { repo_id, id } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| {
+                    store.remove(runner, repo, &id)?;
+                    Ok(Value::Null)
+                })
             }
             GitRequest::CancelOperation { repo_id } => {
                 if let Some(flag) = self

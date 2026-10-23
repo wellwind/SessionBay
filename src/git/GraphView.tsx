@@ -6,7 +6,8 @@ import { emptyLanes, layout } from './graph-lanes';
 import type { GraphRow, LaneState } from './graph-lanes';
 import { CommitPanel } from './CommitPanel';
 import type { DiffPreferences } from './DiffView';
-import type { LogCommit, LogFilter } from './types';
+import type { CommitDetail, LogCommit, LogFilter } from './types';
+import type { ReactNode } from 'react';
 import { formatTime } from './types';
 import { RefChips } from './RefChips';
 
@@ -28,10 +29,11 @@ export function GraphCell({ row, width, merge }: { row: GraphRow; width: number;
   </svg>;
 }
 
-export function GraphView({ projectId, repoId, repoName, headOid, preferences, onPreferences, onOpenComparison }: {
+export function GraphView({ projectId, repoId, repoName, headOid, preferences, onPreferences, onOpenComparison, commitActions }: {
   projectId: string; repoId: string; repoName: string; headOid: string | null;
   preferences: DiffPreferences; onPreferences: (next: DiffPreferences) => void;
   onOpenComparison: (commit: string) => void;
+  commitActions?: (detail: CommitDetail) => ReactNode;
 }) {
   const [commits, setCommits] = useState<LogCommit[]>([]);
   const [rows, setRows] = useState<GraphRow[]>([]);
@@ -130,7 +132,7 @@ export function GraphView({ projectId, repoId, repoName, headOid, preferences, o
         preferences={preferences} onPreferences={onPreferences} onSelectCommit={oid => {
           if (commits.some(commit => commit.oid === oid)) move(commits.findIndex(commit => commit.oid === oid));
           else onOpenComparison(oid);
-        }} onOpen={() => onOpenComparison(selectedCommit.oid)} />}
+        }} onOpen={() => onOpenComparison(selectedCommit.oid)} actions={commitActions} />}
     </div>
   </div>;
 }

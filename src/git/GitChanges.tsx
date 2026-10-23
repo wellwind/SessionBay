@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Minus, Plus } from 'lucide-react';
+import { Minus, Plus, Undo2 } from 'lucide-react';
 import type { Change, RepoStatus, StatusEntry } from './types';
 import { changeLabel, conflictLabel, pathKey } from './types';
 
@@ -58,6 +58,7 @@ export interface ChangeActions {
   onOpen: (entry: StatusEntry, group: ChangeGroup) => void;
   onStage: (entries: StatusEntry[]) => void;
   onUnstage: (entries: StatusEntry[]) => void;
+  onDiscard?: (entries: StatusEntry[]) => void;
 }
 
 export function GitChanges({ status, actions }: { status: RepoStatus; actions?: ChangeActions }) {
@@ -78,6 +79,9 @@ export function GitChanges({ status, actions }: { status: RepoStatus; actions?: 
       <ul>{groups[group].map(entry => <ChangeRow key={rowKey(group, entry)} entry={entry} group={group}
         selected={actions?.activeKey === rowKey(group, entry)} onOpen={actions ? () => actions.onOpen(entry, group) : undefined}>
         {actions && group === 'staged' && <button disabled={actions.busy} aria-label={`取消暫存 ${entry.path.path}`} title="取消暫存" onClick={() => actions.onUnstage([entry])}><Minus size={14} /></button>}
+        {actions?.onDiscard && (group === 'unstaged' || group === 'untracked') && !entry.submodule && <button disabled={actions.busy}
+          aria-label={`捨棄 ${entry.path.path} 的變更`} title={group === 'untracked' ? '刪除未追蹤檔案（會先備份）' : '捨棄工作目錄變更（會先建立復原點）'}
+          onClick={() => actions.onDiscard?.([entry])}><Undo2 size={14} /></button>}
         {actions && (group === 'unstaged' || group === 'untracked') && <button disabled={actions.busy} aria-label={`暫存 ${entry.path.path}`} title="暫存整個檔案" onClick={() => actions.onStage([entry])}><Plus size={14} /></button>}
       </ChangeRow>)}</ul>
     </section>)}

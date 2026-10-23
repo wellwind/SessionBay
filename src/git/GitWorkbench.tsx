@@ -18,10 +18,16 @@ import { CommitPanel } from './CommitPanel';
 import { BlameView } from './BlameView';
 import { FileHistoryView } from './FileHistoryView';
 import { SyncPanel } from './SyncPanel';
+import { BranchesPanel } from './BranchesPanel';
+import { StashPanel } from './StashPanel';
+import { TagsPanel } from './TagsPanel';
+import { RecoveryPanel } from './RecoveryPanel';
+import { DangerDialog } from './DangerDialog';
+import { ResetDialog, RevertDialog } from './HistoryActions';
 import { documentsReducer, emptyDocuments } from './git-documents';
 import type { DocumentSpec, GitDocument } from './git-documents';
 import { gitApi } from './git-api';
-import type { IssueKind, Refs, RepoInfo, RepoPath, StatusEntry } from './types';
+import type { CommitDetail, IssueKind, Outcome, Refs, RepoInfo, RepoPath, StatusEntry } from './types';
 import { branchLabel, operationLabel, pathKey } from './types';
 import './git.css';
 
@@ -49,10 +55,13 @@ export default function GitWorkbench(props: GitWorkbenchProps) {
   return <Workbench key={props.projectId} {...props} />;
 }
 
+/** Collapsed sections mount their content (and its requests) when first opened. */
 export function Section({ title, children, open = true, actions }: { title: string; children: ReactNode; open?: boolean; actions?: ReactNode }) {
-  return <details className="git-section" open={open}>
+  // Once opened, content stays mounted so drafts survive collapsing.
+  const [opened, setOpened] = useState(open);
+  return <details className="git-section" open={open} onToggle={event => { if (event.currentTarget.open) setOpened(true); }}>
     <summary><span>{title}</span>{actions && <span className="git-section-actions" onClick={event => event.preventDefault()}>{actions}</span>}</summary>
-    <div className="git-section-body">{children}</div>
+    {opened && <div className="git-section-body">{children}</div>}
   </details>;
 }
 
@@ -105,6 +114,20 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
     return () => element?.removeEventListener('git-close-document', handler);
   });
 
+  const [historyAction, setHistoryAction] = useState<{ kind: 'reset' | 'revert'; repo: RepoInfo; commit: CommitDetail } | null>(null);
+  const [discarding, setDiscarding] = useState<{ repo: RepoInfo; entries: StatusEntry[] } | null>(null);
+  const handleOutcome = (repoId: string) => (outcome: Outcome | { error: string }) => {
+    if ('error' in outcome) setMessage({ tone: 'error', text: outcome.error });
+    else setMessage({ tone: outcome.conflicts ? 'error' : 'success',
+      text: `${outcome.message}${outcome.recovery ? '（已建立復原點，可在「復原點」還原）' : ''}` });
+    void git.refreshStatus(repoId);
+    void loadRefs(repoId);
+  };
+  const commitActions = (repo: RepoInfo) => (detail: CommitDetail) => git.statuses[repo.id]?.branch.oid ? <>
+    <button onClick={() => setHistoryAction({ kind: 'revert', repo, commit: detail })}>Revert…</button>
+    <button className="danger" disabled={detail.oid === git.statuses[repo.id]?.branch.oid}
+      onClick={() => setHistoryAction({ kind: 'reset', repo, commit: detail })}>Reset 到此…</button>
+  </> : null;
   const mutate = async (repoId: string, label: string, action: () => Promise<unknown>) => {
     setBusy(true); setMessage(null);
     try { await action(); setMessage({ tone: 'success', text: label }); }
@@ -141,11 +164,11 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         </>} />;
       case 'comparison': return spec.source.kind === 'commit'
         ? <CommitPanel key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} commit={spec.source.commit}
-          preferences={preferences} onPreferences={setPreferences} onSelectCommit={openCommit} />
+          preferences={preferences} onPreferences={setPreferences} onSelectCommit={openCommit} actions={commitActions(repo)} />
         : <ComparisonView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} source={spec.source}
           preferences={preferences} onPreferences={setPreferences} onSource={source => replace({ ...spec, source })} />;
       case 'graph': return <GraphView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} headOid={status?.branch.oid ?? null}
-        preferences={preferences} onPreferences={setPreferences} onOpenComparison={openCommit} />;
+        preferences={preferences} onPreferences={setPreferences} onOpenComparison={openCommit} commitActions={commitActions(repo)} />;
       case 'blame': return <BlameView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path} rev={spec.rev}
         onOpenCommit={openCommit} onBlame={openBlame} onHistory={openHistory} />;
       case 'fileHistory': return <FileHistoryView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path}
@@ -194,6 +217,7 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
             () => gitApi.stagePaths(projectId, selectedRepo.id, entries.map(entry => entry.path))),
           onUnstage: entries => void mutate(selectedRepo.id, entries.length > 1 ? `已取消暫存 ${entries.length} 個檔案。` : `已取消暫存 ${entries[0].path.path}。`,
             () => gitApi.unstagePaths(projectId, selectedRepo.id, entries.flatMap(entry => entry.origPath ? [entry.path, entry.origPath] : [entry.path]))),
+          onDiscard: entries => setDiscarding({ repo: selectedRepo, entries }),
         }} />
       </Section>}
       {selectedRepo && selectedStatus && <Section title="Commit">
@@ -209,11 +233,40 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
           void loadRefs(selectedRepo.id);
         }} />
       </Section>}
+      {selectedRepo && selectedStatus && <Section title="Branches" open={false}>
+        <BranchesPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} refs={refs[selectedRepo.id] ?? null}
+          onOutcome={handleOutcome(selectedRepo.id)}
+          onCompare={(base, head) => open(selectedRepo, { kind: 'comparison', source: { kind: 'compare', base, head, mergeBase: true } })} />
+      </Section>}
+      {selectedRepo && selectedStatus && <Section title={`Stash${selectedStatus.stashCount ? `（${selectedStatus.stashCount}）` : ''}`} open={false}>
+        <StashPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} onOutcome={handleOutcome(selectedRepo.id)} />
+      </Section>}
+      {selectedRepo && <Section title="Tags" open={false}>
+        <TagsPanel projectId={projectId} repo={selectedRepo} refs={refs[selectedRepo.id] ?? null} onOutcome={handleOutcome(selectedRepo.id)} />
+      </Section>}
+      {selectedRepo && <Section title="復原點" open={false}>
+        <RecoveryPanel projectId={projectId} repo={selectedRepo} revision={selectedStatus?.revision} onRestored={result => {
+          setMessage(result); void git.refreshStatus(selectedRepo.id); void loadRefs(selectedRepo.id);
+        }} />
+      </Section>}
       {selectedRepo && <Section title="歷史">
         <div className="git-row">
           <button onClick={() => open(selectedRepo, { kind: 'graph' })}><GitBranch size={14} aria-hidden="true" />開啟歷史 graph</button>
         </div>
       </Section>}
+      {historyAction && git.statuses[historyAction.repo.id] && (historyAction.kind === 'reset'
+        ? <ResetDialog projectId={projectId} repo={historyAction.repo} status={git.statuses[historyAction.repo.id]} commit={historyAction.commit}
+          onOutcome={handleOutcome(historyAction.repo.id)} onClose={() => setHistoryAction(null)} />
+        : <RevertDialog projectId={projectId} repo={historyAction.repo} status={git.statuses[historyAction.repo.id]} commit={historyAction.commit}
+          onOutcome={handleOutcome(historyAction.repo.id)} onClose={() => setHistoryAction(null)} />)}
+      {discarding && <DangerDialog title={`捨棄 ${discarding.entries.length} 個檔案的變更？`} confirmLabel="捨棄變更"
+        acknowledge={`我了解 ${discarding.repo.name} 這些檔案的未提交變更會被移除`}
+        impact={<ul>{discarding.entries.map(entry => <li key={pathKey(entry.path)}>{entry.untracked ? '刪除未追蹤檔案' : '還原為 index 版本'}：<code>{entry.path.path}</code></li>)}</ul>}
+        recovery="自動建立復原點：保存 tracked 工作檔的未提交變更與 index，並逐位元組備份要刪除的 untracked 檔案（上限 50 MB）；備份失敗則不會刪除。"
+        onClose={() => setDiscarding(null)}
+        onConfirm={async () => handleOutcome(discarding.repo.id)(await gitApi.discard(projectId, { repoId: discarding.repo.id,
+          paths: discarding.entries.filter(entry => !entry.untracked).map(entry => entry.path),
+          untracked: discarding.entries.filter(entry => entry.untracked).map(entry => entry.path) }))} />}
       {selectedRepo && selectedStatus && <Section title="比較" open={false} actions={<GitCompare size={13} aria-hidden="true" />}>
         <CompareForm refs={refs[selectedRepo.id] ?? null} onCompare={(base, head, mergeBase) =>
           open(selectedRepo, { kind: 'comparison', source: { kind: 'compare', base, head, mergeBase } })} />

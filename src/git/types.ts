@@ -117,3 +117,27 @@ export interface BlameCommit { author: string; authoredAt: number; summary: stri
 export interface BlameLine { oid: string; originalLine: number; line: number; text: string }
 export interface Blame { path: RepoPath; rev: string | null; lines: BlameLine[]; commits: Record<string, BlameCommit>; truncated: boolean }
 export const formatTime = (seconds: number) => seconds ? new Date(seconds * 1000).toLocaleString() : '';
+
+export interface StashEntry { index: number; oid: string; message: string; createdAt: number }
+export interface Coverage { head: boolean; index: boolean; trackedFiles: boolean; untrackedFiles: number; refs: string[] }
+export interface RecoveryPoint {
+  id: string; repoId: string; repoRoot: string; createdAt: number; operation: string; branch: string | null; head: string | null;
+  snapshot: string | null; untracked: RepoPath[]; coverage: Coverage; headAfter: string | null; notes: string[];
+}
+export interface Outcome { message: string; recovery: RecoveryPoint | null; conflicts: boolean }
+export interface RemoteTag { name: string; oid: string }
+export type ResetMode = 'soft' | 'mixed' | 'hard';
+export const resetModeLabel: Record<ResetMode, { title: string; detail: string }> = {
+  soft: { title: 'Soft', detail: '只移動 branch；index 與工作目錄保持不變，被移除的 commit 內容會留在已暫存區。' },
+  mixed: { title: 'Mixed', detail: '移動 branch 並重設 index；工作目錄檔案保持不變，變更變成未暫存。' },
+  hard: { title: 'Hard', detail: '移動 branch，並讓 index 與 tracked 工作檔完全回到目標；未提交的 tracked 變更會被覆蓋（untracked 檔案不受影響）。' },
+};
+export function coverageText(coverage: Coverage): string[] {
+  const items: string[] = [];
+  if (coverage.head) items.push('HEAD 與目前 branch 位置');
+  if (coverage.index) items.push('index（已暫存內容）');
+  if (coverage.trackedFiles) items.push('tracked 工作檔的未提交變更');
+  if (coverage.untrackedFiles) items.push(`${coverage.untrackedFiles} 個 untracked 檔案的位元組備份`);
+  for (const ref of coverage.refs) items.push(`ref ${ref}`);
+  return items;
+}

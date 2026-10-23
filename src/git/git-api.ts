@@ -1,5 +1,5 @@
 import { call } from '../api';
-import type { Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
+import type { Outcome, RecoveryPoint, RemoteTag, ResetMode, StashEntry, Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
 
 /** One typed IPC entry point; the backend revalidates project and repo identity. */
 export type GitRequest =
@@ -23,7 +23,30 @@ export type GitRequest =
   | { op: 'log'; repoId: string; filter: LogFilter; offset: number; limit: number }
   | { op: 'commitDetail'; repoId: string; commit: string }
   | { op: 'fileHistory'; repoId: string; path: RepoPath; offset: number; limit: number }
-  | { op: 'blame'; repoId: string; path: RepoPath; rev: string | null };
+  | { op: 'blame'; repoId: string; path: RepoPath; rev: string | null }
+  | { op: 'createBranch'; repoId: string; name: string; start: string | null; switch: boolean }
+  | { op: 'switchBranch'; repoId: string; name: string }
+  | { op: 'deleteBranch'; repoId: string; name: string; expected: string; force: boolean }
+  | { op: 'stashes'; repoId: string }
+  | { op: 'stashPush'; repoId: string; message: string; includeUntracked: boolean; keepIndex: boolean }
+  | { op: 'stashApply'; repoId: string; index: number; expected: string; pop: boolean; restoreIndex: boolean }
+  | { op: 'stashDrop'; repoId: string; index: number; expected: string }
+  | { op: 'stashClear'; repoId: string; expected: string[] }
+  | { op: 'reset'; repoId: string; target: string; mode: ResetMode; expectedHead: string }
+  | { op: 'revert'; repoId: string; commit: string; parent: number | null; expectedHead: string }
+  | { op: 'discard'; repoId: string; paths: RepoPath[]; untracked: RepoPath[] }
+  | { op: 'createTag'; repoId: string; name: string; target: string | null; message: string | null; sign: boolean }
+  | { op: 'deleteTag'; repoId: string; name: string; expected: string }
+  | { op: 'remoteTags'; repoId: string; remote: string }
+  | { op: 'pushTag'; repoId: string; remote: string; name: string; force: boolean }
+  | { op: 'deleteRemoteTag'; repoId: string; remote: string; name: string; expected: string }
+  | { op: 'recoveryPoints'; repoId: string }
+  | { op: 'restoreRecovery'; repoId: string; id: string; allowHeadMove: boolean }
+  | { op: 'removeRecovery'; repoId: string; id: string };
+
+type Body<K extends GitRequest['op']> = Omit<Extract<GitRequest, { op: K }>, 'op'>;
+const outcome = <K extends GitRequest['op']>(op: K) => (projectId: string, body: Body<K>) =>
+  gitRequest<Outcome>(projectId, { op, ...body } as GitRequest);
 
 export const gitRequest = <T>(projectId: string, request: GitRequest) =>
   call<T>('git_request', { projectId, request });
@@ -54,6 +77,26 @@ export const gitApi = {
   fileHistory: (projectId: string, repoId: string, path: RepoPath, offset: number, limit: number) =>
     gitRequest<{ revisions: FileRevision[]; hasMore: boolean }>(projectId, { op: 'fileHistory', repoId, path, offset, limit }),
   blame: (projectId: string, repoId: string, path: RepoPath, rev: string | null) => gitRequest<Blame>(projectId, { op: 'blame', repoId, path, rev }),
+  createBranch: outcome('createBranch'),
+  switchBranch: outcome('switchBranch'),
+  deleteBranch: outcome('deleteBranch'),
+  stashes: (projectId: string, repoId: string) => gitRequest<StashEntry[]>(projectId, { op: 'stashes', repoId }),
+  stashPush: outcome('stashPush'),
+  stashApply: outcome('stashApply'),
+  stashDrop: outcome('stashDrop'),
+  stashClear: outcome('stashClear'),
+  reset: outcome('reset'),
+  revert: outcome('revert'),
+  discard: outcome('discard'),
+  createTag: outcome('createTag'),
+  deleteTag: outcome('deleteTag'),
+  remoteTags: (projectId: string, repoId: string, remote: string) => gitRequest<RemoteTag[]>(projectId, { op: 'remoteTags', repoId, remote }),
+  pushTag: outcome('pushTag'),
+  deleteRemoteTag: outcome('deleteRemoteTag'),
+  recoveryPoints: (projectId: string, repoId: string) => gitRequest<RecoveryPoint[]>(projectId, { op: 'recoveryPoints', repoId }),
+  restoreRecovery: (projectId: string, repoId: string, id: string, allowHeadMove: boolean) =>
+    gitRequest<string[]>(projectId, { op: 'restoreRecovery', repoId, id, allowHeadMove }),
+  removeRecovery: (projectId: string, repoId: string, id: string) => gitRequest<null>(projectId, { op: 'removeRecovery', repoId, id }),
   cancelOperation: (projectId: string, repoId: string) => gitRequest<null>(projectId, { op: 'cancelOperation', repoId }),
   unstageSelection: (projectId: string, request: Omit<Extract<GitRequest, { op: 'unstageSelection' }>, 'op'>) =>
     gitRequest<null>(projectId, { op: 'unstageSelection', ...request }),
