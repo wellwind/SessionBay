@@ -24,6 +24,8 @@ import { TagsPanel } from './TagsPanel';
 import { RecoveryPanel } from './RecoveryPanel';
 import { DangerDialog } from './DangerDialog';
 import { ResetDialog, RevertDialog } from './HistoryActions';
+import { ConflictView } from './ConflictView';
+import { OperationBar } from './OperationBar';
 import { documentsReducer, emptyDocuments } from './git-documents';
 import type { DocumentSpec, GitDocument } from './git-documents';
 import { gitApi } from './git-api';
@@ -174,6 +176,8 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
       case 'fileHistory': return <FileHistoryView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path}
         onBlame={openBlame} onOpenDiff={revision => open(repo, { kind: 'diff', path: revision.path, oldPath: null, untracked: false,
           source: { kind: 'commit', commit: revision.commit.oid, parent: revision.commit.parents.length > 1 ? 1 : null } })} />;
+      case 'conflict': return <ConflictView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path}
+        revision={status?.revision} onChanged={() => void git.refreshStatus(repo.id)} />;
       default: return <p className="git-muted git-pad">此檢視尚未提供。</p>;
     }
   };
@@ -208,6 +212,8 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         </>}
       </div>}
       {selectedRepo && git.statusErrors[selectedRepo.id] && <p className="git-error" role="alert">{git.statusErrors[selectedRepo.id]}</p>}
+      {selectedRepo && selectedStatus?.operation && <OperationBar projectId={projectId} repo={selectedRepo} status={selectedStatus}
+        onOutcome={handleOutcome(selectedRepo.id)} />}
       {message && <p className={message.tone === 'success' ? 'git-success' : 'git-error'} role={message.tone === 'error' ? 'alert' : 'status'}>{message.text}</p>}
       {selectedRepo && selectedStatus && <Section title="變更">
         <GitChanges status={selectedStatus} actions={{

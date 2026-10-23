@@ -202,3 +202,18 @@
 .git-commit-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .git-commit-actions button { padding: 3px 8px; font-size: 12px; }
 .git-sidebar button.danger, .dialog button.danger { color: var(--danger); border-color: var(--danger); }
+
+/* Conflicts */
+.git-conflict { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
+.git-conflict-note { margin: 6px 10px 0; }
+.git-conflict > .git-error, .git-conflict > .git-success { margin: 6px 10px 0; }
+.git-conflict-sides { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 8px 10px; background: var(--border); border: 1px solid var(--border); }
+.git-conflict-side { display: flex; flex-direction: column; min-width: 0; background: var(--panel); max-height: 260px; }
+.git-conflict-side header { padding: 4px 8px; font-size: 12px; background: var(--surface); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.git-conflict-text { margin: 0; padding: 6px 8px; overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+.git-conflict-result { display: flex; flex-direction: column; gap: 6px; margin: 0 10px 10px; font-size: 12px; }
+.git-conflict-block { padding: 4px 6px; border-left: 3px solid var(--warning); background: var(--surface); }
+.git-conflict-block button { padding: 2px 6px; font-size: 11px; }
+.git-conflict-editor { min-height: 280px; resize: vertical; padding: 8px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--bg); border: 1px solid var(--control-border); border-radius: 0; white-space: pre; tab-size: 4; }
+.git-operation { display: flex; flex-direction: column; gap: 4px; padding: 8px; font-size: 12px; border: 1px solid var(--warning); background: var(--surface); }
+@media (max-width: 900px) { .git-conflict-sides { grid-template-columns: minmax(0, 1fr); } }

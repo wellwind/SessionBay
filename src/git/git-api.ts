@@ -1,5 +1,5 @@
 import { call } from '../api';
-import type { Outcome, RecoveryPoint, RemoteTag, ResetMode, StashEntry, Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
+import type { ConflictFile, ResolveChoice, Outcome, RecoveryPoint, RemoteTag, ResetMode, StashEntry, Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
 
 /** One typed IPC entry point; the backend revalidates project and repo identity. */
 export type GitRequest =
@@ -42,7 +42,14 @@ export type GitRequest =
   | { op: 'deleteRemoteTag'; repoId: string; remote: string; name: string; expected: string }
   | { op: 'recoveryPoints'; repoId: string }
   | { op: 'restoreRecovery'; repoId: string; id: string; allowHeadMove: boolean }
-  | { op: 'removeRecovery'; repoId: string; id: string };
+  | { op: 'removeRecovery'; repoId: string; id: string }
+  | { op: 'merge'; repoId: string; rev: string; noFf: boolean; expectedHead: string }
+  | { op: 'conflictFile'; repoId: string; path: RepoPath }
+  | { op: 'saveConflict'; repoId: string; path: RepoPath; token: string; content: string }
+  | { op: 'markResolved'; repoId: string; path: RepoPath; token: string; allowMarkers: boolean }
+  | { op: 'resolveWith'; repoId: string; path: RepoPath; token: string; choice: ResolveChoice; newPath: RepoPath | null }
+  | { op: 'continueOperation'; repoId: string }
+  | { op: 'abortOperation'; repoId: string };
 
 type Body<K extends GitRequest['op']> = Omit<Extract<GitRequest, { op: K }>, 'op'>;
 const outcome = <K extends GitRequest['op']>(op: K) => (projectId: string, body: Body<K>) =>
@@ -97,6 +104,13 @@ export const gitApi = {
   restoreRecovery: (projectId: string, repoId: string, id: string, allowHeadMove: boolean) =>
     gitRequest<string[]>(projectId, { op: 'restoreRecovery', repoId, id, allowHeadMove }),
   removeRecovery: (projectId: string, repoId: string, id: string) => gitRequest<null>(projectId, { op: 'removeRecovery', repoId, id }),
+  merge: outcome('merge'),
+  conflictFile: (projectId: string, repoId: string, path: RepoPath) => gitRequest<ConflictFile>(projectId, { op: 'conflictFile', repoId, path }),
+  saveConflict: (projectId: string, body: Body<'saveConflict'>) => gitRequest<{ token: string }>(projectId, { op: 'saveConflict', ...body }),
+  markResolved: outcome('markResolved'),
+  resolveWith: outcome('resolveWith'),
+  continueOperation: outcome('continueOperation'),
+  abortOperation: outcome('abortOperation'),
   cancelOperation: (projectId: string, repoId: string) => gitRequest<null>(projectId, { op: 'cancelOperation', repoId }),
   unstageSelection: (projectId: string, request: Omit<Extract<GitRequest, { op: 'unstageSelection' }>, 'op'>) =>
     gitRequest<null>(projectId, { op: 'unstageSelection', ...request }),

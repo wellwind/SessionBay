@@ -4,6 +4,7 @@
 //! from discovery. The repository must still be one the project contains;
 //! writes are serialized per Git common dir and revalidate state first.
 pub mod branches;
+pub mod conflict;
 pub mod diff;
 pub mod discovery;
 pub mod history;
@@ -245,6 +246,43 @@ pub enum GitRequest {
     RemoveRecovery {
         repo_id: String,
         id: String,
+    },
+    Merge {
+        repo_id: String,
+        rev: String,
+        #[serde(default)]
+        no_ff: bool,
+        expected_head: String,
+    },
+    ConflictFile {
+        repo_id: String,
+        path: RepoPath,
+    },
+    SaveConflict {
+        repo_id: String,
+        path: RepoPath,
+        token: String,
+        content: String,
+    },
+    MarkResolved {
+        repo_id: String,
+        path: RepoPath,
+        token: String,
+        #[serde(default)]
+        allow_markers: bool,
+    },
+    ResolveWith {
+        repo_id: String,
+        path: RepoPath,
+        token: String,
+        choice: conflict::Choice,
+        new_path: Option<RepoPath>,
+    },
+    ContinueOperation {
+        repo_id: String,
+    },
+    AbortOperation {
+        repo_id: String,
     },
     /// Stops a running hook or network command of this repository.
     CancelOperation {
@@ -646,6 +684,29 @@ impl GitService {
                     store.remove(runner, repo, &id)?;
                     Ok(Value::Null)
                 })
+            }
+            GitRequest::Merge { repo_id, rev, no_ff, expected_head } => self.write(project_root, &repo_id, |runner, repo| {
+                json(conflict::merge(runner, repo, &rev, no_ff, &expected_head)?)
+            }),
+            GitRequest::ConflictFile { repo_id, path } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(conflict::conflict_file(&runner, &repo, &path)?)
+            }
+            GitRequest::SaveConflict { repo_id, path, token, content } => self.write(project_root, &repo_id, |runner, repo| {
+                Ok(serde_json::json!({ "token": conflict::save(runner, repo, &path, &token, &content)? }))
+            }),
+            GitRequest::MarkResolved { repo_id, path, token, allow_markers } => self.write(project_root, &repo_id, |runner, repo| {
+                json(conflict::mark_resolved(runner, repo, &path, &token, allow_markers)?)
+            }),
+            GitRequest::ResolveWith { repo_id, path, token, choice, new_path } => self.write(project_root, &repo_id, |runner, repo| {
+                json(conflict::resolve_with(runner, repo, &path, &token, choice, new_path.as_ref())?)
+            }),
+            GitRequest::ContinueOperation { repo_id } => self.write(project_root, &repo_id, |runner, repo| {
+                json(conflict::continue_operation(runner, repo)?)
+            }),
+            GitRequest::AbortOperation { repo_id } => {
+                let store = self.store()?;
+                self.write(project_root, &repo_id, |runner, repo| json(conflict::abort_operation(&store, runner, repo)?))
             }
             GitRequest::CancelOperation { repo_id } => {
                 if let Some(flag) = self

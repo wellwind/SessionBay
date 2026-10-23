@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { GitCompare, GitBranchPlus, Trash2 } from 'lucide-react';
+import { GitCompare, GitBranchPlus, GitMerge, Trash2 } from 'lucide-react';
+import { MergeDialog } from './OperationBar';
 import { errorMessage } from '../api';
 import { gitApi } from './git-api';
 import { DangerDialog } from './DangerDialog';
@@ -17,6 +18,7 @@ export function BranchesPanel({ projectId, repo, status, refs, onOutcome, onComp
   const [deleting, setDeleting] = useState<Branch | null>(null);
   const [showRemote, setShowRemote] = useState(false);
   const [force, setForce] = useState(false);
+  const [merging, setMerging] = useState<Branch | null>(null);
   const dirty = status.entries.some(entry => !entry.untracked);
   const blocked = status.operation ? '有進行中的操作' : dirty ? '工作目錄有未提交的變更' : '';
   const run = async (action: () => Promise<Outcome>) => {
@@ -43,6 +45,8 @@ export function BranchesPanel({ projectId, repo, status, refs, onOutcome, onComp
       <span className="git-change-actions">
         {!branch.current && <button aria-label={`比較 ${current} 與 ${branch.name}`} title={`比較 ${current}...${branch.name}`}
           onClick={() => onCompare(current, branch.name)}><GitCompare size={14} /></button>}
+        {!branch.current && status.branch.head && <button aria-label={`合併 ${branch.name} 到 ${current}`} title={`合併到 ${current}`}
+          disabled={!!blocked || busy} onClick={() => setMerging(branch)}><GitMerge size={14} /></button>}
         {!branch.remote && !branch.current && !branch.worktree && <button aria-label={`刪除 branch ${branch.name}`} title="刪除 branch"
           onClick={() => setDeleting(branch)}><Trash2 size={14} /></button>}
       </span>
@@ -64,6 +68,8 @@ export function BranchesPanel({ projectId, repo, status, refs, onOutcome, onComp
       <label className="git-check"><input type="checkbox" checked={switchTo} disabled={!!blocked} onChange={event => setSwitchTo(event.target.checked)} />建立後切換</label>
       <button type="submit" disabled={busy || !name.trim() || status.branch.unborn}><GitBranchPlus size={14} aria-hidden="true" />建立 branch</button>
     </form>
+    {merging && <MergeDialog projectId={projectId} repo={repo} status={status} branch={merging} onClose={() => setMerging(null)}
+      onOutcome={result => onOutcome(result)} />}
     {deleting && <DangerDialog title={`刪除 branch ${deleting.name}？`} confirmLabel={force ? '強制刪除 branch' : '刪除 branch'}
       acknowledge={`我了解 ${repo.name} 的 branch ${deleting.name} 會被刪除`}
       impact={<p>Repository <strong>{repo.name}</strong> 的本機 branch <code>{deleting.name}</code>（{deleting.oid.slice(0, 7)}）會被刪除；遠端 branch 不受影響。</p>}
