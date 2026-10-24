@@ -1173,7 +1173,7 @@ export function SettingsPanel({
                       <input
                         value={draft.fontFamily}
                         onChange={(event) => update('fontFamily', event.target.value)}
-                        placeholder="JetBrains Mono, SFMono-Regular, monospace"
+                        placeholder="JetBrains Mono Variable, SFMono-Regular, monospace"
                         spellCheck={false}
                         aria-invalid={Boolean(errors.fontFamily)}
                         aria-describedby="font-family-error"

@@ -4,6 +4,12 @@ import { smokeSnapshot } from './startup';
 
 /** Invoked only after the native diagnostic command confirms SESSIONBAY_SMOKE=1. */
 export async function runSmokeInteraction(): Promise<void> {
+  // Bundled fonts must load under the production CSP in every native webview
+  // (all three expose FontFaceSet; jsdom unit tests do not).
+  if (document.fonts) for (const [face, sample] of [["14px 'Inter Variable'", 'Aa'], ["14px 'JetBrains Mono Variable'", 'Aa'], ["14px 'Noto Sans TC Variable'", '工作']]) {
+    const loaded = await document.fonts.load(face, sample).catch(() => []);
+    if (!loaded.length) throw new Error(`UI smoke: bundled font did not load (${face})`);
+  }
   const dialog = () => document.querySelector<HTMLElement>('.settings-panel[role="dialog"]');
   const waitFor = (condition: () => boolean, description: string): Promise<void> => {
     const deadline = performance.now() + 15000;

@@ -359,7 +359,7 @@
   height: auto;
   min-height: 70px;
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
   line-height: 1.65;
 }
 .settings-panel input[aria-invalid='true'],
@@ -397,7 +397,7 @@
   margin: 7px 0 0;
 }
 .settings-detected-path {
-  font-family: ui-monospace, monospace;
+  font-family: var(--mono);
   color: var(--settings-muted);
   font-size: 11px;
   line-height: 1.6;
@@ -606,7 +606,7 @@
 }
 .settings-preview-label {
   display: block;
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 11px;
   letter-spacing: 0.08em;
   color: #828d82;
@@ -665,13 +665,13 @@
 }
 .settings-shortcut-row small {
   display: block;
-  font-family: ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11px;
   margin-top: 5px;
   color: var(--settings-muted);
 }
 .settings-shortcut-row input {
-  font-family: ui-monospace, monospace !important;
+  font-family: var(--mono) !important;
 }
 .settings-shortcut-row .settings-field-error {
   margin-top: 5px;
@@ -911,7 +911,7 @@
 .settings-shell-candidate p {
   margin: 5px 0 0;
   color: var(--settings-muted);
-  font-family: ui-monospace, monospace;
+  font-family: var(--mono);
   overflow-wrap: anywhere;
 }
 

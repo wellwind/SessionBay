@@ -117,6 +117,8 @@ OpenCode 的資料格式、啟動安全邊界與尚待實機驗證項目見 [Ope
 
 側欄瀏覽器回歸測試：`npm run test:sidebar`（需 Playwright Chromium；可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安裝執行檔）。測試使用合成 bridge，不啟動原生 Shell 或讀取使用者資料；不等同原生 WebView 驗收。
 
+WebKit 版面檢查：`npm run test:webkit`（需先執行 `npx playwright install webkit`）。以 Playwright WebKit 重跑 layout 類 spec，用來提早發現 WKWebView／WebKitGTK 的差異，但不等同原生 WebView 驗收；已知差異見 [UI 設計系統](docs/ui-design-system.md#webkit-已知差異)。
+
 - [Windows 安裝／解除安裝 CI](docs/windows-installer-smoke.md)：獨立 opt-in、固定 source SHA 的 x64 disposable runner 驗收。
 
 - [Agent 檔案輸入合成驗收](docs/file-input-validation.md)：區分暫存、CLI 辨識與模型真實接收。
