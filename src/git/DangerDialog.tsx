@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AlertTriangle, LoaderCircle } from 'lucide-react';
 import { Dialog } from '../components/Dialog';
 import { errorMessage } from '../api';
+import { GitTargetContext } from './git-target';
 
 /**
  * Destructive confirmations always spell out the impact and what a recovery
@@ -19,11 +20,13 @@ export function DangerDialog({ title, impact, recovery, confirmLabel, acknowledg
   onConfirm: () => Promise<void>;
   onClose: () => void;
 }) {
+  const target = useContext(GitTargetContext);
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return <Dialog title={title} onClose={() => { if (!busy) onClose(); }}>
     <div className="git-danger-body">
+      {target && <p className="git-danger-target">目標專案：<strong>{target}</strong></p>}
       <p className="git-danger-heading"><AlertTriangle size={16} aria-hidden="true" />影響範圍</p>
       <div className="git-danger-impact">{impact}</div>
       {children}

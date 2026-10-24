@@ -299,3 +299,40 @@ input.checkbox::before { border-color: var(--on-accent); }
 .terminal-file-candidates button { display: flex; align-items: center; gap: 8px; text-align: left; min-height: 34px; }
 .terminal-file-candidates button span { flex: 1; overflow-wrap: anywhere; }
 .terminal-file-candidates small { color: var(--muted); }
+/* Project identity badge shared by the overview grid and mixed tabs. */
+.project-initials { flex: 0 0 auto; min-width: 22px; padding: 1px 5px; border-radius: 4px; background: var(--pane-project, var(--muted)); color: var(--on-project); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+/* Mixed tabs: each pane carries its own project; the focused one gets a thick project-colour frame. */
+.terminal-pane.mixed-pane { border-top: 3px solid var(--pane-project); }
+.terminal-pane.mixed-pane.focused { box-shadow: inset 0 0 0 2px var(--pane-project); }
+.pane-identity { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 60%; }
+.pane-identity .pane-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pane-identity .pane-branch { display: inline-flex; align-items: center; gap: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); color: var(--muted); }
+.workspace-tab .mixed-chip { display: inline-flex; gap: 2px; margin-right: 4px; }
+.workspace-tab .mixed-chip .project-initials { min-width: 0; padding: 0 4px; font-size: 10px; line-height: 16px; }
+
+/* Mixed tabs: which project the side tools follow; flashes once when it changes. */
+.tool-context { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 260px; margin: 0 8px; padding: 2px 8px; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; animation: tool-context-flash 1.2s ease-out; }
+@keyframes tool-context-flash { from { border-color: var(--pane-project, var(--accent)); background: var(--accent-bg); color: var(--text); } }
+@media (prefers-reduced-motion: reduce) { .tool-context { animation: none; } }
+/* Split dialog: pick an open pane or history Session of any project. */
+.split-existing { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.split-existing-search { display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--surface); }
+.split-existing-search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 8px 0; color: var(--text); font: inherit; outline: none; }
+.split-existing-search:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.split-existing h3 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 6px; font-size: 13px; }
+.split-existing h3 small { font-weight: 400; font-size: 11px; color: var(--muted); }
+.split-existing-list { display: flex; flex-direction: column; gap: 2px; max-height: 210px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.split-existing-list button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.split-existing-list button:hover:not(:disabled) { background: var(--surface-hover); }
+.split-existing-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.split-existing-list button:disabled { cursor: not-allowed; opacity: .6; }
+.split-existing-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.split-existing-main strong, .split-existing-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.split-existing-main strong { font-size: 13px; font-weight: 600; }
+.split-existing-main span { font-size: 11px; color: var(--muted); }
+.split-existing-status { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.launch-kind-switch:has(> :nth-child(3)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Three choices: stack the caption under the label so neither wraps mid-word. */
+.launch-kind-switch:has(> :nth-child(3)) button { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; row-gap: 2px; align-items: center; padding: 10px 12px; text-align: left; }
+.launch-kind-switch:has(> :nth-child(3)) button > svg { grid-row: span 2; }
+.launch-kind-switch:has(> :nth-child(3)) button span { margin-left: 0; white-space: nowrap; }

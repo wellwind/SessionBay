@@ -8,8 +8,10 @@ import type { Workspace, WorkspaceTab } from '../types';
 import { paneIds } from '../workspace';
 import './workspace-organization.css';
 
-export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onReorder, panes }: {
+export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onReorder, panes, mixedBadges }: {
   tabs: WorkspaceTab[];
+  /** Project badges for mixed tabs; the tab is always labelled, never colour-only. */
+  mixedBadges?: (tab: WorkspaceTab) => { initials: string; name: string; color: string }[];
   panes?: Workspace['panes'];
   activeId?: string;
   onSelect: (tab: WorkspaceTab) => void;
@@ -38,7 +40,7 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
       style={reorder.style(tab.id)} ref={element => { reorder.ref(tab.id, element); if (tab.id === activeId) activeTab.current = element; }}>
       <button className="workspace-tab-select" aria-current={tab.id === activeId ? 'true' : undefined} aria-label={`${tab.name} ${paneIds(tab.layout).length}`} aria-describedby={`${helpId}${panes ? ` ${helpId}-activity-${index}` : ''}`}
         aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight"
-        title={tab.name}
+        title={tab.mixed && mixedBadges ? `混合分頁：${mixedBadges(tab).map((badge) => badge.name).join('、')}` : tab.name}
         {...reorder.handlers(tab.id)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229 || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -52,7 +54,9 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
           onSelect(tab);
         }}>
         {panes && <RuntimeActivityIndicator id={`${helpId}-activity-${index}`} tab={tab} panes={panes} />}
-        <TerminalSquare size={13} /><span className="workspace-tab-name">{tab.name}</span>
+        {tab.mixed && mixedBadges ? <span className="mixed-chip" role="img" aria-label={`混合：${mixedBadges(tab).map((badge) => badge.name).join('、')}`}>
+          {mixedBadges(tab).map((badge) => <span key={badge.name} className="project-initials" style={{ ['--pane-project' as string]: badge.color }}>{badge.initials}</span>)}
+        </span> : <TerminalSquare size={13} />}<span className="workspace-tab-name">{tab.name}</span>
         <span>{paneIds(tab.layout).length}</span>
       </button>
       <button aria-label={`重新命名分頁 ${tab.name}`} title="重新命名分頁" onClick={(event) => { event.currentTarget.focus(); onRename(tab); }}><Pencil size={13} /></button>
