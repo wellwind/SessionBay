@@ -141,3 +141,10 @@ export function coverageText(coverage: Coverage): string[] {
   for (const ref of coverage.refs) items.push(`ref ${ref}`);
   return items;
 }
+
+export interface ConflictSide { label: string; detail: string; present: boolean; oid: string | null; mode: string | null; size: number; text: string | null }
+export interface ConflictFile {
+  path: RepoPath; operation: Operation | null; base: ConflictSide; ours: ConflictSide; theirs: ConflictSide; result: ConflictSide;
+  textual: boolean; token: string; unmerged: boolean;
+}
+export type ResolveChoice = 'ours' | 'theirs' | 'base' | 'delete' | 'keepWorkTree';
