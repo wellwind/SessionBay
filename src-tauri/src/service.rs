@@ -69,6 +69,7 @@ pub struct Service {
     pub catalog: Catalog,
     pub config: ConfigStore,
     pub runtime: RuntimeManager,
+    pub git: crate::git::GitService,
     pub file_staging: Mutex<Option<crate::file_input::FileStaging>>,
     pub image_staging: Mutex<Option<crate::image_input::ImageStaging>>,
     fresh_launches: Mutex<crate::fresh_launch::FreshLaunches>,
@@ -109,11 +110,13 @@ impl Service {
         let config = ConfigStore::open(directory)?;
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
+        let git = crate::git::GitService::with_data_dir(config.directory.clone());
         let fresh_launch_control = Arc::new(crate::fresh_launch::FreshLaunchControl::default());
         let service = Arc::new(Self {
             catalog,
             config,
             runtime: RuntimeManager::new(),
+            git,
             image_staging: Mutex::new(None),
             file_staging: Mutex::new(None),
             fresh_launches: Mutex::new(crate::fresh_launch::FreshLaunches::new(
@@ -205,6 +208,22 @@ impl Service {
     ) -> Result<Vec<u8>, String> {
         let root = self.catalog.workspace_root(project_id)?;
         crate::workspace_images::read(&root, path, version)
+    }
+    pub fn git_request(
+        &self,
+        project_id: &str,
+        request: crate::git::GitRequest,
+    ) -> Result<serde_json::Value, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        self.git.handle(&root, request)
+    }
+    pub fn git_hosting(
+        &self,
+        project_id: &str,
+        request: crate::git::hosting::HostRequest,
+    ) -> Result<serde_json::Value, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        self.git.handle_hosting(&root, request)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;

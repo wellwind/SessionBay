@@ -1,5 +1,13 @@
 # Session Bay 開發路線圖
 
+## 2026-10-24 單一視窗多工作區（已確認方向，尚未實作）
+
+方向與驗收見[單一視窗多工作區規劃](multi-workspace-plan.md)。排程待定，不插隊既有發行順序。
+
+- [ ] 專案識別色與狀態標示設計規格。
+- [ ] 總覽格狀檢視（主要）。
+- [ ] 跨專案分割分頁（輔助）。
+
 ## 2026-10-18 發行與後續順序（最新）
 
 已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。本節的最新順序優先於下方歷史排程：先恢復雲端開發空間，Quick Open／共用 panel 已於 [#65](https://github.com/wellwind/SessionBay/pull/65) 合併；接著收尾藍點提示與 Monaco palette。使用者最新調整為優先交付 Terminal 檔案路徑連結，再恢復 broker 生命週期後續與 Snap 可安裝測試包。五工具 hook 已整合，真實登入模型回合由使用者自行驗證。此輪不插入 Git 等大型新功能；Git G1–G4、完整 Release／Update、永久刪除、遠端／Web／用量保留後續規劃，Git 的完整八階工作包仍沿用既有文件。
@@ -251,9 +259,9 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 - [ ] 真實回合與等待狀態 E2E；無模型載入與合成 contracts 不取代此證據。
 - [ ] macOS 原生 QA；Windows private staging、能力啟用及 native QA。
 
-## 2026-10-18 Git 工作台（已確認規劃，尚未實作）
+## 2026-10-18 Git 工作台（2026-10-24 功能已實作，待 review／CI／原生驗收）
 
-完整範圍、風險與驗收見 [Git 工作台功能規劃](git-workbench-plan.md)。以下為八個預計實作 PR，全部未完成；不影響上述既有任務狀態。
+完整範圍、風險與驗收見 [Git 工作台功能規劃](git-workbench-plan.md)。以下八個工作包的程式、自動測試與 exact-commit Linux CI 已完成（堆疊 PR [#98](https://github.com/wellwind/SessionBay/pull/98)–[#105](https://github.com/wellwind/SessionBay/pull/105)），勾選代表完整交付，仍待 review、三平台原生驗收與真實 GitHub／自架 GitLab 實測；詳見[實作狀態](git-workbench-plan.md#實作狀態2026-10-24)。
 
 - [ ] G1 Git 基礎與多 repo。
 - [ ] G2 文字 Diff 與同檔部分 hunk／行暫存。

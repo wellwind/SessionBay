@@ -54,6 +54,7 @@ const shortcutNames: Record<string, string> = {
   'project-quick-open': '快速開啟專案分頁、Sessions 與檔案',
   'toggle-project-sessions': '顯示／隱藏專案 Sessions',
   'toggle-project-files': '顯示／隱藏專案 Files',
+  'toggle-project-git': '顯示／隱藏專案 Git',
   'new-terminal': '開啟終端機',
   'new-agent': '開始 Agent 工作',
   'search-sessions': '搜尋 Session',

@@ -281,6 +281,14 @@ export async function runSmokeInteraction(): Promise<void> {
     const { runFilesSmoke } = await import('./files-smoke');
     await runFilesSmoke();
   }
+  if (await call<boolean>('frontend_diagnostic', { phase: 'git-probe', message: 'enabled' })) {
+    if (projectDialog()) {
+      click(projectButton('取消'));
+      await waitFor(() => !projectDialog(), 'project dialog did not dismiss before Git smoke');
+    }
+    const { runGitSmoke } = await import('./git-smoke');
+    await runGitSmoke();
+  }
   if (await call<boolean>('frontend_diagnostic', { phase: 'monaco-probe', message: 'enabled' })) {
     const { runMonacoSmoke } = await import('./monaco-smoke');
     await runMonacoSmoke();

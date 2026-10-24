@@ -65,6 +65,10 @@ fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
     }
     // This probe uses only synthetic editor models and explicitly seeded file
     // fixtures; it never opens real user projects or history.
+    // Synthetic repository seeded by the smoke runner; never a user repository.
+    if phase == "git-probe" {
+        return Ok(std::env::var("SESSIONBAY_SMOKE_GIT").as_deref() == Ok("1"));
+    }
     if phase == "monaco-probe" {
         return Ok(std::env::var("SESSIONBAY_SMOKE_MONACO").as_deref() == Ok("1"));
     }
@@ -221,6 +225,24 @@ async fn read_workspace_image(
     blocking(move || s.read_workspace_image(&project_id, &path, &version))
         .await
         .map(tauri::ipc::Response::new)
+}
+#[tauri::command]
+async fn git_request(
+    state: AppState<'_>,
+    project_id: String,
+    request: crate::git::GitRequest,
+) -> Result<serde_json::Value, String> {
+    let s = state.inner().clone();
+    blocking(move || s.git_request(&project_id, request)).await
+}
+#[tauri::command]
+async fn git_hosting(
+    state: AppState<'_>,
+    project_id: String,
+    request: crate::git::hosting::HostRequest,
+) -> Result<serde_json::Value, String> {
+    let s = state.inner().clone();
+    blocking(move || s.git_hosting(&project_id, request)).await
 }
 #[tauri::command]
 async fn add_project(
@@ -724,6 +746,8 @@ pub fn run() {
             inspect_workspace_file,
             read_workspace_file_chunk,
             read_workspace_image,
+            git_request,
+            git_hosting,
             add_project,
             create_project,
             update_project,
