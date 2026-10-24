@@ -33,7 +33,9 @@ jobs:
       - name: Git frontend tests
         run: npx vitest run src/git
       - name: Git Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib git:: --test git_foundation --test git_staging --test git_remote --test git_history --test git_safety --test git_conflicts --test git_hosts --test git_pulls
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib "git::"
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --test git_foundation --test git_staging --test git_remote --test git_history --test git_safety --test git_conflicts --test git_hosts --test git_pulls
       - name: Build unsigned local bundle
         run: npm run tauri -- build --bundles nsis
       - name: Native Windows Git smoke
