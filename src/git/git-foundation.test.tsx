@@ -73,19 +73,25 @@ describe('Git foundation panel', () => {
   });
 
   it('polls the selected repository and ignores stale responses', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     try {
       vi.mocked(gitApi.discover).mockResolvedValue({ state: 'ready', gitVersion: '2.55.0', truncated: false, cancelled: false, issues: [], repos: [repo('r1', '')] });
       let slow!: (value: RepoStatus) => void;
-      vi.mocked(gitApi.status)
-        .mockResolvedValueOnce(status('r1'))
-        .mockImplementationOnce(() => new Promise(resolve => { slow = resolve; }))
-        .mockResolvedValueOnce(status('r1', { revision: 'r1:3', entries: [{ path: { path: 'new.txt' }, staged: null, unstaged: null, untracked: true, conflict: null, submodule: false, modes: ['000000', '000000', '100644'] }] }));
+      // Call 1 is clean, call 2 stalls, every later poll sees the new file.
+      let calls = 0;
+      vi.mocked(gitApi.status).mockImplementation(() => {
+        calls++;
+        if (calls === 1) return Promise.resolve(status('r1'));
+        if (calls === 2) return new Promise(resolve => { slow = resolve; });
+        return Promise.resolve(status('r1', { revision: 'r1:3', entries: [{ path: { path: 'new.txt' }, staged: null, unstaged: null, untracked: true, conflict: null, submodule: false, modes: ['000000', '000000', '100644'] }] }));
+      });
       render(<Host />);
-      await screen.findByText('工作目錄沒有變更。');
-      await act(async () => { vi.advanceTimersByTime(3100); });
-      await act(async () => { vi.advanceTimersByTime(3100); });
-      expect(await screen.findByRole('button', { name: /new\.txt，未追蹤/ })).toBeInTheDocument();
+      const flush = (ms = 0) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+      await flush();
+      expect(screen.getByText('工作目錄沒有變更。')).toBeInTheDocument();
+      await flush(3100);
+      await flush(3100);
+      expect(screen.getByRole('button', { name: /new\.txt，未追蹤/ })).toBeInTheDocument();
       await act(async () => { slow(status('r1', { revision: 'r1:2' })); });
       expect(screen.getByRole('button', { name: /new\.txt，未追蹤/ })).toBeInTheDocument();
     } finally { vi.useRealTimers(); }
