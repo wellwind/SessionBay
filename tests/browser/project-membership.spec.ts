@@ -35,7 +35,9 @@ for (const width of [800, 1200]) for (const theme of ['dark', 'light']) {
     await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
     await expect(star).toBeHidden();
     await page.keyboard.press('ControlOrMeta+Shift+B');
-    // Revealed Zen controls may collapse into the same menu, depending on the measured width.
+    // Revealed Zen controls may collapse into the same menu, depending on the measured
+    // width; wait for the layout to settle (star or menu) before deciding.
+    await expect(star.or(projectMenu)).toBeVisible();
     if (await projectMenu.isVisible() && await projectMenu.getAttribute('aria-expanded') !== 'true') await projectMenu.click();
     await expect(star).toBeVisible();
   });
