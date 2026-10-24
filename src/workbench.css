@@ -12,6 +12,9 @@
   --shadow: 0 20px 70px #0006; --mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
   --radius: 8px; --motion: 140ms;
+  /* Stable project identity; always paired with the name initials (docs/ui-design-system.md). */
+  --project-0: #7fb2e6; --project-1: #e6b37f; --project-2: #c49be8; --project-3: #8fd18f;
+  --project-4: #ef9ac4; --project-5: #6fd0c8; --project-6: #e3d07a; --project-7: #f09a8f; --on-project: #10171c;
 }
 [data-theme='light'] {
   --bg: #f3f6f7; --sidebar: #eaf0f2; --panel: #fff; --surface: #eef3f5;
@@ -20,6 +23,8 @@
   --accent: #0c7058; --accent-strong: #095b48; --accent-bg: #ddefe8; --on-accent: #fff;
   --warning: #815711; --warning-bg: #fff3d6; --danger: #a52f41; --danger-bg: #fbe8eb;
   --shadow: 0 20px 70px #142c3626;
+  --project-0: #2f62a8; --project-1: #a4560f; --project-2: #7442b0; --project-3: #2e7a34;
+  --project-4: #a83a72; --project-5: #1f7570; --project-6: #7a6410; --project-7: #b23a2c; --on-project: #fff;
 }
 button, input, textarea, .select-trigger { transition: background var(--motion), color var(--motion), border-color var(--motion), box-shadow var(--motion); }
 button:active:not(:disabled):not([aria-disabled="true"]) { background: var(--interaction-hover, var(--surface-hover)); }

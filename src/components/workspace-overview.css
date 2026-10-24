@@ -1,0 +1,34 @@
+/* All-workspaces overview grid. Tokens and card rhythm follow .directory-overview. */
+.workspace-overview { height: 100%; overflow: auto; padding: 24px 28px; }
+.workspace-overview[hidden] { display: none; }
+.overview-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px 24px; flex-wrap: wrap; margin-bottom: 20px; }
+.overview-heading h2 { display: flex; align-items: center; gap: 8px; font-size: 17px; margin: 0 0 8px; }
+.overview-heading h2 > svg { color: var(--accent); }
+.overview-summary { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; font-size: 12px; color: var(--muted); }
+.overview-summary-input { color: var(--warning); }
+.overview-summary-error { color: var(--danger); }
+.overview-controls { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.overview-controls label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.overview-controls select { min-height: 32px; padding: 4px 8px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 12px; }
+.overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; padding: 0; margin: 0; list-style: none; }
+.overview-card { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-top: 4px solid var(--card-project); border-radius: 10px; background: var(--surface); }
+.overview-card.attention-input { border-color: var(--warning); border-top-color: var(--card-project); box-shadow: 0 0 0 1px var(--warning); }
+.overview-card.attention-error { border-color: var(--danger); border-top-color: var(--card-project); }
+.overview-card-open { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 6px; width: 100%; min-width: 0; padding: 12px 14px; text-align: left; color: var(--text); background: transparent; border: 0; cursor: pointer; font: inherit; }
+.overview-card-open:hover { background: var(--surface-hover); }
+.overview-card-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.overview-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.project-initials { flex: 0 0 auto; min-width: 22px; padding: 1px 5px; border-radius: 4px; background: var(--card-project, var(--muted)); color: var(--on-project); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.overview-card-project { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.overview-status { flex: 0 0 auto; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: 10px; font-size: 11px; color: var(--muted); background: var(--surface-hover); }
+.overview-status.attention-input { color: var(--warning); background: var(--warning-bg); font-weight: 600; }
+.overview-status.attention-error { color: var(--danger); background: var(--danger-bg); }
+.overview-status.attention-working { color: var(--accent); background: var(--accent-bg); }
+.overview-card-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.overview-card-meta { display: flex; gap: 10px; min-width: 0; font-size: 11px; color: var(--muted); }
+.overview-branch { display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.overview-cwd { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.overview-tail { box-sizing: content-box; height: calc(6 * 1.5em); margin: 4px 0 0; padding: 8px 10px; overflow: hidden; border-radius: 6px; background: var(--bg); color: var(--muted); font: 11px/1.5 var(--mono); white-space: pre; }
+.overview-reply { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin: 0 14px 12px; }
+.overview-empty, .overview-empty-filter { color: var(--muted); }
+@media (max-width: 760px) { .workspace-overview { padding: 18px 16px; } .overview-header { align-items: flex-start; } }

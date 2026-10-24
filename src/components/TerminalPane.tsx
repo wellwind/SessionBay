@@ -3,6 +3,7 @@ import { ResponsiveControls } from './ResponsiveControls';
 import { isAgentHooksEnabled } from '../settings';
 import { fitTerminal } from '../terminal-fit';
 import { useRuntimeActivity } from './RuntimeActivity';
+import { bufferTail, registerTerminalTail } from '../terminal-tail';
 import { PaneRuntimeStatus } from './PaneRuntimeStatus';
 import { agentLifecycleText, isAgentPane } from '../agent-status';
 import './agent-status.css';
@@ -285,6 +286,7 @@ export function TerminalPane({
       text => { element.title = text; },
       () => mounted.current && latest.current.visible && !!latest.current.pane.runtimeId && !hasBlockingDialog()));
     term.current = terminal;
+    const unregisterTail = registerTerminalTail(pane.id, lines => bufferTail(terminal.buffer.active, lines));
     fit.current = fitAddon;
     search.current = searchAddon;
     // OSC 52 must never read or mutate the clipboard from untrusted terminal output.
@@ -335,6 +337,7 @@ export function TerminalPane({
       clipboardBlock.dispose();
       links.dispose();
       cancelFollow();
+      unregisterTail();
       terminal.dispose();
       term.current = null;
     };
