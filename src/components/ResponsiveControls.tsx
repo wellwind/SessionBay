@@ -76,19 +76,28 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
       if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"]')) return;
       if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
     };
+    // WebKit never focuses a clicked ⋯, so Escape may arrive anywhere (even xterm).
+    // While the menu is open, it closes the menu and never reaches the terminal.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.isComposing || event.keyCode === 229) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      event.preventDefault(); event.stopPropagation();
+      setOpen(false);
+      trigger.current?.focus();
+    };
     document.addEventListener('pointerdown', dismiss);
-    return () => document.removeEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', escape, true);
+    };
   }, [compact, open]);
   return <div ref={root} className={`responsive-controls${compact ? ' is-compact' : ''}`}
     onBlur={event => {
       if (event.relatedTarget instanceof Element && event.relatedTarget.closest('[role="dialog"], [role="alertdialog"]')) return;
       if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
     }}
-    onKeyDown={event => {
-      if (compact && open && event.key === 'Escape') {
-        event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus();
-      }
-    }}>
+>
     {compact && <div className="compact-control-heading">
       {summary && <strong className="compact-control-title">{summary}</strong>}
       <button ref={trigger} type="button" className="icon-button" aria-label={label} title={label}

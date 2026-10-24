@@ -7,9 +7,6 @@ import { defineConfig } from '@playwright/test';
 // Known WebKit differences still under triage (docs/ui-design-system.md §5).
 // Each entry is excluded here only; Chromium configs still run them.
 const knownWebKitDifferences = [
-  // Split: first pane's scrollback stays above the bottom; Escape cannot reach
-  // the pane menu because WebKit leaves focus on <main>.
-  'short split panes retain visible prompts',
   // Pointer reorder preview transforms differ under WebKit pointer capture.
   'expanded project child tab is not a project reorder target',
   'pointer cancellation never saves',
@@ -21,10 +18,8 @@ const knownWebKitDifferences = [
   'active overflow tabs and fixed rectangular controls',
   // CSS zoom emulation; the app uses native webview zoom.
   'edge-to-edge:',
-  // Linux WebKit only: long scrollback is left above the bottom after a resize
-  // (same family as the split case above), and CSS zoom geometry differs.
+  // Linux WebKit only: CSS zoom geometry differs.
   ...(process.platform === 'linux' ? [
-    'dark 600x413 keeps', 'light 600x413 keeps', 'dark 450x310 keeps', 'light 450x310 keeps',
     'history density, divider and queued undo toast retain geometry at CSS zoom',
   ] : []),
 ];
@@ -33,7 +28,7 @@ export default defineConfig({
   testDir: './tests/browser',
   testMatch: [
     'terminal-layout.spec.ts', 'tab-geometry.spec.ts', 'viewport-layout.spec.ts',
-    'sidebar.spec.ts', 'workspace-tabs.spec.ts', 'workspace-focus-mode.spec.ts',
+    'sidebar.spec.ts', 'workspace-tabs.spec.ts', 'workspace-focus-mode.spec.ts', 'workspace-overview.spec.ts', 'pane-menu.spec.ts',
   ],
   grepInvert: new RegExp(knownWebKitDifferences.map(title => title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')),
   outputDir: './test-results/webkit', workers: 1, timeout: 30_000,

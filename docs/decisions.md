@@ -997,4 +997,5 @@ WebKit 測試抓到的問題：
 
 - 已修正：WebKit 點擊按鈕時不會讓按鈕取得焦點，焦點會停在最近一個可 focus 的祖先。原本 `ResponsiveControls` 選單項目被點擊後，焦點不會回到選單入口，後續 Dialog 也就無法把焦點還回去。現在改為「焦點元素仍包住被點擊的按鈕」也視為焦點沒有被 action 移走。
 - 只修測試：pane resize 後，WebKit 要一到兩個 frame 才會重新 fit xterm，Chromium 則是同步完成，所以版面量測改為 poll。
-- 待查：split 後第一個 pane 的捲動停在底部之上；pointer 拖曳排序的預覽位移；程式化 focus 時沒有畫出內縮 focus ring；`Control` 組合鍵；CSS `zoom` 模擬。
+- 後續已修正：split／resize 後捲動停在底部之上，原因是 xterm 6 漏掉 viewport 尺寸同步（#111）；選單開啟時，Escape 改在 document capture 階段關閉選單，因為 WebKit 點擊不給焦點，原本會把 Escape 送進 Terminal；CSS zoom 下的選單錨點改成對每個軸向各量測一次再修正。這些項目已從 WebKit 排除清單移除，總覽與 pane 選單的 spec 也加入 WebKit 執行。
+- 仍待查：pointer 拖曳排序的預覽位移；程式化 focus 時沒有畫出內縮 focus ring；`Control` 組合鍵；CSS `zoom` 模擬的 edge-to-edge 幾何。
