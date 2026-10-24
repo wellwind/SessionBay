@@ -110,7 +110,7 @@ impl Service {
         let config = ConfigStore::open(directory)?;
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
-        let git = crate::git::GitService::with_recovery_dir(config.directory.join("git-recovery"));
+        let git = crate::git::GitService::with_data_dir(config.directory.clone());
         let fresh_launch_control = Arc::new(crate::fresh_launch::FreshLaunchControl::default());
         let service = Arc::new(Self {
             catalog,
@@ -216,6 +216,14 @@ impl Service {
     ) -> Result<serde_json::Value, String> {
         let root = self.catalog.workspace_root(project_id)?;
         self.git.handle(&root, request)
+    }
+    pub fn git_hosting(
+        &self,
+        project_id: &str,
+        request: crate::git::hosting::HostRequest,
+    ) -> Result<serde_json::Value, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        self.git.handle_hosting(&root, request)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;

@@ -232,6 +232,15 @@ async fn git_request(
     blocking(move || s.git_request(&project_id, request)).await
 }
 #[tauri::command]
+async fn git_hosting(
+    state: AppState<'_>,
+    project_id: String,
+    request: crate::git::hosting::HostRequest,
+) -> Result<serde_json::Value, String> {
+    let s = state.inner().clone();
+    blocking(move || s.git_hosting(&project_id, request)).await
+}
+#[tauri::command]
 async fn add_project(
     state: AppState<'_>,
     path: String,
@@ -734,6 +743,7 @@ pub fn run() {
             read_workspace_file_chunk,
             read_workspace_image,
             git_request,
+            git_hosting,
             add_project,
             create_project,
             update_project,
