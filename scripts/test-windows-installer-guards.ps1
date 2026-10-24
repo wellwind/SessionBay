@@ -56,6 +56,52 @@ try {
 }
 'PASS: explicit opt-in/host/source guards, path containment and synthetic PE headers.'
 
+# Reproduce CI: PowerShell is in source, but .NET's process cwd is its sibling.
+# Both directories contain the same filename with different PE architectures.
+$cwdRoot = Join-Path ([IO.Path]::GetTempPath()) ('installer-cwd-test-' + [guid]::NewGuid())
+$fixtureSource = Join-Path $cwdRoot 'source'
+$fixtureProcess = Join-Path $cwdRoot 'process'
+$sourceFile = Join-Path $fixtureSource 'payload.exe'
+$decoyFile = Join-Path $fixtureProcess 'payload.exe'
+$savedProcessDirectory = [Environment]::CurrentDirectory
+New-Item -ItemType Directory -Path $fixtureSource, $fixtureProcess | Out-Null
+try {
+    $bytes[0x40] = 0x50; $bytes[0x44] = 0x64; $bytes[0x45] = 0x86
+    [IO.File]::WriteAllBytes($sourceFile, $bytes)
+    $bytes[0x45] = 0xaa
+    [IO.File]::WriteAllBytes($decoyFile, $bytes)
+    Push-Location $fixtureSource
+    try {
+        [Environment]::CurrentDirectory = $fixtureProcess
+        if ((Get-Location).Path -eq [Environment]::CurrentDirectory) { throw 'Cwd regression fixture is not divergent.' }
+        $resolved = Resolve-SessionBayContainedFile $fixtureSource 'payload.exe'
+        if ($resolved -ne $sourceFile -or (Get-SessionBayPeMachine $resolved) -ne 0x8664) {
+            throw 'Payload resolved using process cwd instead of the explicit source root.'
+        }
+        if ((Resolve-SessionBayContainedFile $fixtureSource $sourceFile) -ne $sourceFile) { throw 'Absolute source path changed.' }
+        Assert-Rejected { Get-SessionBayPeMachine 'payload.exe' } 'unresolved relative PE path'
+        Assert-Rejected { Resolve-SessionBayContainedFile $fixtureSource $decoyFile } 'absolute file outside source'
+        Assert-Rejected { Resolve-SessionBayContainedFile $fixtureSource '../process/payload.exe' } 'relative escape outside source'
+        Assert-Rejected { Resolve-SessionBayContainedFile 'source' 'payload.exe' } 'relative source root'
+        Assert-Rejected { Assert-SessionBayChildPath $fixtureSource 'payload.exe' } 'relative containment input'
+    } finally {
+        [Environment]::CurrentDirectory = $savedProcessDirectory
+        Pop-Location
+    }
+} finally {
+    [Environment]::CurrentDirectory = $savedProcessDirectory
+    foreach ($file in @($sourceFile, $decoyFile)) {
+        $null = Assert-SessionBayChildPath $cwdRoot $file
+        if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file }
+    }
+    foreach ($directory in @($fixtureSource, $fixtureProcess)) {
+        $null = Assert-SessionBayChildPath $cwdRoot $directory
+        [IO.Directory]::Delete($directory, $false)
+    }
+    [IO.Directory]::Delete($cwdRoot, $false)
+}
+'PASS: divergent PowerShell/process cwd reads source PE; relative and outside-source paths refused.'
+
 # Reproduce NSIS ordering: directory disappears, then registration, then shortcuts.
 # Delayed polling must not return at the first absent-directory observation.
 $sequence = @(
