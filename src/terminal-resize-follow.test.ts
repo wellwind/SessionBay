@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Terminal } from '@xterm/xterm';
-import { followTerminalResize } from './terminal-resize-follow';
+import { FOLLOW_MAX_FRAMES, followTerminalResize } from './terminal-resize-follow';
 
 function renderer(viewportY = 71) {
   let render = () => {};
@@ -11,13 +11,14 @@ function renderer(viewportY = 71) {
   const terminal = { buffer: { ...buffer, onBufferChange: (callback: () => void) => { change = callback; return {dispose() {}}; } },
     onScroll: (callback: () => void) => { scroll = callback; return {dispose() { scroll = () => {}; }}; },
     onSelectionChange: (callback: () => void) => { selection = callback; return {dispose() {}}; },
-    hasSelection: () => true, scrollToBottom, onRender: vi.fn(callback => { render = callback; return { dispose }; }) };
+    hasSelection: () => true, scrollToBottom, scrollLines: vi.fn(), onRender: vi.fn(callback => { render = callback; return { dispose }; }) };
   return { terminal: terminal as unknown as Terminal, buffer, scrollToBottom, dispose, render: () => render(), scroll: () => scroll(), selection: () => selection(), change: () => change() };
 }
 describe('prompt following after terminal resize', () => {
   it('waits for the render turn to finish synchronizing the scrollbar', async () => {
     const t = renderer();
-    const follow = followTerminalResize(t.terminal)!;
+    const frames: (() => void)[] = [];
+    const follow = followTerminalResize(t.terminal, callback => frames.push(callback))!;
     t.buffer.active.baseY = 74;
     t.buffer.active.viewportY = 74;
     t.render();
@@ -26,8 +27,66 @@ describe('prompt following after terminal resize', () => {
     await Promise.resolve();
     expect(t.scrollToBottom).toHaveBeenCalledOnce();
     expect(t.buffer.active.viewportY).toBe(74);
+    // Settling frames keep the prompt pinned, then release.
+    while (frames.length) frames.shift()!();
     expect(follow.active).toBe(false);
     expect(t.dispose).toHaveBeenCalled();
+  });
+  it('re-pins when a deferred scrollbar sync restores the old viewport a frame later', async () => {
+    const t = renderer();
+    const frames: (() => void)[] = [];
+    const follow = followTerminalResize(t.terminal, callback => frames.push(callback))!;
+    t.buffer.active.baseY = 72;
+    t.render();
+    await Promise.resolve();
+    expect(t.buffer.active.viewportY).toBe(72);
+    t.buffer.active.viewportY = 71; // late sync under load
+    frames.shift()!();
+    expect(t.scrollToBottom).toHaveBeenCalledTimes(2);
+    expect(t.buffer.active.viewportY).toBe(72);
+    expect(follow.active).toBe(true);
+    while (frames.length) frames.shift()!();
+    expect(follow.active).toBe(false);
+    expect(frames).toHaveLength(0);
+  });
+  it('gives up after a bounded number of frames if the renderer keeps restoring an old viewport', async () => {
+    const t = renderer();
+    const frames: (() => void)[] = [];
+    const follow = followTerminalResize(t.terminal, callback => frames.push(callback))!;
+    t.buffer.active.baseY = 72;
+    t.render();
+    await Promise.resolve();
+    let ran = 0;
+    while (frames.length) { t.buffer.active.viewportY = 60; frames.shift()!(); ran += 1; }
+    expect(ran).toBe(FOLLOW_MAX_FRAMES);
+    expect(follow.active).toBe(false);
+  });
+  it('forces xterm to resync stale viewport dimensions when scrollToBottom is clamped', async () => {
+    const t = renderer();
+    let synced = false;
+    // Stale viewport height clamps the scroll one screen short until a scroll resyncs it.
+    t.scrollToBottom.mockImplementation(() => { t.buffer.active.viewportY = synced ? t.buffer.active.baseY : 71; });
+    const scrollLines = t.terminal.scrollLines as unknown as ReturnType<typeof vi.fn>;
+    scrollLines.mockImplementation(() => { synced = true; t.buffer.active.viewportY -= 1; });
+    followTerminalResize(t.terminal, () => undefined);
+    t.buffer.active.baseY = 82;
+    t.render();
+    await Promise.resolve();
+    expect(scrollLines).toHaveBeenCalledWith(-1);
+    expect(t.buffer.active.viewportY).toBe(82);
+  });
+  it('stops settling as soon as user intent disposes the follow', async () => {
+    const t = renderer();
+    const frames: (() => void)[] = [];
+    const follow = followTerminalResize(t.terminal, callback => frames.push(callback))!;
+    t.buffer.active.baseY = 72;
+    t.render();
+    await Promise.resolve();
+    follow.dispose(); // wheel, Shift+PageUp, scrollbar or selection
+    t.buffer.active.viewportY = 40;
+    frames.shift()!();
+    expect(t.buffer.active.viewportY).toBe(40);
+    expect(frames).toHaveLength(0);
   });
   it('does not move a user reading scrollback', () => {
     const t = renderer(40);
