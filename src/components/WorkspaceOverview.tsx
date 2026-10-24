@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
-import { GitBranch, LayoutGrid, MessageCircle } from 'lucide-react';
+import { Columns3, GitBranch, LayoutGrid, MessageCircle } from 'lucide-react';
 import { agentNames } from '../agents';
 import { projectColor, projectColorSlots, projectInitials } from '../project-identity';
 import { readTerminalTail } from '../terminal-tail';
 import type { AgentKind, Pane, Project, Workspace } from '../types';
+import { MAX_SPLIT_PANES } from '../workspace';
 import { usePaneBranches } from '../use-pane-branches';
 import {
   defaultOverviewFilter, filterOverview, overviewItems, sortOverview,
@@ -16,11 +17,13 @@ const TAIL_REFRESH_MS = 1000;
 const noopSubscribe = () => () => {};
 
 /** Monitor every open terminal at once. Cards are text previews; only an opened pane is interactive. */
-export function WorkspaceOverview({ workspace, projects, visible, onOpen }: {
+export function WorkspaceOverview({ workspace, projects, visible, onOpen, onSplit }: {
   workspace: Workspace;
   projects: Project[];
   visible: boolean;
   onOpen: (paneId: string) => void;
+  /** Open 2–3 selected panes side by side; panes keep their own project and runtime. */
+  onSplit?: (paneIds: string[]) => void;
 }) {
   const store = useRuntimeActivity();
   const panes = Object.values(workspace.panes);
@@ -44,6 +47,10 @@ export function WorkspaceOverview({ workspace, projects, visible, onOpen }: {
     return () => clearInterval(timer);
   }, [visible]);
   const grid = useRef<HTMLUListElement>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const chosen = selected.filter((id) => workspace.panes[id]);
+  const toggleSelected = (id: string) => setSelected((previous) => previous.includes(id)
+    ? previous.filter((item) => item !== id) : previous.length >= MAX_SPLIT_PANES ? previous : [...previous, id]);
   const projectOptions = useMemo(() => [...new Map(items.map(item => [item.projectId, item.projectName])).entries()], [items]);
   const kindOptions = useMemo(() => [...new Set(items.map(item => item.kind))], [items]);
   const counts = {
@@ -75,6 +82,14 @@ export function WorkspaceOverview({ workspace, projects, visible, onOpen }: {
         </p>
       </div>
       <div className="overview-controls">
+        {onSplit && <div className="overview-split" role="group" aria-label="並排開啟">
+          <span className="overview-split-hint" aria-live="polite">{chosen.length
+            ? `已選 ${chosen.length}／${MAX_SPLIT_PANES}`
+            : `勾選 2–${MAX_SPLIT_PANES} 個並排；更多請留在總覽`}</span>
+          <button type="button" className="primary" disabled={chosen.length < 2}
+            onClick={() => { onSplit(chosen); setSelected([]); }}><Columns3 size={14} aria-hidden="true" />並排開啟</button>
+          {chosen.length > 0 && <button type="button" className="secondary" onClick={() => setSelected([])}>清除</button>}
+        </div>}
         <label>狀態
           <select aria-label="狀態篩選" value={filter.attention} onChange={event => setFilter({ ...filter, attention: event.target.value as OverviewFilter['attention'] })}>
             <option value="all">全部</option>
@@ -110,13 +125,16 @@ export function WorkspaceOverview({ workspace, projects, visible, onOpen }: {
     </div> : shown.length === 0 ? <p className="overview-empty-filter">沒有符合篩選條件的工作。</p> :
     <ul className="overview-grid" ref={grid} aria-label="開啟中的工作">
       {shown.map(item => <OverviewCard key={item.paneId} item={item} branch={branches[item.paneId]} color={projectColor(item.projectId, colorSlots)}
+        selection={onSplit ? { checked: chosen.includes(item.paneId), disabled: !chosen.includes(item.paneId) && chosen.length >= MAX_SPLIT_PANES,
+          onChange: () => toggleSelected(item.paneId) } : undefined}
         tail={visible && tick >= 0 ? readTerminalTail(item.paneId) : []} onOpen={() => onOpen(item.paneId)} onKeyDown={move} />)}
     </ul>}
   </section>;
 }
 
-function OverviewCard({ item, branch, color, tail, onOpen, onKeyDown }: {
+function OverviewCard({ item, branch, color, tail, selection, onOpen, onKeyDown }: {
   item: OverviewItem; branch?: string; color: string; tail: string[];
+  selection?: { checked: boolean; disabled: boolean; onChange: () => void };
   onOpen: () => void; onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
 }) {
   const name = `${item.projectName} · ${item.kindLabel} ${item.title}`;
@@ -135,6 +153,9 @@ function OverviewCard({ item, branch, color, tail, onOpen, onKeyDown }: {
       </span>
       <pre className="overview-tail" aria-hidden="true">{tail.length ? tail.join('\n') : '（尚無輸出）'}</pre>
     </button>
+    {selection && <label className="overview-select">
+      <input type="checkbox" checked={selection.checked} disabled={selection.disabled} onChange={selection.onChange}
+        aria-label={`並排選取 ${name}`} />並排</label>}
     {item.attention === 'input' &&
       <button type="button" className="primary overview-reply" onClick={onOpen} aria-label={`放大並回覆 ${name}`}>
         <MessageCircle size={14} aria-hidden="true" />放大並回覆</button>}

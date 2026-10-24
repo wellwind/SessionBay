@@ -121,6 +121,10 @@ export function layoutRects(
 export function closePane(workspace: Workspace, id: string): Workspace {
   const panes = { ...workspace.panes };
   delete panes[id];
+  return { ...detachPane(workspace, id), panes };
+}
+/** Remove a pane from every layout but keep its runtime record, so it can be placed elsewhere. */
+function detachPane(workspace: Workspace, id: string): Workspace {
   const tabs: WorkspaceTab[] = [];
   for (const tab of workspace.tabs) {
     const layout = removeNode(tab.layout, id);
@@ -141,7 +145,51 @@ export function closePane(workspace: Workspace, id: string): Workspace {
   const temporaryTabs = tabs.filter((tab) => tab.projectId === null);
   const activeTemporaryTabId = temporaryTabs.some((tab) => tab.id === workspace.activeTemporaryTabId)
     ? workspace.activeTemporaryTabId : temporaryTabs[0]?.id;
-  return { ...workspace, panes, tabs, activeTabByProject, activeTemporaryTabId };
+  return { ...workspace, tabs, activeTabByProject, activeTemporaryTabId };
+}
+
+export const MAX_SPLIT_PANES = 3;
+/** Distinct projects shown in a tab, in layout order. */
+export function tabProjectIds(tab: WorkspaceTab, panes: Workspace['panes']): (string | null)[] {
+  return [...new Set(paneIds(tab.layout).flatMap((id) => panes[id] ? [panes[id].projectId] : []))];
+}
+function evenRow(ids: string[]): LayoutNode {
+  const [first, ...rest] = ids;
+  return rest.length === 0 ? { kind: 'pane', paneId: first } : {
+    kind: 'split', id: uid(), axis: 'horizontal', ratio: 1 / ids.length,
+    first: { kind: 'pane', paneId: first }, second: evenRow(rest),
+  };
+}
+/**
+ * Move 2–3 existing panes side by side into a new tab owned by the first pane's
+ * project. Runtimes are untouched: panes only change layout position.
+ */
+export function createSplitTab(workspace: Workspace, ids: string[], name: string): Workspace {
+  const unique = [...new Set(ids)];
+  if (unique.length < 2 || unique.length > MAX_SPLIT_PANES || unique.some((id) => !workspace.panes[id])) return workspace;
+  const detached = unique.reduce(detachPane, workspace);
+  const projectIds = new Set(unique.map((id) => workspace.panes[id].projectId));
+  const tab: WorkspaceTab = {
+    id: uid(), projectId: workspace.panes[unique[0]].projectId, name, layout: evenRow(unique), focusedPaneId: unique[0],
+    ...(projectIds.size > 1 ? { mixed: true } : {}),
+  };
+  return selectWorkspaceTab({ ...detached, tabs: [...detached.tabs, tab] }, tab);
+}
+/** Return a pane from a mixed tab to its own project as a new tab; the mixed tab keeps its place. */
+export function movePaneHome(workspace: Workspace, id: string): Workspace {
+  const pane = workspace.panes[id];
+  const source = workspace.tabs.find((tab) => tab.mixed && paneIds(tab.layout).includes(id));
+  if (!pane || !source) return workspace;
+  const detached = detachPane(workspace, id);
+  const home: WorkspaceTab = { id: uid(), projectId: pane.projectId, name: pane.title, layout: { kind: 'pane', paneId: id }, focusedPaneId: id };
+  const tabs = detached.tabs.map((tab) => tab.id === source.id && tab.mixed &&
+    tabProjectIds(tab, workspace.panes).every((projectId) => projectId === tab.projectId)
+    ? { id: tab.id, projectId: tab.projectId, name: tab.name, layout: tab.layout, focusedPaneId: tab.focusedPaneId } : tab);
+  const placed = { ...detached, tabs: [...tabs, home] };
+  // Keep the owner's current tab; only adopt the new tab where its project has none.
+  return home.projectId === null
+    ? (placed.activeTemporaryTabId ? placed : { ...placed, activeTemporaryTabId: home.id })
+    : placed.activeTabByProject[home.projectId] ? placed : selectWorkspaceTab(placed, home);
 }
 /** Apply runtime metadata before asynchronous broker cleanup. */
 export function patchWorkspacePane(workspace: Workspace, id: string, patch: Partial<Pane>): Workspace {
@@ -277,11 +325,12 @@ export function restoreWorkspace(value: unknown): Workspace {
         state: 'placeholder',
       };
     }
-  function parseNode(raw: unknown, projectId: string | null, depth = 0): LayoutNode | null {
+  // `undefined` accepts panes of any project (mixed tabs only).
+  function parseNode(raw: unknown, projectId: string | null | undefined, depth = 0): LayoutNode | null {
     if (!raw || typeof raw !== 'object' || depth > 12) return null;
     const n = raw as LayoutNode;
     if (n.kind === 'pane') {
-      if (!panes[n.paneId] || panes[n.paneId].projectId !== projectId || used.has(n.paneId))
+      if (!panes[n.paneId] || (projectId !== undefined && panes[n.paneId].projectId !== projectId) || used.has(n.paneId))
         return null;
       used.add(n.paneId);
       return { kind: 'pane', paneId: n.paneId };
@@ -316,7 +365,8 @@ export function restoreWorkspace(value: unknown): Workspace {
       (t.projectId === null || safeString(t.projectId, 256)) &&
       safeString(t.name, 512)
     ) {
-      const layout = parseNode(t.layout, t.projectId);
+      const mixed = t.mixed === true;
+      const layout = parseNode(t.layout, mixed ? undefined : t.projectId);
       if (layout) {
         tabIds.add(t.id);
         const ids = paneIds(layout);
@@ -326,6 +376,7 @@ export function restoreWorkspace(value: unknown): Workspace {
           name: t.name,
           layout,
           focusedPaneId: ids.includes(t.focusedPaneId) ? t.focusedPaneId : ids[0],
+          ...(mixed ? { mixed: true } : {}),
         });
       }
     }

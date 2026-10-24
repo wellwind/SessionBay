@@ -79,6 +79,9 @@ import {
   setRatio,
   splitNode,
   uid,
+  createSplitTab,
+  movePaneHome,
+  tabProjectIds,
 } from './workspace';
 import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex } from './commands';
 import type { Command } from './commands';
@@ -108,6 +111,7 @@ import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 import { WorkspaceOverview } from './components/WorkspaceOverview';
+import { projectColor, projectColorSlots, projectInitials } from './project-identity';
 import { WorkspaceFiles } from './components/WorkspaceFiles';
 import './project-files-workspace.css';
 import { markWelcomeSeen, shouldShowWelcome } from './welcome';
@@ -339,20 +343,33 @@ export default function App() {
   const current = visibleProjects.find((p) => p.id === selectedId);
   // Selecting any project or the temporary workspace (including zooming into a card) leaves the grid.
   useEffect(() => { if (selectedId !== undefined) setWorkspaceOverview(false); }, [selectedId]);
+  const activeTabId = activeWorkspaceTabId(workspace, selectedId);
+  const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
+  // Side tools follow the focused pane in a mixed tab; the page (tabs, title) stays with `current`.
+  const focusedMixedPane = view === 'workspace' && !workspaceOverview && activeTab?.mixed
+    ? workspace.panes[activeTab.focusedPaneId] : undefined;
+  const toolProject = focusedMixedPane
+    ? visibleProjects.find((p) => p.id === focusedMixedPane.projectId)
+    : current;
+  const projectSlots = useMemo(() => projectColorSlots(visibleProjects.map((p) => p.id)), [visibleProjects]);
+  const projectBadge = useCallback((projectId: string | null) => {
+    const name = projectId === null ? '臨時 Terminal' : visibleProjects.find((p) => p.id === projectId)?.name ?? '僅工作區專案';
+    return { initials: projectInitials(name), name, color: projectColor(projectId, projectSlots) };
+  }, [visibleProjects, projectSlots]);
   const manuallyClosedActivities = useRef(new Set<string>());
   const hadProjectTabs = useRef<Record<string, boolean>>({});
   const activityMode = focusMode ? 'zen' : 'normal';
-  if (current && !(current.id in initialProjectActivities.current)) initialProjectActivities.current[current.id] =
-    workspace.tabs.some(tab => tab.projectId === current.id) ? null : 'sessions';
-  const defaultActivity = current ? initialProjectActivities.current[current.id] : null;
-  const activeActivity = current ? projectActivities[current.id]?.[activityMode] ??
-    (projectActivities[current.id] ? null : focusMode ? null : defaultActivity) : null;
+  if (toolProject && !(toolProject.id in initialProjectActivities.current)) initialProjectActivities.current[toolProject.id] =
+    workspace.tabs.some(tab => tab.projectId === toolProject.id) ? null : 'sessions';
+  const defaultActivity = toolProject ? initialProjectActivities.current[toolProject.id] : null;
+  const activeActivity = toolProject ? projectActivities[toolProject.id]?.[activityMode] ??
+    (projectActivities[toolProject.id] ? null : focusMode ? null : defaultActivity) : null;
   const setActiveActivity = (id: string | null) => {
-    if (!current) return;
-    if (id === null) manuallyClosedActivities.current.add(current.id);
-    else manuallyClosedActivities.current.delete(current.id);
-    setProjectActivities(previous => ({ ...previous, [current.id]: {
-      ...(previous[current.id] ?? { normal: defaultActivity, zen: null }), [activityMode]: id,
+    if (!toolProject) return;
+    if (id === null) manuallyClosedActivities.current.add(toolProject.id);
+    else manuallyClosedActivities.current.delete(toolProject.id);
+    setProjectActivities(previous => ({ ...previous, [toolProject.id]: {
+      ...(previous[toolProject.id] ?? { normal: defaultActivity, zen: null }), [activityMode]: id,
     } }));
   };
   const currentProjectId = current?.id;
@@ -368,9 +385,9 @@ export default function App() {
   }, [currentProjectId, hasProjectTabs]);
   useEffect(() => { setQuickOpen(false); }, [currentProjectId]);
   if (current) projectViews.current[current.id] = view;
-  const historyVisible = !!current || allSessionsSearch;
+  const historyVisible = !!toolProject || allSessionsSearch;
   const historyEnabled = historyVisible;
-  if (historyEnabled) lastHistoryProject.current = current?.id ?? null;
+  if (historyEnabled) lastHistoryProject.current = toolProject?.id ?? null;
   const launchProjectId = current && !current.workspaceOnly ? current.id : undefined;
   useEffect(() => {
     setLaunchPreview(null);
@@ -389,14 +406,14 @@ export default function App() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [launcher, launchProjectId, settings]);
   useEffect(() => {
-    if (current && !current.workspaceOnly) setVisitedFileProjects((ids) => ids.includes(current.id) ? ids : [...ids, current.id]);
-  }, [current]);
-  const filesAvailable = !!current && !current.workspaceOnly;
+    if (toolProject && !toolProject.workspaceOnly) setVisitedFileProjects((ids) => ids.includes(toolProject.id) ? ids : [...ids, toolProject.id]);
+  }, [toolProject]);
+  const filesAvailable = !!toolProject && !toolProject.workspaceOnly;
   const filesVisible = filesAvailable && activeActivity === 'files';
   const gitVisible = filesAvailable && activeActivity === 'git';
   useEffect(() => {
-    if (gitVisible && current) setVisitedGitProjects((ids) => ids.includes(current.id) ? ids : [...ids, current.id]);
-  }, [gitVisible, current]);
+    if (gitVisible && toolProject) setVisitedGitProjects((ids) => ids.includes(toolProject.id) ? ids : [...ids, toolProject.id]);
+  }, [gitVisible, toolProject]);
   const hideGitSidebar = () => {
     setActiveActivity(null);
     gitToggle.current?.focus({ preventScroll: true });
@@ -406,8 +423,6 @@ export default function App() {
     setActiveActivity(null);
     filesToggle.current?.focus({ preventScroll: true });
   };
-  const activeTabId = activeWorkspaceTabId(workspace, selectedId);
-  const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   const focusPane = activeTab ? workspace.panes[activeTab.focusedPaneId] : undefined;
   const focusAvailable = !!current || temporaryWorkspace;
   const compactWorkspace = focusMode && focusAvailable && !focusControlsOpen;
@@ -1718,6 +1733,7 @@ export default function App() {
               )}
               {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar"><div className="workspace-tabs">
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
+                  mixedBadges={(tab) => tabProjectIds(tab, workspace.panes).map(projectBadge)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
                   onSelect={(tab) => {
                     setWorkspace((w) => selectWorkspaceTab(w, tab));
@@ -1739,6 +1755,14 @@ export default function App() {
                   </button>
                 )}
                 </div>
+                {focusedMixedPane && (() => {
+                  const badge = projectBadge(focusedMixedPane.projectId);
+                  // Re-keyed per project so the chip flashes and is announced whenever tools switch.
+                  return <span key={badge.name} className="tool-context" role="status" aria-live="polite"
+                    title={`Sessions／Files／Git 目前跟隨「${badge.name}」`}>
+                    工具：<span className="project-initials" style={{ ['--pane-project' as string]: badge.color }}>{badge.initials}</span>{badge.name}
+                  </span>;
+                })()}
                 {focusAvailable && <FocusModeButton buttonRef={focusToggle} active={focusMode} onClick={toggleFocusMode} />}
               </div>}
               <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
@@ -1751,15 +1775,27 @@ export default function App() {
                   <button className="primary" onClick={() => openTemporaryTerminal()}>開啟新的臨時 Terminal</button>
                 </div>}
                 {workspaceOverview && <WorkspaceOverview workspace={workspace} projects={visibleProjects} visible
-                  onOpen={(paneId) => { beforeOverview.current = null; setOverviewReturn(true); focus(paneId); }} />}
+                  onOpen={(paneId) => { beforeOverview.current = null; setOverviewReturn(true); focus(paneId); }}
+                  onSplit={(ids) => {
+                    const owner = workspace.panes[ids[0]]?.projectId;
+                    if (owner === undefined) return;
+                    const name = [...new Set(ids.map((id) => projectBadge(workspace.panes[id].projectId).name))].join(' + ');
+                    beforeOverview.current = null;
+                    setOverviewReturn(true);
+                    setWorkspace((w) => createSplitTab(w, ids, name));
+                    setSelectedId(owner);
+                    setAllSessionsSearch(false);
+                    setView('workspace');
+                    setMaximizedId(null);
+                  }} />}
                 <div
                   className="history-mount"
                   style={{ display: view === 'history' && !workspaceOverview ? undefined : 'none' }}
                 >
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
                     openRequest={historyOpenRequest}
-                    sidebarHost={current ? historySidebarHost : undefined}
-                    scopeLabel={current?.name ?? '所有 Sessions'}
+                    sidebarHost={toolProject ? historySidebarHost : undefined}
+                    scopeLabel={toolProject?.name ?? '所有 Sessions'}
                     onSelectSession={() => { if (!current) setAllSessionsSearch(true); setView('history'); }}
                     projectId={lastHistoryProject.current ?? undefined}
                     disabled={!historyEnabled}
@@ -1779,6 +1815,8 @@ export default function App() {
                 {settings && (
                   <WorkspaceCanvas
                     workspace={workspace}
+                    projects={visibleProjects}
+                    onMoveHome={(id) => setWorkspace((w) => movePaneHome(w, id))}
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
                     settings={visibleSettings ?? settings}
@@ -1838,8 +1876,8 @@ export default function App() {
                 </div>
                 {visitedFileProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <WorkspaceFiles key={id}
                   onTabsChange={onFileTabsChange} openRequest={fileOpenRequest?.projectId === id ? fileOpenRequest : undefined}
-                  sidebarSide="right" projectId={id} visible={current?.id === id} active={view === 'files' && current?.id === id}
-                  sidebarVisible={current?.id === id && filesVisible} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
+                  sidebarSide="right" projectId={id} visible={toolProject?.id === id} active={view === 'files' && toolProject?.id === id}
+                  sidebarVisible={toolProject?.id === id && filesVisible} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
                   onActivate={() => setView('files')} onEmpty={() => {
                     setView(activeTab ? 'workspace' : 'history');
                     const owner = document.activeElement;
@@ -1856,10 +1894,11 @@ export default function App() {
                   }} onHideSidebar={hideFilesSidebar} />)}
                 {visitedGitProjects.filter((id) => projects.some((project) => project.id === id)).length > 0 && <Suspense fallback={null}>
                   {visitedGitProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <GitWorkbench key={id}
-                    projectId={id} visible={current?.id === id} active={view === 'git' && current?.id === id}
-                    sidebarVisible={current?.id === id && gitVisible} sidebarHost={gitSidebarHost} tabsHost={gitTabsHost}
+                    projectId={id} visible={toolProject?.id === id} active={view === 'git' && toolProject?.id === id}
+                    sidebarVisible={toolProject?.id === id && gitVisible} sidebarHost={gitSidebarHost} tabsHost={gitTabsHost}
                     documentHost={gitDocumentHost} onActivate={() => setView('git')} onDocumentsChange={onGitDocumentsChange}
                     openFiles={filePaths[id]}
+                    projectName={projects.find((project) => project.id === id)?.name}
                     onEmpty={() => setView(activeTab ? 'workspace' : 'history')} onHideSidebar={hideGitSidebar} />)}
                 </Suspense>}
               </div>
@@ -1867,7 +1906,7 @@ export default function App() {
           )}
         </main>
         <div className="project-activity-tools" hidden={!current}>
-          <ActivityShell scopeKey={current?.id} contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
+          <ActivityShell scopeKey={toolProject?.id} contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
         </div>
       </div>
       <footer className={`statusbar${index.running || index.errors.length || index.cancelled || zoomError || themeSaving ? ' statusbar-important' : ''}`}>

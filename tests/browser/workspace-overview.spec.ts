@@ -49,3 +49,41 @@ test('overview stays within short, narrow windows', async ({ page }, info) => {
   expect(await overview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('overview-narrow.png') });
 });
+
+test('mixed tab shows each pane project, moves tools with focus and returns panes home', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/tests/browser/workspace-focus-mode.html?overview');
+  await page.getByRole('button', { name: /^全部工作區/ }).click();
+  await page.evaluate(() => Object.assign(window, { overviewTerminals: [...document.querySelectorAll('.xterm')] }));
+  await page.getByRole('checkbox', { name: /^並排選取 Synthetic focus · Shell Focus shell/ }).check();
+  await page.getByRole('checkbox', { name: /^並排選取 Synthetic other/ }).check();
+  await page.getByRole('button', { name: '並排開啟' }).click();
+
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Synthetic focus');
+  await expect(page.getByRole('img', { name: '混合：Synthetic focus、Synthetic other' })).toBeVisible();
+  const focusPane = page.getByRole('region', { name: 'Synthetic focus · Focus shell 終端面板' });
+  const otherPane = page.getByRole('region', { name: 'Synthetic other · Other shell 終端面板' });
+  await expect(focusPane).toBeVisible();
+  await expect(otherPane).toBeVisible();
+  await expect(focusPane.locator('.pane-identity')).toContainText('Synthetic focus');
+  await expect(otherPane.locator('.pane-identity')).toContainText('Synthetic other');
+  const tools = page.locator('.tool-context');
+  await expect(tools).toContainText('Synthetic focus');
+  await page.screenshot({ path: info.outputPath('mixed-tab.png') });
+
+  await otherPane.locator('.xterm-screen').click();
+  await expect(tools).toContainText('Synthetic other');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Synthetic focus');
+
+  // Narrow panes collapse their actions into the pane menu.
+  const paneMenu = otherPane.getByRole('button', { name: '面板選項 Other shell', exact: true });
+  if (await paneMenu.isVisible()) await paneMenu.click();
+  await otherPane.getByRole('button', { name: /^移回 Synthetic other/ }).click();
+  await expect(otherPane).toBeHidden();
+  await expect(page.getByRole('img', { name: /^混合：/ })).toHaveCount(0);
+  await expect(tools).toHaveCount(0);
+  expect(await page.evaluate(() => {
+    const before = (window as unknown as { overviewTerminals: Element[] }).overviewTerminals;
+    return before.every((node) => node.isConnected) && document.querySelectorAll('.xterm').length === before.length;
+  })).toBe(true);
+});

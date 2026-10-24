@@ -1,7 +1,9 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import type { CSSProperties, PointerEvent } from 'react';
-import type { Pane, RuntimeInfo, Settings, Workspace } from '../types';
-import { layoutRects } from '../workspace';
+import type { Pane, Project, RuntimeInfo, Settings, Workspace } from '../types';
+import { layoutRects, paneIds } from '../workspace';
+import { projectColor, projectColorSlots, projectInitials } from '../project-identity';
+import { usePaneBranches } from '../use-pane-branches';
 import type { Divider } from '../workspace';
 import type { TerminalFileOpen } from '../terminal-file-links';
 import { TerminalPane } from './TerminalPane';
@@ -21,6 +23,8 @@ export function WorkspaceCanvas({
   onRatio,
   onAlreadyOpen,
   onOpenFileLink,
+  projects = [],
+  onMoveHome,
 }: {
   workspace: Workspace;
   knownProjectIds: string[];
@@ -37,9 +41,21 @@ export function WorkspaceCanvas({
   onRatio: (id: string, ratio: number) => void;
   onAlreadyOpen: (paneId: string, info: RuntimeInfo) => void;
   onOpenFileLink?: (paneId: string, request: TerminalFileOpen) => void;
+  projects?: Project[];
+  onMoveHome?: (id: string) => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const tab = workspace.tabs.find((t) => t.id === activeTabId);
+  // Mixed tabs label every pane with its own project; branches are read only while shown.
+  const mixedPanes = useMemo(() => tab?.mixed ? paneIds(tab.layout).flatMap((id) => workspace.panes[id] ? [workspace.panes[id]] : []) : [],
+    [tab, workspace.panes]);
+  const branches = usePaneBranches(mixedPanes.map((pane) => ({ paneId: pane.id, projectId: pane.projectId, cwd: pane.cwd })), visible && mixedPanes.length > 0);
+  const colorSlots = useMemo(() => projectColorSlots(projects.map((project) => project.id)), [projects]);
+  const identity = (pane: Pane) => {
+    if (!mixedPanes.includes(pane)) return undefined;
+    const name = pane.projectId === null ? '臨時 Terminal' : projects.find((project) => project.id === pane.projectId)?.name ?? '僅工作區專案';
+    return { initials: projectInitials(name), name, color: projectColor(pane.projectId, colorSlots), branch: branches[pane.id] };
+  };
   const geometry = tab ? layoutRects(tab.layout) : { panes: {}, dividers: [] };
   const drag = (event: PointerEvent<HTMLDivElement>, divider: Divider) => {
     if (!root.current) return;
@@ -102,6 +118,8 @@ export function WorkspaceCanvas({
               onSplit={(axis) => onSplit(pane.id, axis)}
               onAlreadyOpen={(info) => onAlreadyOpen(pane.id, info)}
               onOpenFileLink={onOpenFileLink ? request => onOpenFileLink(pane.id, request) : undefined}
+              identity={identity(pane)}
+              onMoveHome={onMoveHome && mixedPanes.includes(pane) ? () => onMoveHome(pane.id) : undefined}
             />
           </div>
         );

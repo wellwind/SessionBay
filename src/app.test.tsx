@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { api, call, isDesktop } from './api';
-import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, RuntimeRecord, Session, Workspace } from './types';
+import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, RuntimeInfo, RuntimeRecord, Session, Workspace, WorkspaceTab } from './types';
 import { canPickDirectory, pickDirectory } from './directory-picker';
 vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
 import { emptyWorkspace } from './workspace';
@@ -120,8 +120,10 @@ vi.mock('./components/WorkspaceCanvas', () => ({
     onStart,
     onAlreadyOpen,
     onSplit,
+    onFocus,
   }: {
     workspace: Workspace;
+    onFocus?: (id: string) => void;
     onPatch: (id: string, patch: Partial<Pane>) => void;
     onClose: (id: string) => void;
     onStart: (id: string) => void;
@@ -140,6 +142,7 @@ vi.mock('./components/WorkspaceCanvas', () => ({
         <button onClick={() => onPatch('pane-a', { title: 'Latest saved title' })}>
           Update synthetic pane
         </button>
+        <button onClick={() => onFocus?.('pane-b')}>Focus synthetic pane B</button>
         <button onClick={() => onPatch('pane-a', { state: 'running', runtimeId: 'runtime-a' })}>
           Mark synthetic runtime running
         </button>
@@ -3012,6 +3015,38 @@ describe('appearance transactions across delayed native and disk saves', () => {
 });
 
 describe('workspace display organization', () => {
+  it('opens panes of two projects side by side and moves side tools with the focused pane', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    const workspace = data.workspace as Workspace;
+    data.projects.push({ ...data.projects[0], id: 'project-b', name: 'Second project', path: '/synthetic/second' });
+    workspace.panes['pane-b'] = { ...workspace.panes['pane-a'], id: 'pane-b', title: 'Second shell', projectId: 'project-b', cwd: '/synthetic/second', runtimeId: 'runtime-b' };
+    workspace.tabs.push({ id: 'tab-b', projectId: 'project-b', name: 'Second', focusedPaneId: 'pane-b', layout: { kind: 'pane', paneId: 'pane-b' } });
+    workspace.activeTabByProject['project-b'] = 'tab-b';
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    render(<App />); await tick();
+    const mounts = native.canvasMounted.mock.calls.length;
+    const stops = vi.mocked(api.stop).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /^全部工作區/ }));
+    expect(screen.getByRole('button', { name: '並排開啟' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: /^並排選取 Synthetic project/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /^並排選取 Second project/ }));
+    fireEvent.click(screen.getByRole('button', { name: '並排開啟' })); await tick();
+    const mixed = workspaceSnapshot().tabs.find((tab: WorkspaceTab) => tab.mixed);
+    expect(mixed).toMatchObject({ projectId: 'project-a', name: 'Synthetic project + Second project', focusedPaneId: 'pane-a' });
+    expect(workspaceSnapshot().tabs.map((tab: WorkspaceTab) => tab.id)).toEqual([mixed?.id]);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Synthetic project');
+    expect(screen.getByRole('img', { name: '混合：Synthetic project、Second project' })).toBeInTheDocument();
+    expect(document.querySelector('.tool-context')).toHaveTextContent('Synthetic project');
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-a');
+    fireEvent.click(screen.getByRole('button', { name: 'Focus synthetic pane B' })); await tick();
+    expect(document.querySelector('.tool-context')).toHaveTextContent('Second project');
+    expect(screen.getByTestId('history-selected-project')).toHaveTextContent('project-b');
+    // The page still belongs to the owning project; only the side tools moved.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Synthetic project');
+    expect(native.canvasMounted).toHaveBeenCalledTimes(mounts);
+    expect(api.stop).toHaveBeenCalledTimes(stops);
+  });
   it('opens the all-workspaces grid, zooms into a pane and returns without remounting or stopping runtimes', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />); await tick(); selectGroup();

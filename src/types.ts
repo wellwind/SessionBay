@@ -218,10 +218,13 @@ export type LayoutNode =
     };
 export interface WorkspaceTab {
   id: string;
+  /** Owning project: where the tab is listed. A mixed tab may also hold panes of other projects. */
   projectId: string | null;
   name: string;
   layout: LayoutNode;
   focusedPaneId: string;
+  /** Explicitly created cross-project tab; every pane keeps its own project, cwd and runtime. */
+  mixed?: boolean;
 }
 export interface Workspace {
   version: 1;

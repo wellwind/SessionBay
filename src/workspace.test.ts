@@ -16,6 +16,9 @@ import {
   serializeWorkspace,
   setRatio,
   splitNode,
+  createSplitTab,
+  movePaneHome,
+  tabProjectIds,
 } from './workspace';
 import {
   matchesShortcut,
@@ -524,4 +527,74 @@ it.each([{ runtimeId: 'replacement' }, { startToken: 2 }])('does not close a rep
   const exited: Pane = { ...value.panes.a, kind: 'codex', runtimeId: 'old', state: 'exited', exitCode: 0 };
   value.panes.a = { ...exited, ...patch };
   expect(closeSuccessfulExit(value, exited)).toBe(value);
+});
+
+describe('cross-project split tabs', () => {
+  const owned = (id: string, projectId: string | null): Pane => ({
+    id, kind: 'shell', title: `Pane ${id}`, projectId, cwd: `/synthetic/${projectId ?? 'home'}`, state: 'running', runtimeId: `runtime-${id}`,
+  });
+  const single = (p: Pane) => ({ id: `tab-${p.id}`, projectId: p.projectId, name: p.title, layout: { kind: 'pane' as const, paneId: p.id }, focusedPaneId: p.id });
+  const base = (): Workspace => {
+    const panes = [owned('a', 'p1'), owned('a2', 'p1'), owned('b', 'p2'), owned('t', null)];
+    return {
+      version: 1,
+      tabs: [{ ...single(panes[0]), layout: { kind: 'split', id: 's', axis: 'horizontal', ratio: 0.5,
+        first: { kind: 'pane', paneId: 'a' }, second: { kind: 'pane', paneId: 'a2' } } }, single(panes[2]), single(panes[3])],
+      panes: Object.fromEntries(panes.map((p) => [p.id, p])),
+      activeTabByProject: { p1: 'tab-a', p2: 'tab-b' }, activeTemporaryTabId: 'tab-t',
+    };
+  };
+
+  it('moves 2–3 panes into one mixed tab without touching runtimes', () => {
+    const before = base();
+    const next = createSplitTab(before, ['a', 'b', 't'], 'P1 + P2');
+    const tab = next.tabs.at(-1)!;
+    expect(tab).toMatchObject({ projectId: 'p1', name: 'P1 + P2', mixed: true, focusedPaneId: 'a' });
+    expect(paneIds(tab.layout)).toEqual(['a', 'b', 't']);
+    expect(tabProjectIds(tab, next.panes)).toEqual(['p1', 'p2', null]);
+    // Runtime records are the same objects; only layout placement changed.
+    expect(next.panes).toBe(before.panes);
+    // Emptied source tabs disappear; the partially emptied one keeps its other pane.
+    expect(next.tabs.map((t) => t.id)).toEqual(['tab-a', tab.id]);
+    expect(paneIds(next.tabs[0].layout)).toEqual(['a2']);
+    expect(next.activeTabByProject).toEqual({ p1: tab.id });
+    expect(next.activeTemporaryTabId).toBeUndefined();
+    // Three panes split evenly.
+    expect(Object.values(layoutRects(tab.layout).panes).map((rect) => Math.round(rect.width))).toEqual([33, 33, 33]);
+  });
+
+  it('rejects fewer than two, more than three or unknown panes, and leaves same-project splits unmixed', () => {
+    const before = base();
+    expect(createSplitTab(before, ['a'], 'x')).toBe(before);
+    expect(createSplitTab(before, ['a', 'a2', 'b', 't'], 'x')).toBe(before);
+    expect(createSplitTab(before, ['a', 'missing'], 'x')).toBe(before);
+    expect(createSplitTab(before, ['a', 'a'], 'x')).toBe(before);
+    expect(createSplitTab(before, ['a', 'a2'], 'P1').tabs.at(-1)!.mixed).toBeUndefined();
+  });
+
+  it('round-trips mixed tabs through persistence but never mixed panes in an ordinary tab', () => {
+    const mixed = createSplitTab(base(), ['a', 'b'], 'P1 + P2');
+    const restored = restoreWorkspace(serializeWorkspace(mixed));
+    expect(restored.tabs.find((t) => t.mixed)).toMatchObject({ projectId: 'p1', mixed: true });
+    expect(paneIds(restored.tabs.find((t) => t.mixed)!.layout)).toEqual(['a', 'b']);
+    const forged = serializeWorkspace(mixed) as { tabs: { mixed?: boolean }[] };
+    forged.tabs.forEach((t) => { delete t.mixed; });
+    expect(restoreWorkspace(forged).tabs.some((t) => paneIds(t.layout).includes('b') && t.projectId === 'p1')).toBe(false);
+  });
+
+  it('returns a pane home as a new tab and drops the mixed flag once one project remains', () => {
+    const mixed = createSplitTab(base(), ['a', 'b'], 'P1 + P2');
+    const source = mixed.tabs.at(-1)!;
+    const next = movePaneHome(mixed, 'b');
+    expect(next.panes).toBe(mixed.panes);
+    const home = next.tabs.at(-1)!;
+    expect(home).toMatchObject({ projectId: 'p2', name: 'Pane b', focusedPaneId: 'b' });
+    expect(home.mixed).toBeUndefined();
+    const remaining = next.tabs.find((t) => t.id === source.id)!;
+    expect(paneIds(remaining.layout)).toEqual(['a']);
+    expect(remaining.mixed).toBeUndefined();
+    // The owner's current tab stays selected; p2 had none, so it adopts the new tab.
+    expect(next.activeTabByProject).toEqual({ p1: source.id, p2: home.id });
+    expect(movePaneHome(next, 'a')).toBe(next);
+  });
 });

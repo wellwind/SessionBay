@@ -26,6 +26,8 @@ import {
   ClipboardPaste,
   SplitSquareHorizontal,
   SplitSquareVertical,
+  GitBranch,
+  Undo2,
 } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import { api, errorMessage } from '../api';
@@ -70,6 +72,8 @@ export function TerminalPane({
   onSplit,
   onAlreadyOpen,
   onOpenFileLink,
+  identity,
+  onMoveHome,
 }: {
   pane: Pane;
   projectAvailable?: boolean;
@@ -86,6 +90,9 @@ export function TerminalPane({
   onSplit: (axis: 'horizontal' | 'vertical') => void;
   onAlreadyOpen: (runtime: RuntimeInfo) => void;
   onOpenFileLink?: (request: TerminalFileOpen) => void;
+  /** Shown in mixed tabs: the pane's own project, always visible regardless of width. */
+  identity?: { initials: string; name: string; color: string; branch?: string };
+  onMoveHome?: () => void;
 }) {
   const paneElement = useRef<HTMLElement>(null);
   const [minimalChrome, setMinimalChrome] = useState(false);
@@ -761,8 +768,9 @@ export function TerminalPane({
       ));
   return (
     <section ref={paneElement}
-      className={`terminal-pane ${focused ? 'focused' : ''}${minimalChrome ? ' minimal-chrome' : ''}`}
-      aria-label={`${pane.title} 終端面板`}
+      className={`terminal-pane ${focused ? 'focused' : ''}${minimalChrome ? ' minimal-chrome' : ''}${identity ? ' mixed-pane' : ''}`}
+      style={identity ? { ['--pane-project' as string]: identity.color } : undefined}
+      aria-label={identity ? `${identity.name} · ${pane.title} 終端面板` : `${pane.title} 終端面板`}
       onWheelCapture={cancelFollow}
       onKeyDownCapture={event => {
         if (event.shiftKey && ['PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) cancelFollow();
@@ -778,7 +786,11 @@ export function TerminalPane({
     >
       <div className="pane-toolbar">
         <div className="pane-title">
-          <TerminalSquare size={14} />
+          {identity ? <span className="pane-identity" title={`${identity.name}${identity.branch ? ` · ${identity.branch}` : ''}`}>
+            <span className="project-initials" aria-hidden="true">{identity.initials}</span>
+            <span className="pane-project">{identity.name}</span>
+            {identity.branch && <span className="pane-branch"><GitBranch size={11} aria-hidden="true" />{identity.branch}</span>}
+          </span> : <TerminalSquare size={14} />}
           <strong title={pane.title}>{pane.title}</strong>
           {/* Reserve the badge slot so pointerdown focus cannot move toolbar actions before click. */}
           <span className="focus-label" style={{ visibility: focused ? undefined : 'hidden' }} aria-hidden={!focused}>焦點</span>
@@ -788,6 +800,8 @@ export function TerminalPane({
         </div>
         <ResponsiveControls label={`面板選項 ${pane.title}`} narrowWidth={600} forceCompact={minimalChrome} closeOnAction>
         <div className="pane-actions">
+          {onMoveHome && identity && <button className="icon-button" title={`移回 ${identity.name}`} aria-label={`移回 ${identity.name}：${pane.title}`}
+            onClick={onMoveHome}><Undo2 size={14} /></button>}
           <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
           <button
             className="icon-button"

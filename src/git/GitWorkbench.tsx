@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { GitTargetContext } from './git-target';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, GitBranch, GitCompare, History, LoaderCircle, PanelRightClose, RefreshCw, ScrollText, X } from 'lucide-react';
@@ -52,6 +53,8 @@ export interface GitWorkbenchProps {
   onDocumentsChange?: (projectId: string, count: number) => void;
   /** Project-relative paths of files open in Session Bay. */
   openFiles?: readonly string[];
+  /** Shown in destructive confirmations, so mixed tabs never hide which project is affected. */
+  projectName?: string;
 }
 
 const issueTitle: Record<IssueKind, string> = {
@@ -59,7 +62,9 @@ const issueTitle: Record<IssueKind, string> = {
 };
 
 export default function GitWorkbench(props: GitWorkbenchProps) {
-  return <Workbench key={props.projectId} {...props} />;
+  return <GitTargetContext.Provider value={props.projectName ?? null}>
+    <Workbench key={props.projectId} {...props} />
+  </GitTargetContext.Provider>;
 }
 
 /** Collapsed sections mount their content (and its requests) when first opened. */
