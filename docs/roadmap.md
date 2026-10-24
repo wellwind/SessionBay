@@ -1,5 +1,13 @@
 # Session Bay 開發路線圖
 
+## 2026-10-24 單一視窗多工作區（已確認方向，尚未實作）
+
+方向與驗收見[單一視窗多工作區規劃](multi-workspace-plan.md)。排程待定，不插隊既有發行順序。
+
+- [ ] 專案識別色與狀態標示設計規格。
+- [ ] 總覽格狀檢視（主要）。
+- [ ] 跨專案分割分頁（輔助）。
+
 ## 2026-10-18 發行與後續順序（最新）
 
 已確認的試用／GitHub Releases、Homebrew／Snap、更新同意、資料備份與平台限制集中於[發行與更新規劃](release-update-plan.md)。本節的最新順序優先於下方歷史排程：先恢復雲端開發空間，Quick Open／共用 panel 已於 [#65](https://github.com/wellwind/SessionBay/pull/65) 合併；接著收尾藍點提示與 Monaco palette。使用者最新調整為優先交付 Terminal 檔案路徑連結，再恢復 broker 生命週期後續與 Snap 可安裝測試包。五工具 hook 已整合，真實登入模型回合由使用者自行驗證。此輪不插入 Git 等大型新功能；Git G1–G4、完整 Release／Update、永久刪除、遠端／Web／用量保留後續規劃，Git 的完整八階工作包仍沿用既有文件。
