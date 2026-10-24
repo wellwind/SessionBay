@@ -18,6 +18,7 @@ import {
   splitNode,
   createSplitTab,
   movePaneHome,
+  movePaneIntoSplit,
   tabProjectIds,
 } from './workspace';
 import {
@@ -596,5 +597,42 @@ describe('cross-project split tabs', () => {
     // The owner's current tab stays selected; p2 had none, so it adopts the new tab.
     expect(next.activeTabByProject).toEqual({ p1: source.id, p2: home.id });
     expect(movePaneHome(next, 'a')).toBe(next);
+  });
+});
+
+describe('moving an open pane into a split', () => {
+  const owned = (id: string, projectId: string | null): Pane => ({
+    id, kind: 'shell', title: `Pane ${id}`, projectId, cwd: '/synthetic', state: 'running', runtimeId: `runtime-${id}`,
+  });
+  const ws = (): Workspace => ({
+    version: 1,
+    tabs: [
+      { id: 'tab-a', projectId: 'p1', name: 'A', focusedPaneId: 'a', layout: { kind: 'pane', paneId: 'a' } },
+      { id: 'tab-b', projectId: 'p2', name: 'B', focusedPaneId: 'b', layout: { kind: 'pane', paneId: 'b' } },
+      { id: 'tab-c', projectId: 'p1', name: 'C', focusedPaneId: 'c', layout: { kind: 'pane', paneId: 'c' } },
+    ],
+    panes: { a: owned('a', 'p1'), b: owned('b', 'p2'), c: owned('c', 'p1') },
+    activeTabByProject: { p1: 'tab-c', p2: 'tab-b' },
+  });
+
+  it('splits beside the target, marks the tab mixed and keeps runtimes', () => {
+    const before = ws();
+    const next = movePaneIntoSplit(before, 'b', 'a', 'vertical');
+    const tab = next.tabs.find((t) => t.id === 'tab-a')!;
+    expect(paneIds(tab.layout)).toEqual(['a', 'b']);
+    expect(tab).toMatchObject({ mixed: true, focusedPaneId: 'b' });
+    expect(tab.layout).toMatchObject({ kind: 'split', axis: 'vertical' });
+    expect(next.tabs.some((t) => t.id === 'tab-b')).toBe(false);
+    expect(next.panes).toBe(before.panes);
+    expect(next.activeTabByProject.p1).toBe('tab-a');
+  });
+
+  it('keeps a same-project move unmixed and ignores invalid moves', () => {
+    const before = ws();
+    expect(movePaneIntoSplit(before, 'c', 'a', 'horizontal').tabs.find((t) => t.id === 'tab-a')!.mixed).toBeUndefined();
+    expect(movePaneIntoSplit(before, 'a', 'a', 'horizontal')).toBe(before);
+    expect(movePaneIntoSplit(before, 'missing', 'a', 'horizontal')).toBe(before);
+    const together = movePaneIntoSplit(before, 'b', 'a', 'horizontal');
+    expect(movePaneIntoSplit(together, 'b', 'a', 'horizontal')).toBe(together);
   });
 });

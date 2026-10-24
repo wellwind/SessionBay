@@ -87,3 +87,40 @@ test('mixed tab shows each pane project, moves tools with focus and returns pane
     return before.every((node) => node.isConnected) && document.querySelectorAll('.xterm').length === before.length;
   })).toBe(true);
 });
+
+test('split can take open work or a history Session from any project', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/tests/browser/workspace-focus-mode.html?overview&edge&activity');
+  await page.getByRole('button', { name: '開啟工作區 Synthetic focus Focus shell', exact: true }).click();
+  await page.evaluate(() => Object.assign(window, { splitTerminals: [...document.querySelectorAll('.xterm')] }));
+  const focusPane = page.getByRole('region', { name: 'Focus shell 終端面板' });
+  await focusPane.getByRole('button', { name: '左右分割', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '分割並新增面板' });
+  await dialog.getByRole('button', { name: /^既有工作/ }).click();
+  await expect(dialog.getByRole('button', { name: /^開始工作/ })).toHaveCount(0);
+  // Enter in the search never launches new work.
+  await dialog.getByLabel('搜尋既有工作與 Session').fill('other');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await page.screenshot({ path: info.outputPath('split-existing.png') });
+  await dialog.getByRole('button', { name: /^移入 Synthetic other · Other shell/ }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('img', { name: '混合：Synthetic focus、Synthetic other' })).toBeVisible();
+  const otherPane = page.getByRole('region', { name: 'Synthetic other · Other shell 終端面板' });
+  await expect(otherPane).toBeVisible();
+  expect(await page.evaluate(() => {
+    const before = (window as unknown as { splitTerminals: Element[] }).splitTerminals;
+    return before.every((node) => node.isConnected) && document.querySelectorAll('.xterm').length === before.length;
+  })).toBe(true);
+
+  // A history Session of another project resumes straight into the split.
+  const menu = otherPane.getByRole('button', { name: /^面板選項 / });
+  if (await menu.isVisible()) await menu.click();
+  await otherPane.getByRole('button', { name: '上下分割', exact: true }).click();
+  await dialog.getByRole('button', { name: /^既有工作/ }).click();
+  await dialog.getByLabel('搜尋既有工作與 Session').fill('Synthetic other session 3');
+  await dialog.getByRole('button', { name: /^接續 Synthetic other · Synthetic other session 3$/ }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Synthetic focus');
+  await expect(page.locator('.terminal-pane:visible')).toHaveCount(3);
+});

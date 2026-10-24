@@ -175,6 +175,22 @@ export function createSplitTab(workspace: Workspace, ids: string[], name: string
   };
   return selectWorkspaceTab({ ...detached, tabs: [...detached.tabs, tab] }, tab);
 }
+/**
+ * Move an open pane (any project) beside `targetId`, splitting along `axis`.
+ * The runtime is untouched; the tab becomes mixed when projects differ.
+ */
+export function movePaneIntoSplit(workspace: Workspace, movingId: string, targetId: string, axis: 'horizontal' | 'vertical'): Workspace {
+  const moving = workspace.panes[movingId];
+  const owner = workspace.tabs.find((tab) => paneIds(tab.layout).includes(targetId));
+  if (!moving || movingId === targetId || !owner || paneIds(owner.layout).includes(movingId)) return workspace;
+  const detached = detachPane(workspace, movingId);
+  const tab = detached.tabs.find((t) => t.id === owner.id);
+  if (!tab) return workspace;
+  const layout = splitNode(tab.layout, targetId, movingId, axis);
+  const projects = new Set([...tabProjectIds(tab, workspace.panes), moving.projectId]);
+  const placed: WorkspaceTab = { ...tab, layout, focusedPaneId: movingId, ...(projects.size > 1 || tab.mixed ? { mixed: true } : {}) };
+  return selectWorkspaceTab({ ...detached, tabs: detached.tabs.map((t) => t.id === tab.id ? placed : t) }, placed);
+}
 /** Return a pane from a mixed tab to its own project as a new tab; the mixed tab keeps its place. */
 export function movePaneHome(workspace: Workspace, id: string): Workspace {
   const pane = workspace.panes[id];

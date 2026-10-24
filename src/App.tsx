@@ -81,6 +81,7 @@ import {
   uid,
   createSplitTab,
   movePaneHome,
+  movePaneIntoSplit,
   tabProjectIds,
 } from './workspace';
 import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex } from './commands';
@@ -111,6 +112,7 @@ import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 import { WorkspaceOverview } from './components/WorkspaceOverview';
+import { SplitExistingPicker } from './components/SplitExistingPicker';
 import { projectColor, projectColorSlots, projectInitials } from './project-identity';
 import { WorkspaceFiles } from './components/WorkspaceFiles';
 import './project-files-workspace.css';
@@ -121,6 +123,8 @@ interface Launcher {
   cwd: string;
   profileId: string;
   split?: { paneId: string; axis: 'horizontal' | 'vertical' };
+  /** Split only: pick an open pane or history Session of any project instead of starting new work. */
+  existing?: boolean;
 }
 interface PathDialog {
   path: string;
@@ -829,7 +833,8 @@ export default function App() {
       const id = pane.id;
       setWorkspace((w) => {
         const tab = split ? w.tabs.find((t) => paneIds(t.layout).includes(split.paneId)) : undefined;
-        if (tab && split && tab.projectId === projectId)
+        // A split may receive another project's work (e.g. a resumed Session); the tab becomes mixed.
+        if (tab && split)
           return {
             ...selectWorkspaceTab(w, tab),
             panes: { ...w.panes, [id]: pane },
@@ -839,6 +844,7 @@ export default function App() {
                     ...t,
                     focusedPaneId: id,
                     layout: splitNode(t.layout, split.paneId, id, split.axis),
+                    ...(t.mixed || t.projectId !== projectId ? { mixed: true } : {}),
                   }
                 : t,
             ),
@@ -854,7 +860,8 @@ export default function App() {
           layout: { kind: 'pane' as const, paneId: id } };
         return selectWorkspaceTab({ ...w, panes: { ...w.panes, [id]: pane }, tabs: [...w.tabs, newTab] }, newTab);
       });
-      setSelectedId(projectId);
+      const splitOwner = split ? stateRef.current.workspace.tabs.find((t) => paneIds(t.layout).includes(split.paneId))?.projectId : undefined;
+      setSelectedId(splitOwner !== undefined ? splitOwner : projectId);
       setAllSessionsSearch(false);
       setView('workspace');
       setMaximizedId(null);
@@ -942,7 +949,7 @@ export default function App() {
     insert(pane);
     return true;
   };
-  const resume = (session: Session, override?: Project) => {
+  const resume = (session: Session, override?: Project, split?: Launcher['split']) => {
     if (session.resumeDisabledReason) {
       notify(session.resumeDisabledReason);
       return;
@@ -980,6 +987,7 @@ export default function App() {
       resumeCwd,
       settings?.defaultProfileId ?? '',
       session,
+      split,
     );
   };
   const openTemporaryTerminal = (split?: Launcher['split']) => {
@@ -2084,6 +2092,8 @@ export default function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
+              // Enter in the existing-work search must never start new work.
+              if (launcher.existing) return;
               if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || (isAgentEnabled(settings, launcher.kind) && boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false))) {
                 const accepted = addPane(
                   current,
@@ -2099,16 +2109,35 @@ export default function App() {
             }}
           >
             <div className="launch-kind-switch" role="group" aria-label="工作類型">
-              <button type="button" aria-pressed={launcher.kind === 'shell'}
-                onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined })}>
+              <button type="button" aria-pressed={!launcher.existing && launcher.kind === 'shell'}
+                onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined, existing: false })}>
                 <TerminalSquare size={19} />Shell<span>命令列工作</span>
               </button>
-              <button type="button" aria-pressed={launcher.kind !== 'shell'}
+              <button type="button" aria-pressed={!launcher.existing && launcher.kind !== 'shell'}
                 disabled={!preferredEnabledAgent(settings)}
-                onClick={() => setLauncher({ ...launcher, kind: preferredEnabledAgent(settings) ?? settings.defaultAgent, resumeId: undefined })}>
+                onClick={() => setLauncher({ ...launcher, kind: preferredEnabledAgent(settings) ?? settings.defaultAgent, resumeId: undefined, existing: false })}>
                 <CommandIcon size={19} />Agent<span>AI 協作</span>
               </button>
+              {launcher.split && <button type="button" aria-pressed={!!launcher.existing}
+                onClick={() => setLauncher({ ...launcher, existing: true })}>
+                <Layers3 size={19} />既有工作<span>任何專案</span>
+              </button>}
             </div>
+            {launcher.existing && launcher.split && <SplitExistingPicker workspace={workspace} targetPaneId={launcher.split.paneId}
+              projects={visibleProjects} badge={projectBadge}
+              onPickPane={(paneId) => {
+                const split = launcher.split!;
+                setWorkspace((w) => movePaneIntoSplit(w, paneId, split.paneId, split.axis));
+                setLauncher(null);
+                setView('workspace');
+                setMaximizedId(null);
+              }}
+              onPickSession={(session) => {
+                const split = launcher.split;
+                setLauncher(null);
+                resume(session, undefined, split);
+              }} />}
+            {!launcher.existing && <>
             {launcher.kind !== 'shell' && <label className="field-label">
               Agent
               <Select aria-label="Agent" value={launcher.kind}
@@ -2153,14 +2182,15 @@ export default function App() {
             {launcher.kind !== 'shell' && settings.agentOptions?.[launcher.kind]?.bypassPermissions &&
               <p className="inline-warning">已啟用高風險權限模式。預設 {bypassFlags[launcher.kind]}；實際參數以上方預覽為準。Agent 可能不詢問就讀寫或刪除檔案。</p>}
             {freshLaunchPending && <p className="small-muted" role="status">上一個 Agent 仍在啟動，請稍候再建立新的 Agent 工作。</p>}
+            </>}
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
                 取消
               </button>
-              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && ((!launcher.resumeId?.trim() && freshLaunchPending) || !isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
+              {!launcher.existing && <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && ((!launcher.resumeId?.trim() && freshLaunchPending) || !isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
                 開始工作
                 <ArrowRight size={14} />
-              </button>
+              </button>}
             </div>
           </form>
         </Dialog>
