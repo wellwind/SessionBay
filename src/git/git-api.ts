@@ -1,5 +1,5 @@
 import { call } from '../api';
-import type { ChangedFile, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
+import type { Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
 
 /** One typed IPC entry point; the backend revalidates project and repo identity. */
 export type GitRequest =
@@ -19,7 +19,11 @@ export type GitRequest =
   | { op: 'fetch'; repoId: string; remote: string | null; prune: boolean }
   | { op: 'pull'; repoId: string; strategy: PullStrategy }
   | { op: 'push'; repoId: string; remote: string; localBranch: string; remoteBranch: string; setUpstream: boolean; forceWithLease?: string | null }
-  | { op: 'cancelOperation'; repoId: string };
+  | { op: 'cancelOperation'; repoId: string }
+  | { op: 'log'; repoId: string; filter: LogFilter; offset: number; limit: number }
+  | { op: 'commitDetail'; repoId: string; commit: string }
+  | { op: 'fileHistory'; repoId: string; path: RepoPath; offset: number; limit: number }
+  | { op: 'blame'; repoId: string; path: RepoPath; rev: string | null };
 
 export const gitRequest = <T>(projectId: string, request: GitRequest) =>
   call<T>('git_request', { projectId, request });
@@ -44,6 +48,12 @@ export const gitApi = {
     gitRequest<{ output: string }>(projectId, { op: 'fetch', repoId, remote, prune }),
   pull: (projectId: string, repoId: string, strategy: PullStrategy) => gitRequest<{ output: string }>(projectId, { op: 'pull', repoId, strategy }),
   push: (projectId: string, request: Omit<Extract<GitRequest, { op: 'push' }>, 'op'>) => gitRequest<PushResult>(projectId, { op: 'push', ...request }),
+  log: (projectId: string, repoId: string, filter: LogFilter, offset: number, limit: number) =>
+    gitRequest<LogPage>(projectId, { op: 'log', repoId, filter, offset, limit }),
+  commitDetail: (projectId: string, repoId: string, commit: string) => gitRequest<CommitDetail>(projectId, { op: 'commitDetail', repoId, commit }),
+  fileHistory: (projectId: string, repoId: string, path: RepoPath, offset: number, limit: number) =>
+    gitRequest<{ revisions: FileRevision[]; hasMore: boolean }>(projectId, { op: 'fileHistory', repoId, path, offset, limit }),
+  blame: (projectId: string, repoId: string, path: RepoPath, rev: string | null) => gitRequest<Blame>(projectId, { op: 'blame', repoId, path, rev }),
   cancelOperation: (projectId: string, repoId: string) => gitRequest<null>(projectId, { op: 'cancelOperation', repoId }),
   unstageSelection: (projectId: string, request: Omit<Extract<GitRequest, { op: 'unstageSelection' }>, 'op'>) =>
     gitRequest<null>(projectId, { op: 'unstageSelection', ...request }),

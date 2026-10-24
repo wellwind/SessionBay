@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, GitBranch, GitCompare, LoaderCircle, PanelRightClose, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, GitBranch, GitCompare, History, LoaderCircle, PanelRightClose, RefreshCw, ScrollText, X } from 'lucide-react';
 import { errorMessage } from '../api';
 import { useGitProject } from './use-git-project';
 import { GitRepoSelector } from './GitRepoSelector';
@@ -13,11 +13,15 @@ import type { DiffPreferences } from './DiffView';
 import { ComparisonView } from './ComparisonView';
 import { CompareForm } from './CompareForm';
 import { CommitBox } from './CommitBox';
+import { GraphView } from './GraphView';
+import { CommitPanel } from './CommitPanel';
+import { BlameView } from './BlameView';
+import { FileHistoryView } from './FileHistoryView';
 import { SyncPanel } from './SyncPanel';
 import { documentsReducer, emptyDocuments } from './git-documents';
 import type { DocumentSpec, GitDocument } from './git-documents';
 import { gitApi } from './git-api';
-import type { IssueKind, Refs, RepoInfo, StatusEntry } from './types';
+import type { IssueKind, Refs, RepoInfo, RepoPath, StatusEntry } from './types';
 import { branchLabel, operationLabel, pathKey } from './types';
 import './git.css';
 
@@ -122,12 +126,31 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
     const status = git.statuses[repo.id];
     const replace = (spec: DocumentSpec) => dispatch({ type: 'replace', key: document.key, spec });
     const spec = document.spec;
+    const openCommit = (commit: string) => open(repo, { kind: 'comparison', source: { kind: 'commit', commit, parent: null } });
+    const openBlame = (path: RepoPath, rev: string | null) => open(repo, { kind: 'blame', path, rev });
+    const openHistory = (path: RepoPath) => open(repo, { kind: 'fileHistory', path });
     switch (spec.kind) {
       case 'diff': return <DiffView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path} oldPath={spec.oldPath}
         source={spec.source} untracked={spec.untracked} revision={status?.revision} preferences={preferences} onPreferences={setPreferences}
-        onSource={source => replace({ ...spec, source })} onChanged={() => void git.refreshStatus(repo.id)} />;
-      case 'comparison': return <ComparisonView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} source={spec.source}
-        preferences={preferences} onPreferences={setPreferences} onSource={source => replace({ ...spec, source })} />;
+        onSource={spec.source.kind === 'commit' || spec.source.kind === 'compare' ? undefined : source => replace({ ...spec, source })}
+        onChanged={() => void git.refreshStatus(repo.id)}
+        actions={!spec.untracked && <>
+          <button className="git-icon-button" aria-label={`Blame ${spec.path.path}`} title="Blame（逐行作者）"
+            onClick={() => openBlame(spec.path, spec.source.kind === 'commit' ? spec.source.commit : null)}><ScrollText size={14} /></button>
+          <button className="git-icon-button" aria-label={`${spec.path.path} 的歷史`} title="檔案歷史" onClick={() => openHistory(spec.path)}><History size={14} /></button>
+        </>} />;
+      case 'comparison': return spec.source.kind === 'commit'
+        ? <CommitPanel key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} commit={spec.source.commit}
+          preferences={preferences} onPreferences={setPreferences} onSelectCommit={openCommit} />
+        : <ComparisonView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} source={spec.source}
+          preferences={preferences} onPreferences={setPreferences} onSource={source => replace({ ...spec, source })} />;
+      case 'graph': return <GraphView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} headOid={status?.branch.oid ?? null}
+        preferences={preferences} onPreferences={setPreferences} onOpenComparison={openCommit} />;
+      case 'blame': return <BlameView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path} rev={spec.rev}
+        onOpenCommit={openCommit} onBlame={openBlame} onHistory={openHistory} />;
+      case 'fileHistory': return <FileHistoryView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path}
+        onBlame={openBlame} onOpenDiff={revision => open(repo, { kind: 'diff', path: revision.path, oldPath: null, untracked: false,
+          source: { kind: 'commit', commit: revision.commit.oid, parent: revision.commit.parents.length > 1 ? 1 : null } })} />;
       default: return <p className="git-muted git-pad">此檢視尚未提供。</p>;
     }
   };
@@ -185,6 +208,11 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
           void git.refreshStatus(selectedRepo.id);
           void loadRefs(selectedRepo.id);
         }} />
+      </Section>}
+      {selectedRepo && <Section title="歷史">
+        <div className="git-row">
+          <button onClick={() => open(selectedRepo, { kind: 'graph' })}><GitBranch size={14} aria-hidden="true" />開啟歷史 graph</button>
+        </div>
       </Section>}
       {selectedRepo && selectedStatus && <Section title="比較" open={false} actions={<GitCompare size={13} aria-hidden="true" />}>
         <CompareForm refs={refs[selectedRepo.id] ?? null} onCompare={(base, head, mergeBase) =>

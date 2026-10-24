@@ -100,3 +100,20 @@ export interface PushResult { output: string; confirmed: boolean; pushed: string
 export const pullStrategyLabel: Record<PullStrategy, string> = {
   merge: 'Merge（建立合併 commit）', rebase: 'Rebase（把本機 commit 接到遠端之後）', fastForwardOnly: '只允許 fast-forward',
 };
+
+export type RefKind = 'head' | 'branch' | 'remote' | 'tag' | 'other';
+export interface RefLabel { name: string; kind: RefKind; current: boolean }
+export interface LogCommit {
+  oid: string; parents: string[]; author: string; email: string; authoredAt: number; committedAt: number; subject: string; refs: RefLabel[];
+}
+export interface LogFilter { text?: string; author?: string; path?: RepoPath | null; rev?: string | null }
+export interface LogPage { commits: LogCommit[]; hasMore: boolean; filtered: boolean }
+export interface CommitDetail {
+  oid: string; parents: string[]; author: string; email: string; authoredAt: number;
+  committer: string; committerEmail: string; committedAt: number; message: string; refs: RefLabel[];
+}
+export interface FileRevision { commit: LogCommit; path: RepoPath; status: string }
+export interface BlameCommit { author: string; authoredAt: number; summary: string; previous: [string, RepoPath] | null; path: RepoPath; uncommitted: boolean }
+export interface BlameLine { oid: string; originalLine: number; line: number; text: string }
+export interface Blame { path: RepoPath; rev: string | null; lines: BlameLine[]; commits: Record<string, BlameCommit>; truncated: boolean }
+export const formatTime = (seconds: number) => seconds ? new Date(seconds * 1000).toLocaleString() : '';
