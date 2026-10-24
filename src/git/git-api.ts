@@ -49,7 +49,9 @@ export type GitRequest =
   | { op: 'markResolved'; repoId: string; path: RepoPath; token: string; allowMarkers: boolean }
   | { op: 'resolveWith'; repoId: string; path: RepoPath; token: string; choice: ResolveChoice; newPath: RepoPath | null }
   | { op: 'continueOperation'; repoId: string }
-  | { op: 'abortOperation'; repoId: string };
+  | { op: 'abortOperation'; repoId: string }
+  | { op: 'remoteMappings'; repoId: string }
+  | { op: 'setRemoteMapping'; repoId: string; remote: string; connectionId: string | null; project: string | null };
 
 type Body<K extends GitRequest['op']> = Omit<Extract<GitRequest, { op: K }>, 'op'>;
 const outcome = <K extends GitRequest['op']>(op: K) => (projectId: string, body: Body<K>) =>

@@ -26,6 +26,7 @@ import { DangerDialog } from './DangerDialog';
 import { ResetDialog, RevertDialog } from './HistoryActions';
 import { ConflictView } from './ConflictView';
 import { OperationBar } from './OperationBar';
+import { HostsPanel } from './HostsPanel';
 import { documentsReducer, emptyDocuments } from './git-documents';
 import type { DocumentSpec, GitDocument } from './git-documents';
 import { gitApi } from './git-api';
@@ -255,6 +256,9 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
           setMessage(result); void git.refreshStatus(selectedRepo.id); void loadRefs(selectedRepo.id);
         }} />
       </Section>}
+      <Section title="主機與帳號" open={false}>
+        <HostsPanel projectId={projectId} repo={selectedRepo} />
+      </Section>
       {selectedRepo && <Section title="歷史">
         <div className="git-row">
           <button onClick={() => open(selectedRepo, { kind: 'graph' })}><GitBranch size={14} aria-hidden="true" />開啟歷史 graph</button>

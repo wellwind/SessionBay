@@ -8,6 +8,7 @@ pub mod conflict;
 pub mod diff;
 pub mod discovery;
 pub mod history;
+pub mod hosting;
 pub mod patch;
 pub mod path;
 pub mod recovery;
@@ -284,6 +285,15 @@ pub enum GitRequest {
     AbortOperation {
         repo_id: String,
     },
+    RemoteMappings {
+        repo_id: String,
+    },
+    SetRemoteMapping {
+        repo_id: String,
+        remote: String,
+        connection_id: Option<String>,
+        project: Option<String>,
+    },
     /// Stops a running hook or network command of this repository.
     CancelOperation {
         repo_id: String,
@@ -298,6 +308,7 @@ pub struct GitService {
     write_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
     operations: Mutex<HashMap<String, Arc<AtomicBool>>>,
     recovery_dir: Option<PathBuf>,
+    hosting: Option<hosting::Hosting>,
 }
 
 pub const STALE_SELECTION: &str =
@@ -329,6 +340,30 @@ fn json<T: Serialize>(value: T) -> Result<Value, String> {
 impl GitService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Recovery points and host connections live in the app data directory.
+    pub fn with_data_dir(directory: PathBuf) -> Self {
+        Self {
+            recovery_dir: Some(directory.join("git-recovery")),
+            hosting: Some(hosting::Hosting::new(directory.join("git-hosts.json"))),
+            ..Self::default()
+        }
+    }
+
+    pub fn hosting(&self) -> Result<&hosting::Hosting, String> {
+        self.hosting
+            .as_ref()
+            .ok_or_else(|| "沒有可用的主機設定儲存位置".into())
+    }
+
+    pub fn handle_hosting(
+        &self,
+        project_root: &Path,
+        request: hosting::HostRequest,
+    ) -> Result<Value, String> {
+        let runner = self.runner()?;
+        self.hosting()?.handle(&runner, project_root, request)
     }
 
     /// Destructive operations need somewhere to keep recovery points.
@@ -708,6 +743,16 @@ impl GitService {
                 let store = self.store()?;
                 self.write(project_root, &repo_id, |runner, repo| json(conflict::abort_operation(&store, runner, repo)?))
             }
+            GitRequest::RemoteMappings { repo_id } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(self.remote_mappings(&runner, &repo)?)
+            }
+            GitRequest::SetRemoteMapping { repo_id, remote, connection_id, project } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                remote::remote_exists(&runner, &repo, &remote)?;
+                self.hosting()?.set_mapping(&repo.id, &remote, connection_id.as_deref(), project.as_deref())?;
+                json(self.remote_mappings(&runner, &repo)?)
+            }
             GitRequest::CancelOperation { repo_id } => {
                 if let Some(flag) = self
                     .operations
@@ -749,6 +794,49 @@ impl GitService {
                 Direction::Unstage,
             ),
         }
+    }
+
+    /// Each remote with its parsed host/project, candidate connections and
+    /// the saved choice, which the user can inspect and correct.
+    pub fn remote_mappings(
+        &self,
+        runner: &GitRunner,
+        repo: &RepoInfo,
+    ) -> Result<Vec<Value>, String> {
+        let hosting = self.hosting()?;
+        let hosts = hosting.load();
+        let saved = hosting.mappings_for(&repo.id);
+        let mut list = Vec::new();
+        for remote in refs::remotes(runner, repo)? {
+            let mut parsed = hosting::remote_url::parse(&remote.url);
+            if let Some(parsed) = parsed.as_mut() {
+                hosting::remote_url::resolve_ssh_alias(parsed);
+            }
+            let candidates: Vec<&hosting::Connection> = hosts
+                .connections
+                .iter()
+                .filter(|c| {
+                    parsed.as_ref().is_some_and(|p| {
+                        let name = c.host.split(':').next().unwrap_or_default();
+                        name == p.resolved_host || name == p.host
+                    })
+                })
+                .collect();
+            let mapping = saved.iter().find(|m| m.remote == remote.name);
+            // A single matching account is a suggestion, never silent: the
+            // UI shows it as unconfirmed until the user saves it.
+            let suggested =
+                (mapping.is_none() && candidates.len() == 1).then(|| candidates[0].id.clone());
+            list.push(serde_json::json!({
+                "remote": remote.name,
+                "url": remote.url,
+                "parsed": parsed,
+                "candidates": candidates.iter().map(|c| serde_json::json!({ "id": c.id, "provider": c.provider, "host": c.host, "account": c.account })).collect::<Vec<_>>(),
+                "mapping": mapping,
+                "suggested": suggested,
+            }));
+        }
+        Ok(list)
     }
 
     fn begin_operation(&self, repo_id: &str) -> Result<Arc<AtomicBool>, String> {
