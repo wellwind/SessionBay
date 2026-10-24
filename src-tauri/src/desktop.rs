@@ -65,6 +65,10 @@ fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
     }
     // This probe uses only synthetic editor models and explicitly seeded file
     // fixtures; it never opens real user projects or history.
+    // Synthetic repository seeded by the smoke runner; never a user repository.
+    if phase == "git-probe" {
+        return Ok(std::env::var("SESSIONBAY_SMOKE_GIT").as_deref() == Ok("1"));
+    }
     if phase == "monaco-probe" {
         return Ok(std::env::var("SESSIONBAY_SMOKE_MONACO").as_deref() == Ok("1"));
     }

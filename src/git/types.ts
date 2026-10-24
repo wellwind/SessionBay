@@ -9,6 +9,7 @@ export type IssueKind = 'bare' | 'broken' | 'dubiousOwnership' | 'submodule';
 export interface RepoIssue { kind: IssueKind; relativePath: string; message: string }
 export interface Discovery {
   gitVersion: string; repos: RepoInfo[]; issues: RepoIssue[]; truncated: boolean; cancelled: boolean;
+  limitReason?: 'time' | 'directories' | 'repositories' | null; scannedDepth?: number;
 }
 export type ProjectGit = { state: 'unavailable'; message: string } | ({ state: 'ready' } & Discovery);
 

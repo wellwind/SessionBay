@@ -44,7 +44,7 @@ fn read_marker(client: &BrokerClient, lease: &str, events: &mpsc::Receiver<UiEve
             UiEvent::Error { message, .. } | UiEvent::Disconnected { message, .. } => {
                 panic!("{message}")
             }
-            UiEvent::AgentActivity { .. } => {}
+            UiEvent::AgentActivity { .. } | UiEvent::TerminalStatus { .. } => {}
             UiEvent::Exit { .. } => panic!("terminal exited before marker"),
         }
     }

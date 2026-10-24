@@ -107,10 +107,14 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
     return () => { tracker.current++; };
   }, [load]);
   const lastRevision = useRef(revision);
+  const ownChange = useRef(false);
   useEffect(() => {
     if (revision === lastRevision.current) return;
     lastRevision.current = revision;
-    void load('檔案或 index 已在外部變更，已重新載入；先前的選取已清除。');
+    // Our own stage/unstage also changes the revision; only others are "external".
+    const own = ownChange.current;
+    ownChange.current = false;
+    void load(own ? undefined : '檔案或 index 已在外部變更，已重新載入；先前的選取已清除。');
   }, [revision, load]);
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +159,7 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
       setNotice({ tone: 'error', text: errorMessage(failure) });
     } finally {
       setBusy(false);
+      ownChange.current = true;
       onChanged();
       await load();
     }

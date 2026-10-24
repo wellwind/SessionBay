@@ -1,6 +1,6 @@
 # Git 工作台功能規劃
 
-更新：2026-10-18。狀態：**需求已確認，功能尚未實作／驗收**。本文件只記錄方案與交付門檻，不代表任何 Git 操作已可在 Session Bay 使用。八個工作包是預計拆分的實作 PR，並非現有 PR 編號。
+更新：2026-10-24。狀態：**G1–G8 功能已實作，exact-commit Linux CI 通過；尚待 review、三平台原生驗收與真實主機實測**。八個工作包為堆疊 PR #98–#105（見[實作狀態](#實作狀態2026-10-24)）。
 
 ## 產品目標與已確認範圍
 
@@ -92,7 +92,7 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 ## 八個實作 PR 與依賴
 
-以下全部未完成；文件 PR 不算其中一個實作 PR。每個工作包均需獨立 review、exact-commit CI、相應三平台驗收證據與可追溯 checklist。
+以下勾選框代表完整交付（含 review、CI、原生驗收），目前仍未勾選；功能實作狀態見[實作狀態](#實作狀態2026-10-24)。文件 PR 不算其中一個實作 PR。每個工作包均需獨立 review、exact-commit CI、相應三平台驗收證據與可追溯 checklist。
 
 ### 第一階段：本機日常流程
 
@@ -130,15 +130,52 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 ## 共通完成條件與人工驗收
 
 - [ ] 三平台測試矩陣：Windows（路徑／CRLF／credential helper）、macOS（原生鍵盤／IME／安全儲存）、Linux（WebView／credential helper）。
-- [ ] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。
-- [ ] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。
-- [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。
+- [x] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。（自動測試全部使用 tempdir 合成 repo、本機 bare remote 與 loopback mock）
+- [ ] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（已有：過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對，及 Chrome 端到端；尚缺網路操作中途取消的自動測試）
+- [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 與 Chrome 端到端確認開 Git 面板、diff、graph、衝突與 Zen Mode 不重掛 Terminal；原生 WebView 未驗）
 - [ ] Keyboard、focus、tooltip、一般／Zen、狹窄視窗、共用 panel resize、長路徑及長分支名稱通過。
-- [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。
-- [ ] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。
+- [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。（已有後端時間量測，缺記憶體與前端量測）
+- [x] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。（見實作狀態表）
+
+## 實作狀態（2026-10-24）
+
+「功能已實作」「CI 通過」「原生驗收通過」是三種不同狀態。PR：[#98](https://github.com/wellwind/SessionBay/pull/98)–[#105](https://github.com/wellwind/SessionBay/pull/105)（G1–G8，依序堆疊）與文件／驗收 [#106](https://github.com/wellwind/SessionBay/pull/106)。CI 為 Linux lightweight workflow 在各分支 exact commit 的結果；多次執行者是同一 commit 重跑，失敗只出現在既有的隨機失敗瀏覽器測試（`project-membership` 800 px、`viewport-layout` 450×310／resize，main 與 #96 分支同樣出現），未修改這些測試。CI 不含 macOS／Windows 與原生 WebView。工程決策見 [決策紀錄](decisions.md)。
+
+| 工作包 | 分支（依序堆疊） | 功能已實作 | 本機自動測試 | CI | 原生驗收 |
+| --- | --- | --- | --- | --- | --- |
+| G1 | `feat/git-g1-foundation` | 是 | Rust `git_foundation`、Vitest | [通過](https://github.com/wellwind/SessionBay/actions/runs/40056149260)（`a14ab53`） | 未執行 |
+| G2 | `feat/git-g2-diff-staging` | 是 | `git_staging`、`git-diff.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057107837)（`6cab97a`，第 2 次執行） | 未執行 |
+| G3 | `feat/git-g3-commit-remote` | 是 | `git_remote`、`git-remote.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057109512)（`b56f8ea`，第 3 次執行） | 未執行 |
+| G4 | `feat/git-g4-history` | 是 | `git_history`、`git-history.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057111133)（`2007bdf`，第 2 次執行） | 未執行 |
+| G5 | `feat/git-g5-branches-recovery` | 是 | `git_safety`、`git-safety.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057113028)（`4e9f4fb`） | 未執行 |
+| G6 | `feat/git-g6-merge-conflicts` | 是 | `git_conflicts`、`git-conflicts.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057115194)（`80d5b77`，第 4 次執行） | 未執行 |
+| G7 | `feat/git-g7-hosts` | 是 | `git_hosts`（loopback mock）、`git-hosts.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057117021)（`ea5d2a0`，第 5 次執行） | 未執行 |
+| G8 | `feat/git-g8-pull-requests` | 是 | `git_pulls`（loopback mock）、`git-pulls.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057119629)（`614f106`，第 2 次執行） | 未執行 |
+
+測試環境與證據（2026-10-24）：
+
+- **macOS** 26.4.1／Apple M1 Max／Git 2.55.0／Rust 1.99.0：Rust 單元與整合測試、Vitest 全套。
+- **Linux**（OrbStack 容器 `rust:1.99`、Debian aarch64、Git 2.47.3；`node:24`）：全部 Git Rust 整合測試與 Git 相關 Vitest 通過；非 UTF-8 檔名測試只在 Linux 實際執行（APFS 不允許此類檔名）。尚未在 x86_64 Linux 與 Linux 桌面 WebView 驗證。
+- **Windows**（windows-2022、WebView2）：[Git workbench Windows acceptance](https://github.com/wellwind/SessionBay/actions/runs/40067263871) 通過——Git 前端測試、26 個 Rust 單元測試、8 個整合測試檔、release 建置，以及原生 WebView2 Git smoke（dark／light；以 `git.exe` 核對 commit 只含所選的第 4 行）。修正過 fixture 的 `\\?\` 路徑問題。完整 Desktop acceptance 在 Windows 原本有 23 個與 Git 無關的既有測試失敗（Runtime 擁有者檢查等）；這些已由 [PR #108](https://github.com/wellwind/SessionBay/pull/108) 修正，Windows Desktop acceptance 全部通過（[run 40071198807](https://github.com/wellwind/SessionBay/actions/runs/40071198807)），待該 PR 合併。
+- **作業系統 credential store**：[Git workbench platform acceptance](https://github.com/wellwind/SessionBay/actions/runs/40068638889) 以合成 `.invalid` host 跑 `os_credential_store_round_trip`，對 Windows Git Credential Manager、Linux libsecret（gnome-keyring）與 macOS Keychain（osxkeychain）完成 approve→fill→reject 往返，並確認不同帳號互不讀到彼此 token，三者皆通過。這驗證 credential helper 串接，不代表真實 GitHub／GitLab 登入流程。
+- **真實瀏覽器端到端**：`npm run test:git`（`CARGO=<cargo>`）以 Chrome 開完整 App，Git 請求經 [loopback bridge](../src-tauri/examples/git_bridge.rs) 送到真實 Git 核心與合成 repo：同 hunk 部分暫存→commit、merge 衝突→應用內解決→continue、graph 鍵盤導覽、`Mod+Shift+G`／Escape、tooltip 快捷鍵、Zen Mode、900 與 760 px 窄視窗無水平捲動、亮色主題與長名稱，並確認 Terminal 未重掛。截圖輸出於 `test-results/git/evidence-*.png`。這是 Chrome 而非 Tauri 原生 WebView。
+- **原生 macOS WebView**：本機 release bundle 執行 `scripts/ci-macos-smoke.sh`，原生 Git probe（`src/git-smoke.ts`）在 WKWebView 以正式 IPC 對合成 repo 完成探測、diff、只暫存第 4 行、commit、graph，dark／light 皆通過（DOM／IPC 證據，未擷取像素）。同一 probe 在 Linux 原生 WebKitGTK（[Desktop acceptance](https://github.com/wellwind/SessionBay/actions/runs/40062810005) 的 Linux job）與 Windows WebView2 皆已通過。
+- 只用合成 repo、本機 bare remote 與 loopback HTTP mock，不碰使用者 repo 或真實帳號。
+
+效能量測（2026-10-24，release build，`cargo test --release --no-default-features --test git_performance -- --ignored --nocapture`；合成 repo：20,000 commits、5,000 個 untracked 檔、10,000 行檔案）：
+
+| 操作 | 時間 |
+| --- | --- |
+| 探索 repository | 161 ms |
+| status（5,000 untracked） | 44 ms |
+| log 第一頁（200 筆）／offset 10,000 | 62 ms／44 ms |
+| diff 10,000 行檔案 | 32 ms |
+| blame 10,000 行檔案 | 29 ms |
+| 檔案歷史（100 筆） | 45 ms |
+| refs 清單 | 59 ms |
 
 ## 後續與尚待技術確認
 
 Worktree 管理、完整 CI log／retry／cancel、進階 rebase／cherry-pick 操作介面與更多 hosting providers 後續另拆。非文字內容 diff 明確不在範圍內。
 
-實作前確認最低 Git／GitLab 版本、選定文字／三方編輯引擎、資料量限制與復原點保存策略。這些是工程決策與相容性驗證，不改變本文件已確認的產品需求。不得把候選編輯器或尚未測試的平台能力寫成既定實作。
+最低 Git 版本、文字／三方編輯引擎、資料量限制與復原點策略已於 2026-10-24 決定（見[決策紀錄](decisions.md)）。最低可支援的 GitLab 版本仍待真實 instance 驗證；不得把未測試的平台能力寫成已驗證。

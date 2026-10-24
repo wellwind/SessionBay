@@ -325,3 +325,12 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 ## Terminal 檔案連結（2026-10-18）
 
 - 已鎖定的 `@xterm/xterm` 6.0.0 官方套件：`typings/xterm.d.ts` 的 `ILinkProvider`、`IBufferCell.isUnderline/isInvisible` 與 `ILinkHandler`；`src/common/buffer/AttributeData.ts` 核對 URL 屬性也回報底線，`src/browser/Linkifier.ts` 核對內建 OSC8 provider 優先。來源：[xterm.js 6.0.0](https://github.com/xtermjs/xterm.js/tree/6.0.0)。實作僅呼叫公開 API；底線文字保守回退手動路徑輸入。
+
+## Git 工作台（2026-10-24）
+
+- [git-status porcelain v2](https://git-scm.com/docs/git-status#_porcelain_format_version_2)、[git-apply](https://git-scm.com/docs/git-apply)、[git-credential](https://git-scm.com/docs/git-credential)、[git-stash create](https://git-scm.com/docs/git-stash)、[git-push --force-with-lease／--no-follow-tags](https://git-scm.com/docs/git-push)：輸出格式與旗標行為以 Git 2.55.0 合成 repo 測試確認；最低版本 2.31 依旗標引入版本推定，未在 2.31 實機測試。
+- [GitHub REST：Merge a pull request](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request)：2026-10-24 查閱；`sha` 不符回 409，`merge_method` 為 merge／squash／rebase。官方建議改用非同步合併端點，本實作未用（不支援 stacked PR／merge queue）。
+- [GitHub REST：Create a review](https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request)：2026-10-24 查閱；`commit_id` 省略時用最新 commit，舊 SHA 不會被拒絕，只會讓留言過期，故另需 Session Bay 重讀 head。
+- [GitLab API：Merge request approvals](https://docs.gitlab.com/api/merge_request_approvals/)：2026-10-24 查閱；approve 的 `sha` 不符回 409，approve／unapprove 所有方案可用。
+- [GitLab API：Merge requests](https://docs.gitlab.com/api/merge_requests/#merge-a-merge-request)：2026-10-24 查閱；merge 的 `sha` 不符 409、不可合併 405、無權限 401；`user.can_merge` 表示目前帳號能否合併。
+- [ureq 3.5.0](https://docs.rs/ureq/3.5.0/ureq/)：本機 crate 原始碼核對 `RootCerts::PlatformVerifier`、`Proxy::try_from_env`、預設 redirect 不轉送認證標頭。

@@ -84,12 +84,23 @@ try:
     database.commit()
 finally:
     database.close()
+# Synthetic Git repository for the native Git probe: one committed file, then
+# two edits in one hunk. Identity is repo-local; no global config is touched.
+import subprocess
+repo = root/'git-fixture'
+repo.mkdir(parents=True, exist_ok=True)
+def git(*args): subprocess.run(['git', *args], cwd=repo, check=True, capture_output=True)
+git('init', '-q', '-b', 'main')
+git('config', 'user.name', 'Synthetic Smoke'); git('config', 'user.email', 'smoke@example.invalid'); git('config', 'commit.gpgsign', 'false')
+(repo/'f.txt').write_text('alpha\nbeta\ngamma\ndelta\n')
+git('add', 'f.txt'); git('commit', '-q', '-m', 'Initial synthetic commit')
+(repo/'f.txt').write_text('alpha\nBETA\ngamma\nDELTA\n')
 kinds = ['codex', 'claude', 'grok', 'antigravity']
 settings = {
     'version': 1, 'theme': sys.argv[1], 'terminalTheme': 'bay',
     'fontFamily': 'ui-monospace, SFMono-Regular, Menlo, monospace', 'fontSize': 14,
     'defaultAgent': 'codex', 'defaultProfileId': 'smoke-shell',
-    'profiles': [{'id': 'smoke-shell', 'name': 'POSIX Shell · 預覽專用', 'executable': '/bin/sh', 'args': [], 'env': {}}],
+    'profiles': [{'id': 'smoke-shell', 'name': 'POSIX Shell · 預覽專用', 'executable': '/bin/sh', 'args': [], 'env': {'SESSIONBAY_SMOKE_GIT_REPO': str(repo)}}],
     'sources': [{'id': f'sessionbay-smoke-{kind}', 'kind': kind, 'root': str(root/kind), 'enabled': True} for kind in ['codex', 'claude']] + [{'id': 'sessionbay-smoke-antigravity', 'kind': 'antigravity', 'root': str(antigravity), 'enabled': True}],
     'executables': {kind: str(root/'unavailable-cli'/kind) for kind in kinds},
     'agentOptions': {kind: {'extraArgs': [], 'bypassPermissions': False} for kind in kinds},
@@ -156,6 +167,8 @@ capture() {
 
 : > "$output/image-info.txt"
 for scenario in empty dark light; do
+  # The Git probe needs the seeded synthetic repository.
+  if [[ "$scenario" == empty ]]; then export SESSIONBAY_SMOKE_GIT=0; else export SESSIONBAY_SMOKE_GIT=1; fi
   smoke_environment "$temporary/$scenario"
   [[ "$scenario" == empty ]] || smoke_seed_fixture "$scenario"
   log="$output/$scenario-app.log"
@@ -185,10 +198,11 @@ for scenario in empty dark light; do
     smoke_wait_marker interaction
   fi
   smoke_wait_marker interaction monaco-worker-readonly-disposal
+  if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction git:discover-diff-partial-stage-commit-graph; fi
   if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction bounded-files-preflight-chunks-large-model-range-disposal; smoke_wait_marker interaction file-images-binary-ipc-png-svg-webkit-decode; fi
   smoke_alive
   smoke_stop
 done
 cp "$output/dark-app.log" "$output/app.log"
 cp "$output/sessionbay-projects-dark.png" "$output/sessionbay-linux.png"
-printf 'Native Linux WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nCaptured 10 real UI states: Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar in both themes.\nAll ready/interaction markers were required; snapshot markers were allowlisted and screenshots checked for nonblank paint.\nMonaco bundled JSON worker replied under native WebKit CSP; readonly typing and model disposal passed in each scenario.\nBounded 1/21 MiB text IPC and 65 MiB range reads passed; validated PNG/SVG binary IPC decoded under native WebKit CSP.\nPNG visual review is still required. This does not verify IME, real CLI resume, terminal interaction, or macOS pixels.\n' | tee "$output/result.txt"
+printf 'Native Linux WebView passed isolated empty-HOME and synthetic dark/light DOM + backend IPC scenarios.\nCaptured 10 real UI states: Projects, All Directories, four-provider settings, Agent launcher dropdown (after Shell preview validation), and History calendar in both themes.\nAll ready/interaction markers were required; snapshot markers were allowlisted and screenshots checked for nonblank paint.\nMonaco bundled JSON worker replied under native WebKit CSP; readonly typing and model disposal passed in each scenario.\nBounded 1/21 MiB text IPC and 65 MiB range reads passed; validated PNG/SVG binary IPC decoded under native WebKit CSP.\nNative Git probe: synthetic repo discovery, diff, partial line staging, commit and graph through production IPC in both themes.\nPNG visual review is still required. This does not verify IME, real CLI resume, terminal interaction, or macOS pixels.\n' | tee "$output/result.txt"

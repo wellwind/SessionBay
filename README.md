@@ -58,7 +58,7 @@ npm run tauri -- build
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
 | [Antigravity CLI 歷史相容性](docs/antigravity-cli-history.md) | 持久化格式依據、唯讀安全、接續限制與 1.3.5 待驗條件 |
 | [Agent 用量與分析規格](docs/usage-spec.md) | MVP 後的帳號額度總覽、Project／Agent／Session 用量與費用語意 |
-| [Git 工作台規劃](docs/git-workbench-plan.md) | 尚未實作：多 repo、部分暫存、graph、衝突與 GitHub／自架 GitLab 的八個 PR 計畫 |
+| [Git 工作台規劃](docs/git-workbench-plan.md) | G1–G8 功能已實作、Linux CI 通過（PR #98–#105）；待 review、三平台原生與真實主機驗收 |
 | [單一視窗多工作區規劃](docs/multi-workspace-plan.md) | 尚未實作：以總覽格狀檢視為主、跨專案分割分頁為輔 |
 | [發行與更新規劃](docs/release-update-plan.md) | 尚未完成：試用、GitHub Releases／Homebrew／Snap、更新同意、資料復原與最新優先順序 |
 | [開發路線圖](docs/roadmap.md) | 分階段交付、相依性與效能原型驗證 |

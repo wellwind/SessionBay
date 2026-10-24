@@ -14,11 +14,11 @@
 .git-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 4px; margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--border); }
 
 .git-repo-list { display: flex; flex-direction: column; gap: 2px; }
-.git-repo { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 6px 8px; text-align: left; background: transparent; border: 1px solid transparent; }
+.git-repo { display: flex; align-items: flex-start; justify-content: flex-start; gap: 8px; width: 100%; padding: 6px 8px; text-align: left; background: transparent; border: 1px solid transparent; }
 .git-repo:hover { background: var(--surface-hover); }
 .git-repo.selected { background: var(--accent-bg); border-color: var(--accent); }
 .git-repo > svg { flex: 0 0 auto; margin-top: 2px; }
-.git-repo-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.git-repo-text { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; gap: 1px; text-align: left; }
 .git-repo-name { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .git-repo-path, .git-repo-meta { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 .git-repo-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; }
@@ -238,3 +238,4 @@
 .git-ci.success { color: var(--accent); }
 .git-ci.failure, .git-ci.cancelled { color: var(--danger); }
 .git-ci.pending, .git-ci.running, .git-ci.unknown { color: var(--warning); }
+.git-scan-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 12px; }

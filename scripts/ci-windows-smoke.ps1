@@ -1,6 +1,6 @@
 # Native WebView/IPC smoke with no real histories, credentials, or agent launches.
 # Requires a built Windows executable and the logged-in CI desktop session.
-param([string]$Binary = "$PSScriptRoot/../src-tauri/target/release/sessionbay.exe", [switch]$Terminal, [switch]$Files)
+param([string]$Binary = "$PSScriptRoot/../src-tauri/target/release/sessionbay.exe", [switch]$Terminal, [switch]$Files, [switch]$Git)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/windows-smoke-cleanup.ps1"
 $Binary = (Resolve-Path $Binary).Path
@@ -31,12 +31,26 @@ try {
             $beforeHashes = @(Get-ChildItem -LiteralPath $fixture -File | Sort-Object Name | Get-FileHash | Select-Object Path, Hash)
             $beforeHashes | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $output "$theme-files-before.json")
         }
+        $gitFixture = Join-Path $state 'git-fixture'
+        if ($Git) {
+            # Synthetic repository with repo-local identity; global Git config is untouched.
+            New-Item -ItemType Directory $gitFixture | Out-Null
+            & git -C $gitFixture init -q -b main; if ($LASTEXITCODE) { throw 'git init failed' }
+            & git -C $gitFixture config user.name 'Synthetic Smoke'
+            & git -C $gitFixture config user.email 'smoke@example.invalid'
+            & git -C $gitFixture config commit.gpgsign false
+            & git -C $gitFixture config core.autocrlf false
+            [IO.File]::WriteAllText((Join-Path $gitFixture 'f.txt'), "alpha`nbeta`ngamma`ndelta`n", [Text.UTF8Encoding]::new($false))
+            & git -C $gitFixture add f.txt
+            & git -C $gitFixture commit -q -m 'Initial synthetic commit'; if ($LASTEXITCODE) { throw 'git commit failed' }
+            [IO.File]::WriteAllText((Join-Path $gitFixture 'f.txt'), "alpha`nBETA`ngamma`nDELTA`n", [Text.UTF8Encoding]::new($false))
+        }
         $shell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
         $settings = @{
             version = 1; theme = $theme; terminalTheme = 'bay'
             fontFamily = 'Consolas, monospace'; fontSize = 14
             defaultAgent = 'codex'; defaultProfileId = 'smoke-shell'
-            profiles = @(@{ id = 'smoke-shell'; name = 'PowerShell'; executable = $shell; args = @('-NoLogo', '-NoProfile'); env = @{ SESSIONBAY_SMOKE_INPUT_MARKER = (Join-Path $state 'terminal-input.txt'); SESSIONBAY_SMOKE_WORKSPACE = $fixture } })
+            profiles = @(@{ id = 'smoke-shell'; name = 'PowerShell'; executable = $shell; args = @('-NoLogo', '-NoProfile'); env = @{ SESSIONBAY_SMOKE_INPUT_MARKER = (Join-Path $state 'terminal-input.txt'); SESSIONBAY_SMOKE_WORKSPACE = $fixture; SESSIONBAY_SMOKE_GIT_REPO = $gitFixture } })
             sources = @(); executables = @{}; agentOptions = @{}
             shortcuts = @{}; onboardingComplete = $false
         }
@@ -48,7 +62,7 @@ try {
         $stdoutPath = Join-Path $output "$theme-stdout.log"
         $stderrPath = Join-Path $output "$theme-stderr.log"
         $process = Start-SessionBaySmokeCapture -Binary $Binary -StdoutPath $stdoutPath -StderrPath $stderrPath `
-            -Environment @{ SESSIONBAY_SMOKE = '1'; SESSIONBAY_SMOKE_APP_DATA = $state; SESSIONBAY_SMOKE_TERMINAL = $(if ($Terminal) { '1' } else { '0' }); SESSIONBAY_SMOKE_FILES = $(if ($Files) { '1' } else { '0' }) }
+            -Environment @{ SESSIONBAY_SMOKE = '1'; SESSIONBAY_SMOKE_APP_DATA = $state; SESSIONBAY_SMOKE_TERMINAL = $(if ($Terminal) { '1' } else { '0' }); SESSIONBAY_SMOKE_FILES = $(if ($Files) { '1' } else { '0' }); SESSIONBAY_SMOKE_GIT = $(if ($Git) { '1' } else { '0' }) }
         # The process stays open after the self-check. Bounded timing avoids leaving
         # a hung WebView behind; file capture does not wait for descendant pipe EOF.
         $deadline = [DateTime]::UtcNow.AddSeconds(45)
@@ -73,6 +87,12 @@ try {
             $afterHashes = @(Get-ChildItem -LiteralPath $fixture -File | Sort-Object Name | Get-FileHash | Select-Object Path, Hash)
             $afterHashes | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $output "$theme-files-after.json")
             if (($beforeHashes | ConvertTo-Json -Compress) -ne ($afterHashes | ConvertTo-Json -Compress)) { throw 'Read-only fixture changed.' }
+        }
+        if ($Git) {
+            if ($log -notmatch 'git:discover-diff-partial-stage-commit-graph') { throw 'Native Git smoke did not finish.' }
+            $subject = (& git -C $gitFixture log -1 --format=%s)
+            $staged = (& git -C $gitFixture show HEAD:f.txt) -join "`n"
+            if ($subject -ne 'Native smoke commit' -or $staged -ne "alpha`nbeta`ngamma`nDELTA") { throw 'Git smoke did not commit exactly the selected lines.' }
         }
         if ($Terminal) {
             if ($log -notmatch 'terminal:launch-input-exit-close') { throw 'Terminal UI lifecycle smoke did not finish.' }
@@ -108,6 +128,10 @@ try {
 if ($Terminal) {
     'Native dark/light PowerShell launch, xterm input, marker verification, exit code 0, automatic pane/record cleanup, and broker cleanup passed.' |
         Set-Content -Encoding utf8 (Join-Path $output 'terminal-result.txt')
+}
+if ($Git) {
+    'Native dark/light Git discovery, diff, partial line staging (only line 4), commit and graph passed through production IPC on a synthetic repository; commit content verified with git.exe.' |
+        Set-Content -Encoding utf8 (Join-Path $output 'git-result.txt')
 }
 if ($Files) {
     'Native dark/light file listing and literal UTF-8 preview passed through production IPC; traversal, binary, hardlink and oversize requests were rejected; Escape/focus/terminal identity and unchanged fixture hashes verified. Synthetic data only; no Agent launched.' |

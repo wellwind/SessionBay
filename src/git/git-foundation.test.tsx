@@ -65,7 +65,8 @@ describe('Git foundation panel', () => {
     expect(options[1]).toHaveTextContent('worktree');
     expect(options[1]).toHaveTextContent('合併進行中');
     expect(options[1]).toHaveTextContent('detached HEAD');
-    expect(screen.getByText(/掃描已在上限停止/)).toBeInTheDocument();
+    expect(screen.getByText(/子目錄掃描已在時間上限停止/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '繼續掃描' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /src\/x\.ts，已修改/ })).toBeInTheDocument();
 
     fireEvent.keyDown(options[0], { key: 'ArrowDown' });
@@ -96,5 +97,33 @@ describe('Git foundation panel', () => {
       await act(async () => { slow(status('r1', { revision: 'r1:2' })); });
       expect(screen.getByRole('button', { name: /new\.txt，未追蹤/ })).toBeInTheDocument();
     } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('discovery scope', () => {
+  it('stays quiet at the depth scope, offers to keep scanning when truncated, and adds repos of open files', async () => {
+    const base = { state: 'ready' as const, gitVersion: '2.55.0', issues: [], cancelled: false, scannedDepth: 5 };
+    vi.mocked(gitApi.discover).mockResolvedValueOnce({ ...base, truncated: false, limitReason: null, repos: [repo('r1', 'app')] });
+    vi.mocked(gitApi.status).mockImplementation(async (_p, id) => status(id));
+    const deep = repo('r2', 'a/b/c/d/e/f/deep');
+    vi.mocked(gitApi).includePath = vi.fn().mockResolvedValue({ ...base, truncated: false, repos: [repo('r1', 'app'), deep] });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const view = render(<GitWorkbench projectId="p" visible active={false} sidebarVisible sidebarHost={host} tabsHost={null} documentHost={null}
+      onActivate={vi.fn()} onEmpty={vi.fn()} onHideSidebar={vi.fn()} openFiles={['app/src/x.ts']} />);
+    await screen.findByRole('radiogroup', { name: '選擇 repository' });
+    expect(screen.queryByText(/上限停止/)).not.toBeInTheDocument();
+    expect(gitApi.includePath).not.toHaveBeenCalled();
+    view.rerender(<GitWorkbench projectId="p" visible active={false} sidebarVisible sidebarHost={host} tabsHost={null} documentHost={null}
+      onActivate={vi.fn()} onEmpty={vi.fn()} onHideSidebar={vi.fn()} openFiles={['app/src/x.ts', 'a/b/c/d/e/f/deep/main.rs']} />);
+    await waitFor(() => expect(gitApi.includePath).toHaveBeenCalledWith('p', 'a/b/c/d/e/f/deep/main.rs'));
+    expect(await screen.findAllByRole('radio')).toHaveLength(2);
+
+    vi.mocked(gitApi.discover).mockResolvedValueOnce({ ...base, truncated: true, limitReason: 'time', repos: [repo('r1', 'app')] });
+    fireEvent.click(screen.getByRole('button', { name: '重新整理 Git' }));
+    expect(await screen.findByText(/子目錄掃描已在時間上限停止/)).toBeInTheDocument();
+    vi.mocked(gitApi.discover).mockResolvedValueOnce({ ...base, truncated: false, repos: [repo('r1', 'app')] });
+    fireEvent.click(screen.getByRole('button', { name: '繼續掃描' }));
+    await waitFor(() => expect(gitApi.discover).toHaveBeenLastCalledWith('p', true));
   });
 });

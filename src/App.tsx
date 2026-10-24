@@ -1815,6 +1815,7 @@ export default function App() {
                     projectId={id} visible={current?.id === id} active={view === 'git' && current?.id === id}
                     sidebarVisible={current?.id === id && gitVisible} sidebarHost={gitSidebarHost} tabsHost={gitTabsHost}
                     documentHost={gitDocumentHost} onActivate={() => setView('git')} onDocumentsChange={onGitDocumentsChange}
+                    openFiles={filePaths[id]}
                     onEmpty={() => setView(activeTab ? 'workspace' : 'history')} onHideSidebar={hideGitSidebar} />)}
                 </Suspense>}
               </div>

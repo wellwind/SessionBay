@@ -191,3 +191,49 @@ fn status_reports_changes_and_revision_tracks_external_edits() {
         )
         .is_err());
 }
+
+#[test]
+fn depth_scope_is_not_truncation_and_deep_repos_are_found_on_demand() {
+    let (_temp, base) = temp();
+    let project = base.join("project");
+    let deep = init_repo(&project.join("a/b/c/d/e/f/deep-app"));
+    commit_file(&deep, "src/main.txt", b"x\n", "deep");
+    let service = GitService::new();
+    let found = ready(&service, &project);
+    assert!(found.repos.is_empty());
+    assert!(
+        !found.truncated,
+        "reaching the depth scope is not a truncation"
+    );
+    assert_eq!(found.limit_reason, None);
+    assert_eq!(found.scanned_depth, 5);
+
+    // Explicit "keep scanning" goes deeper.
+    let extended = service
+        .handle(
+            &project,
+            serde_json::from_value(serde_json::json!({ "op": "discover", "extended": true }))
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(extended["repos"][0]["name"], "deep-app");
+
+    // A fresh service finds it from an opened file, and keeps it after a rescan.
+    let service = GitService::new();
+    ready(&service, &project);
+    let included = service
+        .handle(&project, serde_json::from_value(serde_json::json!({ "op": "includePath", "path": "a/b/c/d/e/f/deep-app/src/main.txt" })).unwrap())
+        .unwrap();
+    assert_eq!(included["repos"][0]["relativePath"], "a/b/c/d/e/f/deep-app");
+    assert_eq!(ready(&service, &project).repos.len(), 1);
+    // Paths outside the project are refused.
+    assert!(service
+        .handle(
+            &project,
+            serde_json::from_value(
+                serde_json::json!({ "op": "includePath", "path": "../outside.txt" })
+            )
+            .unwrap()
+        )
+        .is_err());
+}

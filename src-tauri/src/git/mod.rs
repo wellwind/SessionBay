@@ -44,7 +44,17 @@ pub enum ProjectGit {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
 pub enum GitRequest {
-    Discover,
+    Discover {
+        /// Explicit "keep scanning": deeper and longer than the default.
+        #[serde(default)]
+        extended: bool,
+        #[serde(default)]
+        max_depth: Option<usize>,
+    },
+    /// Adds the repository that contains an opened project file.
+    IncludePath {
+        path: String,
+    },
     CancelDiscovery,
     Status {
         repo_id: String,
@@ -362,6 +372,7 @@ pub enum GitRequest {
 pub struct GitService {
     runner: Mutex<Option<GitRunner>>,
     discoveries: Mutex<HashMap<PathBuf, Discovery>>,
+    extra_repos: Mutex<HashMap<PathBuf, Vec<RepoInfo>>>,
     cancels: Mutex<HashMap<PathBuf, Arc<AtomicBool>>>,
     write_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
     operations: Mutex<HashMap<String, Arc<AtomicBool>>>,
@@ -455,7 +466,15 @@ impl GitService {
 
     pub fn handle(&self, project_root: &Path, request: GitRequest) -> Result<Value, String> {
         match request {
-            GitRequest::Discover => json(self.discover(project_root)?),
+            GitRequest::Discover { extended, max_depth } => {
+                let limits = if extended || max_depth.is_some() {
+                    discovery::ScanLimits::extended(max_depth)
+                } else {
+                    discovery::ScanLimits::default()
+                };
+                json(self.discover_with(project_root, limits)?)
+            }
+            GitRequest::IncludePath { path } => json(self.include_path(project_root, &path)?),
             GitRequest::CancelDiscovery => {
                 self.cancel_discovery(project_root);
                 Ok(Value::Null)
@@ -1070,6 +1089,57 @@ impl GitService {
     }
 
     pub fn discover(&self, project_root: &Path) -> Result<ProjectGit, String> {
+        self.discover_with(project_root, discovery::ScanLimits::default())
+    }
+
+    /// Finds the repo of an opened file and keeps it with this project's
+    /// discovery (also across later rescans). Returns the updated state.
+    pub fn include_path(&self, project_root: &Path, path: &str) -> Result<ProjectGit, String> {
+        let runner = self.runner()?;
+        let Some(repo) = discovery::repo_for_path(&runner, project_root, path)? else {
+            return self.current(project_root);
+        };
+        self.extra_repos
+            .lock()
+            .map_err(|_| "Git 狀態鎖定失敗")?
+            .entry(project_root.to_owned())
+            .or_default()
+            .retain(|known| known.id != repo.id);
+        self.extra_repos
+            .lock()
+            .map_err(|_| "Git 狀態鎖定失敗")?
+            .entry(project_root.to_owned())
+            .or_default()
+            .push(repo.clone());
+        let mut discoveries = self.discoveries.lock().map_err(|_| "Git 狀態鎖定失敗")?;
+        if let Some(found) = discoveries.get_mut(project_root) {
+            if !found.repos.iter().any(|known| known.id == repo.id) {
+                found.repos.push(repo);
+            }
+            return Ok(ProjectGit::Ready(found.clone()));
+        }
+        drop(discoveries);
+        self.discover(project_root)
+    }
+
+    fn current(&self, project_root: &Path) -> Result<ProjectGit, String> {
+        let cached = self
+            .discoveries
+            .lock()
+            .map_err(|_| "Git 狀態鎖定失敗")?
+            .get(project_root)
+            .cloned();
+        match cached {
+            Some(found) => Ok(ProjectGit::Ready(found)),
+            None => self.discover(project_root),
+        }
+    }
+
+    pub fn discover_with(
+        &self,
+        project_root: &Path,
+        limits: discovery::ScanLimits,
+    ) -> Result<ProjectGit, String> {
         let runner = match self.runner() {
             Ok(runner) => runner,
             Err(error) if error.kind == GitErrorKind::NotFound => {
@@ -1084,7 +1154,20 @@ impl GitService {
             .lock()
             .map_err(|_| "Git 狀態鎖定失敗")?
             .insert(project_root.to_owned(), cancel.clone());
-        let found = discovery::discover(&runner, project_root, &cancel)?;
+        let mut found = discovery::discover_with(&runner, project_root, &cancel, limits)?;
+        // Repos found through opened files stay listed after a rescan.
+        if let Some(extra) = self
+            .extra_repos
+            .lock()
+            .map_err(|_| "Git 狀態鎖定失敗")?
+            .get(project_root)
+        {
+            for repo in extra {
+                if repo.root_path.is_dir() && !found.repos.iter().any(|known| known.id == repo.id) {
+                    found.repos.push(repo.clone());
+                }
+            }
+        }
         self.discoveries
             .lock()
             .map_err(|_| "Git 狀態鎖定失敗")?

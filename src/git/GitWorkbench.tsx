@@ -50,6 +50,8 @@ export interface GitWorkbenchProps {
   onEmpty: () => void;
   onHideSidebar: () => void;
   onDocumentsChange?: (projectId: string, count: number) => void;
+  /** Project-relative paths of files open in Session Bay. */
+  openFiles?: readonly string[];
 }
 
 const issueTitle: Record<IssueKind, string> = {
@@ -70,7 +72,7 @@ export function Section({ title, children, open = true, actions }: { title: stri
   </details>;
 }
 
-function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, tabsHost, documentHost, onActivate, onEmpty, onHideSidebar, onDocumentsChange }: GitWorkbenchProps) {
+function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, tabsHost, documentHost, onActivate, onEmpty, onHideSidebar, onDocumentsChange, openFiles = [] }: GitWorkbenchProps) {
   const [documents, dispatch] = useReducer(documentsReducer, emptyDocuments);
   const enabled = visible && (sidebarVisible || active);
   const git = useGitProject(projectId, enabled);
@@ -95,6 +97,21 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
     const gone = [...new Set(documents.documents.map(document => document.repoId))].filter(id => !project.repos.some(repo => repo.id === id));
     if (gone.length) dispatch({ type: 'closeRepo', repoIds: gone });
   }, [project, documents.documents]);
+
+  // Like VS Code's open-editor detection: a file outside every known repo may
+  // belong to one deeper than the subfolder scan.
+  const askedPaths = useRef(new Set<string>());
+  useEffect(() => {
+    if (project?.state !== 'ready') return;
+    for (const path of openFiles) {
+      if (askedPaths.current.has(path)) continue;
+      const covered = project.repos.some(repo => repo.enclosesProject || repo.relativePath === '' ||
+        path === repo.relativePath || path.startsWith(`${repo.relativePath}/`));
+      if (covered) continue;
+      askedPaths.current.add(path);
+      void git.includePath(path);
+    }
+  }, [openFiles, project, git]);
 
   const loadRefs = useCallback(async (repoId: string) => {
     try { const next = await gitApi.refs(projectId, repoId); setRefs(previous => ({ ...previous, [repoId]: next })); }
@@ -199,8 +216,11 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         <p className="git-muted">只有 Git 確認的工作目錄才會提供 Git 操作。</p></div>}
       {project.repos.length > 0 && <GitRepoSelector repos={project.repos} statuses={git.statuses} errors={git.statusErrors}
         selectedId={git.selectedId} onSelect={git.setSelectedId} />}
-      {(project.truncated || project.cancelled) && <p className="git-notice" role="status">
-        {project.cancelled ? '掃描已取消；' : '專案目錄過大，掃描已在上限停止；'}可能還有未列出的巢狀 repository。</p>}
+      {(project.truncated || project.cancelled) && <div className="git-scan-note" role="status">
+        <span className="git-muted">{project.cancelled ? '已取消子目錄掃描' : `子目錄掃描已在${{ time: '時間', directories: '目錄數量', repositories: 'repository 數量' }[project.limitReason ?? 'time']}上限停止`}；
+          開啟檔案時會自動找出它所屬的 repository。</span>
+        <button className="git-link" disabled={git.discovering} onClick={() => void git.discover(true)}>繼續掃描</button>
+      </div>}
       {project.issues.length > 0 && <details className="git-issues">
         <summary>{project.issues.length} 個未提供操作的位置</summary>
         <ul>{project.issues.map(issue => <li key={`${issue.kind}:${issue.relativePath}`}>

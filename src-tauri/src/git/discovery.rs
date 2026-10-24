@@ -21,6 +21,48 @@ pub const SCAN_MAX_DIRECTORIES: usize = 5_000;
 pub const SCAN_BUDGET: Duration = Duration::from_millis(1_500);
 pub const MAX_REPOSITORIES: usize = 32;
 
+/// Bounds for one subfolder scan. Reaching `max_depth` is the configured
+/// scope (like VS Code's `git.repositoryScanMaxDepth`), not a truncation;
+/// only time, directory and repository budgets truncate.
+#[derive(Debug, Clone, Copy)]
+pub struct ScanLimits {
+    pub max_depth: usize,
+    pub max_directories: usize,
+    pub budget: Duration,
+    pub max_repositories: usize,
+}
+
+impl Default for ScanLimits {
+    fn default() -> Self {
+        Self {
+            max_depth: SCAN_MAX_DEPTH,
+            max_directories: SCAN_MAX_DIRECTORIES,
+            budget: SCAN_BUDGET,
+            max_repositories: MAX_REPOSITORIES,
+        }
+    }
+}
+
+impl ScanLimits {
+    /// The user's explicit "keep scanning": deeper and longer, still bounded.
+    pub fn extended(max_depth: Option<usize>) -> Self {
+        Self {
+            max_depth: max_depth.unwrap_or(12).clamp(1, 32),
+            max_directories: 100_000,
+            budget: Duration::from_secs(15),
+            max_repositories: 256,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum LimitReason {
+    Time,
+    Directories,
+    Repositories,
+}
+
 const SKIPPED_DIRECTORIES: &[&str] = &[
     ".git",
     "node_modules",
@@ -84,8 +126,13 @@ pub struct Discovery {
     pub repos: Vec<RepoInfo>,
     pub issues: Vec<RepoIssue>,
     /// The bounded scan stopped early; more nested repos may exist.
+    /// A time/directory/repository budget stopped the scan early.
     pub truncated: bool,
+    pub limit_reason: Option<LimitReason>,
     pub cancelled: bool,
+    /// Subfolder depth searched; deeper repos are found when one of their
+    /// files is opened.
+    pub scanned_depth: usize,
 }
 
 #[derive(Debug)]
@@ -101,6 +148,15 @@ pub fn discover(
     runner: &GitRunner,
     project_root: &Path,
     cancel: &Arc<AtomicBool>,
+) -> Result<Discovery, String> {
+    discover_with(runner, project_root, cancel, ScanLimits::default())
+}
+
+pub fn discover_with(
+    runner: &GitRunner,
+    project_root: &Path,
+    cancel: &Arc<AtomicBool>,
+    limits: ScanLimits,
 ) -> Result<Discovery, String> {
     let root = canonical(project_root).map_err(|e| format!("無法開啟專案目錄：{e}"))?;
     let mut repos: Vec<RepoInfo> = Vec::new();
@@ -148,18 +204,23 @@ pub fn discover(
     let started = Instant::now();
     let mut queue = VecDeque::from([(root.clone(), 0usize)]);
     let mut visited = 0usize;
-    let mut truncated = false;
+    let mut limit_reason = None;
     let mut cancelled = false;
     while let Some((directory, depth)) = queue.pop_front() {
         if cancel.load(Ordering::Relaxed) {
             cancelled = true;
             break;
         }
-        if visited >= SCAN_MAX_DIRECTORIES
-            || started.elapsed() > SCAN_BUDGET
-            || repos.len() >= MAX_REPOSITORIES
-        {
-            truncated = true;
+        limit_reason = if visited >= limits.max_directories {
+            Some(LimitReason::Directories)
+        } else if started.elapsed() > limits.budget {
+            Some(LimitReason::Time)
+        } else if repos.len() >= limits.max_repositories {
+            Some(LimitReason::Repositories)
+        } else {
+            None
+        };
+        if limit_reason.is_some() {
             break;
         }
         visited += 1;
@@ -194,10 +255,8 @@ pub fn discover(
                 );
                 continue;
             }
-            if depth + 1 < SCAN_MAX_DEPTH {
+            if depth + 1 < limits.max_depth {
                 queue.push_back((child, depth + 1));
-            } else if has_subdirectories(&child) {
-                truncated = true;
             }
         }
     }
@@ -223,8 +282,39 @@ pub fn discover(
         git_version: runner.version(),
         repos,
         issues,
-        truncated,
+        truncated: limit_reason.is_some(),
+        limit_reason,
         cancelled,
+        scanned_depth: limits.max_depth,
+    })
+}
+
+/// The work tree containing a project file, found the way VS Code finds
+/// repos for open editors: from the file's folder upward, bounded by Git.
+pub fn repo_for_path(
+    runner: &GitRunner,
+    project_root: &Path,
+    relative: &str,
+) -> Result<Option<RepoInfo>, String> {
+    let root = canonical(project_root).map_err(|e| format!("無法開啟專案目錄：{e}"))?;
+    if relative.is_empty() || relative.contains('\0') || Path::new(relative).is_absolute() {
+        return Err("檔案路徑無效".into());
+    }
+    let target = canonical(&root.join(relative)).map_err(|_| "找不到檔案".to_owned())?;
+    if !target.starts_with(&root) {
+        return Err("檔案不在專案內".into());
+    }
+    let directory = if target.is_dir() {
+        target
+    } else {
+        target
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or(root.clone())
+    };
+    Ok(match probe(runner, &directory, &root) {
+        Probe::WorkTree(info, None) => Some(*info),
+        _ => None,
     })
 }
 
@@ -253,16 +343,6 @@ fn submodule_paths(runner: &GitRunner, repo: &RepoInfo) -> Vec<String> {
         })
         .take(256)
         .collect()
-}
-
-fn has_subdirectories(path: &Path) -> bool {
-    std::fs::read_dir(path)
-        .map(|entries| {
-            entries
-                .flatten()
-                .any(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        })
-        .unwrap_or(false)
 }
 
 fn rev_parse(runner: &GitRunner, directory: &Path, args: &[&str]) -> Result<Vec<String>, String> {

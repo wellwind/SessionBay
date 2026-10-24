@@ -3,7 +3,8 @@ import type { LinePosition, PullComment, PullDetail, PullFile, PullSummary, Revi
 
 /** One typed IPC entry point; the backend revalidates project and repo identity. */
 export type GitRequest =
-  | { op: 'discover' }
+  | { op: 'discover'; extended?: boolean }
+  | { op: 'includePath'; path: string }
   | { op: 'cancelDiscovery' }
   | { op: 'status'; repoId: string }
   | { op: 'diff'; repoId: string; path: RepoPath; oldPath?: RepoPath | null; source: DiffSource; ignoreWhitespace?: boolean; untracked?: boolean }
@@ -69,7 +70,8 @@ export const gitRequest = <T>(projectId: string, request: GitRequest) =>
   call<T>('git_request', { projectId, request });
 
 export const gitApi = {
-  discover: (projectId: string) => gitRequest<ProjectGit>(projectId, { op: 'discover' }),
+  discover: (projectId: string, extended = false) => gitRequest<ProjectGit>(projectId, { op: 'discover', extended }),
+  includePath: (projectId: string, path: string) => gitRequest<ProjectGit>(projectId, { op: 'includePath', path }),
   cancelDiscovery: (projectId: string) => gitRequest<null>(projectId, { op: 'cancelDiscovery' }),
   status: (projectId: string, repoId: string) => gitRequest<RepoStatus>(projectId, { op: 'status', repoId }),
   diff: (projectId: string, request: Omit<Extract<GitRequest, { op: 'diff' }>, 'op'>) =>

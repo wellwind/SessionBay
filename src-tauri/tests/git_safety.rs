@@ -368,3 +368,20 @@ fn revert_merge_requires_mainline_and_tags_stay_local_until_pushed() {
     assert!(git(&bare, &["tag"]).is_empty());
     assert!(!git(&repo.root, &["tag"]).is_empty());
 }
+
+#[test]
+fn stash_with_untracked_files_removes_them_from_the_work_tree() {
+    let repo = Repo::new();
+    fs::write(repo.root.join("f.txt"), b"changed\n").unwrap();
+    fs::write(repo.root.join("new.txt"), b"untracked\n").unwrap();
+    repo.request(json!({ "op": "stashPush", "message": "wip", "includeUntracked": true }))
+        .unwrap();
+    assert_eq!(git(&repo.root, &["status", "--porcelain"]), "");
+    let stashes = repo.request(json!({ "op": "stashes" })).unwrap();
+    repo.request(
+        json!({ "op": "stashApply", "index": 0, "expected": stashes[0]["oid"], "pop": true }),
+    )
+    .unwrap();
+    assert_eq!(fs::read(repo.root.join("new.txt")).unwrap(), b"untracked\n");
+    assert_eq!(fs::read(repo.root.join("f.txt")).unwrap(), b"changed\n");
+}
