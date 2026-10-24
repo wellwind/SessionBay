@@ -156,9 +156,9 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 - **macOS** 26.4.1／Apple M1 Max／Git 2.55.0／Rust 1.99.0：Rust 單元與整合測試、Vitest 全套。
 - **Linux**（OrbStack 容器 `rust:1.99`、Debian aarch64、Git 2.47.3；`node:24`）：全部 Git Rust 整合測試與 Git 相關 Vitest 通過；非 UTF-8 檔名測試只在 Linux 實際執行（APFS 不允許此類檔名）。尚未在 x86_64 Linux 與 Linux 桌面 WebView 驗證。
-- **Windows**：只完成 `x86_64-pc-windows-gnu` 交叉編譯檢查（lib、bridge 與全部 Git 測試目標可編譯）；**未實際執行**，路徑、CRLF、credential manager 行為未驗證。
+- **Windows**（windows-2022、WebView2）：[Git workbench Windows acceptance](https://github.com/wellwind/SessionBay/actions/runs/40067263871) 通過——Git 前端測試、26 個 Rust 單元測試、8 個整合測試檔、release 建置，以及原生 WebView2 Git smoke（dark／light；以 `git.exe` 核對 commit 只含所選的第 4 行）。修正過 fixture 的 `\\?\` 路徑問題。完整 Desktop acceptance 在 Windows 仍有 23 個與 Git 無關的既有測試失敗（Runtime 擁有者檢查等），未修改。
 - **真實瀏覽器端到端**：`npm run test:git`（`CARGO=<cargo>`）以 Chrome 開完整 App，Git 請求經 [loopback bridge](../src-tauri/examples/git_bridge.rs) 送到真實 Git 核心與合成 repo：同 hunk 部分暫存→commit、merge 衝突→應用內解決→continue、graph 鍵盤導覽、`Mod+Shift+G`／Escape、tooltip 快捷鍵、Zen Mode、900 與 760 px 窄視窗無水平捲動、亮色主題與長名稱，並確認 Terminal 未重掛。截圖輸出於 `test-results/git/evidence-*.png`。這是 Chrome 而非 Tauri 原生 WebView。
-- **原生 macOS WebView**：本機 release bundle 執行 `scripts/ci-macos-smoke.sh`，原生 Git probe（`src/git-smoke.ts`）在 WKWebView 以正式 IPC 對合成 repo 完成探測、diff、只暫存第 4 行、commit、graph，dark／light 皆通過（DOM／IPC 證據，未擷取像素）。同一 probe 已接入 Linux（WebKitGTK）與 Windows（WebView2，含 `git.exe` 驗證 commit 內容）的手動「Desktop acceptance」workflow，**尚未派送**。
+- **原生 macOS WebView**：本機 release bundle 執行 `scripts/ci-macos-smoke.sh`，原生 Git probe（`src/git-smoke.ts`）在 WKWebView 以正式 IPC 對合成 repo 完成探測、diff、只暫存第 4 行、commit、graph，dark／light 皆通過（DOM／IPC 證據，未擷取像素）。同一 probe 在 Linux 原生 WebKitGTK（[Desktop acceptance](https://github.com/wellwind/SessionBay/actions/runs/40062810005) 的 Linux job）與 Windows WebView2 皆已通過。
 - 只用合成 repo、本機 bare remote 與 loopback HTTP mock，不碰使用者 repo 或真實帳號。
 
 效能量測（2026-10-24，release build，`cargo test --release --no-default-features --test git_performance -- --ignored --nocapture`；合成 repo：20,000 commits、5,000 個 untracked 檔、10,000 行檔案）：
