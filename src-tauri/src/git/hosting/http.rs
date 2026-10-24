@@ -45,6 +45,12 @@ impl From<HostError> for String {
     }
 }
 
+impl From<String> for HostError {
+    fn from(message: String) -> Self {
+        Self::new(HostErrorKind::Invalid, None, message)
+    }
+}
+
 impl HostError {
     pub fn new(kind: HostErrorKind, status: Option<u16>, message: impl Into<String>) -> Self {
         Self {

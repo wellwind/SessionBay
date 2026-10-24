@@ -294,6 +294,64 @@ pub enum GitRequest {
         connection_id: Option<String>,
         project: Option<String>,
     },
+    Pulls {
+        repo_id: String,
+        remote: String,
+        #[serde(default)]
+        state: String,
+        #[serde(default)]
+        refresh: bool,
+    },
+    PullDetail {
+        repo_id: String,
+        remote: String,
+        number: u64,
+    },
+    PullFiles {
+        repo_id: String,
+        remote: String,
+        number: u64,
+    },
+    PullComments {
+        repo_id: String,
+        remote: String,
+        number: u64,
+    },
+    PullComment {
+        repo_id: String,
+        remote: String,
+        number: u64,
+        body: String,
+        position: Option<hosting::review::LinePosition>,
+        expected_head: String,
+    },
+    PullReview {
+        repo_id: String,
+        remote: String,
+        number: u64,
+        event: hosting::review::ReviewEvent,
+        #[serde(default)]
+        body: String,
+        expected_head: String,
+    },
+    PullMerge {
+        repo_id: String,
+        remote: String,
+        number: u64,
+        method: String,
+        expected_head: String,
+    },
+    PullCreate {
+        repo_id: String,
+        remote: String,
+        title: String,
+        #[serde(default)]
+        body: String,
+        source: String,
+        target: String,
+        #[serde(default)]
+        draft: bool,
+    },
     /// Stops a running hook or network command of this repository.
     CancelOperation {
         repo_id: String,
@@ -753,6 +811,56 @@ impl GitService {
                 self.hosting()?.set_mapping(&repo.id, &remote, connection_id.as_deref(), project.as_deref())?;
                 json(self.remote_mappings(&runner, &repo)?)
             }
+            GitRequest::Pulls { repo_id, remote, state, refresh } => self.with_pulls(project_root, &repo_id, &remote, |api, _, hosting| {
+                let key = format!("{}|list|{state}", api.project);
+                if !refresh {
+                    if let Some(cached) = hosting.cache.get(&api.connection.id, &key, 15) {
+                        return Ok(cached);
+                    }
+                }
+                let value = json(api.list(&state)?)?;
+                hosting.cache.put(&api.connection.id, &key, value.clone());
+                Ok(value)
+            }),
+            GitRequest::PullDetail { repo_id, remote, number } => self.with_pulls(project_root, &repo_id, &remote, |api, viewer, _| {
+                let mut value = json(api.detail(number, viewer)?)?;
+                value["connection"] = serde_json::json!({ "id": api.connection.id, "account": viewer, "host": api.connection.host, "provider": api.connection.provider });
+                Ok(value)
+            }),
+            GitRequest::PullFiles { repo_id, remote, number } => self.with_pulls(project_root, &repo_id, &remote, |api, _, _| {
+                let (files, truncated) = api.files(number)?;
+                Ok(serde_json::json!({ "files": files, "truncated": truncated }))
+            }),
+            GitRequest::PullComments { repo_id, remote, number } => self.with_pulls(project_root, &repo_id, &remote, |api, _, _| Ok(json(api.comments(number)?)?)),
+            GitRequest::PullComment { repo_id, remote, number, body, position, expected_head } => self.with_pulls(project_root, &repo_id, &remote, |api, viewer, _| {
+                api.comment(number, &body, position.as_ref(), &expected_head, viewer)?;
+                Ok(Value::Null)
+            }),
+            GitRequest::PullReview { repo_id, remote, number, event, body, expected_head } => self.with_pulls(project_root, &repo_id, &remote, |api, viewer, _| {
+                api.review(number, event, &body, &expected_head, viewer)?;
+                Ok(Value::Null)
+            }),
+            GitRequest::PullMerge { repo_id, remote, number, method, expected_head } => self.with_pulls(project_root, &repo_id, &remote, |api, viewer, hosting| {
+                api.merge(number, &method, &expected_head, viewer)?;
+                hosting.cache.forget(&api.connection.id);
+                Ok(Value::Null)
+            }),
+            GitRequest::PullCreate { repo_id, remote, title, body, source, target, draft } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                remote::check_ref_name(&runner, &repo, &source, "來源 branch ")?;
+                remote::check_ref_name(&runner, &repo, &target, "目標 branch ")?;
+                let pushed = runner
+                    .run(runner::Invocation::new(&repo.root_path, Access::Read, ["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{remote}/{source}")]))?
+                    .success();
+                if !pushed {
+                    return Err(format!("{remote} 上沒有 {source}；請先推送此 branch 再建立 PR／MR"));
+                }
+                self.with_pulls(project_root, &repo_id, &remote, |api, _, hosting| {
+                    let created = api.create(&title, &body, &source, &target, draft)?;
+                    hosting.cache.forget(&api.connection.id);
+                    Ok(json(created)?)
+                })
+            }
             GitRequest::CancelOperation { repo_id } => {
                 if let Some(flag) = self
                     .operations
@@ -837,6 +945,36 @@ impl GitService {
             }));
         }
         Ok(list)
+    }
+
+    /// Resolves the confirmed account and project for a repo remote.
+    fn with_pulls(
+        &self,
+        project_root: &Path,
+        repo_id: &str,
+        remote: &str,
+        action: impl FnOnce(
+            &hosting::review::Api<'_>,
+            &str,
+            &hosting::Hosting,
+        ) -> Result<Value, hosting::http::HostError>,
+    ) -> Result<Value, String> {
+        let (runner, repo) = self.repo(project_root, repo_id)?;
+        let hosting = self.hosting()?;
+        let mapping = hosting
+            .mappings_for(&repo.id)
+            .into_iter()
+            .find(|m| m.remote == remote)
+            .ok_or_else(|| format!("{remote} 尚未對應主機帳號；請在「主機與帳號」確認對應"))?;
+        let connection = hosting.connection(&mapping.connection_id)?;
+        let token = hosting.token(&runner, project_root, &connection)?;
+        let api = hosting::review::Api {
+            client: &hosting.client,
+            connection: &connection,
+            token: &token,
+            project: &mapping.project,
+        };
+        action(&api, &connection.account, hosting).map_err(String::from)
     }
 
     fn begin_operation(&self, repo_id: &str) -> Result<Arc<AtomicBool>, String> {

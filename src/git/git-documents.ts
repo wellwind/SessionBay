@@ -10,7 +10,7 @@ export type DocumentSpec =
   | { kind: 'blame'; path: RepoPath; rev: string | null }
   | { kind: 'fileHistory'; path: RepoPath }
   | { kind: 'conflict'; path: RepoPath }
-  | { kind: 'pullRequest'; connectionId: string; project: string; number: number };
+  | { kind: 'pullRequest'; remote: string; number: number; title: string };
 
 export interface GitDocument { key: string; repoId: string; repoName: string; spec: DocumentSpec }
 export interface GitDocuments { documents: GitDocument[]; active: string | null }
@@ -24,7 +24,7 @@ export function documentKey(repoId: string, spec: DocumentSpec): string {
     case 'blame': return `${repoId}|blame|${pathKey(spec.path)}|${spec.rev ?? 'HEAD'}`;
     case 'fileHistory': return `${repoId}|history|${pathKey(spec.path)}`;
     case 'conflict': return `${repoId}|conflict|${pathKey(spec.path)}`;
-    case 'pullRequest': return `${repoId}|pr|${spec.connectionId}|${spec.project}|${spec.number}`;
+    case 'pullRequest': return `${repoId}|pr|${spec.remote}|${spec.number}`;
   }
 }
 
@@ -39,7 +39,7 @@ export function documentTitle(document: GitDocument): string {
     case 'blame': return `blame ${fileName(spec.path)}`;
     case 'fileHistory': return `歷史 ${fileName(spec.path)}`;
     case 'conflict': return `衝突 ${fileName(spec.path)}`;
-    case 'pullRequest': return `#${spec.number}`;
+    case 'pullRequest': return `#${spec.number} ${spec.title}`.slice(0, 40);
   }
 }
 

@@ -1,5 +1,5 @@
 import { call } from '../api';
-import type { ConflictFile, ResolveChoice, Outcome, RecoveryPoint, RemoteTag, ResetMode, StashEntry, Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
+import type { LinePosition, PullComment, PullDetail, PullFile, PullSummary, ReviewEvent, ConflictFile, ResolveChoice, Outcome, RecoveryPoint, RemoteTag, ResetMode, StashEntry, Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
 
 /** One typed IPC entry point; the backend revalidates project and repo identity. */
 export type GitRequest =
@@ -51,7 +51,15 @@ export type GitRequest =
   | { op: 'continueOperation'; repoId: string }
   | { op: 'abortOperation'; repoId: string }
   | { op: 'remoteMappings'; repoId: string }
-  | { op: 'setRemoteMapping'; repoId: string; remote: string; connectionId: string | null; project: string | null };
+  | { op: 'setRemoteMapping'; repoId: string; remote: string; connectionId: string | null; project: string | null }
+  | { op: 'pulls'; repoId: string; remote: string; state: string; refresh: boolean }
+  | { op: 'pullDetail'; repoId: string; remote: string; number: number }
+  | { op: 'pullFiles'; repoId: string; remote: string; number: number }
+  | { op: 'pullComments'; repoId: string; remote: string; number: number }
+  | { op: 'pullComment'; repoId: string; remote: string; number: number; body: string; position: LinePosition | null; expectedHead: string }
+  | { op: 'pullReview'; repoId: string; remote: string; number: number; event: ReviewEvent; body: string; expectedHead: string }
+  | { op: 'pullMerge'; repoId: string; remote: string; number: number; method: string; expectedHead: string }
+  | { op: 'pullCreate'; repoId: string; remote: string; title: string; body: string; source: string; target: string; draft: boolean };
 
 type Body<K extends GitRequest['op']> = Omit<Extract<GitRequest, { op: K }>, 'op'>;
 const outcome = <K extends GitRequest['op']>(op: K) => (projectId: string, body: Body<K>) =>
@@ -113,6 +121,14 @@ export const gitApi = {
   resolveWith: outcome('resolveWith'),
   continueOperation: outcome('continueOperation'),
   abortOperation: outcome('abortOperation'),
+  pulls: (projectId: string, body: Body<'pulls'>) => gitRequest<PullSummary[]>(projectId, { op: 'pulls', ...body }),
+  pullDetail: (projectId: string, body: Body<'pullDetail'>) => gitRequest<PullDetail>(projectId, { op: 'pullDetail', ...body }),
+  pullFiles: (projectId: string, body: Body<'pullFiles'>) => gitRequest<{ files: PullFile[]; truncated: boolean }>(projectId, { op: 'pullFiles', ...body }),
+  pullComments: (projectId: string, body: Body<'pullComments'>) => gitRequest<PullComment[]>(projectId, { op: 'pullComments', ...body }),
+  pullComment: (projectId: string, body: Body<'pullComment'>) => gitRequest<null>(projectId, { op: 'pullComment', ...body }),
+  pullReview: (projectId: string, body: Body<'pullReview'>) => gitRequest<null>(projectId, { op: 'pullReview', ...body }),
+  pullMerge: (projectId: string, body: Body<'pullMerge'>) => gitRequest<null>(projectId, { op: 'pullMerge', ...body }),
+  pullCreate: (projectId: string, body: Body<'pullCreate'>) => gitRequest<PullSummary>(projectId, { op: 'pullCreate', ...body }),
   cancelOperation: (projectId: string, repoId: string) => gitRequest<null>(projectId, { op: 'cancelOperation', repoId }),
   unstageSelection: (projectId: string, request: Omit<Extract<GitRequest, { op: 'unstageSelection' }>, 'op'>) =>
     gitRequest<null>(projectId, { op: 'unstageSelection', ...request }),
