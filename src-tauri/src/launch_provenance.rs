@@ -575,6 +575,16 @@ mod tests {
     }
 
     fn private_write(path: &Path, bytes: &[u8]) {
+        // Elevated Windows tokens default new files to Administrators, which the
+        // store rightly rejects; fixtures need the same explicit user owner.
+        #[cfg(windows)]
+        if !path.exists() {
+            windows_security::create_new_file(path)
+                .unwrap()
+                .write_all(bytes)
+                .unwrap();
+            return;
+        }
         let mut options = private_options(true);
         options.create(true).truncate(true);
         #[cfg(unix)]
