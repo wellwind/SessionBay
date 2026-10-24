@@ -2620,9 +2620,10 @@ fn removal_inspection_refuses_truncated_artifact_inventory() {
 #[test]
 fn removal_inspection_accepts_verified_configured_root_spelling() {
     let h = Harness::new();
+    #[cfg_attr(windows, allow(unused_mut))]
     let mut source = h.source("removal-spelling", AgentKind::Codex);
-    // Windows config validation rejects `..` roots, so there the alternate
-    // spelling is the non-verbatim form of the canonical `\\?\` path.
+    // Windows config validation rejects `..` roots; there the configured
+    // `C:\...` spelling already differs from the verbatim canonical path.
     #[cfg(not(windows))]
     {
         let alias = h.root.join("alias");
@@ -2632,14 +2633,6 @@ fn removal_inspection_accepts_verified_configured_root_spelling() {
             .join("removal-spelling")
             .to_string_lossy()
             .into_owned();
-    }
-    #[cfg(windows)]
-    {
-        source.root = source
-            .root
-            .strip_prefix(r"\\?\")
-            .expect("harness root is canonical")
-            .to_owned();
     }
     let path = h.write(
         &source,

@@ -436,7 +436,15 @@ fn live_state_opt_in_preserves_indexed_and_manual_source_launch_plans() {
         },
     ] {
         let live = service.plan_launch(&request).unwrap();
-        assert_eq!(live.env[sessionbay_lib::provider_hooks::OPT_IN], "live");
+        // Without a live source (Windows) the preference must not block launch.
+        let expected =
+            sessionbay_lib::provider_hooks::supported(AgentKind::OpenCode).then_some("live");
+        assert_eq!(
+            live.env
+                .get(sessionbay_lib::provider_hooks::OPT_IN)
+                .map(String::as_str),
+            expected
+        );
         assert_eq!(live.args, ordinary.args);
         assert_eq!(live.executable, ordinary.executable);
         assert_eq!(live.cwd, ordinary.cwd);
