@@ -197,11 +197,24 @@ pub(crate) fn resolve(
 
 #[cfg(test)]
 mod tests {
+    /// Canonical path without the Windows `\\?\` verbatim prefix.
+    fn real_path(path: &std::path::Path) -> std::path::PathBuf {
+        let path = path.canonicalize().unwrap();
+        #[cfg(windows)]
+        if let Some(rest) = path.to_string_lossy().strip_prefix(r"\\?\") {
+            if !rest.starts_with("UNC\\") {
+                return std::path::PathBuf::from(rest);
+            }
+        }
+        path
+    }
+
     use super::*;
     use std::fs;
     fn root() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        // Without the Windows \\?\ prefix, which resolve() rejects as a device path.
+        let root = real_path(dir.path());
         (dir, root)
     }
     #[test]

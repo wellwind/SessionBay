@@ -35,6 +35,7 @@ pub use desktop::run;
 #[cfg(windows)]
 mod windows_fs;
 #[cfg(windows)]
+#[allow(dead_code)]
 #[path = "broker/windows_security.rs"]
 mod windows_security;
 

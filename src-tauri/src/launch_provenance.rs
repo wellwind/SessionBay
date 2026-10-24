@@ -28,9 +28,7 @@ const MAX_CWD_BYTES: usize = 8192;
 const MAX_CONTEXT_ID_BYTES: usize = 512;
 
 #[cfg(windows)]
-#[allow(dead_code)]
-#[path = "broker/windows_security.rs"]
-mod windows_security;
+use crate::windows_security;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -118,16 +116,23 @@ impl LaunchProvenance {
         if !same_file(&directory_handle, &open_directory(&directory)?)? {
             return Err("Launch provenance directory changed while opening.".into());
         }
-        let mut options = private_options(true);
-        options.create(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let lock = options
-            .open(directory.join(LOCK_FILE))
-            .map_err(|e| e.to_string())?;
+        // Windows: explicit user owner, as for broker and staging locks.
+        #[cfg(windows)]
+        let lock =
+            windows_security::open_lock(&directory.join(LOCK_FILE)).map_err(|e| e.to_string())?;
+        #[cfg(not(windows))]
+        let lock = {
+            let mut options = private_options(true);
+            options.create(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            options
+                .open(directory.join(LOCK_FILE))
+                .map_err(|e| e.to_string())?
+        };
         verify_private_file(&lock)?;
         let store = Self {
             directory,
@@ -159,6 +164,11 @@ impl LaunchProvenance {
                 use std::os::unix::fs::PermissionsExt;
                 builder.permissions(fs::Permissions::from_mode(0o600));
             }
+            #[cfg(windows)]
+            let mut temporary = builder
+                .make_in(&self.directory, windows_security::create_new_file)
+                .map_err(|e| e.to_string())?;
+            #[cfg(not(windows))]
             let mut temporary = builder
                 .tempfile_in(&self.directory)
                 .map_err(|e| e.to_string())?;
