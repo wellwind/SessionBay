@@ -33,6 +33,7 @@ import {
   Square,
   Compass,
   Palette,
+  LayoutGrid,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { closeFocusedExplorer } from './components/explorer-focus';
@@ -106,6 +107,7 @@ import { useUiTheme } from './use-ui-theme';
 import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
+import { WorkspaceOverview } from './components/WorkspaceOverview';
 import { WorkspaceFiles } from './components/WorkspaceFiles';
 import './project-files-workspace.css';
 import { markWelcomeSeen, shouldShowWelcome } from './welcome';
@@ -173,6 +175,10 @@ export default function App() {
   const projectsToggle = useRef<HTMLButtonElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
+  // The all-workspaces grid is a view over every pane; terminals stay mounted underneath.
+  const [workspaceOverview, setWorkspaceOverview] = useState(false);
+  const [overviewReturn, setOverviewReturn] = useState(false);
+  const beforeOverview = useRef<{ selectedId: string | null | undefined; view: 'history' | 'workspace' | 'files' | 'git' } | null>(null);
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
   const lastHistoryProject = useRef<string | null | undefined>(undefined);
@@ -331,6 +337,8 @@ export default function App() {
   );
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
+  // Selecting any project or the temporary workspace (including zooming into a card) leaves the grid.
+  useEffect(() => { if (selectedId !== undefined) setWorkspaceOverview(false); }, [selectedId]);
   const manuallyClosedActivities = useRef(new Set<string>());
   const hadProjectTabs = useRef<Record<string, boolean>>({});
   const activityMode = focusMode ? 'zen' : 'normal';
@@ -1093,7 +1101,27 @@ export default function App() {
     [settings?.shortcuts],
   );
   const conflicts = useMemo(() => shortcutConflicts(effectiveShortcuts), [effectiveShortcuts]);
+  const openWorkspaceOverview = () => {
+    if (!workspaceOverview) beforeOverview.current = { selectedId, view };
+    setOverviewReturn(false);
+    setSelectedId(undefined);
+    setAllSessionsSearch(false);
+    setView('history');
+    setMaximizedId(null);
+    setWorkspaceOverview(true);
+  };
+  const closeWorkspaceOverview = () => {
+    const previous = beforeOverview.current;
+    beforeOverview.current = null;
+    setWorkspaceOverview(false);
+    if (previous?.selectedId !== undefined) {
+      setSelectedId(previous.selectedId);
+      setView(previous.view);
+    }
+  };
   const commands: Command[] = [
+    { id: 'toggle-workspace-overview', label: workspaceOverview ? '離開全部工作區總覽' : '開啟全部工作區總覽', disabled: !boot,
+      run: () => workspaceOverview ? closeWorkspaceOverview() : openWorkspaceOverview() },
     { id: 'project-quick-open', label: '快速開啟專案分頁、Sessions 與檔案', disabled: !current,
       run: () => setQuickOpen(true) },
     { id: 'toggle-project-sessions', label: '顯示／隱藏專案 Sessions', disabled: !current,
@@ -1228,7 +1256,7 @@ export default function App() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git', 'toggle-workspace-overview'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
@@ -1360,6 +1388,8 @@ export default function App() {
     [p.id, projectOpenCount(workspace.tabs.filter((tab) => tab.projectId === p.id), workspace.panes)]));
   const listCollapsed = navigation === 'projects' ? sidebar.projectsCollapsed : sidebar.directoriesCollapsed;
   const selectNavigation = (page: 'projects' | 'directories') => {
+    setWorkspaceOverview(false);
+    setOverviewReturn(false);
     setNavigation(page);
     setSelectedId(undefined);
     setAllSessionsSearch(false);
@@ -1368,12 +1398,15 @@ export default function App() {
     setMaximizedId(null);
   };
   const selectProject = (project: Project) => {
+    setOverviewReturn(false);
     setSelectedId(project.id);
     setAllSessionsSearch(false);
     setView(projectViews.current[project.id] ?? (workspace.tabs.some(tab => tab.projectId === project.id) ? 'workspace' : 'history'));
     setMaximizedId(null);
   };
   const navigationName = navigation === 'projects' ? '專案' : '所有目錄';
+  const pageTitle = workspaceOverview ? '全部工作區' : temporaryWorkspace ? '臨時 Terminal'
+    : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName);
   const projectCount = projects.filter((project) => project.curated).length;
   const directoryCount = projects.filter((project) => project.sessionCount > 0).length;
   const activeCount = Object.values(workspace.panes).filter(
@@ -1428,11 +1461,16 @@ export default function App() {
               </button>
             </div>
             <button
-              className={`sidebar-global ${selectedId === undefined && !allSessionsSearch ? 'active' : ''}`}
+              className={`sidebar-global ${selectedId === undefined && !allSessionsSearch && !workspaceOverview ? 'active' : ''}`}
               onClick={() => selectNavigation(navigation)}
             >
               <Compass size={17} />
               {navigation === 'projects' ? '專案總覽' : '目錄總覽'}<span>{navigation === 'projects' ? projectCount : directoryCount}</span>
+            </button>
+            <button className={`sidebar-global ${workspaceOverview ? 'active' : ''}`} disabled={!boot}
+              aria-pressed={workspaceOverview} onClick={openWorkspaceOverview}
+              title={effectiveShortcuts['toggle-workspace-overview'] ? `全部工作區（${effectiveShortcuts['toggle-workspace-overview']}）` : '全部工作區'}>
+              <LayoutGrid size={17} />全部工作區<span>{Object.keys(workspace.panes).length}</span>
             </button>
             <div className="sidebar-section">
               <button className="sidebar-section-toggle" aria-expanded={!listCollapsed} aria-controls="sidebar-project-content"
@@ -1538,7 +1576,7 @@ export default function App() {
         {projectNavigation}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
-            <ResponsiveControls label="專案資訊與操作" summary={temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}>
+            <ResponsiveControls label="專案資訊與操作" summary={pageTitle}>
             <div className="project-heading">
               <nav className="breadcrumb" aria-label="目前位置">
                 {!sidebarOpen && (
@@ -1552,7 +1590,8 @@ export default function App() {
                 )}
                 <span>Session Bay</span>
                 <ChevronRight size={12} />
-                {current || allSessionsSearch || temporaryWorkspace ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {current || allSessionsSearch || temporaryWorkspace || workspaceOverview ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {workspaceOverview && <><ChevronRight size={12} /><span aria-current="page">全部工作區</span></>}
                 {temporaryWorkspace && <><ChevronRight size={12} /><span aria-current="page">臨時 Terminal</span></>}
                 {current && <><ChevronRight size={12} /><span aria-current="page" title={current.name}>{current.name}</span></>}
                 {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
@@ -1564,8 +1603,8 @@ export default function App() {
                   onClick={() => void saveMembership(current, !current.curated)}>
                   <Star size={17} fill={current.curated ? 'currentColor' : 'none'} aria-hidden="true" />
                 </button>}
-                <h1 title={temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}>
-                  {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
+                <h1 title={pageTitle}>
+                  {pageTitle}
                 </h1>
                 {current && !current.workspaceOnly && <button className="icon-button project-rename" disabled={projectBusy}
                   title="重新命名專案" aria-label="重新命名專案"
@@ -1591,6 +1630,9 @@ export default function App() {
               </div>}
             </div>
             <div className="header-buttons">
+              {overviewReturn && !workspaceOverview && <button className="secondary" onClick={openWorkspaceOverview}>
+                <LayoutGrid size={15} />返回全部工作區
+              </button>}
               <button className="icon-button" title="資源回收筒" aria-label="資源回收筒" disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history');  }}>
@@ -1708,9 +1750,11 @@ export default function App() {
                   <p>隨時從家目錄開啟新的命令列，不需要建立專案。</p>
                   <button className="primary" onClick={() => openTemporaryTerminal()}>開啟新的臨時 Terminal</button>
                 </div>}
+                {workspaceOverview && <WorkspaceOverview workspace={workspace} projects={visibleProjects} visible
+                  onOpen={(paneId) => { beforeOverview.current = null; setOverviewReturn(true); focus(paneId); }} />}
                 <div
                   className="history-mount"
-                  style={{ display: view === 'history' ? undefined : 'none' }}
+                  style={{ display: view === 'history' && !workspaceOverview ? undefined : 'none' }}
                 >
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
                     openRequest={historyOpenRequest}
@@ -1738,7 +1782,7 @@ export default function App() {
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
                     settings={visibleSettings ?? settings}
-                    visible={view === 'workspace'}
+                    visible={view === 'workspace' && !workspaceOverview}
                     maximizedId={maximizedId}
                     onPatch={patchPane}
                     onOpenFileLink={(paneId, request) => {

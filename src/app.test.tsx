@@ -3012,6 +3012,31 @@ describe('appearance transactions across delayed native and disk saves', () => {
 });
 
 describe('workspace display organization', () => {
+  it('opens the all-workspaces grid, zooms into a pane and returns without remounting or stopping runtimes', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />); await tick(); selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark synthetic runtime running' }));
+    const original = workspaceSnapshot();
+    const mounts = native.canvasMounted.mock.calls.length;
+    const unmounts = native.canvasUnmounted.mock.calls.length;
+    const stops = vi.mocked(api.stop).mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /^全部工作區/ }));
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('全部工作區');
+    const card = within(screen.getByRole('list', { name: '開啟中的工作' })).getByRole('button', { name: /^放大 Synthetic project/ });
+    expect(screen.getByTestId('workspace-canvas')).toBeInTheDocument();
+    fireEvent.click(card); await tick();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Synthetic project');
+    expect(screen.queryByRole('list', { name: '開啟中的工作' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '返回全部工作區' }));
+    expect(screen.getByRole('list', { name: '開啟中的工作' })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'O', code: 'KeyO', ctrlKey: true, shiftKey: true });
+    expect(screen.queryByRole('list', { name: '開啟中的工作' })).toBeNull();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Synthetic project');
+    expect(workspaceSnapshot().panes).toEqual(original.panes);
+    expect(native.canvasMounted).toHaveBeenCalledTimes(mounts);
+    expect(native.canvasUnmounted).toHaveBeenCalledTimes(unmounts);
+    expect(api.stop).toHaveBeenCalledTimes(stops);
+  });
   it('renames and persists a tab without remounting the canvas or stopping its runtime', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     render(<App />); await tick(); selectGroup();

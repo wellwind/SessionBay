@@ -248,3 +248,12 @@ Code Modern／Code2026 保留原 tab active／inactive／hover 配色，但高 s
 此批的瀏覽器幾何與截圖驗收仍待資源充足的環境執行；單元測試不等於原生 Linux WebView／Snap 驗收。
 
 Zen 保留與一般模式相同的固定高度底部 statusbar；索引開始／進度／完成／取消／錯誤只替換列內內容，不再因 `statusbar-important` 切換而增減 Terminal 高度。模式切換本身的 fit 與索引期間的額外 resize 分開驗收。
+
+## 專案識別色
+
+跨專案的畫面（全部工作區總覽，以及之後的混合分頁）以 `--project-0`…`--project-7` 標示專案，縮寫文字用 `--on-project`。
+
+- 一律搭配名稱縮寫，不只靠顏色辨識；臨時 Terminal 用 `--muted` 灰色。
+- 深色主題用淺色色票配深色字，淺色主題用深色色票配白字。縮寫文字對比 ≥4.5:1，色條對 `--bg`／`--panel`／`--surface` ≥3:1，由 `scripts/validate-ui-design.py` 檢查。
+- 指派：`projectColorSlots()` 以專案 ID 雜湊為起點，碰撞時往下一格，8 個專案以內保證不同色；超過 8 個時重複使用，靠縮寫區分。
+
