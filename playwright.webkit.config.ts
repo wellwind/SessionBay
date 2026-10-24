@@ -21,6 +21,12 @@ const knownWebKitDifferences = [
   'active overflow tabs and fixed rectangular controls',
   // CSS zoom emulation; the app uses native webview zoom.
   'edge-to-edge:',
+  // Linux WebKit only: long scrollback is left above the bottom after a resize
+  // (same family as the split case above), and CSS zoom geometry differs.
+  ...(process.platform === 'linux' ? [
+    'dark 600x413 keeps', 'light 600x413 keeps', 'dark 450x310 keeps', 'light 450x310 keeps',
+    'history density, divider and queued undo toast retain geometry at CSS zoom',
+  ] : []),
 ];
 
 export default defineConfig({

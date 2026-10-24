@@ -255,11 +255,11 @@ Zen 保留與一般模式相同的固定高度底部 statusbar；索引開始／
 
 | 項目 | 現象 | 判斷 |
 | --- | --- | --- |
-| split 後的捲動 | 第一個 pane 停在底部之上；Escape 送不到 pane 選單 | 疑似產品問題，待修 |
+| split／resize 後的捲動 | 第一個 pane 停在底部之上；Escape 送不到 pane 選單。Linux WebKit 在單一 pane、長 scrollback 縮小視窗後也會發生 | 疑似產品問題，待修（優先，最接近 WebKitGTK 實況） |
 | pointer 拖曳排序 | 預覽位移與 Chromium 不同 | 待查 pointer capture 差異 |
 | 程式化 focus 的 focus ring | 沒有畫出內縮 outline | 待查 `:focus-visible` 規則 |
 | `Control` 組合鍵 | Zen、`Control+9` 沒有反應 | macOS 實際使用 Cmd，疑似測試工具差異 |
-| CSS `zoom` 模擬 | edge-to-edge 幾何不同 | App 實際使用原生 webview 縮放，疑似測試工具差異 |
+| CSS `zoom` 模擬 | edge-to-edge 幾何不同；Linux WebKit 的歷史密度 zoom 測試也不同 | App 實際使用原生 webview 縮放，疑似測試工具差異 |
 
 WebKit 點擊按鈕時不會讓按鈕取得焦點。焦點回復邏輯不能假設「被點擊的按鈕就是 `document.activeElement`」。
 
