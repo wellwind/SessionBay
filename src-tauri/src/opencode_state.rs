@@ -463,6 +463,7 @@ pub fn cleanup(launch: &str) {
 }
 
 #[cfg(test)]
+#[cfg_attr(not(unix), allow(dead_code))] // Only Unix provider-hook tests stage plugins.
 pub(crate) fn staged_path(launch: &str) -> Option<std::path::PathBuf> {
     plugins()
         .lock()

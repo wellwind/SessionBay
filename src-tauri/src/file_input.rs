@@ -75,9 +75,7 @@ pub struct FileStaging {
 }
 
 #[cfg(windows)]
-#[allow(dead_code)]
-#[path = "broker/windows_security.rs"]
-mod windows_security;
+use crate::windows_security;
 
 fn private_directory(directory: &Path) -> Result<(), String> {
     #[cfg(unix)]
@@ -175,30 +173,51 @@ impl FileStaging {
             return Err(self.quota_error("512 MiB"));
         }
         let id = Uuid::new_v4().to_string();
-        let mut builder = tempfile::Builder::new();
-        builder.prefix("upload-");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            builder.permissions(fs::Permissions::from_mode(0o700));
-        }
-        let directory = builder
-            .tempdir_in(&self.directory)
-            .map_err(|e| e.to_string())?
-            .keep();
+        // Windows: create the directory itself with an explicit user owner.
+        // An elevated token's default owner is Administrators, which the
+        // owner check would (correctly) reject for a std-created directory.
+        #[cfg(windows)]
+        let directory = {
+            let directory = self
+                .directory
+                .join(format!("upload-{}", Uuid::new_v4().simple()));
+            if directory.symlink_metadata().is_ok() {
+                return Err("暫存目錄名稱衝突，請重試。".into());
+            }
+            directory
+        };
+        #[cfg(not(windows))]
+        let directory = {
+            let mut builder = tempfile::Builder::new();
+            builder.prefix("upload-");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                builder.permissions(fs::Permissions::from_mode(0o700));
+            }
+            builder
+                .tempdir_in(&self.directory)
+                .map_err(|e| e.to_string())?
+                .keep()
+        };
         private_directory(&directory)?;
         let directory_handle = open_directory(&directory)?;
         let result = (|| -> Result<Pending, String> {
             let path = directory.join(&sanitized);
             safe_path(&path)?;
-            let mut options = fs::OpenOptions::new();
-            options.read(true).write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let file = options.open(&path).map_err(|e| e.to_string())?;
+            #[cfg(windows)]
+            let file = windows_security::create_new_file(&path).map_err(|e| e.to_string())?;
+            #[cfg(not(windows))]
+            let file = {
+                let mut options = fs::OpenOptions::new();
+                options.read(true).write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                options.open(&path).map_err(|e| e.to_string())?
+            };
             let file = NamedTempFile::from_parts(
                 file,
                 tempfile::TempPath::try_from_path(path).map_err(|e| e.to_string())?,
@@ -333,23 +352,24 @@ impl Drop for FileStaging {
     }
 }
 fn lock_store(directory: &Path) -> Result<File, String> {
-    let mut options = fs::OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
-    }
     #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    let file = options
-        .open(directory.join("staging.lock"))
-        .map_err(|e| e.to_string())?;
+    let file =
+        windows_security::open_lock(&directory.join("staging.lock")).map_err(|e| e.to_string())?;
+    #[cfg(not(windows))]
+    let file = {
+        let mut options = fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+        }
+        options
+            .open(directory.join("staging.lock"))
+            .map_err(|e| e.to_string())?
+    };
     if !file.metadata().map_err(|e| e.to_string())?.is_file() {
         return Err("檔案暫存鎖不是一般檔案。".into());
     }

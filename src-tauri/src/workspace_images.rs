@@ -241,6 +241,18 @@ fn png_animation(bytes: &[u8]) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    /// Canonical path without the Windows `\\?\` verbatim prefix.
+    fn real_path(path: &std::path::Path) -> std::path::PathBuf {
+        let path = path.canonicalize().unwrap();
+        #[cfg(windows)]
+        if let Some(rest) = path.to_string_lossy().strip_prefix(r"\\?\") {
+            if !rest.starts_with("UNC\\") {
+                return std::path::PathBuf::from(rest);
+            }
+        }
+        path
+    }
+
     use super::*;
     use image::GenericImageView;
     static READ_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -441,31 +453,39 @@ mod tests {
     #[test]
     fn safe_read_checks_revision_size_and_paths() {
         let _test_guard = READ_TEST_LOCK.lock().unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("image.png");
+        let temp = tempfile::tempdir().unwrap();
+        // Real path: macOS temp lives under the /var symlink, which safe
+        // reads (correctly) refuse to traverse.
+        let directory = real_path(temp.path());
+        let directory = directory.as_path();
+        let path = directory.join("image.png");
         std::fs::write(&path, picture(ImageFormat::Png)).unwrap();
-        let info = crate::workspace_files::inspect(directory.path(), "image.png").unwrap();
+        let info = crate::workspace_files::inspect(directory, "image.png").unwrap();
         assert_eq!(info.kind, crate::models::WorkspaceFileKind::Image);
-        assert!(read(directory.path(), "image.png", &info.version).is_ok());
-        assert!(read(directory.path(), "../image.png", &info.version).is_err());
+        assert!(read(directory, "image.png", &info.version).is_ok());
+        assert!(read(directory, "../image.png", &info.version).is_err());
         std::fs::write(&path, picture(ImageFormat::Jpeg)).unwrap();
-        assert!(read(directory.path(), "image.png", &info.version).is_err());
+        assert!(read(directory, "image.png", &info.version).is_err());
         let file = std::fs::File::create(&path).unwrap();
         file.set_len(MAX_INPUT_BYTES as u64 + 1).unwrap();
-        let info = crate::workspace_files::inspect(directory.path(), "image.png").unwrap();
-        assert!(read(directory.path(), "image.png", &info.version).is_err());
+        // Windows refuses to share a file another handle is still writing.
+        drop(file);
+        let info = crate::workspace_files::inspect(directory, "image.png").unwrap();
+        assert!(read(directory, "image.png", &info.version).is_err());
     }
     #[cfg(unix)]
     #[test]
     fn rejects_symlink_and_hardlink_reads() {
         let _test_guard = READ_TEST_LOCK.lock().unwrap();
-        let directory = tempfile::tempdir().unwrap();
-        let source = directory.path().join("image.png");
+        let temp = tempfile::tempdir().unwrap();
+        let directory = real_path(temp.path());
+        let directory = directory.as_path();
+        let source = directory.join("image.png");
         std::fs::write(&source, picture(ImageFormat::Png)).unwrap();
-        let info = crate::workspace_files::inspect(directory.path(), "image.png").unwrap();
-        std::os::unix::fs::symlink(&source, directory.path().join("link.png")).unwrap();
-        assert!(read(directory.path(), "link.png", &info.version).is_err());
-        std::fs::hard_link(source, directory.path().join("hard.png")).unwrap();
-        assert!(read(directory.path(), "hard.png", &info.version).is_err());
+        let info = crate::workspace_files::inspect(directory, "image.png").unwrap();
+        std::os::unix::fs::symlink(&source, directory.join("link.png")).unwrap();
+        assert!(read(directory, "link.png", &info.version).is_err());
+        std::fs::hard_link(source, directory.join("hard.png")).unwrap();
+        assert!(read(directory, "hard.png", &info.version).is_err());
     }
 }

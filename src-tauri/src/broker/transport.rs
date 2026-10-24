@@ -288,13 +288,25 @@ pub async fn connect(directory: &Path) -> io::Result<ActivityStream> {
             os::windows::named_pipe::{pipe_mode::Bytes, tokio::DuplexPipeStream},
             ConnectWaitMode,
         };
-        // Fail immediately if every pipe instance is busy; never create the
-        // crate's unbounded blocking connect task in a short-lived runtime.
-        let pipe = DuplexPipeStream::<Bytes>::connect_by_path_with_wait_mode(
-            format!(r"\\.\pipe\{}", windows_pipe_name(directory)?),
-            ConnectWaitMode::Timeout(Duration::ZERO),
-        )
-        .await?;
+        // Never create the crate's unbounded blocking connect task in a
+        // short-lived runtime. The server re-arms a pipe instance after each
+        // accept, so a busy pipe gets a few short async retries instead.
+        let path = format!(r"\\.\pipe\{}", windows_pipe_name(directory)?);
+        let mut retries = 0;
+        let pipe = loop {
+            match DuplexPipeStream::<Bytes>::connect_by_path_with_wait_mode(
+                path.as_str(),
+                ConnectWaitMode::Timeout(Duration::ZERO),
+            )
+            .await
+            {
+                Err(error) if error.kind() == io::ErrorKind::TimedOut && retries < 10 => {
+                    retries += 1;
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+                result => break result?,
+            }
+        };
         Stream::NamedPipe(pipe.into())
     };
     let stream = ActivityStream(stream);

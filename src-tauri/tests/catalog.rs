@@ -2620,14 +2620,20 @@ fn removal_inspection_refuses_truncated_artifact_inventory() {
 #[test]
 fn removal_inspection_accepts_verified_configured_root_spelling() {
     let h = Harness::new();
+    #[cfg_attr(windows, allow(unused_mut))]
     let mut source = h.source("removal-spelling", AgentKind::Codex);
-    let alias = h.root.join("alias");
-    fs::create_dir_all(&alias).unwrap();
-    source.root = alias
-        .join("..")
-        .join("removal-spelling")
-        .to_string_lossy()
-        .into_owned();
+    // Windows config validation rejects `..` roots; there the configured
+    // `C:\...` spelling already differs from the verbatim canonical path.
+    #[cfg(not(windows))]
+    {
+        let alias = h.root.join("alias");
+        fs::create_dir_all(&alias).unwrap();
+        source.root = alias
+            .join("..")
+            .join("removal-spelling")
+            .to_string_lossy()
+            .into_owned();
+    }
     let path = h.write(
         &source,
         "sessions/a.jsonl",

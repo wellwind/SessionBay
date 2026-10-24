@@ -17,8 +17,11 @@ export async function runSmokeInteraction(): Promise<void> {
     });
   };
   const click = (button: HTMLElement | null) => {
-    if (!button || button.matches(':disabled, [aria-disabled="true"]') || button.getBoundingClientRect().width <= 0)
-      throw new Error('UI smoke: expected a visible, enabled control');
+    if (!button || button.matches(':disabled, [aria-disabled="true"]') || button.getBoundingClientRect().width <= 0) {
+      const name = button?.getAttribute('aria-label') ?? button?.textContent?.trim() ?? '';
+      const reason = !button ? 'missing' : button.getBoundingClientRect().width <= 0 ? 'zero width' : 'disabled';
+      throw new Error(`UI smoke: expected a visible, enabled control (${reason}${name ? `: ${name}` : ''})`);
+    }
     if (button.getAttribute('role') !== 'option') button.focus({ preventScroll: true });
     button.click();
   };
@@ -171,8 +174,17 @@ export async function runSmokeInteraction(): Promise<void> {
     await waitFor(() => !!document.querySelector('#session-search'), 'fixture scoped history did not open');
     const buttonByText = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent?.trim() === label) ?? null;
+    // Short windows (<=640px inner height) collapse secondary chrome into a menu.
+    const revealed = async (button: HTMLButtonElement | null) => {
+      const hidden = button?.closest<HTMLElement>('.responsive-control-content[hidden]');
+      if (hidden) {
+        click(hidden.parentElement?.querySelector<HTMLButtonElement>(':scope > .compact-control-heading > button') ?? null);
+        await waitFor(() => !hidden.hidden, 'compact controls did not open');
+      }
+      return button;
+    };
     // Open only: never submit the new-work launcher or start a shell/Agent process.
-    click(buttonByText('新增工作'));
+    click(await revealed(buttonByText('新增工作')));
     const launcher = () => document.querySelector<HTMLElement>('[role="dialog"][aria-label="開始新的工作"]');
     await waitFor(() => !!launcher(), 'fixture launcher did not open');
     click(Array.from(launcher()!.querySelectorAll<HTMLButtonElement>('[aria-label="工作類型"] button'))
@@ -194,7 +206,7 @@ export async function runSmokeInteraction(): Promise<void> {
     if (!launcher()) throw new Error('UI smoke: dismissing the chooser also closed the launcher');
     launcher()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await waitFor(() => !launcher(), 'fixture launcher did not dismiss');
-    click(buttonByText('篩選'));
+    click(await revealed(buttonByText('篩選')));
     await waitFor(() => !!document.querySelector('button[aria-label="開始日期，開啟日曆"]'), 'history date filter did not appear');
     // Pick a stable month for deterministic screenshots without filtering the fixture history.
     const dateInput = document.querySelector<HTMLInputElement>('input[aria-label="開始日期"]');
