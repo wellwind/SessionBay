@@ -62,7 +62,7 @@ jobs:
         if: runner.os == 'Windows'
         run: python scripts/validate-ui-design.py && python scripts/validate-macos-icon.py
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
-      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked --no-fail-fast
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
       - name: Native Windows cleanup regression
         if: runner.os == 'Windows'
