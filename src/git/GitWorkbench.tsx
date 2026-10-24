@@ -27,6 +27,8 @@ import { ResetDialog, RevertDialog } from './HistoryActions';
 import { ConflictView } from './ConflictView';
 import { OperationBar } from './OperationBar';
 import { HostsPanel } from './HostsPanel';
+import { PullsPanel } from './PullsPanel';
+import { PullRequestView } from './PullRequestView';
 import { documentsReducer, emptyDocuments } from './git-documents';
 import type { DocumentSpec, GitDocument } from './git-documents';
 import { gitApi } from './git-api';
@@ -179,7 +181,7 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
           source: { kind: 'commit', commit: revision.commit.oid, parent: revision.commit.parents.length > 1 ? 1 : null } })} />;
       case 'conflict': return <ConflictView key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} path={spec.path}
         revision={status?.revision} onChanged={() => void git.refreshStatus(repo.id)} />;
-      default: return <p className="git-muted git-pad">此檢視尚未提供。</p>;
+      case 'pullRequest': return <PullRequestView key={document.key} projectId={projectId} repoId={repo.id} remote={spec.remote} number={spec.number} />;
     }
   };
 
@@ -255,6 +257,10 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         <RecoveryPanel projectId={projectId} repo={selectedRepo} revision={selectedStatus?.revision} onRestored={result => {
           setMessage(result); void git.refreshStatus(selectedRepo.id); void loadRefs(selectedRepo.id);
         }} />
+      </Section>}
+      {selectedRepo && selectedStatus && <Section title="PR／MR" open={false}>
+        <PullsPanel projectId={projectId} repo={selectedRepo} status={selectedStatus}
+          onOpen={(remote, pull) => open(selectedRepo, { kind: 'pullRequest', remote, number: pull.number, title: pull.title })} />
       </Section>}
       <Section title="主機與帳號" open={false}>
         <HostsPanel projectId={projectId} repo={selectedRepo} />

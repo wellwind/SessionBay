@@ -148,3 +148,24 @@ export interface ConflictFile {
   textual: boolean; token: string; unmerged: boolean;
 }
 export type ResolveChoice = 'ours' | 'theirs' | 'base' | 'delete' | 'keepWorkTree';
+
+export type PullState = 'open' | 'closed' | 'merged';
+export type CiState = 'pending' | 'running' | 'success' | 'failure' | 'cancelled' | 'unknown';
+export interface PullSummary {
+  number: number; title: string; state: PullState; draft: boolean; author: string; sourceBranch: string; targetBranch: string;
+  headSha: string; updatedAt: string; webUrl: string;
+}
+export interface CiStatus { state: CiState; checks: { name: string; state: CiState; url: string | null }[]; fetchedAt: number; webUrl: string | null; sha: string }
+export interface PullDetail {
+  summary: PullSummary; body: string; baseSha: string; startSha: string; mergeable: boolean | null; mergeStatus: string;
+  approvedBy: string[]; viewerApproved: boolean; ci: CiStatus;
+  capabilities: { canComment: boolean; canApprove: boolean; canRequestChanges: boolean; canMerge: boolean; mergeMethods: string[]; notes: string[] };
+  connection: { id: string; account: string; host: string; provider: 'github' | 'gitlab' };
+}
+export interface PullFile { path: string; oldPath: string | null; status: string; additions: number; deletions: number; patch: string | null }
+export interface PullComment { id: string; author: string; body: string; createdAt: string; path: string | null; line: number | null; side: string | null; outdated: boolean }
+export interface LinePosition { path: string; oldPath: string | null; side: 'new' | 'old'; line: number }
+export type ReviewEvent = 'approve' | 'requestChanges' | 'comment' | 'unapprove';
+export const ciLabel: Record<CiState, string> = {
+  pending: '等待中', running: '執行中', success: '通過', failure: '失敗', cancelled: '已取消', unknown: '狀態未知',
+};

@@ -8,6 +8,7 @@ pub mod credentials;
 pub mod http;
 pub mod pulls;
 pub mod remote_url;
+pub mod review;
 
 use super::runner::GitRunner;
 use http::{Auth, Client, HostError, HostErrorKind};
