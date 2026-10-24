@@ -43,3 +43,44 @@ export const conflictLabel: Record<ConflictKind, string> = {
 };
 export const branchLabel = (branch: BranchState) =>
   branch.head ?? (branch.oid ? `detached @ ${branch.oid.slice(0, 7)}` : 'detached HEAD');
+
+export type DiffSource =
+  | { kind: 'unstaged' } | { kind: 'staged' } | { kind: 'workingTree' }
+  | { kind: 'commit'; commit: string; parent: number | null }
+  | { kind: 'compare'; base: string; head: string; mergeBase: boolean };
+export type LineKind = 'context' | 'add' | 'delete';
+export interface DiffLine {
+  kind: LineKind; text: string; oldLine: number | null; newLine: number | null;
+  noNewline: boolean; crlf: boolean; clipped: boolean;
+}
+export interface DiffHunk { header: string; oldStart: number; oldCount: number; newStart: number; newCount: number; lines: DiffLine[] }
+export interface FileDiff {
+  repoId: string; path: RepoPath; oldPath: RepoPath | null; source: DiffSource; ignoreWhitespace: boolean;
+  binary: boolean; newFile: boolean; deletedFile: boolean; renamed: boolean; submodule: boolean;
+  oldMode: string | null; newMode: string | null; hunks: DiffHunk[];
+  tooLarge: boolean; truncated: boolean; unsupportedEncoding: boolean; snapshot: string; partialBlocked: string | null;
+}
+export interface LineRef { hunk: number; line: number }
+export type Selection = { kind: 'hunks'; hunks: number[] } | { kind: 'lines'; lines: LineRef[] };
+export interface ChangedFile { status: string; path: RepoPath; oldPath: RepoPath | null }
+
+export const sourceLabel = (source: DiffSource) => {
+  switch (source.kind) {
+    case 'unstaged': return '工作目錄 ↔ index（未暫存）';
+    case 'staged': return 'index ↔ HEAD（已暫存）';
+    case 'workingTree': return '工作目錄 ↔ HEAD（全部未提交）';
+    case 'commit': return `${source.commit.slice(0, 7)} ↔ ${source.parent ? `parent ${source.parent}` : 'parent'}`;
+    case 'compare': return `${source.base} ${source.mergeBase ? '...' : '..'} ${source.head}${source.mergeBase ? '（自 merge-base）' : '（直接比較）'}`;
+  }
+};
+export const sourceKey = (source: DiffSource) => JSON.stringify(source);
+
+export interface Branch {
+  name: string; fullName: string; remote: boolean; oid: string; upstream: string | null;
+  ahead: number | null; behind: number | null; upstreamGone: boolean; current: boolean;
+  worktree: string | null; subject: string; committedAt: number;
+}
+export interface Tag { name: string; oid: string; target: string; annotated: boolean; message: string; tagger: string; createdAt: number }
+export interface Remote { name: string; url: string; pushUrl: string }
+export interface Worktree { path: string; head: string | null; branch: string | null; bare: boolean; detached: boolean; locked: boolean; prunable: boolean; current: boolean }
+export interface Refs { branches: Branch[]; tags: Tag[]; remotes: Remote[]; worktrees: Worktree[]; truncated: boolean }

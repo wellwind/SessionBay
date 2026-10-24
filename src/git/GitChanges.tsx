@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Minus, Plus } from 'lucide-react';
 import type { Change, RepoStatus, StatusEntry } from './types';
 import { changeLabel, conflictLabel, pathKey } from './types';
 
@@ -51,15 +52,34 @@ export function ChangeRow({ entry, group, children, onOpen, selected }: {
   </li>;
 }
 
-export function GitChanges({ status }: { status: RepoStatus }) {
+export interface ChangeActions {
+  busy: boolean;
+  activeKey?: string | null;
+  onOpen: (entry: StatusEntry, group: ChangeGroup) => void;
+  onStage: (entries: StatusEntry[]) => void;
+  onUnstage: (entries: StatusEntry[]) => void;
+}
+
+export function GitChanges({ status, actions }: { status: RepoStatus; actions?: ChangeActions }) {
   const groups = groupEntries(status);
   const order: ChangeGroup[] = ['conflicts', 'staged', 'unstaged', 'untracked'];
   if (!status.entries.length) return <p className="git-muted git-clean" role="status">工作目錄沒有變更。</p>;
+  const rowKey = (group: ChangeGroup, entry: StatusEntry) => `${group}:${pathKey(entry.path)}`;
   return <div className="git-changes">
     {status.truncated && <p className="git-notice" role="status">變更過多，只列出前 {status.entries.length} 項。</p>}
     {order.filter(group => groups[group].length).map(group => <section key={group} className="git-change-group" aria-label={groupTitle[group]}>
-      <h3>{groupTitle[group]}<span>{groups[group].length}</span></h3>
-      <ul>{groups[group].map(entry => <ChangeRow key={`${group}:${pathKey(entry.path)}`} entry={entry} group={group} />)}</ul>
+      <h3>{groupTitle[group]}<span>{groups[group].length}</span>
+        {actions && group !== 'conflicts' && <span className="git-group-actions">
+          {group === 'staged'
+            ? <button className="git-icon-button" disabled={actions.busy} aria-label="全部取消暫存" title="全部取消暫存" onClick={() => actions.onUnstage(groups.staged)}><Minus size={14} /></button>
+            : <button className="git-icon-button" disabled={actions.busy} aria-label={`全部暫存${groupTitle[group]}`} title={`暫存全部${groupTitle[group]}檔案`} onClick={() => actions.onStage(groups[group])}><Plus size={14} /></button>}
+        </span>}
+      </h3>
+      <ul>{groups[group].map(entry => <ChangeRow key={rowKey(group, entry)} entry={entry} group={group}
+        selected={actions?.activeKey === rowKey(group, entry)} onOpen={actions ? () => actions.onOpen(entry, group) : undefined}>
+        {actions && group === 'staged' && <button disabled={actions.busy} aria-label={`取消暫存 ${entry.path.path}`} title="取消暫存" onClick={() => actions.onUnstage([entry])}><Minus size={14} /></button>}
+        {actions && (group === 'unstaged' || group === 'untracked') && <button disabled={actions.busy} aria-label={`暫存 ${entry.path.path}`} title="暫存整個檔案" onClick={() => actions.onStage([entry])}><Plus size={14} /></button>}
+      </ChangeRow>)}</ul>
     </section>)}
   </div>;
 }
