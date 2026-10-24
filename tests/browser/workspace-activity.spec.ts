@@ -111,7 +111,7 @@ for (const theme of ['dark', 'light']) for (const width of [1200, 1440, 720]) {
     await openWorkspace(page, `&theme=${theme}`, false);
     const navigation = page.getByRole('navigation', { name: '工作區功能' });
     expect(await navigation.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))))
-      .toEqual(['歷史 Sessions', 'Files']);
+      .toEqual(['歷史 Sessions', 'Files', 'Git']);
     await expect(page.locator('#activity-projects-panel')).toHaveCount(0);
     await expect(page.locator('.workspace-tabs').getByRole('button', { name: '歷史 Session', exact: true })).toHaveCount(0);
     const normal = await expectAdjacentSurfaces(page);
