@@ -38,7 +38,7 @@ export function CommitPanel({ projectId, repoId, repoName, commit, preferences, 
       <div className="git-commit-message"><strong>{subject}</strong><RefChips refs={detail.refs} />
         {body.join('\n').trim() && <pre className="git-message">{body.join('\n').trim()}</pre>}</div>
       <dl className="git-facts">
-        <dt>Commit</dt><dd><code>{detail.oid}</code></dd>
+        <dt>Commit</dt><dd><code title={detail.oid}>{detail.oid.slice(0, 12)}</code></dd>
         <dt>作者</dt><dd>{detail.author} &lt;{detail.email}&gt; · {formatTime(detail.authoredAt)}</dd>
         {(detail.committer !== detail.author || detail.committedAt !== detail.authoredAt) && <><dt>提交者</dt><dd>{detail.committer} · {formatTime(detail.committedAt)}</dd></>}
         <dt>Parent</dt><dd>{detail.parents.length ? detail.parents.map((parent, index) =>

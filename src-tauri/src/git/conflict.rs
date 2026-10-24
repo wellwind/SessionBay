@@ -475,6 +475,13 @@ pub fn resolve_with(
     }
 }
 
+/// `refs/heads/x` → `x`, `refs/remotes/o/x` → `o/x` for messages.
+fn display_rev(rev: &str) -> &str {
+    rev.strip_prefix("refs/heads/")
+        .or_else(|| rev.strip_prefix("refs/remotes/"))
+        .unwrap_or(rev)
+}
+
 pub fn merge(
     runner: &GitRunner,
     repo: &RepoInfo,
@@ -510,14 +517,17 @@ pub fn merge(
         .map_err(String::from)?;
     if output.success() {
         return Ok(Outcome {
-            message: format!("已合併 {rev}"),
+            message: format!("已合併 {}", display_rev(rev)),
             recovery: None,
             conflicts: false,
         });
     }
     if status::operation(repo) == Some(Operation::Merge) {
         return Ok(Outcome {
-            message: format!("合併 {rev} 產生衝突；請在 Git 面板逐一解決後 continue，或 abort"),
+            message: format!(
+                "合併 {} 產生衝突；請在 Git 面板逐一解決後 continue，或 abort",
+                display_rev(rev)
+            ),
             recovery: None,
             conflicts: true,
         });

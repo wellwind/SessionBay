@@ -2,7 +2,9 @@
 
 ## 2026-10-24：Git 工作台 G1–G8 實作與工程決策
 
-狀態：**功能已實作，本機自動測試通過；尚未 review、未跑 exact-commit CI、未做三平台原生驗收**。只在 macOS（Apple M1 Max、macOS 26.4.1、Git 2.55.0）以合成 repo 與 loopback mock 主機測試；不能據此宣稱 Linux／Windows 或真實 GitHub／自架 GitLab 已驗證。
+狀態：**功能已實作，本機自動測試通過；尚未 review、未跑 exact-commit CI、未做三平台原生驗收**。已在 macOS 與 Linux 容器跑自動測試、在 Chrome 以真實 Git 核心做端到端驗收，Windows 只做交叉編譯檢查；不能據此宣稱 Windows 執行、Tauri 原生 WebView 或真實 GitHub／自架 GitLab 已驗證。
+
+- **stash 與 literal pathspec**：`GIT_LITERAL_PATHSPECS=1` 會讓 `git stash push -u` 存入 untracked 檔卻不從工作目錄移除（Git 2.55.0 與 2.47.3 重現）；stash push 不帶使用者路徑，故對它設為 0。
 
 - **Git 最低版本 2.31**（`rev-parse --path-format`、`switch`／`restore`、porcelain v2 `-z`）。所有指令以 executable、argv、cwd 分開執行，固定 `GIT_LITERAL_PATHSPECS=1`、`GIT_TERMINAL_PROMPT=0`、C locale 訊息與 `--no-optional-locks` 讀取；不覆寫使用者 hooks、簽章、SSH 或 credential helper，不刪 index.lock。
 - **文字檢視引擎**：diff 以自訂 React 檢視呈現（並排／行內、字詞提示、搜尋、上下個變更），語法顏色重用已打包的 Monaco tokenizer，不建立編輯器實例；三方衝突結果用純文字 textarea。Monaco 編輯器未用於 Git 寫入。

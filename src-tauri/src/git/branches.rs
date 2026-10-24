@@ -17,13 +17,22 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 fn ok(runner: &GitRunner, repo: &RepoInfo, args: Vec<String>) -> Result<String, String> {
-    let output = runner
-        .run(
-            Invocation::new(&repo.root_path, Access::Write, args)
-                .env("GIT_EDITOR", "true")
-                .timeout(Duration::from_secs(300)),
-        )
-        .map_err(String::from)?;
+    run_with(runner, repo, args, &[])
+}
+
+fn run_with(
+    runner: &GitRunner,
+    repo: &RepoInfo,
+    args: Vec<String>,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
+    let mut invocation = Invocation::new(&repo.root_path, Access::Write, args)
+        .env("GIT_EDITOR", "true")
+        .timeout(Duration::from_secs(300));
+    for (key, value) in env {
+        invocation = invocation.env(key, value);
+    }
+    let output = runner.run(invocation).map_err(String::from)?;
     if !output.success() {
         let mut message = GitError::from_output(&output).to_string();
         let stdout = output.stdout_text();
@@ -310,7 +319,10 @@ pub fn stash_push(
     if !message.trim().is_empty() {
         args.extend(["-m".into(), message.trim().into()]);
     }
-    let output = ok(runner, repo, args)?;
+    // `stash -u` cleans untracked files through an internal `:/` pathspec,
+    // which literal pathspecs would leave behind (saved *and* still present).
+    // No user path is passed here, so magic pathspecs are safe.
+    let output = run_with(runner, repo, args, &[("GIT_LITERAL_PATHSPECS", "0")])?;
     if output.contains("No local changes to save") {
         return Err("沒有可 stash 的變更".into());
     }

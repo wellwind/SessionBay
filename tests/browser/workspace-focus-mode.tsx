@@ -235,6 +235,14 @@ mockIPC((command, payload = {}) => {
       if (index >= 0) runtimes.splice(index, 1);
       return;
     }
+    case 'git_request': case 'git_hosting': {
+      // Optional real-Git bridge over a synthetic repo (see examples/git_bridge.rs).
+      const bridge = fixtureParams.get('git');
+      if (!bridge) throw new Error('Git is disabled in the default fixture');
+      return fetch(`${bridge}/${command === 'git_request' ? 'git' : 'hosting'}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args.request) })
+        .then(response => response.json() as Promise<{ ok?: unknown; error?: string }>)
+        .then(result => { if (result.error !== undefined) throw result.error; return result.ok; });
+    }
     case 'resize_runtime': case 'ack_runtime': case 'write_runtime': case 'detach_runtime':
     case 'save_workspace': case 'plugin:webview|set_webview_zoom': return;
     default: throw new Error(`Unexpected synthetic fixture IPC: ${command}`);

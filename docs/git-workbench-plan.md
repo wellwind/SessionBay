@@ -131,8 +131,8 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 - [ ] 三平台測試矩陣：Windows（路徑／CRLF／credential helper）、macOS（原生鍵盤／IME／安全儲存）、Linux（WebView／credential helper）。
 - [x] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。（自動測試全部使用 tempdir 合成 repo、本機 bare remote 與 loopback mock）
-- [ ] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（已有：過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對；尚缺網路操作中途取消的自動測試）
-- [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 測試涵蓋開關 Git 面板不重掛 Terminal；原生未驗）
+- [ ] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（已有：過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對，及 Chrome 端到端；尚缺網路操作中途取消的自動測試）
+- [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 與 Chrome 端到端確認開 Git 面板、diff、graph、衝突與 Zen Mode 不重掛 Terminal；原生 WebView 未驗）
 - [ ] Keyboard、focus、tooltip、一般／Zen、狹窄視窗、共用 panel resize、長路徑及長分支名稱通過。
 - [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。（已有後端時間量測，缺記憶體與前端量測）
 - [x] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。（見實作狀態表）
@@ -152,14 +152,13 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 | G7 | `feat/git-g7-hosts` | 是 | `git_hosts`（loopback mock）、`git-hosts.test.tsx` | 未執行 | 未執行 |
 | G8 | `feat/git-g8-pull-requests` | 是 | `git_pulls`（loopback mock）、`git-pulls.test.tsx` | 未執行 | 未執行 |
 
-測試環境：macOS 26.4.1、Apple M1 Max、Git 2.55.0、Rust 1.99.0；只用合成 repo、本機 bare remote 與 loopback HTTP mock，不碰使用者 repo 或真實帳號。
+測試環境與證據（2026-10-24）：
 
-已知缺口（不得勾選對應驗收）：
-
-- **G7／G8 真實主機**：未對私有 GitHub repo 與自架 GitLab 實測；mock 只驗證 Session Bay 送出的請求與錯誤對應。GitLab 只以 16.11／17.11 回應格式的 mock 測試，**尚無實測版本**。企業 CA、proxy、VPN、SSO 只有錯誤訊息路徑，未實機驗證。
-- **三平台**：只在 macOS 執行 Rust／前端測試；Windows（路徑、CRLF、credential manager）與 Linux（WebView、libsecret）未執行。
-- **UI 原生驗收**：鍵盤、焦點、tooltip、Zen Mode、狹窄視窗與長名稱只有 jsdom 層級測試，未在桌面 WebView 實際操作或截圖。
-- **效能**：下列為後端單次量測，未含前端渲染與記憶體；未在大型真實 repo 量測。
+- **macOS** 26.4.1／Apple M1 Max／Git 2.55.0／Rust 1.99.0：Rust 單元與整合測試、Vitest 全套。
+- **Linux**（OrbStack 容器 `rust:1.99`、Debian aarch64、Git 2.47.3；`node:24`）：全部 Git Rust 整合測試與 Git 相關 Vitest 通過；非 UTF-8 檔名測試只在 Linux 實際執行（APFS 不允許此類檔名）。尚未在 x86_64 Linux 與 Linux 桌面 WebView 驗證。
+- **Windows**：只完成 `x86_64-pc-windows-gnu` 交叉編譯檢查（lib、bridge 與全部 Git 測試目標可編譯）；**未實際執行**，路徑、CRLF、credential manager 行為未驗證。
+- **真實瀏覽器端到端**：`npm run test:git`（`CARGO=<cargo>`）以 Chrome 開完整 App，Git 請求經 [loopback bridge](../src-tauri/examples/git_bridge.rs) 送到真實 Git 核心與合成 repo：同 hunk 部分暫存→commit、merge 衝突→應用內解決→continue、graph 鍵盤導覽、`Mod+Shift+G`／Escape、tooltip 快捷鍵、Zen Mode、900 與 760 px 窄視窗無水平捲動、亮色主題與長名稱，並確認 Terminal 未重掛。截圖輸出於 `test-results/git/evidence-*.png`。這是 Chrome 而非 Tauri 原生 WebView。
+- 只用合成 repo、本機 bare remote 與 loopback HTTP mock，不碰使用者 repo 或真實帳號。
 
 效能量測（2026-10-24，release build，`cargo test --release --no-default-features --test git_performance -- --ignored --nocapture`；合成 repo：20,000 commits、5,000 個 untracked 檔、10,000 行檔案）：
 
