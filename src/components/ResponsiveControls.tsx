@@ -36,6 +36,31 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
       content.current?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')?.focus();
     }
   }, [compact]);
+  // Fixed popovers anchor to their own trigger, so pane menus open beside the pane's ⋯
+  // instead of the window corner, and are never clipped by the pane's overflow.
+  useLayoutEffect(() => {
+    const element = content.current;
+    if (!compact || !open || !element) return;
+    const place = () => {
+      const button = trigger.current;
+      const rect = button?.getBoundingClientRect();
+      if (!button || !rect || rect.width === 0) return;
+      // Fixed offsets are scaled by any CSS zoom on ancestors; client rects are not.
+      const zoom = (button as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom
+        ?? (button.offsetWidth ? rect.width / button.offsetWidth : 1);
+      element.style.setProperty('--anchor-top', `${Math.round((rect.bottom + 4) / zoom)}px`);
+      element.style.setProperty('--anchor-right', `${Math.max(8, Math.round((window.innerWidth - rect.right) / zoom))}px`);
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+      element.style.removeProperty('--anchor-top');
+      element.style.removeProperty('--anchor-right');
+    };
+  }, [compact, open]);
   useEffect(() => {
     if (!compact || !open) return;
     const dismiss = (event: PointerEvent) => {
