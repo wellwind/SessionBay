@@ -33,6 +33,7 @@ import {
   Square,
   Compass,
   Palette,
+  LayoutGrid,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { closeFocusedExplorer } from './components/explorer-focus';
@@ -78,6 +79,10 @@ import {
   setRatio,
   splitNode,
   uid,
+  createSplitTab,
+  movePaneHome,
+  movePaneIntoSplit,
+  tabProjectIds,
 } from './workspace';
 import { matchesShortcut, normalizeLegacyShortcuts, shortcutConflicts, workspaceTabIndex } from './commands';
 import type { Command } from './commands';
@@ -106,6 +111,9 @@ import { useUiTheme } from './use-ui-theme';
 import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
+import { WorkspaceOverview } from './components/WorkspaceOverview';
+import { SplitExistingPicker } from './components/SplitExistingPicker';
+import { projectColor, projectColorSlots, projectInitials } from './project-identity';
 import { WorkspaceFiles } from './components/WorkspaceFiles';
 import './project-files-workspace.css';
 import { markWelcomeSeen, shouldShowWelcome } from './welcome';
@@ -115,6 +123,8 @@ interface Launcher {
   cwd: string;
   profileId: string;
   split?: { paneId: string; axis: 'horizontal' | 'vertical' };
+  /** Split only: pick an open pane or history Session of any project instead of starting new work. */
+  existing?: boolean;
 }
 interface PathDialog {
   path: string;
@@ -173,6 +183,10 @@ export default function App() {
   const projectsToggle = useRef<HTMLButtonElement>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
+  // The all-workspaces grid is a view over every pane; terminals stay mounted underneath.
+  const [workspaceOverview, setWorkspaceOverview] = useState(false);
+  const [overviewReturn, setOverviewReturn] = useState(false);
+  const beforeOverview = useRef<{ selectedId: string | null | undefined; view: 'history' | 'workspace' | 'files' | 'git' } | null>(null);
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
   const lastHistoryProject = useRef<string | null | undefined>(undefined);
@@ -331,9 +345,26 @@ export default function App() {
   );
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
+  // Selecting any project or the temporary workspace (including zooming into a card) leaves the grid.
+  useEffect(() => { if (selectedId !== undefined) setWorkspaceOverview(false); }, [selectedId]);
+  const activeTabId = activeWorkspaceTabId(workspace, selectedId);
+  const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
+  // Side tools follow the focused pane in a mixed tab; the page (tabs, title) stays with `current`.
+  const focusedMixedPane = view === 'workspace' && !workspaceOverview && activeTab?.mixed
+    ? workspace.panes[activeTab.focusedPaneId] : undefined;
+  const toolProject = focusedMixedPane
+    ? visibleProjects.find((p) => p.id === focusedMixedPane.projectId)
+    : current;
+  const projectSlots = useMemo(() => projectColorSlots(visibleProjects.map((p) => p.id)), [visibleProjects]);
+  const projectBadge = useCallback((projectId: string | null) => {
+    const name = projectId === null ? '臨時 Terminal' : visibleProjects.find((p) => p.id === projectId)?.name ?? '僅工作區專案';
+    return { initials: projectInitials(name), name, color: projectColor(projectId, projectSlots) };
+  }, [visibleProjects, projectSlots]);
   const manuallyClosedActivities = useRef(new Set<string>());
   const hadProjectTabs = useRef<Record<string, boolean>>({});
   const activityMode = focusMode ? 'zen' : 'normal';
+  // Which side panel is open belongs to the page, so focusing another pane in a mixed tab
+  // never opens or closes panels (and never shifts the layout under the pointer).
   if (current && !(current.id in initialProjectActivities.current)) initialProjectActivities.current[current.id] =
     workspace.tabs.some(tab => tab.projectId === current.id) ? null : 'sessions';
   const defaultActivity = current ? initialProjectActivities.current[current.id] : null;
@@ -360,9 +391,9 @@ export default function App() {
   }, [currentProjectId, hasProjectTabs]);
   useEffect(() => { setQuickOpen(false); }, [currentProjectId]);
   if (current) projectViews.current[current.id] = view;
-  const historyVisible = !!current || allSessionsSearch;
+  const historyVisible = !!toolProject || allSessionsSearch;
   const historyEnabled = historyVisible;
-  if (historyEnabled) lastHistoryProject.current = current?.id ?? null;
+  if (historyEnabled) lastHistoryProject.current = toolProject?.id ?? null;
   const launchProjectId = current && !current.workspaceOnly ? current.id : undefined;
   useEffect(() => {
     setLaunchPreview(null);
@@ -381,14 +412,14 @@ export default function App() {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [launcher, launchProjectId, settings]);
   useEffect(() => {
-    if (current && !current.workspaceOnly) setVisitedFileProjects((ids) => ids.includes(current.id) ? ids : [...ids, current.id]);
-  }, [current]);
-  const filesAvailable = !!current && !current.workspaceOnly;
+    if (toolProject && !toolProject.workspaceOnly) setVisitedFileProjects((ids) => ids.includes(toolProject.id) ? ids : [...ids, toolProject.id]);
+  }, [toolProject]);
+  const filesAvailable = !!toolProject && !toolProject.workspaceOnly;
   const filesVisible = filesAvailable && activeActivity === 'files';
   const gitVisible = filesAvailable && activeActivity === 'git';
   useEffect(() => {
-    if (gitVisible && current) setVisitedGitProjects((ids) => ids.includes(current.id) ? ids : [...ids, current.id]);
-  }, [gitVisible, current]);
+    if (gitVisible && toolProject) setVisitedGitProjects((ids) => ids.includes(toolProject.id) ? ids : [...ids, toolProject.id]);
+  }, [gitVisible, toolProject]);
   const hideGitSidebar = () => {
     setActiveActivity(null);
     gitToggle.current?.focus({ preventScroll: true });
@@ -398,8 +429,6 @@ export default function App() {
     setActiveActivity(null);
     filesToggle.current?.focus({ preventScroll: true });
   };
-  const activeTabId = activeWorkspaceTabId(workspace, selectedId);
-  const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   const focusPane = activeTab ? workspace.panes[activeTab.focusedPaneId] : undefined;
   const focusAvailable = !!current || temporaryWorkspace;
   const compactWorkspace = focusMode && focusAvailable && !focusControlsOpen;
@@ -804,7 +833,8 @@ export default function App() {
       const id = pane.id;
       setWorkspace((w) => {
         const tab = split ? w.tabs.find((t) => paneIds(t.layout).includes(split.paneId)) : undefined;
-        if (tab && split && tab.projectId === projectId)
+        // A split may receive another project's work (e.g. a resumed Session); the tab becomes mixed.
+        if (tab && split)
           return {
             ...selectWorkspaceTab(w, tab),
             panes: { ...w.panes, [id]: pane },
@@ -814,6 +844,7 @@ export default function App() {
                     ...t,
                     focusedPaneId: id,
                     layout: splitNode(t.layout, split.paneId, id, split.axis),
+                    ...(t.mixed || t.projectId !== projectId ? { mixed: true } : {}),
                   }
                 : t,
             ),
@@ -829,7 +860,8 @@ export default function App() {
           layout: { kind: 'pane' as const, paneId: id } };
         return selectWorkspaceTab({ ...w, panes: { ...w.panes, [id]: pane }, tabs: [...w.tabs, newTab] }, newTab);
       });
-      setSelectedId(projectId);
+      const splitOwner = split ? stateRef.current.workspace.tabs.find((t) => paneIds(t.layout).includes(split.paneId))?.projectId : undefined;
+      setSelectedId(splitOwner !== undefined ? splitOwner : projectId);
       setAllSessionsSearch(false);
       setView('workspace');
       setMaximizedId(null);
@@ -917,7 +949,7 @@ export default function App() {
     insert(pane);
     return true;
   };
-  const resume = (session: Session, override?: Project) => {
+  const resume = (session: Session, override?: Project, split?: Launcher['split']) => {
     if (session.resumeDisabledReason) {
       notify(session.resumeDisabledReason);
       return;
@@ -955,6 +987,7 @@ export default function App() {
       resumeCwd,
       settings?.defaultProfileId ?? '',
       session,
+      split,
     );
   };
   const openTemporaryTerminal = (split?: Launcher['split']) => {
@@ -1093,7 +1126,27 @@ export default function App() {
     [settings?.shortcuts],
   );
   const conflicts = useMemo(() => shortcutConflicts(effectiveShortcuts), [effectiveShortcuts]);
+  const openWorkspaceOverview = () => {
+    if (!workspaceOverview) beforeOverview.current = { selectedId, view };
+    setOverviewReturn(false);
+    setSelectedId(undefined);
+    setAllSessionsSearch(false);
+    setView('history');
+    setMaximizedId(null);
+    setWorkspaceOverview(true);
+  };
+  const closeWorkspaceOverview = () => {
+    const previous = beforeOverview.current;
+    beforeOverview.current = null;
+    setWorkspaceOverview(false);
+    if (previous?.selectedId !== undefined) {
+      setSelectedId(previous.selectedId);
+      setView(previous.view);
+    }
+  };
   const commands: Command[] = [
+    { id: 'toggle-workspace-overview', label: workspaceOverview ? '離開全部工作區總覽' : '開啟全部工作區總覽', disabled: !boot,
+      run: () => workspaceOverview ? closeWorkspaceOverview() : openWorkspaceOverview() },
     { id: 'project-quick-open', label: '快速開啟專案分頁、Sessions 與檔案', disabled: !current,
       run: () => setQuickOpen(true) },
     { id: 'toggle-project-sessions', label: '顯示／隱藏專案 Sessions', disabled: !current,
@@ -1228,7 +1281,7 @@ export default function App() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git', 'toggle-workspace-overview'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
@@ -1360,6 +1413,8 @@ export default function App() {
     [p.id, projectOpenCount(workspace.tabs.filter((tab) => tab.projectId === p.id), workspace.panes)]));
   const listCollapsed = navigation === 'projects' ? sidebar.projectsCollapsed : sidebar.directoriesCollapsed;
   const selectNavigation = (page: 'projects' | 'directories') => {
+    setWorkspaceOverview(false);
+    setOverviewReturn(false);
     setNavigation(page);
     setSelectedId(undefined);
     setAllSessionsSearch(false);
@@ -1368,12 +1423,15 @@ export default function App() {
     setMaximizedId(null);
   };
   const selectProject = (project: Project) => {
+    setOverviewReturn(false);
     setSelectedId(project.id);
     setAllSessionsSearch(false);
     setView(projectViews.current[project.id] ?? (workspace.tabs.some(tab => tab.projectId === project.id) ? 'workspace' : 'history'));
     setMaximizedId(null);
   };
   const navigationName = navigation === 'projects' ? '專案' : '所有目錄';
+  const pageTitle = workspaceOverview ? '全部工作區' : temporaryWorkspace ? '臨時 Terminal'
+    : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName);
   const projectCount = projects.filter((project) => project.curated).length;
   const directoryCount = projects.filter((project) => project.sessionCount > 0).length;
   const activeCount = Object.values(workspace.panes).filter(
@@ -1428,11 +1486,16 @@ export default function App() {
               </button>
             </div>
             <button
-              className={`sidebar-global ${selectedId === undefined && !allSessionsSearch ? 'active' : ''}`}
+              className={`sidebar-global ${selectedId === undefined && !allSessionsSearch && !workspaceOverview ? 'active' : ''}`}
               onClick={() => selectNavigation(navigation)}
             >
               <Compass size={17} />
               {navigation === 'projects' ? '專案總覽' : '目錄總覽'}<span>{navigation === 'projects' ? projectCount : directoryCount}</span>
+            </button>
+            <button className={`sidebar-global ${workspaceOverview ? 'active' : ''}`} disabled={!boot}
+              aria-pressed={workspaceOverview} onClick={openWorkspaceOverview}
+              title={effectiveShortcuts['toggle-workspace-overview'] ? `全部工作區（${effectiveShortcuts['toggle-workspace-overview']}）` : '全部工作區'}>
+              <LayoutGrid size={17} />全部工作區<span>{Object.keys(workspace.panes).length}</span>
             </button>
             <div className="sidebar-section">
               <button className="sidebar-section-toggle" aria-expanded={!listCollapsed} aria-controls="sidebar-project-content"
@@ -1538,7 +1601,7 @@ export default function App() {
         {projectNavigation}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
-            <ResponsiveControls label="專案資訊與操作" summary={temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}>
+            <ResponsiveControls label="專案資訊與操作" summary={pageTitle}>
             <div className="project-heading">
               <nav className="breadcrumb" aria-label="目前位置">
                 {!sidebarOpen && (
@@ -1552,7 +1615,8 @@ export default function App() {
                 )}
                 <span>Session Bay</span>
                 <ChevronRight size={12} />
-                {current || allSessionsSearch || temporaryWorkspace ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {current || allSessionsSearch || temporaryWorkspace || workspaceOverview ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {workspaceOverview && <><ChevronRight size={12} /><span aria-current="page">全部工作區</span></>}
                 {temporaryWorkspace && <><ChevronRight size={12} /><span aria-current="page">臨時 Terminal</span></>}
                 {current && <><ChevronRight size={12} /><span aria-current="page" title={current.name}>{current.name}</span></>}
                 {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
@@ -1564,8 +1628,8 @@ export default function App() {
                   onClick={() => void saveMembership(current, !current.curated)}>
                   <Star size={17} fill={current.curated ? 'currentColor' : 'none'} aria-hidden="true" />
                 </button>}
-                <h1 title={temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}>
-                  {temporaryWorkspace ? '臨時 Terminal' : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName)}
+                <h1 title={pageTitle}>
+                  {pageTitle}
                 </h1>
                 {current && !current.workspaceOnly && <button className="icon-button project-rename" disabled={projectBusy}
                   title="重新命名專案" aria-label="重新命名專案"
@@ -1591,6 +1655,9 @@ export default function App() {
               </div>}
             </div>
             <div className="header-buttons">
+              {overviewReturn && !workspaceOverview && <button className="secondary" onClick={openWorkspaceOverview}>
+                <LayoutGrid size={15} />返回全部工作區
+              </button>}
               <button className="icon-button" title="資源回收筒" aria-label="資源回收筒" disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history');  }}>
@@ -1676,6 +1743,7 @@ export default function App() {
               )}
               {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar"><div className="workspace-tabs">
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
+                  mixedBadges={(tab) => tabProjectIds(tab, workspace.panes).map(projectBadge)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
                   onSelect={(tab) => {
                     setWorkspace((w) => selectWorkspaceTab(w, tab));
@@ -1697,6 +1765,14 @@ export default function App() {
                   </button>
                 )}
                 </div>
+                {focusedMixedPane && (() => {
+                  const badge = projectBadge(focusedMixedPane.projectId);
+                  // Re-keyed per project so the chip flashes and is announced whenever tools switch.
+                  return <span key={badge.name} className="tool-context" role="status" aria-live="polite"
+                    title={`Sessions／Files／Git 目前跟隨「${badge.name}」`}>
+                    工具：<span className="project-initials" style={{ ['--pane-project' as string]: badge.color }}>{badge.initials}</span>{badge.name}
+                  </span>;
+                })()}
                 {focusAvailable && <FocusModeButton buttonRef={focusToggle} active={focusMode} onClick={toggleFocusMode} />}
               </div>}
               <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
@@ -1708,14 +1784,28 @@ export default function App() {
                   <p>隨時從家目錄開啟新的命令列，不需要建立專案。</p>
                   <button className="primary" onClick={() => openTemporaryTerminal()}>開啟新的臨時 Terminal</button>
                 </div>}
+                {workspaceOverview && <WorkspaceOverview workspace={workspace} projects={visibleProjects} visible
+                  onOpen={(paneId) => { beforeOverview.current = null; setOverviewReturn(true); focus(paneId); }}
+                  onSplit={(ids) => {
+                    const owner = workspace.panes[ids[0]]?.projectId;
+                    if (owner === undefined) return;
+                    const name = [...new Set(ids.map((id) => projectBadge(workspace.panes[id].projectId).name))].join(' + ');
+                    beforeOverview.current = null;
+                    setOverviewReturn(true);
+                    setWorkspace((w) => createSplitTab(w, ids, name));
+                    setSelectedId(owner);
+                    setAllSessionsSearch(false);
+                    setView('workspace');
+                    setMaximizedId(null);
+                  }} />}
                 <div
                   className="history-mount"
-                  style={{ display: view === 'history' ? undefined : 'none' }}
+                  style={{ display: view === 'history' && !workspaceOverview ? undefined : 'none' }}
                 >
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
                     openRequest={historyOpenRequest}
-                    sidebarHost={current ? historySidebarHost : undefined}
-                    scopeLabel={current?.name ?? '所有 Sessions'}
+                    sidebarHost={toolProject ? historySidebarHost : undefined}
+                    scopeLabel={toolProject?.name ?? '所有 Sessions'}
                     onSelectSession={() => { if (!current) setAllSessionsSearch(true); setView('history'); }}
                     projectId={lastHistoryProject.current ?? undefined}
                     disabled={!historyEnabled}
@@ -1735,10 +1825,12 @@ export default function App() {
                 {settings && (
                   <WorkspaceCanvas
                     workspace={workspace}
+                    projects={visibleProjects}
+                    onMoveHome={(id) => setWorkspace((w) => movePaneHome(w, id))}
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
                     settings={visibleSettings ?? settings}
-                    visible={view === 'workspace'}
+                    visible={view === 'workspace' && !workspaceOverview}
                     maximizedId={maximizedId}
                     onPatch={patchPane}
                     onOpenFileLink={(paneId, request) => {
@@ -1794,8 +1886,8 @@ export default function App() {
                 </div>
                 {visitedFileProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <WorkspaceFiles key={id}
                   onTabsChange={onFileTabsChange} openRequest={fileOpenRequest?.projectId === id ? fileOpenRequest : undefined}
-                  sidebarSide="right" projectId={id} visible={current?.id === id} active={view === 'files' && current?.id === id}
-                  sidebarVisible={current?.id === id && filesVisible} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
+                  sidebarSide="right" projectId={id} visible={toolProject?.id === id} active={view === 'files' && toolProject?.id === id}
+                  sidebarVisible={toolProject?.id === id && filesVisible} sidebarHost={fileSidebarHost} tabsHost={fileTabsHost} documentHost={fileDocumentHost}
                   onActivate={() => setView('files')} onEmpty={() => {
                     setView(activeTab ? 'workspace' : 'history');
                     const owner = document.activeElement;
@@ -1812,10 +1904,11 @@ export default function App() {
                   }} onHideSidebar={hideFilesSidebar} />)}
                 {visitedGitProjects.filter((id) => projects.some((project) => project.id === id)).length > 0 && <Suspense fallback={null}>
                   {visitedGitProjects.filter((id) => projects.some((project) => project.id === id)).map((id) => <GitWorkbench key={id}
-                    projectId={id} visible={current?.id === id} active={view === 'git' && current?.id === id}
-                    sidebarVisible={current?.id === id && gitVisible} sidebarHost={gitSidebarHost} tabsHost={gitTabsHost}
+                    projectId={id} visible={toolProject?.id === id} active={view === 'git' && toolProject?.id === id}
+                    sidebarVisible={toolProject?.id === id && gitVisible} sidebarHost={gitSidebarHost} tabsHost={gitTabsHost}
                     documentHost={gitDocumentHost} onActivate={() => setView('git')} onDocumentsChange={onGitDocumentsChange}
                     openFiles={filePaths[id]}
+                    projectName={projects.find((project) => project.id === id)?.name}
                     onEmpty={() => setView(activeTab ? 'workspace' : 'history')} onHideSidebar={hideGitSidebar} />)}
                 </Suspense>}
               </div>
@@ -1999,6 +2092,8 @@ export default function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
+              // Enter in the existing-work search must never start new work.
+              if (launcher.existing) return;
               if (current && launchPreview && !previewPending && !previewError && (launcher.kind === 'shell' || (isAgentEnabled(settings, launcher.kind) && boot?.installations.find((item) => item.kind === launcher.kind)?.available !== false))) {
                 const accepted = addPane(
                   current,
@@ -2014,16 +2109,35 @@ export default function App() {
             }}
           >
             <div className="launch-kind-switch" role="group" aria-label="工作類型">
-              <button type="button" aria-pressed={launcher.kind === 'shell'}
-                onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined })}>
+              <button type="button" aria-pressed={!launcher.existing && launcher.kind === 'shell'}
+                onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined, existing: false })}>
                 <TerminalSquare size={19} />Shell<span>命令列工作</span>
               </button>
-              <button type="button" aria-pressed={launcher.kind !== 'shell'}
+              <button type="button" aria-pressed={!launcher.existing && launcher.kind !== 'shell'}
                 disabled={!preferredEnabledAgent(settings)}
-                onClick={() => setLauncher({ ...launcher, kind: preferredEnabledAgent(settings) ?? settings.defaultAgent, resumeId: undefined })}>
+                onClick={() => setLauncher({ ...launcher, kind: preferredEnabledAgent(settings) ?? settings.defaultAgent, resumeId: undefined, existing: false })}>
                 <CommandIcon size={19} />Agent<span>AI 協作</span>
               </button>
+              {launcher.split && <button type="button" aria-pressed={!!launcher.existing}
+                onClick={() => setLauncher({ ...launcher, existing: true })}>
+                <Layers3 size={19} />既有工作<span>任何專案</span>
+              </button>}
             </div>
+            {launcher.existing && launcher.split && <SplitExistingPicker workspace={workspace} targetPaneId={launcher.split.paneId}
+              projects={visibleProjects} badge={projectBadge}
+              onPickPane={(paneId) => {
+                const split = launcher.split!;
+                setWorkspace((w) => movePaneIntoSplit(w, paneId, split.paneId, split.axis));
+                setLauncher(null);
+                setView('workspace');
+                setMaximizedId(null);
+              }}
+              onPickSession={(session) => {
+                const split = launcher.split;
+                setLauncher(null);
+                resume(session, undefined, split);
+              }} />}
+            {!launcher.existing && <>
             {launcher.kind !== 'shell' && <label className="field-label">
               Agent
               <Select aria-label="Agent" value={launcher.kind}
@@ -2068,14 +2182,15 @@ export default function App() {
             {launcher.kind !== 'shell' && settings.agentOptions?.[launcher.kind]?.bypassPermissions &&
               <p className="inline-warning">已啟用高風險權限模式。預設 {bypassFlags[launcher.kind]}；實際參數以上方預覽為準。Agent 可能不詢問就讀寫或刪除檔案。</p>}
             {freshLaunchPending && <p className="small-muted" role="status">上一個 Agent 仍在啟動，請稍候再建立新的 Agent 工作。</p>}
+            </>}
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
                 取消
               </button>
-              <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && ((!launcher.resumeId?.trim() && freshLaunchPending) || !isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
+              {!launcher.existing && <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && ((!launcher.resumeId?.trim() && freshLaunchPending) || !isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
                 開始工作
                 <ArrowRight size={14} />
-              </button>
+              </button>}
             </div>
           </form>
         </Dialog>

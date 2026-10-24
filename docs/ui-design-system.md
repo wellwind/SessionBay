@@ -263,3 +263,11 @@ Zen 保留與一般模式相同的固定高度底部 statusbar；索引開始／
 
 WebKit 點擊按鈕時不會讓按鈕取得焦點。焦點回復邏輯不能假設「被點擊的按鈕就是 `document.activeElement`」。
 
+## 專案識別色
+
+跨專案的畫面（全部工作區總覽，以及之後的混合分頁）以 `--project-0`…`--project-7` 標示專案，縮寫文字用 `--on-project`。
+
+- 一律搭配名稱縮寫，不只靠顏色辨識；臨時 Terminal 用 `--muted` 灰色。
+- 深色主題用淺色色票配深色字，淺色主題用深色色票配白字。縮寫文字對比 ≥4.5:1，色條對 `--bg`／`--panel`／`--surface` ≥3:1，由 `scripts/validate-ui-design.py` 檢查。
+- 指派：`projectColorSlots()` 以專案 ID 雜湊為起點，碰撞時往下一格，8 個專案以內保證不同色；超過 8 個時重複使用，靠縮寫區分。
+

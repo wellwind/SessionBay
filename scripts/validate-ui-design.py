@@ -37,6 +37,15 @@ for theme, selector in [('dark', ':root'), ('light', "[data-theme='light']")]:
         ratio = contrast(tokens['--control-border'], tokens[background])
         assert ratio >= 3, f'{theme}: control border/{background} is only {ratio:.2f}:1'
         checks += 1
+    for index in range(8):
+        color = tokens[f'--project-{index}']
+        ratio = contrast(tokens['--on-project'], color)
+        assert ratio >= 4.5, f'{theme}: project initials/--project-{index} is only {ratio:.2f}:1'
+        checks += 1
+        for background in ['--bg', '--panel', '--surface']:
+            ratio = contrast(color, tokens[background])
+            assert ratio >= 3, f'{theme}: --project-{index}/{background} is only {ratio:.2f}:1'
+            checks += 1
     for foreground in ['--danger', '--warning']:
         ratio = contrast(tokens[foreground], tokens['--panel'])
         assert ratio >= 4.5, f'{theme}: {foreground}/panel is only {ratio:.2f}:1'

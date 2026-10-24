@@ -2,7 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Channel } from '@tauri-apps/api/core';
 import { defaultAgentOptions } from '../../src/agents';
-import type { Bootstrap, IndexStatus, LaunchRequest, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
+import type { Bootstrap, IndexStatus, LaunchRequest, Pane, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
 import '../../src/styles.css';
 import '../../src/workbench.css';
 
@@ -54,6 +54,27 @@ if (edgeFixture) {
     focusedPaneId: hidden.paneId, layout: { kind: 'pane', paneId: hidden.paneId } });
   workspace.panes[hidden.paneId] = { ...workspace.panes['pane-focus'], id: hidden.paneId,
     title: 'Hidden shell', runtimeId: hidden.id };
+}
+// Overview fixture: panes across two projects plus a temporary terminal; the
+// Codex pane reports a terminal question so the grid has an "awaiting input" card.
+const overviewFixture = fixtureParams.has('overview');
+if (overviewFixture) {
+  const workspace = bootstrap.workspace as Workspace;
+  const extra: [string, string | null, Pane['kind'], string][] = [
+    ['pane-codex', 'project-focus', 'codex', 'Refactor agent'],
+    ['pane-other', 'project-other', 'shell', 'Other shell'],
+    ['pane-temp', null, 'shell', 'Scratch'],
+    // ?overview=N adds N more synthetic shells for performance measurement.
+    ...Array.from({ length: Number(fixtureParams.get('overview')) || 0 }, (_, index): [string, string | null, Pane['kind'], string] =>
+      [`pane-load-${index}`, index % 2 ? 'project-other' : 'project-focus', 'shell', `Load shell ${index}`]),
+  ];
+  for (const [paneId, projectId, kind, title] of extra) {
+    const record: RuntimeRecord = { ...runtime, id: `runtime-${paneId}`, paneId, kind, projectId, cwd: projectId ? `/synthetic/${projectId.slice(8)}` : '/synthetic/home' };
+    runtimes.push(record);
+    workspace.tabs.push({ id: `tab-${paneId}`, projectId, name: title, focusedPaneId: paneId, layout: { kind: 'pane', paneId } });
+    workspace.panes[paneId] = { id: paneId, title, kind, projectId, cwd: record.cwd, profileId: 'shell', state: 'running', runtimeId: record.id };
+  }
+  bootstrap.runtimes = runtimes;
 }
 const activityFixture = fixtureParams.has('activity');
 if (activityFixture) bootstrap.projects.forEach(project => { project.sessionCount = 80; project.agents = ['codex', 'claude']; });
@@ -221,6 +242,10 @@ mockIPC((command, payload = {}) => {
       ].join('\r\n') : Array.from({ length: 100 }, (_, i) => `Synthetic focus output ${i + 1}\r\n`).join('') + '$ '));
       if (target.id === runtime.id) stream = args.onEvent as Channel<TerminalEvent>;
       (args.onEvent as Channel<TerminalEvent>).onmessage({ type: 'snapshot', runtimeId: target.id, sequence: 1, data, cols: 100, rows: 30, truncated: false });
+      if (overviewFixture && target.paneId === 'pane-codex') {
+        const channel = args.onEvent as Channel<TerminalEvent>;
+        setTimeout(() => channel.onmessage({ type: 'terminalStatus', runtimeId: target.id, generation: 'synthetic-generation', revision: 1, status: 'question' }), 300);
+      }
       return target;
     }
     case 'stop_runtime': {
