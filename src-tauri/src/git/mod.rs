@@ -29,7 +29,7 @@ pub enum ProjectGit {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "op")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
 pub enum GitRequest {
     Discover,
     CancelDiscovery,
@@ -151,5 +151,17 @@ impl GitService {
             .entry(repo.common_dir_path.clone())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GitRequest;
+
+    #[test]
+    fn requests_use_camel_case_fields_like_the_ui() {
+        let request: GitRequest =
+            serde_json::from_value(serde_json::json!({ "op": "status", "repoId": "r1" })).unwrap();
+        assert!(matches!(request, GitRequest::Status { repo_id } if repo_id == "r1"));
     }
 }
