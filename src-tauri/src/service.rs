@@ -110,12 +110,13 @@ impl Service {
         let config = ConfigStore::open(directory)?;
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
+        let git = crate::git::GitService::with_recovery_dir(config.directory.join("git-recovery"));
         let fresh_launch_control = Arc::new(crate::fresh_launch::FreshLaunchControl::default());
         let service = Arc::new(Self {
             catalog,
             config,
             runtime: RuntimeManager::new(),
-            git: crate::git::GitService::new(),
+            git,
             image_staging: Mutex::new(None),
             file_staging: Mutex::new(None),
             fresh_launches: Mutex::new(crate::fresh_launch::FreshLaunches::new(

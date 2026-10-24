@@ -29,6 +29,7 @@ export function SyncPanel({ projectId, repo, status, refs, onDone }: {
   const [remote, setRemote] = useState('');
   const [remoteBranch, setRemoteBranch] = useState('');
   const [setUpstream, setSetUpstream] = useState(false);
+  const [force, setForce] = useState(false);
   useEffect(() => {
     let cancelled = false;
     gitApi.pushPlan(projectId, repo.id).then(next => {
@@ -51,6 +52,7 @@ export function SyncPanel({ projectId, repo, status, refs, onDone }: {
     setRemote(target);
     setRemoteBranch(plan.upstreamBranch ?? plan.branch);
     setSetUpstream(!plan.upstreamRemote);
+    setForce(false);
     setPending({ kind: 'push' });
   };
   const remoteHead = refs?.branches.find(branch => branch.remote && branch.name === `${remote}/${remoteBranch}`);
@@ -124,16 +126,21 @@ export function SyncPanel({ projectId, repo, status, refs, onDone }: {
       <p className="git-muted">目的地：{remote}/{remoteBranch}{remoteHead ? `（目前 ${remoteHead.oid.slice(0, 7)}）` : '（新 branch）'}。
         不會推送任何 tag{plan.followTagsConfigured ? '（已覆寫 push.followTags）' : ''}；tag 請在 Tags 區明確推送。</p>
       {plan.hooks.length > 0 && <p className="git-muted">會執行 hook：{plan.hooks.join('、')}</p>}
+      {remoteHead && <label className="git-check git-ack"><input type="checkbox" checked={force} onChange={event => setForce(event.target.checked)} />
+        強制推送（force-with-lease）</label>}
+      {force && remoteHead && <p className="git-error">強制推送會讓 {remote}/{remoteBranch} 從 {remoteHead.oid.slice(0, 7)} 改為本機 {plan.head?.slice(0, 7)}，遠端上不在本機的 commit 會從此 branch 消失。
+        只有遠端仍是 {remoteHead.oid.slice(0, 7)} 時才會覆寫（lease）；其他人若已推送新內容，推送會被拒絕。此操作沒有 Session Bay 復原點。</p>}
       {plan.behind > 0 && <p className="git-warning">本機落後 upstream {plan.behind} 個 commit，遠端可能拒絕推送。</p>}
       {error && <p className="git-error" role="alert">{error}</p>}
       <div className="dialog-actions">
         {running ? <><span className="git-muted"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 正在推送…</span><button onClick={cancel}>停止</button></>
           : <><button onClick={() => setPending(null)}>取消</button>
-            <button data-dialog-confirm className="primary" disabled={!remote || !remoteBranch.trim()} onClick={() => void run('push', async () => {
-              const result = await gitApi.push(projectId, { repoId: repo.id, remote, localBranch: plan.branch!, remoteBranch: remoteBranch.trim(), setUpstream });
+            <button data-dialog-confirm className={force ? 'danger' : 'primary'} disabled={!remote || !remoteBranch.trim()} onClick={() => void run('push', async () => {
+              const result = await gitApi.push(projectId, { repoId: repo.id, remote, localBranch: plan.branch!, remoteBranch: remoteBranch.trim(), setUpstream,
+                ...(force && remoteHead ? { forceWithLease: remoteHead.oid } : {}) });
               return result.confirmed ? `已推送 ${plan.branch} → ${remote}/${remoteBranch}（${result.pushed.slice(0, 7)}）。`
                 : `推送指令已完成，但無法從本機 remote-tracking ref 確認 ${remote}/${remoteBranch}；請 fetch 後確認。`;
-            })}>推送</button></>}
+            })}>{force ? '強制推送' : '推送'}</button></>}
       </div>
     </Dialog>}
   </div>;
