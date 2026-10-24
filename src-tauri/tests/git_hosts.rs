@@ -352,3 +352,37 @@ esac
     let stored = fs::read_to_string(&db).unwrap();
     assert!(!stored.contains("token-alice") && stored.contains("token-bob"));
 }
+
+/// Real OS credential store (Windows Credential Manager via GCM, Linux
+/// libsecret, macOS Keychain). Opt-in for CI runners only: it writes and then
+/// removes one synthetic entry for a `.invalid` host, never a real account.
+/// `SESSIONBAY_TEST_CREDENTIAL_HELPER` names the helper to configure.
+#[test]
+#[ignore]
+fn os_credential_store_round_trip() {
+    use sessionbay_lib::git::hosting::credentials;
+    let Ok(helper) = std::env::var("SESSIONBAY_TEST_CREDENTIAL_HELPER") else {
+        panic!("set SESSIONBAY_TEST_CREDENTIAL_HELPER to run this test");
+    };
+    let fixture = Fixture::new();
+    git(
+        &fixture.root,
+        &["config", "--global", "credential.helper", &helper],
+    );
+    let runner = fixture.service.runner().unwrap();
+    let host = "sessionbay-ci.invalid";
+    let account = format!("synthetic-{}", std::process::id());
+    let other = format!("{account}-other");
+    let token = format!("token-{}", std::process::id());
+    let info = credentials::helper_info(&runner, &fixture.root, host);
+    assert!(info.secure, "{info:?}");
+    credentials::approve(&runner, &fixture.root, host, &account, &token).unwrap();
+    let stored = credentials::fill(&runner, &fixture.root, host, &account).unwrap();
+    // Remove the entry before asserting so a failure never leaves it behind.
+    let isolated = credentials::fill(&runner, &fixture.root, host, &other).unwrap();
+    credentials::reject(&runner, &fixture.root, host, &account).unwrap();
+    let forgotten = credentials::fill(&runner, &fixture.root, host, &account).unwrap();
+    assert_eq!(stored.as_deref(), Some(token.as_str()));
+    assert_eq!(isolated, None, "another account must not read this token");
+    assert_eq!(forgotten, None);
+}

@@ -1,4 +1,4 @@
-name: Git workbench Windows acceptance
+name: Git workbench platform acceptance
 # Isolates Git evidence on Windows from unrelated pre-existing Windows test
 # failures: Git Rust integration tests, a release build and the native
 # WebView2 smoke with the synthetic-repository Git probe.
@@ -36,6 +36,10 @@ jobs:
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --locked --lib "git::"
           cargo test --manifest-path src-tauri/Cargo.toml --locked --no-fail-fast --test git_foundation --test git_staging --test git_remote --test git_history --test git_safety --test git_conflicts --test git_hosts --test git_pulls
+      - name: Windows Credential Manager round trip (synthetic .invalid host)
+        env:
+          SESSIONBAY_TEST_CREDENTIAL_HELPER: manager
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --test git_hosts -- --ignored os_credential_store_round_trip
       - name: Build unsigned local bundle
         run: npm run tauri -- build --bundles nsis
       - name: Native Windows Git smoke
@@ -48,3 +52,34 @@ jobs:
           path: artifacts/windows-smoke/
           retention-days: 7
           if-no-files-found: warn
+  linux-credentials:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - name: libsecret helper and keyring
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libsecret-1-dev libglib2.0-dev gnome-keyring dbus-x11 build-essential
+          sudo make -C /usr/share/doc/git/contrib/credential/libsecret
+      - name: Rust components
+        run: rustup show
+      - name: libsecret round trip (synthetic .invalid host)
+        run: |
+          dbus-run-session -- bash -euc '
+            printf ci-keyring | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            eval "$(gnome-keyring-daemon --start --components=secrets)"
+            export SESSIONBAY_TEST_CREDENTIAL_HELPER=/usr/share/doc/git/contrib/credential/libsecret/git-credential-libsecret
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --no-default-features --test git_hosts -- --ignored os_credential_store_round_trip
+          '
+  macos-credentials:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - name: Rust components
+        run: rustup show
+      - name: Keychain round trip (synthetic .invalid host)
+        env:
+          SESSIONBAY_TEST_CREDENTIAL_HELPER: osxkeychain
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --no-default-features --test git_hosts -- --ignored os_credential_store_round_trip
