@@ -321,7 +321,8 @@ fn non_utf8_file_names_round_trip() {
         &repo.root,
         &["-c", "core.quotepath=false", "ls-files", "-z"],
     );
-    assert!(listed.windows(13).any(|w| w == b"latin1-\xe9.txt"));
+    let name: &[u8] = b"latin1-\xe9.txt";
+    assert!(listed.windows(name.len()).any(|w| w == name), "{listed:?}");
 }
 
 #[test]
