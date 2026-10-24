@@ -12,6 +12,8 @@ import { DiffView } from './DiffView';
 import type { DiffPreferences } from './DiffView';
 import { ComparisonView } from './ComparisonView';
 import { CompareForm } from './CompareForm';
+import { CommitBox } from './CommitBox';
+import { SyncPanel } from './SyncPanel';
 import { documentsReducer, emptyDocuments } from './git-documents';
 import type { DocumentSpec, GitDocument } from './git-documents';
 import { gitApi } from './git-api';
@@ -169,6 +171,19 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
             () => gitApi.stagePaths(projectId, selectedRepo.id, entries.map(entry => entry.path))),
           onUnstage: entries => void mutate(selectedRepo.id, entries.length > 1 ? `已取消暫存 ${entries.length} 個檔案。` : `已取消暫存 ${entries[0].path.path}。`,
             () => gitApi.unstagePaths(projectId, selectedRepo.id, entries.flatMap(entry => entry.origPath ? [entry.path, entry.origPath] : [entry.path]))),
+        }} />
+      </Section>}
+      {selectedRepo && selectedStatus && <Section title="Commit">
+        <CommitBox projectId={projectId} repo={selectedRepo} status={selectedStatus} onDone={text => {
+          if (text) setMessage({ tone: 'success', text });
+          void git.refreshStatus(selectedRepo.id);
+        }} />
+      </Section>}
+      {selectedRepo && selectedStatus && <Section title="同步">
+        <SyncPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} refs={refs[selectedRepo.id] ?? null} onDone={result => {
+          setMessage(result);
+          void git.refreshStatus(selectedRepo.id);
+          void loadRefs(selectedRepo.id);
         }} />
       </Section>}
       {selectedRepo && selectedStatus && <Section title="比較" open={false} actions={<GitCompare size={13} aria-hidden="true" />}>
