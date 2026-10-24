@@ -1,6 +1,6 @@
 # Git 工作台功能規劃
 
-更新：2026-10-24。狀態：**G1–G8 功能已實作，本機自動測試通過；尚未 review、CI 與三平台原生驗收**。八個工作包已拆成堆疊分支（見[實作狀態](#實作狀態2026-10-24)），尚未開 PR，並非現有 PR 編號。
+更新：2026-10-24。狀態：**G1–G8 功能已實作，exact-commit Linux CI 通過；尚待 review、三平台原生驗收與真實主機實測**。八個工作包為堆疊 PR #98–#105（見[實作狀態](#實作狀態2026-10-24)）。
 
 ## 產品目標與已確認範圍
 
@@ -139,18 +139,18 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 ## 實作狀態（2026-10-24）
 
-「功能已實作」「CI 通過」「原生驗收通過」是三種不同狀態；下表只有第一欄成立。工程決策見 [決策紀錄](decisions.md)。
+「功能已實作」「CI 通過」「原生驗收通過」是三種不同狀態。PR：[#98](https://github.com/wellwind/SessionBay/pull/98)–[#105](https://github.com/wellwind/SessionBay/pull/105)（G1–G8，依序堆疊）與文件／驗收 [#106](https://github.com/wellwind/SessionBay/pull/106)。CI 為 Linux lightweight workflow 在各分支 exact commit 的結果；多次執行者是同一 commit 重跑，失敗只出現在既有的隨機失敗瀏覽器測試（`project-membership` 800 px、`viewport-layout` 450×310／resize，main 與 #96 分支同樣出現），未修改這些測試。CI 不含 macOS／Windows 與原生 WebView。工程決策見 [決策紀錄](decisions.md)。
 
 | 工作包 | 分支（依序堆疊） | 功能已實作 | 本機自動測試 | CI | 原生驗收 |
 | --- | --- | --- | --- | --- | --- |
-| G1 | `feat/git-g1-foundation` | 是 | Rust `git_foundation`、Vitest | 未執行 | 未執行 |
-| G2 | `feat/git-g2-diff-staging` | 是 | `git_staging`、`git-diff.test.tsx` | 未執行 | 未執行 |
-| G3 | `feat/git-g3-commit-remote` | 是 | `git_remote`、`git-remote.test.tsx` | 未執行 | 未執行 |
-| G4 | `feat/git-g4-history` | 是 | `git_history`、`git-history.test.tsx` | 未執行 | 未執行 |
-| G5 | `feat/git-g5-branches-recovery` | 是 | `git_safety`、`git-safety.test.tsx` | 未執行 | 未執行 |
-| G6 | `feat/git-g6-merge-conflicts` | 是 | `git_conflicts`、`git-conflicts.test.tsx` | 未執行 | 未執行 |
-| G7 | `feat/git-g7-hosts` | 是 | `git_hosts`（loopback mock）、`git-hosts.test.tsx` | 未執行 | 未執行 |
-| G8 | `feat/git-g8-pull-requests` | 是 | `git_pulls`（loopback mock）、`git-pulls.test.tsx` | 未執行 | 未執行 |
+| G1 | `feat/git-g1-foundation` | 是 | Rust `git_foundation`、Vitest | [通過](https://github.com/wellwind/SessionBay/actions/runs/40056149260)（`a14ab53`） | 未執行 |
+| G2 | `feat/git-g2-diff-staging` | 是 | `git_staging`、`git-diff.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057107837)（`6cab97a`，第 2 次執行） | 未執行 |
+| G3 | `feat/git-g3-commit-remote` | 是 | `git_remote`、`git-remote.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057109512)（`b56f8ea`，第 3 次執行） | 未執行 |
+| G4 | `feat/git-g4-history` | 是 | `git_history`、`git-history.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057111133)（`2007bdf`，第 2 次執行） | 未執行 |
+| G5 | `feat/git-g5-branches-recovery` | 是 | `git_safety`、`git-safety.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057113028)（`4e9f4fb`） | 未執行 |
+| G6 | `feat/git-g6-merge-conflicts` | 是 | `git_conflicts`、`git-conflicts.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057115194)（`80d5b77`，第 4 次執行） | 未執行 |
+| G7 | `feat/git-g7-hosts` | 是 | `git_hosts`（loopback mock）、`git-hosts.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057117021)（`ea5d2a0`，第 5 次執行） | 未執行 |
+| G8 | `feat/git-g8-pull-requests` | 是 | `git_pulls`（loopback mock）、`git-pulls.test.tsx` | [通過](https://github.com/wellwind/SessionBay/actions/runs/40057119629)（`614f106`，第 2 次執行） | 未執行 |
 
 測試環境與證據（2026-10-24）：
 
