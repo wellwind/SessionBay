@@ -359,17 +359,19 @@ export default function App() {
   const manuallyClosedActivities = useRef(new Set<string>());
   const hadProjectTabs = useRef<Record<string, boolean>>({});
   const activityMode = focusMode ? 'zen' : 'normal';
-  if (toolProject && !(toolProject.id in initialProjectActivities.current)) initialProjectActivities.current[toolProject.id] =
-    workspace.tabs.some(tab => tab.projectId === toolProject.id) ? null : 'sessions';
-  const defaultActivity = toolProject ? initialProjectActivities.current[toolProject.id] : null;
-  const activeActivity = toolProject ? projectActivities[toolProject.id]?.[activityMode] ??
-    (projectActivities[toolProject.id] ? null : focusMode ? null : defaultActivity) : null;
+  // Which side panel is open belongs to the page, so focusing another pane in a mixed tab
+  // never opens or closes panels (and never shifts the layout under the pointer).
+  if (current && !(current.id in initialProjectActivities.current)) initialProjectActivities.current[current.id] =
+    workspace.tabs.some(tab => tab.projectId === current.id) ? null : 'sessions';
+  const defaultActivity = current ? initialProjectActivities.current[current.id] : null;
+  const activeActivity = current ? projectActivities[current.id]?.[activityMode] ??
+    (projectActivities[current.id] ? null : focusMode ? null : defaultActivity) : null;
   const setActiveActivity = (id: string | null) => {
-    if (!toolProject) return;
-    if (id === null) manuallyClosedActivities.current.add(toolProject.id);
-    else manuallyClosedActivities.current.delete(toolProject.id);
-    setProjectActivities(previous => ({ ...previous, [toolProject.id]: {
-      ...(previous[toolProject.id] ?? { normal: defaultActivity, zen: null }), [activityMode]: id,
+    if (!current) return;
+    if (id === null) manuallyClosedActivities.current.add(current.id);
+    else manuallyClosedActivities.current.delete(current.id);
+    setProjectActivities(previous => ({ ...previous, [current.id]: {
+      ...(previous[current.id] ?? { normal: defaultActivity, zen: null }), [activityMode]: id,
     } }));
   };
   const currentProjectId = current?.id;
@@ -1906,7 +1908,7 @@ export default function App() {
           )}
         </main>
         <div className="project-activity-tools" hidden={!current}>
-          <ActivityShell scopeKey={toolProject?.id} contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
+          <ActivityShell scopeKey={current?.id} contributions={activities} activeId={activeActivity} onActiveChange={setActiveActivity} />
         </div>
       </div>
       <footer className={`statusbar${index.running || index.errors.length || index.cancelled || zoomError || themeSaving ? ' statusbar-important' : ''}`}>
