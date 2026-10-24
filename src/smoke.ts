@@ -17,8 +17,11 @@ export async function runSmokeInteraction(): Promise<void> {
     });
   };
   const click = (button: HTMLElement | null) => {
-    if (!button || button.matches(':disabled, [aria-disabled="true"]') || button.getBoundingClientRect().width <= 0)
-      throw new Error('UI smoke: expected a visible, enabled control');
+    if (!button || button.matches(':disabled, [aria-disabled="true"]') || button.getBoundingClientRect().width <= 0) {
+      const name = button?.getAttribute('aria-label') ?? button?.textContent?.trim() ?? '';
+      const reason = !button ? 'missing' : button.getBoundingClientRect().width <= 0 ? 'zero width' : 'disabled';
+      throw new Error(`UI smoke: expected a visible, enabled control (${reason}${name ? `: ${name}` : ''})`);
+    }
     if (button.getAttribute('role') !== 'option') button.focus({ preventScroll: true });
     button.click();
   };
