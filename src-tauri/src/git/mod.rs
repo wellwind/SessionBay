@@ -1141,3 +1141,15 @@ impl GitService {
             .clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::GitRequest;
+
+    #[test]
+    fn requests_use_camel_case_fields_like_the_ui() {
+        let request: GitRequest =
+            serde_json::from_value(serde_json::json!({ "op": "status", "repoId": "r1" })).unwrap();
+        assert!(matches!(request, GitRequest::Status { repo_id } if repo_id == "r1"));
+    }
+}
