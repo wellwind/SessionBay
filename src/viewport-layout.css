@@ -15,7 +15,7 @@ body #root .app-shell { min-width: 0; min-height: 0; width: 100%; height: 100%; 
 .compact-control-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .compact-control-heading .icon-button { flex-shrink: 0; }
 .is-compact > .responsive-control-content:not([hidden]) {
-  position: fixed; z-index: 80; inset: 48px 12px auto auto;
+  position: fixed; z-index: 80; inset: var(--anchor-top, 48px) var(--anchor-right, 12px) auto auto;
   display: flex; flex-direction: column; align-items: stretch; gap: 12px;
   width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px);
   overflow: auto; padding: 16px; background: var(--panel); color: var(--text);
@@ -73,3 +73,9 @@ body #root .app-shell { min-width: 0; min-height: 0; width: 100%; height: 100%; 
 .app-shell .project-header > .is-compact > .responsive-control-content:not([hidden]) {
   position: absolute; inset: calc(100% + 4px) 12px auto auto; max-height: calc(100vh - 140px);
 }
+/* Pane menus: a compact row of actions directly under the pane's own ⋯ trigger. */
+.terminal-pane .is-compact > .responsive-control-content:not([hidden]) {
+  flex-direction: row; flex-wrap: wrap; width: auto; max-width: min(440px, calc(100vw - 16px));
+  max-height: calc(100vh - var(--anchor-top, 48px) - 8px); padding: 6px; gap: 4px;
+}
+
