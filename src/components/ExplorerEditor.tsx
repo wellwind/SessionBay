@@ -2,6 +2,7 @@ import type { FileReference } from '../types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy, Search } from 'lucide-react';
 import type { editor } from 'monaco-editor';
+import { MONO_FONT } from '../fonts';
 import { fileLanguage, monacoLanguage } from './explorer-model';
 import { previewTheme, previewThemeName } from './monaco-theme';
 
@@ -98,7 +99,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
         widget = monaco.editor.create(host, {
           theme: previewThemeName,
           model, readOnly: true, domReadOnly: true, automaticLayout: true,
-          ariaLabel: `程式碼：${path}`, fontSize: 13, lineHeight: 20,
+          ariaLabel: `程式碼：${path}`, fontFamily: MONO_FONT, fontSize: 13, lineHeight: 20,
           minimap: { enabled: false }, scrollBeyondLastLine: false,
           folding: !lightweight, showFoldingControls: 'mouseover',
           renderValidationDecorations: 'off', links: false,

@@ -90,7 +90,10 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
         if (compact && closeOnAction && event.target instanceof Element && event.target.closest('button')) {
           setOpen(false);
           // Respect an action that has already moved focus (for example to xterm).
-          if (content.current?.contains(document.activeElement)) trigger.current?.focus();
+          // WebKit does not focus clicked buttons; focus stays on a focusable
+          // ancestor (or <body>), which is not a move either.
+          const active = document.activeElement;
+          if (!active || active.contains(event.target) || content.current?.contains(active)) trigger.current?.focus();
         }
       }}>{children}</div>
   </div>;

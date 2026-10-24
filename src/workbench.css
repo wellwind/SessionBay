@@ -2,17 +2,22 @@
 @import url('./interaction-states.css');
 /* Session Bay workbench design system. See docs/ui-design-system.md. */
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'Noto Sans CJK TC', sans-serif;
+  --font-ui: 'Inter Variable', 'Noto Sans TC Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'Noto Sans CJK TC', sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   --bg: #10171c; --sidebar: #121d23; --panel: #172229; --surface: #1d2b33;
   --surface-hover: #263943; --border: #344851; --control-border: #627985;
   --text: #ecf3f5; --muted: #a8bac4; --subtle: #a8bac4;
   --accent: #7dd9b4; --accent-strong: #99e5c6; --accent-bg: #1c3a33; --on-accent: #10251e;
   --warning: #f2cc8d; --warning-bg: #372f1c; --danger: #f0a2a7; --danger-bg: #452b32;
-  --shadow: 0 20px 70px #0006; --mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --shadow: 0 20px 70px #0006; --mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Noto Sans TC Variable', monospace;
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
   --radius: 8px; --motion: 140ms;
+  /* Same glyph metrics in every webview: no faux bold/italic, no auto text inflation. */
+  font-synthesis: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
 }
+/* Live counters keep their width while values change. */
+.statusbar, .project-count, .settings-count, .project-runtime-pane-count, .activity-badge { font-variant-numeric: tabular-nums; }
 [data-theme='light'] {
   --bg: #f3f6f7; --sidebar: #eaf0f2; --panel: #fff; --surface: #eef3f5;
   --surface-hover: #e0eaee; --border: #cdd9df; --control-border: #788c98;

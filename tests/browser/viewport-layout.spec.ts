@@ -15,6 +15,11 @@ async function visibleLayout(page: Page) {
 async function assertLayout(page: Page, zen = false) {
   await expect(page.locator('.xterm-cursor').first()).toBeAttached();
   await expect.poll(async () => (await visibleLayout(page)).boxes['.terminal-body'].height).toBeGreaterThan(40);
+  // WebKit refits xterm a frame or two after a pane resize; Chromium is synchronous.
+  await expect.poll(async () => {
+    const { boxes } = await visibleLayout(page);
+    return boxes['.xterm-cursor'].bottom <= boxes['.terminal-body'].bottom + 1;
+  }).toBe(true);
   const data = await visibleLayout(page);
   for (const [selector, r] of Object.entries(data.boxes)) {
     if (zen && ['.app-topbar', '.project-header'].includes(selector)) continue;

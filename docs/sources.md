@@ -334,3 +334,10 @@ Session Bay 名稱已由使用者選定。先前公開搜尋未找到明顯同�
 - [GitLab API：Merge request approvals](https://docs.gitlab.com/api/merge_request_approvals/)：2026-10-24 查閱；approve 的 `sha` 不符回 409，approve／unapprove 所有方案可用。
 - [GitLab API：Merge requests](https://docs.gitlab.com/api/merge_requests/#merge-a-merge-request)：2026-10-24 查閱；merge 的 `sha` 不符 409、不可合併 405、無權限 401；`user.can_merge` 表示目前帳號能否合併。
 - [ureq 3.5.0](https://docs.rs/ureq/3.5.0/ureq/)：本機 crate 原始碼核對 `RootCerts::PlatformVerifier`、`Proxy::try_from_env`、預設 redirect 不轉送認證標頭。
+
+## 內建字型與 WebKit 檢查（2026-10-24 查閱）
+
+- [Tauri Webview Versions](https://v2.tauri.app/reference/webview-versions/)：Tauri 2 在 Windows 使用 WebView2（Chromium），在 macOS 使用 WKWebView，在 Linux 使用 webkit2gtk，不提供改用已安裝 Chrome 的選項。Tauri 的 CEF runtime 只看得到 `tauri-cef-v3.0.0-alpha.*` 的 release，以及 2026-03 回報 CEF webview 缺少導覽 API 的 issue（二手來源，未在官方 release 頁核對），所以不採用。
+- Fontsource npm 套件：`@fontsource-variable/inter@5.3.0`、`@fontsource-variable/jetbrains-mono@5.3.0`、`@fontsource-variable/noto-sans-tc@5.3.1`，授權皆為 OFL-1.1（以 `npm view` 查閱）。授權全文保留於 `public/third-party/*-OFL.txt`。
+- Safari／WebKit 點擊按鈕不會讓按鈕取得焦點：[WebKit bug 22261](https://www2.webkit.org/show_bug.cgi?id=22261)（WONTFIX）、[Igalia :focus-visible in WebKit](https://blogs.igalia.com/mrego/2021/06/07/focus-visible-in-webkit-may-2021/)（說明此行為遵循 Mac 平台慣例）、[React Spectrum: Keyboard Focus Behavior](https://react-spectrum.adobe.com/blog/building-a-button-part-3.html)。本機以 Playwright WebKit 26.0（build 2215）實測：焦點會落在最近一個可 focus 的祖先（`main.main-content`）。
+- Playwright WebKit 與 WKWebView／WebKitGTK 屬同一引擎家族，但不是同一份 build；只能用來提早發現差異，原生 smoke 仍是驗收依據。
