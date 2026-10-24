@@ -238,3 +238,4 @@
 .git-ci.success { color: var(--accent); }
 .git-ci.failure, .git-ci.cancelled { color: var(--danger); }
 .git-ci.pending, .git-ci.running, .git-ci.unknown { color: var(--warning); }
+.git-scan-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 12px; }

@@ -40,12 +40,12 @@ export function useGitProject(projectId: string, enabled: boolean) {
     }
   }, [projectId]);
 
-  const discover = useCallback(async () => {
+  const discover = useCallback(async (extended = false) => {
     const generation = ++discoveryGeneration.current;
     setDiscovering(true);
     setDiscoveryError('');
     try {
-      const found = await gitApi.discover(projectId);
+      const found = await gitApi.discover(projectId, extended);
       if (!mounted.current || generation !== discoveryGeneration.current) return;
       setProject(found);
       if (found.state === 'ready') {
@@ -58,6 +58,20 @@ export function useGitProject(projectId: string, enabled: boolean) {
     } finally {
       if (mounted.current && generation === discoveryGeneration.current) setDiscovering(false);
     }
+  }, [projectId, refreshStatus]);
+
+  /** Adds the repo of an opened file (deeper than the subfolder scan). */
+  const includePath = useCallback(async (path: string) => {
+    try {
+      const found = await gitApi.includePath(projectId, path);
+      if (!mounted.current || found.state !== 'ready') return;
+      setProject(previous => {
+        if (previous?.state !== 'ready') return previous;
+        const added = found.repos.filter(repo => !previous.repos.some(known => known.id === repo.id));
+        return added.length ? { ...previous, repos: [...previous.repos, ...added] } : previous;
+      });
+      for (const repo of found.repos) void refreshStatus(repo.id);
+    } catch { /* An unreadable or removed file simply adds nothing. */ }
   }, [projectId, refreshStatus]);
 
   const cancelDiscovery = useCallback(() => { void gitApi.cancelDiscovery(projectId).catch(() => undefined); }, [projectId]);
@@ -89,7 +103,7 @@ export function useGitProject(projectId: string, enabled: boolean) {
 
   return {
     project, discovering, discoveryError, statuses, statusErrors, selectedId, setSelectedId,
-    discover, cancelDiscovery, refreshStatus, repos,
+    discover, cancelDiscovery, refreshStatus, includePath, repos,
     selectedRepo: repos.find(repo => repo.id === selectedId) ?? null,
     selectedStatus: selectedId ? statuses[selectedId] ?? null : null,
   };
