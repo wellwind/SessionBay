@@ -80,6 +80,8 @@ pub fn temp() -> (tempfile::TempDir, PathBuf) {
     isolate_git();
     let temp = tempfile::tempdir().unwrap();
     // macOS temp lives under a /var symlink; compare canonical paths.
-    let base = temp.path().canonicalize().unwrap();
+    // Same canonical form the app reports: no Windows `\\?\` verbatim prefix,
+    // which Git commands such as `submodule add` cannot take either.
+    let base = sessionbay_lib::git::discovery::canonical(temp.path()).unwrap();
     (temp, base)
 }
