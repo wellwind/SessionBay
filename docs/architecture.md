@@ -230,3 +230,10 @@ Clear／Rebuild 僅重建索引，保留回收筒。還原前確認已索引的 
 Schema 5 的 catalog_revision 由資料異動 trigger 原子更新；每批 catalogRevision、COUNT、資料與摘要共享同一短讀取快照。IndexStatus.revision 直接讀取已提交計數，索引進行中也可通知更新。前端在套用 rows/total/done 前檢查版本；換版時丟棄該批並從 offset 0 分批重建已載範圍。無跨批長交易；連續換版有三次重啟上限與手動重試。`session_paging_benchmark` example 使用暫存 SQLite 10,000 筆合成 Session、檔案與訊息，量測 COUNT、page 及總時間；不代表真實來源掃描或總記憶體驗收。
 
 歷史與資源回收筒使用每批 40 筆查詢及固定列高虛擬捲動；畫面只掛載可見列、上下各 3 列與鍵盤焦點列。接近底部自動追加，並提供載入更多與重試操作。搜尋、篩選及排序切換隔離過期回應；最近 8 個查詢脈絡在元件存活期間保留載入資料，切換專案可返回原捲動位置。索引、刪除、還原導致資料更新時分批重讀已載範圍並保留畫面高度；不自動讀完整個資料庫。鍵盤方向鍵、Home／End（已載範圍）及雙向 Tab 支援跨虛擬列。驗證命令：`npx playwright test --config playwright.session-feed.config.ts`；合成 10,000 筆，不存取原始歷史。
+
+## Git 工作台（2026-10-24 實作）
+
+- `src-tauri/src/git/`：`runner`（argv／cwd 分離、逾時、取消、輸出上限、錯誤分類與 URL 憑證遮蔽）、`discovery`／`status`、`diff`／`patch`（精確部分暫存）、`remote`、`history`、`branches`／`recovery`、`conflict`、`hosting/`（GitHub／GitLab、憑證、remote 對應、PR／MR）。IPC 只有 `git_request` 與 `git_hosting` 兩個型別化指令，後端每次重新驗證專案與 repo 身分。
+- 寫入以 Git common dir 序列化；外部 Git、Agent 與編輯器的鎖與修改不被假定可控，靠快照／token／預期 HEAD 驗證後拒絕過期寫入。
+- 前端 `src/git/`：Activity Bar 的 Git 側欄與中央 Git 分頁（diff、比較、graph、blame、檔案歷史、衝突、PR／MR），lazy load 獨立 chunk；不改變 Terminal／Agent 的 runtime 生命週期。
+- 驗收狀態與限制見 [Git 工作台](git-workbench-plan.md#實作狀態2026-10-24)。

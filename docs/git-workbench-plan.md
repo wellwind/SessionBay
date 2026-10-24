@@ -1,6 +1,6 @@
 # Git 工作台功能規劃
 
-更新：2026-10-18。狀態：**需求已確認，功能尚未實作／驗收**。本文件只記錄方案與交付門檻，不代表任何 Git 操作已可在 Session Bay 使用。八個工作包是預計拆分的實作 PR，並非現有 PR 編號。
+更新：2026-10-24。狀態：**G1–G8 功能已實作，本機自動測試通過；尚未 review、CI 與三平台原生驗收**。八個工作包已拆成堆疊分支（見[實作狀態](#實作狀態2026-10-24)），尚未開 PR，並非現有 PR 編號。
 
 ## 產品目標與已確認範圍
 
@@ -92,7 +92,7 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 ## 八個實作 PR 與依賴
 
-以下全部未完成；文件 PR 不算其中一個實作 PR。每個工作包均需獨立 review、exact-commit CI、相應三平台驗收證據與可追溯 checklist。
+以下勾選框代表完整交付（含 review、CI、原生驗收），目前仍未勾選；功能實作狀態見[實作狀態](#實作狀態2026-10-24)。文件 PR 不算其中一個實作 PR。每個工作包均需獨立 review、exact-commit CI、相應三平台驗收證據與可追溯 checklist。
 
 ### 第一階段：本機日常流程
 
@@ -130,15 +130,51 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 ## 共通完成條件與人工驗收
 
 - [ ] 三平台測試矩陣：Windows（路徑／CRLF／credential helper）、macOS（原生鍵盤／IME／安全儲存）、Linux（WebView／credential helper）。
-- [ ] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。
-- [ ] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。
-- [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。
+- [x] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。（自動測試全部使用 tempdir 合成 repo、本機 bare remote 與 loopback mock）
+- [ ] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（已有：過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對；尚缺網路操作中途取消的自動測試）
+- [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 測試涵蓋開關 Git 面板不重掛 Terminal；原生未驗）
 - [ ] Keyboard、focus、tooltip、一般／Zen、狹窄視窗、共用 panel resize、長路徑及長分支名稱通過。
-- [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。
-- [ ] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。
+- [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。（已有後端時間量測，缺記憶體與前端量測）
+- [x] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。（見實作狀態表）
+
+## 實作狀態（2026-10-24）
+
+「功能已實作」「CI 通過」「原生驗收通過」是三種不同狀態；下表只有第一欄成立。工程決策見 [決策紀錄](decisions.md)。
+
+| 工作包 | 分支（依序堆疊） | 功能已實作 | 本機自動測試 | CI | 原生驗收 |
+| --- | --- | --- | --- | --- | --- |
+| G1 | `feat/git-g1-foundation` | 是 | Rust `git_foundation`、Vitest | 未執行 | 未執行 |
+| G2 | `feat/git-g2-diff-staging` | 是 | `git_staging`、`git-diff.test.tsx` | 未執行 | 未執行 |
+| G3 | `feat/git-g3-commit-remote` | 是 | `git_remote`、`git-remote.test.tsx` | 未執行 | 未執行 |
+| G4 | `feat/git-g4-history` | 是 | `git_history`、`git-history.test.tsx` | 未執行 | 未執行 |
+| G5 | `feat/git-g5-branches-recovery` | 是 | `git_safety`、`git-safety.test.tsx` | 未執行 | 未執行 |
+| G6 | `feat/git-g6-merge-conflicts` | 是 | `git_conflicts`、`git-conflicts.test.tsx` | 未執行 | 未執行 |
+| G7 | `feat/git-g7-hosts` | 是 | `git_hosts`（loopback mock）、`git-hosts.test.tsx` | 未執行 | 未執行 |
+| G8 | `feat/git-g8-pull-requests` | 是 | `git_pulls`（loopback mock）、`git-pulls.test.tsx` | 未執行 | 未執行 |
+
+測試環境：macOS 26.4.1、Apple M1 Max、Git 2.55.0、Rust 1.99.0；只用合成 repo、本機 bare remote 與 loopback HTTP mock，不碰使用者 repo 或真實帳號。
+
+已知缺口（不得勾選對應驗收）：
+
+- **G7／G8 真實主機**：未對私有 GitHub repo 與自架 GitLab 實測；mock 只驗證 Session Bay 送出的請求與錯誤對應。GitLab 只以 16.11／17.11 回應格式的 mock 測試，**尚無實測版本**。企業 CA、proxy、VPN、SSO 只有錯誤訊息路徑，未實機驗證。
+- **三平台**：只在 macOS 執行 Rust／前端測試；Windows（路徑、CRLF、credential manager）與 Linux（WebView、libsecret）未執行。
+- **UI 原生驗收**：鍵盤、焦點、tooltip、Zen Mode、狹窄視窗與長名稱只有 jsdom 層級測試，未在桌面 WebView 實際操作或截圖。
+- **效能**：下列為後端單次量測，未含前端渲染與記憶體；未在大型真實 repo 量測。
+
+效能量測（2026-10-24，release build，`cargo test --release --no-default-features --test git_performance -- --ignored --nocapture`；合成 repo：20,000 commits、5,000 個 untracked 檔、10,000 行檔案）：
+
+| 操作 | 時間 |
+| --- | --- |
+| 探索 repository | 161 ms |
+| status（5,000 untracked） | 44 ms |
+| log 第一頁（200 筆）／offset 10,000 | 62 ms／44 ms |
+| diff 10,000 行檔案 | 32 ms |
+| blame 10,000 行檔案 | 29 ms |
+| 檔案歷史（100 筆） | 45 ms |
+| refs 清單 | 59 ms |
 
 ## 後續與尚待技術確認
 
 Worktree 管理、完整 CI log／retry／cancel、進階 rebase／cherry-pick 操作介面與更多 hosting providers 後續另拆。非文字內容 diff 明確不在範圍內。
 
-實作前確認最低 Git／GitLab 版本、選定文字／三方編輯引擎、資料量限制與復原點保存策略。這些是工程決策與相容性驗證，不改變本文件已確認的產品需求。不得把候選編輯器或尚未測試的平台能力寫成既定實作。
+最低 Git 版本、文字／三方編輯引擎、資料量限制與復原點策略已於 2026-10-24 決定（見[決策紀錄](decisions.md)）。最低可支援的 GitLab 版本仍待真實 instance 驗證；不得把未測試的平台能力寫成已驗證。

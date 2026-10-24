@@ -865,11 +865,24 @@ impl Api<'_> {
                 )?;
             }
             Provider::Gitlab => {
+                // GitLab answers 401 here for "cannot accept this MR", which
+                // is a permission problem, not an expired login.
                 self.send(
                     "PUT",
                     &format!("{}/merge_requests/{number}/merge", self.base()),
                     json!({ "sha": expected_head, "squash": method == "squash" }),
-                )?;
+                )
+                .map_err(|error| {
+                    if error.status == Some(401) {
+                        HostError::new(
+                            HostErrorKind::Forbidden,
+                            Some(401),
+                            "此帳號不能接受此 MR（權限或分支保護設定）（HTTP 401）",
+                        )
+                    } else {
+                        error
+                    }
+                })?;
             }
         }
         Ok(())

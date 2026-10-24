@@ -1,5 +1,20 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-24：Git 工作台 G1–G8 實作與工程決策
+
+狀態：**功能已實作，本機自動測試通過；尚未 review、未跑 exact-commit CI、未做三平台原生驗收**。只在 macOS（Apple M1 Max、macOS 26.4.1、Git 2.55.0）以合成 repo 與 loopback mock 主機測試；不能據此宣稱 Linux／Windows 或真實 GitHub／自架 GitLab 已驗證。
+
+- **Git 最低版本 2.31**（`rev-parse --path-format`、`switch`／`restore`、porcelain v2 `-z`）。所有指令以 executable、argv、cwd 分開執行，固定 `GIT_LITERAL_PATHSPECS=1`、`GIT_TERMINAL_PROMPT=0`、C locale 訊息與 `--no-optional-locks` 讀取；不覆寫使用者 hooks、簽章、SSH 或 credential helper，不刪 index.lock。
+- **文字檢視引擎**：diff 以自訂 React 檢視呈現（並排／行內、字詞提示、搜尋、上下個變更），語法顏色重用已打包的 Monaco tokenizer，不建立編輯器實例；三方衝突結果用純文字 textarea。Monaco 編輯器未用於 Git 寫入。
+- **部分暫存**：重算精確 diff、核對 diff bytes＋index entry 快照後，以 `git apply --cached [--reverse] --whitespace=nowarn` 套用逐位元組 patch；忽略空白、二進位、rename、子模組、非 UTF-8、超限 diff 只提供整檔操作。驗證到套用之間仍有極小競態視窗，由 Session Bay 的 common-dir 寫入鎖與 Git index.lock 縮小，未宣稱完全消除。
+- **資料量上限**：status 5,000 項、diff 8 MB／20,000 行／單行顯示 4,000 字、log 每頁 ≤500、blame 20,000 行、探索 5 層／5,000 目錄／1.5 秒／32 repo；超限會明確告知並停用部分行操作。
+- **復原點**：保存在 `refs/sessionbay/recovery/<id>/`（HEAD、`git stash create` 快照、被刪除 ref 的物件）與 app data `git-recovery/` 的 metadata 與 untracked 檔案位元組備份（上限 50 MB／2,000 檔）；每 repo 保留 30 個。Index 衝突中無法 stash 時改存工作檔內容。備份失敗即停止破壞操作；還原不覆蓋之後的未提交修改，ref 只在不存在時重建。這些 ref 會出現在 `git log --all`，屬已知取捨。
+- **主機憑證**：連線是「主機＋帳號」；token 來源為本次執行記憶體、以 host＋username 為鍵的 Git credential helper（只寫入 osxkeychain／manager／wincred／libsecret 等安全 helper，`store` 明文 helper 拒寫），或 GitHub CLI。設定檔 `git-hosts.json` 不含 secret。HTTP 用 ureq 3.5.0＋rustls＋作業系統信任區（企業 CA），不提供停用 TLS 驗證。GitHub OAuth device flow 需要註冊 client，未實作；以 token 頁面＋系統瀏覽器（只開已設定主機）代替。
+- **PR／MR head 綁定**：review／核准／合併前重讀 head；GitHub merge 與 GitLab approve／merge 另帶 `sha`（平台不符回 409）。GitHub review 的 `commit_id` 若舊不會被平台拒絕，因此只靠 Session Bay 重讀檢查，存在檢查與送出之間的小視窗。GitLab「要求變更」不提供，以留言代替；GitLab merge 回 401 視為權限不足而非登入失效。
+- **CI**：第一版只顯示狀態、讀取時間與原平台連結；沒有 check 時為 unknown，不顯示為通過。
+
+細節與驗收狀態見 [Git 工作台](git-workbench-plan.md#實作狀態2026-10-24)。
+
 ## 2026-10-18 已知狀態與未讀提示避免重複
 
 - 已知 hook／終端／生命週期狀態只顯示既有狀態圖示，不疊加輸出藍點；工作中的 spinner 保留。
@@ -742,7 +757,7 @@ broker 持有短期 per-launch 身份、parent SessionStart／prompt-or-turn ide
 
 合成 plugin／helper／broker contracts 可以在無登入、無模型呼叫的 Linux 環境驗證；正式 CLI 載入與真實回合另列證據，不能以 fixture 代替。macOS／Windows 原生 QA 繼續標示尚未執行，不作目前 Linux 交付的假性通過。
 
-## 2026-10-18：Git 工作台規劃定案，功能尚未實作
+## 2026-10-18：Git 工作台規劃定案（2026-10-24 已實作，見上方）
 
 使用者確認在 Session Bay 內完成日常 Git、PR／MR 與三方衝突處理；GitLab 為自架主機。一專案可含多 repo，僅有效 Git 工作目錄啟用功能，正確辨識 .git file 與既有 worktree。文字 diff 支援同檔部分 hunk／行 stage／unstage，第一階段包含歷史 graph 與 blame。不做非文字內容 diff，但保留整檔變更與衝突處置。
 

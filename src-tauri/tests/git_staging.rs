@@ -395,3 +395,35 @@ fn refs_list_branches_tags_remotes_and_other_worktrees() {
     );
     assert_eq!(refs["worktrees"].as_array().unwrap().len(), 2);
 }
+
+#[test]
+fn repeated_concurrent_stage_requests_apply_once() {
+    let repo = std::sync::Arc::new(Repo::new());
+    commit_file(&repo.root, "f.txt", b"a\nb\n", "initial");
+    write(&repo.root, "f.txt", b"a\nB\n");
+    let diff = repo.diff("f.txt", "unstaged");
+    // A double click sends the same request twice at once.
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let repo = repo.clone();
+            let snapshot = diff["snapshot"].clone();
+            std::thread::spawn(move || {
+                repo.request(
+                    json!({ "op": "stageSelection", "path": "f.txt", "snapshot": snapshot,
+                    "selection": { "kind": "hunks", "hunks": [0] } }),
+                )
+            })
+        })
+        .collect();
+    let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    assert_eq!(
+        results.iter().filter(|r| r.is_ok()).count(),
+        1,
+        "{results:?}"
+    );
+    assert_eq!(
+        results.iter().find_map(|r| r.as_ref().err()).unwrap(),
+        STALE_SELECTION
+    );
+    assert_eq!(repo.index_blob("f.txt"), b"a\nB\n");
+}

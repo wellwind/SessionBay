@@ -251,9 +251,9 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 - [ ] 真實回合與等待狀態 E2E；無模型載入與合成 contracts 不取代此證據。
 - [ ] macOS 原生 QA；Windows private staging、能力啟用及 native QA。
 
-## 2026-10-18 Git 工作台（已確認規劃，尚未實作）
+## 2026-10-18 Git 工作台（2026-10-24 功能已實作，待 review／CI／原生驗收）
 
-完整範圍、風險與驗收見 [Git 工作台功能規劃](git-workbench-plan.md)。以下為八個預計實作 PR，全部未完成；不影響上述既有任務狀態。
+完整範圍、風險與驗收見 [Git 工作台功能規劃](git-workbench-plan.md)。以下八個工作包的程式與本機自動測試已完成（堆疊分支 `feat/git-g1-foundation` … `feat/git-g8-pull-requests`），勾選代表完整交付，仍待 review、exact-commit CI、三平台原生驗收與真實 GitHub／自架 GitLab 實測；詳見[實作狀態](git-workbench-plan.md#實作狀態2026-10-24)。
 
 - [ ] G1 Git 基礎與多 repo。
 - [ ] G2 文字 Diff 與同檔部分 hunk／行暫存。
