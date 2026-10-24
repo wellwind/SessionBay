@@ -223,6 +223,15 @@ async fn read_workspace_image(
         .map(tauri::ipc::Response::new)
 }
 #[tauri::command]
+async fn git_request(
+    state: AppState<'_>,
+    project_id: String,
+    request: crate::git::GitRequest,
+) -> Result<serde_json::Value, String> {
+    let s = state.inner().clone();
+    blocking(move || s.git_request(&project_id, request)).await
+}
+#[tauri::command]
 async fn add_project(
     state: AppState<'_>,
     path: String,
@@ -724,6 +733,7 @@ pub fn run() {
             inspect_workspace_file,
             read_workspace_file_chunk,
             read_workspace_image,
+            git_request,
             add_project,
             create_project,
             update_project,

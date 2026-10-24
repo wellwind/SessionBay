@@ -30,6 +30,13 @@ vi.mock('@tauri-apps/api/event', () => ({
     return Promise.resolve(vi.fn());
   }),
 }));
+vi.mock('./git/git-api', () => ({
+  gitApi: {
+    discover: vi.fn().mockResolvedValue({ state: 'ready', gitVersion: '2.55.0', repos: [], issues: [], truncated: false, cancelled: false }),
+    cancelDiscovery: vi.fn().mockResolvedValue(null), status: vi.fn(),
+  },
+  gitRequest: vi.fn(),
+}));
 vi.mock('./api', () => ({
   isDesktop: vi.fn(() => false),
   call: vi.fn().mockResolvedValue(false),
@@ -3416,7 +3423,7 @@ describe('workspace focus presentation', () => {
     selectGroup();
     const rail = screen.getByRole('navigation', { name: '工作區功能' });
     expect(within(rail).getAllByRole('button').map(button => button.getAttribute('aria-label')))
-      .toEqual(['歷史 Sessions', 'Files']);
+      .toEqual(['歷史 Sessions', 'Files', 'Git']);
     expect(within(rail).getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', 'true');
     expect(document.getElementById('activity-sessions-panel')).toBeVisible();
     expect(document.getElementById('activity-projects-panel')).toBeNull();
@@ -3511,7 +3518,7 @@ describe('workspace focus presentation', () => {
     const saves = vi.mocked(api.saveWorkspace).mock.calls.length;
     const navigation = screen.getByRole('navigation', { name: '工作區功能' });
     expect(within(navigation).getAllByRole('button').map(button => button.getAttribute('aria-label')))
-      .toEqual(['歷史 Sessions', 'Files']);
+      .toEqual(['歷史 Sessions', 'Files', 'Git']);
     const sessions = within(navigation).getByRole('button', { name: '歷史 Sessions' });
     const files = within(navigation).getByRole('button', { name: 'Files' });
     fireEvent.click(sessions);
@@ -3524,6 +3531,16 @@ describe('workspace focus presentation', () => {
     fireEvent.click(files);
     expect(files).toHaveAttribute('aria-pressed', 'false');
     expect(document.getElementById('activity-files-panel')).toHaveAttribute('hidden');
+    const git = within(navigation).getByRole('button', { name: 'Git' });
+    fireEvent.click(git);
+    expect(git).toHaveAttribute('aria-pressed', 'true');
+    for (let attempt = 0; attempt < 50 && !screen.queryByText('此專案沒有可操作的 Git 工作目錄。'); attempt++) {
+      await act(async () => { await vi.dynamicImportSettled(); });
+      await tick(10);
+    }
+    expect(screen.getByText('此專案沒有可操作的 Git 工作目錄。')).toBeInTheDocument();
+    fireEvent.click(git);
+    expect(document.getElementById('activity-git-panel')).toHaveAttribute('hidden');
     fireEvent.click(sessions);
     expect(document.getElementById('activity-sessions-panel')).not.toHaveAttribute('hidden');
     expect(screen.getByTestId('workspace-canvas')).toBe(canvas);

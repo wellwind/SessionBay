@@ -69,6 +69,7 @@ pub struct Service {
     pub catalog: Catalog,
     pub config: ConfigStore,
     pub runtime: RuntimeManager,
+    pub git: crate::git::GitService,
     pub file_staging: Mutex<Option<crate::file_input::FileStaging>>,
     pub image_staging: Mutex<Option<crate::image_input::ImageStaging>>,
     fresh_launches: Mutex<crate::fresh_launch::FreshLaunches>,
@@ -114,6 +115,7 @@ impl Service {
             catalog,
             config,
             runtime: RuntimeManager::new(),
+            git: crate::git::GitService::new(),
             image_staging: Mutex::new(None),
             file_staging: Mutex::new(None),
             fresh_launches: Mutex::new(crate::fresh_launch::FreshLaunches::new(
@@ -205,6 +207,14 @@ impl Service {
     ) -> Result<Vec<u8>, String> {
         let root = self.catalog.workspace_root(project_id)?;
         crate::workspace_images::read(&root, path, version)
+    }
+    pub fn git_request(
+        &self,
+        project_id: &str,
+        request: crate::git::GitRequest,
+    ) -> Result<serde_json::Value, String> {
+        let root = self.catalog.workspace_root(project_id)?;
+        self.git.handle(&root, request)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
         let settings = self.settings()?;
