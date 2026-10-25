@@ -393,6 +393,13 @@ impl GitRunner {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // Own process group, so cancel/timeout can also stop ssh, credential
+        // helpers and hooks that Git spawned (they share our output pipes).
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -430,6 +437,7 @@ impl GitRunner {
             Arc::new(AtomicBool::new(false)),
         );
         let started = Instant::now();
+        let mut killed = false;
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break Ok(status),
@@ -442,10 +450,12 @@ impl GitRunner {
                 .is_some_and(|flag| flag.load(Ordering::Relaxed))
             {
                 kill(&mut child);
+                killed = true;
                 break Err(GitError::new(GitErrorKind::Cancelled, ""));
             }
             if overflow.load(Ordering::Relaxed) {
                 kill(&mut child);
+                killed = true;
                 break Err(GitError::new(
                     GitErrorKind::TooLarge,
                     format!("超過 {limit} bytes"),
@@ -453,6 +463,7 @@ impl GitRunner {
             }
             if started.elapsed() > invocation.timeout {
                 kill(&mut child);
+                killed = true;
                 break Err(GitError::new(
                     GitErrorKind::Timeout,
                     format!("超過 {} 秒", invocation.timeout.as_secs()),
@@ -460,6 +471,13 @@ impl GitRunner {
             }
             thread::sleep(Duration::from_millis(5));
         };
+        if killed {
+            // Output is discarded on these errors. A descendant outside our
+            // reach (e.g. on Windows) may still hold the pipes open, so never
+            // wait for the readers; they finish when the pipes close.
+            drop((writer, stdout, stderr));
+            return Err(status.expect_err("killed runs always end in an error"));
+        }
         if let Some(writer) = writer {
             let _ = writer.join();
         }
@@ -486,6 +504,11 @@ impl GitRunner {
 }
 
 fn kill(child: &mut Child) {
+    #[cfg(unix)]
+    if let Ok(group) = i32::try_from(child.id()) {
+        // SAFETY: plain syscall; the group was created for this child only.
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    }
     let _ = child.kill();
     let _ = child.wait();
 }

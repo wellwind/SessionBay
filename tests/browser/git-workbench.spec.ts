@@ -134,3 +134,47 @@ test('light theme and long names stay readable', async ({ page }) => {
   expect(contrast).not.toBe('rgba(0, 0, 0, 0)');
   await page.screenshot({ path: 'test-results/git/evidence-light.png' });
 });
+
+test('long paths, long branch names and shared panel resize at narrow widths', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await open(page);
+  // The full path stays in the accessible name even when the label is truncated.
+  const longFile = panel(page).getByRole('button', { name: /^deeply\/nested\/directory\/.*synthetic-file-with-an-intentionally-long-name-for-ellipsis\.txt，未追蹤/ });
+  await expect(longFile).toBeVisible();
+  await panel(page).getByText('Branches', { exact: true }).click();
+  const longBranch = panel(page).getByRole('button', { name: /^切換到 feature\/very-long-branch-name-for-narrow-layout-checks-with-many-segments$/ });
+  await expect(longBranch).toBeVisible();
+
+  const shell = page.locator('.activity-panel-shell:visible');
+  const separator = page.getByRole('separator', { name: '調整功能面板寬度' });
+  const widthOf = async () => (await shell.boundingBox())!.width;
+  const start = await widthOf();
+  await separator.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(widthOf).toBeGreaterThan(start);
+  const wider = await widthOf();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(widthOf).toBeLessThan(wider);
+  // Pointer drag narrows the shared panel as far as it allows.
+  const handle = (await separator.boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 400, handle.y + handle.height / 2, { steps: 8 });
+  await page.mouse.up();
+
+  for (const viewport of [{ width: 900, height: 700 }, { width: 760, height: 600 }]) {
+    await page.setViewportSize(viewport);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // Long names truncate inside the panel instead of widening it.
+    const overflow = await page.locator('#activity-git-panel').evaluate(element => element.scrollWidth - element.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    for (const item of [longFile, longBranch]) {
+      const box = (await item.boundingBox())!;
+      const shellBox = (await shell.boundingBox())!;
+      expect(box.x + box.width).toBeLessThanOrEqual(shellBox.x + shellBox.width + 1);
+    }
+  }
+  await page.screenshot({ path: 'test-results/git/evidence-long-names.png' });
+  expect(await terminalPreserved(page)).toBe(true);
+});
