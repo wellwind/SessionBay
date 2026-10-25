@@ -132,7 +132,7 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 - [ ] 三平台測試矩陣：Windows（路徑／CRLF／credential helper）、macOS（原生鍵盤／IME／安全儲存）、Linux（WebView／credential helper）。
 - [x] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。（自動測試全部使用 tempdir 合成 repo、本機 bare remote 與 loopback mock）
 - [ ] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（已有：過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對，及 Chrome 端到端；尚缺網路操作中途取消的自動測試）
-- [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 與 Chrome 端到端確認開 Git 面板、diff、graph、衝突與 Zen Mode 不重掛 Terminal。原生 Git probe 會先啟動一個 shell，完整走過探測、diff、部分暫存、commit、graph 後，確認 xterm 節點與 runtime ID 都沒變、仍在執行，再從全部工作區總覽放大回去並結束；macOS WKWebView 本機已通過，Linux／Windows 待這次 Desktop acceptance 結果）
+- [x] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 與 Chrome 端到端確認開 Git 面板、diff、graph、衝突與 Zen Mode 不重掛 Terminal。原生 Git probe 會先啟動一個 shell，完整走過探測、diff、部分暫存、commit、graph 後，確認 xterm 節點與 runtime ID 都沒變、仍在執行，再從全部工作區總覽放大回去並結束；macOS（arm／Intel）WKWebView、Linux WebKitGTK、Windows WebView2 皆通過：[Desktop acceptance](https://github.com/wellwind/SessionBay/actions/runs/40152730507)）
 - [ ] Keyboard、focus、tooltip、一般／Zen、狹窄視窗、共用 panel resize、長路徑及長分支名稱通過。
 - [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。（已有後端時間量測，缺記憶體與前端量測）
 - [x] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。（見實作狀態表）
