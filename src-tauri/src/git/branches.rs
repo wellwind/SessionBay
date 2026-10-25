@@ -97,7 +97,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    fn plain(message: impl Into<String>) -> Self {
+    pub(crate) fn plain(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             recovery: None,

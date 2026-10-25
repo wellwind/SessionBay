@@ -58,7 +58,7 @@ npm run tauri -- build
 | [Agent 整合規格](docs/agent-integrations.md) | 工具偵測、歷史解析、目錄分組與 Session 接續 |
 | [Antigravity CLI 歷史相容性](docs/antigravity-cli-history.md) | 持久化格式依據、唯讀安全、接續限制與 1.3.5 待驗條件 |
 | [Agent 用量與分析規格](docs/usage-spec.md) | MVP 後的帳號額度總覽、Project／Agent／Session 用量與費用語意 |
-| [Git 工作台規劃](docs/git-workbench-plan.md) | G1–G8 已完成並驗收（#98–#106、#114–#118）；待補實測的 GitLab 版本紀錄 |
+| [Git 工作台規劃](docs/git-workbench-plan.md) | G1–G8 已完成並驗收（#98–#106、#114–#118）；GitLab 實測 CE 19.5.1 |
 | [Git 工作台人工驗收清單](docs/git-manual-acceptance.md) | 真實 GitHub／GitLab、原生鍵盤與 IME、安全儲存的人工驗收步驟與回報格式 |
 | [單一視窗多工作區規劃](docs/multi-workspace-plan.md) | 全部工作區總覽與跨專案分割分頁已完成並驗收（#109–#111） |
 | [發行與更新規劃](docs/release-update-plan.md) | 尚未完成：試用、GitHub Releases／Homebrew／Snap、更新同意、資料復原與最新優先順序 |

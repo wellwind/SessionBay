@@ -178,3 +178,22 @@ test('long paths, long branch names and shared panel resize at narrow widths', a
   await page.screenshot({ path: 'test-results/git/evidence-long-names.png' });
   expect(await terminalPreserved(page)).toBe(true);
 });
+
+test('creates and removes a linked worktree through the real Git core', async ({ page }) => {
+  await open(page);
+  await panel(page).getByText('Worktrees', { exact: true }).click();
+  const list = panel(page).getByRole('list', { name: 'Worktree 清單' });
+  await expect(list.getByRole('listitem')).toHaveCount(1);
+  await panel(page).getByLabel('Branch 名稱').fill('feature/e2e');
+  await panel(page).getByLabel('建立後開啟為專案並開始新工作').uncheck();
+  await panel(page).getByRole('button', { name: '建立 worktree' }).click();
+  await expect(list.getByRole('listitem')).toHaveCount(2);
+  await expect(list.getByText('feature/e2e')).toBeVisible();
+  await expect(list.getByText(/repo\.worktrees[\\/]feature-e2e/)).toBeVisible();
+  await list.getByRole('button', { name: '移除 worktree feature/e2e' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('checkbox').check();
+  await dialog.getByRole('button', { name: '移除 worktree' }).click();
+  await expect(list.getByRole('listitem')).toHaveCount(1);
+  expect(await terminalPreserved(page)).toBe(true);
+});

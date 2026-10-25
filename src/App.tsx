@@ -186,6 +186,8 @@ export default function App() {
   // The all-workspaces grid is a view over every pane; terminals stay mounted underneath.
   const [workspaceOverview, setWorkspaceOverview] = useState(false);
   const [overviewReturn, setOverviewReturn] = useState(false);
+  // A worktree opened with "start work" opens the launcher once it is the current project.
+  const pendingWorktreeLaunch = useRef<string | null>(null);
   const beforeOverview = useRef<{ selectedId: string | null | undefined; view: 'history' | 'workspace' | 'files' | 'git' } | null>(null);
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
@@ -1018,6 +1020,11 @@ export default function App() {
       split,
     });
   };
+  useEffect(() => {
+    if (!current || pendingWorktreeLaunch.current !== current.id) return;
+    pendingWorktreeLaunch.current = null;
+    openLauncher(settings?.defaultAgent ?? 'codex');
+  });
   const removePanes = (ids: string[], onFinish?: () => void) => {
     const panes = ids.map((id) => workspace.panes[id]).filter(Boolean);
     const live = panes.filter((p) => ['running', 'starting', 'disconnected'].includes(p.state) ||
@@ -1909,6 +1916,13 @@ export default function App() {
                     documentHost={gitDocumentHost} onActivate={() => setView('git')} onDocumentsChange={onGitDocumentsChange}
                     openFiles={filePaths[id]}
                     projectName={projects.find((project) => project.id === id)?.name}
+                    onOpenWorktree={(path, startWork) => {
+                      void api.addProject(path).then(async (project) => {
+                        await refresh();
+                        if (startWork) pendingWorktreeLaunch.current = project.id;
+                        selectProject(project);
+                      }).catch(notify);
+                    }}
                     onEmpty={() => setView(activeTab ? 'workspace' : 'history')} onHideSidebar={hideGitSidebar} />)}
                 </Suspense>}
               </div>

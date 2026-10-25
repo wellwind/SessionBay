@@ -170,3 +170,10 @@ export type ReviewEvent = 'approve' | 'requestChanges' | 'comment' | 'unapprove'
 export const ciLabel: Record<CiState, string> = {
   pending: '等待中', running: '執行中', success: '通過', failure: '失敗', cancelled: '已取消', unknown: '狀態未知',
 };
+
+/** Managed view of a worktree: adds main/dirty to the refs listing. */
+export interface WorktreeStatus {
+  path: string; head: string | null; branch: string | null;
+  main: boolean; current: boolean; locked: boolean; prunable: boolean; dirty: boolean | null;
+}
+

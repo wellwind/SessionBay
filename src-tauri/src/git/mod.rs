@@ -16,6 +16,7 @@ pub mod refs;
 pub mod remote;
 pub mod runner;
 pub mod status;
+pub mod worktrees;
 
 use diff::{DiffRequest, DiffSource};
 use discovery::{Discovery, RepoInfo};
@@ -165,6 +166,28 @@ pub enum GitRequest {
         expected: String,
         #[serde(default)]
         force: bool,
+    },
+    Worktrees {
+        repo_id: String,
+    },
+    WorktreeAdd {
+        repo_id: String,
+        branch: String,
+        /// Create the branch (from `base`, default HEAD) instead of using an existing one.
+        #[serde(default)]
+        create: bool,
+        base: Option<String>,
+        path: Option<String>,
+    },
+    WorktreeRemove {
+        repo_id: String,
+        path: String,
+        /// Stash local changes first; without it a dirty checkout is refused.
+        #[serde(default)]
+        stash: bool,
+    },
+    WorktreePrune {
+        repo_id: String,
     },
     Stashes {
         repo_id: String,
@@ -627,6 +650,21 @@ impl GitService {
                         &store, runner, repo, &name, &expected, force,
                     )?)
                 })
+            }
+            GitRequest::Worktrees { repo_id } => {
+                let (runner, repo) = self.repo(project_root, &repo_id)?;
+                json(worktrees::list(&runner, &repo)?)
+            }
+            GitRequest::WorktreeAdd { repo_id, branch, create, base, path } => {
+                self.write(project_root, &repo_id, |runner, repo| {
+                    json(worktrees::add(runner, repo, &branch, create, base.as_deref(), path.as_deref())?)
+                })
+            }
+            GitRequest::WorktreeRemove { repo_id, path, stash } => {
+                self.write(project_root, &repo_id, |runner, repo| json(worktrees::remove(runner, repo, &path, stash)?))
+            }
+            GitRequest::WorktreePrune { repo_id } => {
+                self.write(project_root, &repo_id, |runner, repo| json(worktrees::prune(runner, repo)?))
             }
             GitRequest::Stashes { repo_id } => {
                 let (runner, repo) = self.repo(project_root, &repo_id)?;

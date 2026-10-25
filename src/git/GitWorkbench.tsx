@@ -21,6 +21,7 @@ import { FileHistoryView } from './FileHistoryView';
 import { SyncPanel } from './SyncPanel';
 import { BranchesPanel } from './BranchesPanel';
 import { StashPanel } from './StashPanel';
+import { WorktreesPanel } from './WorktreesPanel';
 import { TagsPanel } from './TagsPanel';
 import { RecoveryPanel } from './RecoveryPanel';
 import { DangerDialog } from './DangerDialog';
@@ -55,6 +56,8 @@ export interface GitWorkbenchProps {
   openFiles?: readonly string[];
   /** Shown in destructive confirmations, so mixed tabs never hide which project is affected. */
   projectName?: string;
+  /** Open a linked worktree as its own project, optionally starting new work there. */
+  onOpenWorktree?: (path: string, startWork: boolean) => void;
 }
 
 const issueTitle: Record<IssueKind, string> = {
@@ -77,7 +80,7 @@ export function Section({ title, children, open = true, actions }: { title: stri
   </details>;
 }
 
-function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, tabsHost, documentHost, onActivate, onEmpty, onHideSidebar, onDocumentsChange, openFiles = [] }: GitWorkbenchProps) {
+function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, tabsHost, documentHost, onActivate, onEmpty, onHideSidebar, onDocumentsChange, openFiles = [], onOpenWorktree }: GitWorkbenchProps) {
   const [documents, dispatch] = useReducer(documentsReducer, emptyDocuments);
   const enabled = visible && (sidebarVisible || active);
   const git = useGitProject(projectId, enabled);
@@ -271,6 +274,10 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         <BranchesPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} refs={refs[selectedRepo.id] ?? null}
           onOutcome={handleOutcome(selectedRepo.id)}
           onCompare={(base, head) => open(selectedRepo, { kind: 'comparison', source: { kind: 'compare', base, head, mergeBase: true } })} />
+      </Section>}
+      {selectedRepo && selectedStatus && <Section title="Worktrees" open={false}>
+        <WorktreesPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} refs={refs[selectedRepo.id] ?? null}
+          onOutcome={handleOutcome(selectedRepo.id)} onOpen={onOpenWorktree} />
       </Section>}
       {selectedRepo && selectedStatus && <Section title={`Stash${selectedStatus.stashCount ? `（${selectedStatus.stashCount}）` : ''}`} open={false}>
         <StashPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} onOutcome={handleOutcome(selectedRepo.id)} />

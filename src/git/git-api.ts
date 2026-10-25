@@ -1,5 +1,5 @@
 import { call } from '../api';
-import type { LinePosition, PullComment, PullDetail, PullFile, PullSummary, ReviewEvent, ConflictFile, ResolveChoice, Outcome, RecoveryPoint, RemoteTag, ResetMode, StashEntry, Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection } from './types';
+import type { LinePosition, PullComment, PullDetail, PullFile, PullSummary, ReviewEvent, ConflictFile, ResolveChoice, Outcome, RecoveryPoint, RemoteTag, ResetMode, StashEntry, Blame, ChangedFile, CommitDetail, FileRevision, LogFilter, LogPage, CommitPreview, CommitResult, DiffSource, FileDiff, ProjectGit, PullStrategy, PushPlan, PushResult, Refs, RepoPath, RepoStatus, Selection, WorktreeStatus } from './types';
 
 /** One typed IPC entry point; the backend revalidates project and repo identity. */
 export type GitRequest =
@@ -29,6 +29,10 @@ export type GitRequest =
   | { op: 'switchBranch'; repoId: string; name: string }
   | { op: 'deleteBranch'; repoId: string; name: string; expected: string; force: boolean }
   | { op: 'stashes'; repoId: string }
+  | { op: 'worktrees'; repoId: string }
+  | { op: 'worktreeAdd'; repoId: string; branch: string; create: boolean; base?: string | null; path?: string | null }
+  | { op: 'worktreeRemove'; repoId: string; path: string; stash: boolean }
+  | { op: 'worktreePrune'; repoId: string }
   | { op: 'stashPush'; repoId: string; message: string; includeUntracked: boolean; keepIndex: boolean }
   | { op: 'stashApply'; repoId: string; index: number; expected: string; pop: boolean; restoreIndex: boolean }
   | { op: 'stashDrop'; repoId: string; index: number; expected: string }
@@ -99,6 +103,11 @@ export const gitApi = {
   createBranch: outcome('createBranch'),
   switchBranch: outcome('switchBranch'),
   deleteBranch: outcome('deleteBranch'),
+  worktrees: (projectId: string, repoId: string) => gitRequest<WorktreeStatus[]>(projectId, { op: 'worktrees', repoId }),
+  worktreeAdd: (projectId: string, body: Omit<Extract<GitRequest, { op: 'worktreeAdd' }>, 'op'>) =>
+    gitRequest<{ path: string; branch: string }>(projectId, { op: 'worktreeAdd', ...body }),
+  worktreeRemove: outcome('worktreeRemove'),
+  worktreePrune: outcome('worktreePrune'),
   stashes: (projectId: string, repoId: string) => gitRequest<StashEntry[]>(projectId, { op: 'stashes', repoId }),
   stashPush: outcome('stashPush'),
   stashApply: outcome('stashApply'),
