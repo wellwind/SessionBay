@@ -50,7 +50,7 @@ export function SessionTrash({ onClose, onChanged, refreshToken }: {
     onClose={inspectionTarget ? () => setInspectionTarget(null) : onClose} wide>
     {inspectionTarget ? <OsTrashReview key={inspectionTarget.id} entry={inspectionTarget}
       onClose={() => setInspectionTarget(null)} onMoved={moved} /> : <>
-    <p>這裡的對話已從 Session Bay 歷史與搜尋中隱藏，可以逐筆還原。原始 Agent 歷史仍保留，執行中的工作不受影響。</p>
+    <p>這裡的對話已從 Session Bay 歷史與搜尋中隱藏，可以逐筆還原。原始 Agent 歷史仍保留，執行中的工作不受影響；要真正刪除檔案，請按該筆的「移到系統垃圾桶…」。</p>
     <p className="muted">重新掃描或重建索引不會清空資源回收筒。要真正刪除時，可逐筆把 Agent 的 Session 檔案移到系統垃圾桶。</p>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {loading && <p role="status">讀取資源回收筒…</p>}

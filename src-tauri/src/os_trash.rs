@@ -497,7 +497,7 @@ fn build(
             }
         }
         AgentKind::Antigravity => {
-            if root.join(format!("presence/{id}.lock")).exists() {
+            if presence_locked(&root.join(format!("presence/{id}.lock"))) {
                 plan.blockers
                     .push("Antigravity 顯示這個對話仍在使用中；請先結束它。".into());
             }
@@ -546,6 +546,23 @@ fn build(
     }
     plan.items = stamps.iter().map(|s| s.item.clone()).collect();
     Ok((plan, stamps))
+}
+
+/// Antigravity leaves presence files behind after exit and holds a file lock
+/// while running, so only a lock we cannot share means the chat is in use.
+fn presence_locked(path: &Path) -> bool {
+    match fs::File::open(path) {
+        Ok(file) => match file.try_lock_shared() {
+            Ok(()) => {
+                let _ = file.unlock();
+                false
+            }
+            Err(fs::TryLockError::WouldBlock) => true,
+            // Unknown lock state is treated as in use.
+            Err(fs::TryLockError::Error(_)) => true,
+        },
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
 }
 
 fn nanos(metadata: &fs::Metadata) -> u128 {
