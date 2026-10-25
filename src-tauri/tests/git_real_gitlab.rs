@@ -84,7 +84,7 @@ fn real_gitlab_connection_review_and_merge_round_trip() {
             "email": format!("{name}{stamp}@example.invalid"), "password": "Synthetic-Pass-2026!", "skip_confirmation": true })));
         let id = created["id"].as_i64().expect("user created");
         let token = admin.api("POST", &format!("/users/{id}/impersonation_tokens"),
-            Some(json!({ "name": "sessionbay-acceptance", "scopes": ["api"], "expires_at": "2027-12-31" })));
+            Some(json!({ "name": "sessionbay-acceptance", "scopes": ["api"], "expires_at": expiry() })));
         (id, token["token"].as_str().expect("token").to_owned())
     };
     let (owner_id, owner_token) = user("sbowner");
@@ -123,9 +123,27 @@ fn real_gitlab_connection_review_and_merge_round_trip() {
         ],
     );
     git(&root, &["push", "-q", &push_url, "main"]);
+    git(
+        &root,
+        &[
+            "fetch",
+            "-q",
+            &push_url,
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+    );
     git(&root, &["switch", "-q", "-c", "feature"]);
     commit_file(&root, "app.txt", b"one\nTWO\nthree\n", "change two");
     git(&root, &["push", "-q", &push_url, "feature"]);
+    git(
+        &root,
+        &[
+            "fetch",
+            "-q",
+            &push_url,
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+    );
     let first_head = git(&root, &["rev-parse", "HEAD"]).trim().to_owned();
 
     // G7: connection through Session Bay, then remote mapping.
@@ -200,6 +218,15 @@ fn real_gitlab_connection_review_and_merge_round_trip() {
     // The head moves on the host: merging the old head must be rejected.
     commit_file(&root, "app.txt", b"one\nTWO\nTHREE\n", "change three");
     git(&root, &["push", "-q", &push_url, "feature"]);
+    git(
+        &root,
+        &[
+            "fetch",
+            "-q",
+            &push_url,
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+    );
     let fresh_head = git(&root, &["rev-parse", "HEAD"]).trim().to_owned();
     std::thread::sleep(std::time::Duration::from_secs(3)); // let GitLab refresh the MR head
     let stale = request(&service, &root, json!({ "op": "pullMerge", "number": number, "method": "merge", "expectedHead": first_head })).unwrap_err();
@@ -247,6 +274,27 @@ fn real_gitlab_connection_review_and_merge_round_trip() {
         );
     }
     println!("GitLab {} round trip passed for {path}", version["version"]);
+}
+
+/// Thirty days from now as YYYY-MM-DD (GitLab caps token lifetime at a year).
+fn expiry() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        / 86_400
+        + 30;
+    // Civil-from-days (Howard Hinnant), proleptic Gregorian.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
