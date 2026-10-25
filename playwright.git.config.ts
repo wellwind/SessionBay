@@ -9,15 +9,18 @@ export default defineConfig({
   timeout: 60_000,
   workers: 1,
   use: {
-    browserName: 'chromium',
-    channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? undefined : 'chrome',
     headless: true,
-    launchOptions: { chromiumSandbox: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE },
     viewport: { width: 1280, height: 850 },
     baseURL: 'http://127.0.0.1:1440',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
+  // WebKit runs the same flows as the engine family of WKWebView / WebKitGTK.
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium', channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? undefined : 'chrome',
+      launchOptions: { chromiumSandbox: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } } },
+    { name: 'webkit', use: { browserName: 'webkit' } },
+  ],
   webServer: [
     { command: 'npm run dev:web -- --port 1440', url: 'http://127.0.0.1:1440', reuseExistingServer: false },
     { command: `${process.env.CARGO ?? 'cargo'} run --quiet --manifest-path src-tauri/Cargo.toml --no-default-features --example git_bridge -- 1441`,
