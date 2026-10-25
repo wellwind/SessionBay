@@ -249,3 +249,96 @@ fn rejected_and_offline_pushes_are_never_reported_as_success() {
         .request(&a, json!({ "op": "push", "remote": "origin", "localBranch": "main", "remoteBranch": "-delete" }))
         .is_err());
 }
+
+/// Everything a cancelled network operation must leave untouched.
+#[cfg(unix)]
+fn local_state(root: &Path, bare: &Path) -> (String, Vec<u8>, Vec<u8>, String, String, bool) {
+    (
+        head(root),
+        git_bytes(root, &["ls-files", "--stage", "-z"]),
+        fs::read(root.join("readme.txt")).unwrap(),
+        git(root, &["for-each-ref", "--format=%(refname) %(objectname)"]),
+        git(bare, &["for-each-ref", "--format=%(refname) %(objectname)"]),
+        root.join(".git/index.lock").exists(),
+    )
+}
+
+/// Run `op` while the synthetic remote's pack program hangs, cancel it midway
+/// and require a prompt, explicit cancellation with no state change at all.
+#[cfg(unix)]
+fn cancel_midway(op: Value, program: &str) {
+    use std::time::{Duration, Instant};
+    let fixture = Fixture::new();
+    let a = fixture.repo("a");
+    let bare = fixture.remote(&a, "a");
+    git(&a, &["push", "-q", "origin", "main"]);
+    git(&a, &["fetch", "-q", "origin"]);
+    git(&a, &["branch", "-q", "--set-upstream-to=origin/main"]);
+    commit_file(&a, "readme.txt", b"two\n", "local change");
+    // Git runs the remote pack program through the shell for local transports.
+    git(
+        &a,
+        &[
+            "config",
+            &format!("remote.origin.{program}"),
+            &format!(
+                "sleep 30; git-{}",
+                if program == "uploadpack" {
+                    "upload-pack"
+                } else {
+                    "receive-pack"
+                }
+            ),
+        ],
+    );
+    let before = local_state(&a, &bare);
+    let started = Instant::now();
+    let result = std::thread::scope(|scope| {
+        let running = scope.spawn(|| fixture.request(&a, op));
+        // Keep asking until the operation has registered and stopped.
+        while !running.is_finished() {
+            std::thread::sleep(Duration::from_millis(100));
+            fixture
+                .request(&a, json!({ "op": "cancelOperation" }))
+                .unwrap();
+            assert!(
+                started.elapsed() < Duration::from_secs(15),
+                "cancel did not stop the operation"
+            );
+        }
+        running.join().unwrap()
+    });
+    assert!(started.elapsed() < Duration::from_secs(15));
+    let message = result.expect_err("a cancelled network operation must not report success");
+    assert!(message.contains("取消"), "{message}");
+    assert!(message.contains("不會自動重送"), "{message}");
+    assert_eq!(
+        local_state(&a, &bare),
+        before,
+        "cancel changed repository state"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_fetch_midway_changes_nothing() {
+    cancel_midway(json!({ "op": "fetch", "remote": "origin" }), "uploadpack");
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_pull_midway_changes_nothing() {
+    cancel_midway(
+        json!({ "op": "pull", "strategy": "fastForwardOnly" }),
+        "uploadpack",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_push_midway_changes_nothing() {
+    cancel_midway(
+        json!({ "op": "push", "remote": "origin", "localBranch": "main", "remoteBranch": "main" }),
+        "receivepack",
+    );
+}
