@@ -1,6 +1,6 @@
 # Git 工作台功能規劃
 
-更新：2026-10-24。狀態：**G1–G8 功能已實作，exact-commit Linux CI 通過；尚待 review、三平台原生驗收與真實主機實測**。八個工作包為堆疊 PR #98–#105（見[實作狀態](#實作狀態2026-10-24)）。
+更新：2026-10-25。狀態：**G1–G8 已完成：功能已合併，exact-commit CI、三平台原生 smoke 與自動化驗收通過，使用者已於 2026-10-25 回報真實主機與原生人工驗收通過**。八個工作包為 PR #98–#105，後續修正見 #114–#118（見[實作狀態](#實作狀態2026-10-24)）。尚缺：實測的 GitLab 版本紀錄。
 
 ## 產品目標與已確認範圍
 
@@ -96,34 +96,34 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 ### 第一階段：本機日常流程
 
-- [ ] G1 Git 基礎與多 repo
+- [x] G1 Git 基礎與多 repo（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
   - 有效探測、身分／能力契約、repo selector、狀態刷新、Activity Bar contribution。
   - 驗收：無 repo 不出現可操作 Git 工具；.git file、子目錄、linked worktree、兩個同名 repo 正確隔離；掃描可取消，外部修改會刷新。
-- [ ] G2 Diff 與部分暫存（依賴 G1）
+- [x] G2 Diff 與部分暫存（依賴 G1）（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
   - 文字比較來源、並排／行內、部分 hunk／行 stage 與 unstage。
   - 驗收：同檔同 hunk 的兩項修改只暫存所選一項；反向取消後其他 staged 內容不變；過期快照拒絕寫入；非文字只顯示變更資訊。
-- [ ] G3 Commit 與遠端操作（依賴 G1、G2）
+- [x] G3 Commit 與遠端操作（依賴 G1、G2）（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
   - Commit、fetch、pull、push、upstream 與錯誤／認證回饋。
   - 驗收：commit 只含 index 所選內容；兩 repo 不混寫；推送不自動帶全部 tag；拒絕／離線不假成功；原 hooks／簽章失敗可理解。
-- [ ] G4 歷史圖與 blame（依賴 G1，可與 G2／G3 平行）
+- [x] G4 歷史圖與 blame（依賴 G1，可與 G2／G3 平行）（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
   - Graph、branch／tag 標記、commit／檔案歷史與 blame 導覽。
   - 驗收：分叉／合併歷史線正確；任選比較與 parent 語意正確；長歷史分批載入、不阻塞 Agent Terminal。
 
 ### 第二階段：分支、復原與衝突
 
-- [ ] G5 分支與復原（依賴 G1、G2、G3）
+- [x] G5 分支與復原（依賴 G1、G2、G3）（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
   - Branch、stash、reset、revert、tag 與危險操作確認／復原點。
   - 驗收：dirty tree、不完整備份、untracked、stash conflict、detached HEAD、其他 worktree 佔用分支皆有安全行為；確認取消零變更；tag 遠端刪除與普通 push 分離。
-- [ ] G6 合併與衝突（依賴 G2、G5）
+- [x] G6 合併與衝突（依賴 G2、G5）（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
   - Merge、內建三方 result 編輯／儲存、標記 resolved、continue／abort、非文字與重新命名／新增刪除衝突處置。
   - 驗收：文字與非文字衝突均可在應用內完成選擇；不能把未儲存 result 當 resolved；Agent 同時改檔時停止覆寫；abort 及操作失敗可恢復並正確呈現 Git 狀態。
 
 ### 第三階段：遠端協作
 
-- [ ] G7 主機與帳號連線（依賴 G1；不需等待所有本機 UI）
+- [x] G7 主機與帳號連線（依賴 G1；不需等待所有本機 UI）（2026-10-25 使用者回報人工驗收通過；回報未附實測的 GitLab 版本，補上後記錄於此）
   - GitHub／自架 GitLab adapters、多主機／多帳號、remote 映射與安全認證。
   - 驗收：不同 host／account／repo 不串憑證或快取；token 不出現在一般設定與 log；無權限、失效登入、私有網路／CA 問題可診斷；列明實測 GitLab 版本。
-- [ ] G8 PR／MR（依賴 G2、G3、G7；本機衝突流程銜接 G6）
+- [x] G8 PR／MR（依賴 G2、G3、G7；本機衝突流程銜接 G6）（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
   - 建立、diff、逐行留言、review／核准、CI 狀態與合併。
   - 驗收：私有 GitHub 與自架 GitLab 真實測試 repo 完整走一輪；不同權限遵守平台限制；遠端 head 更新使舊 review／merge 預覽失效；CI 狀態未知不假稱通過；可從主機連線返回原工作區。
 
@@ -131,7 +131,7 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 需要真實帳號與原生 App 的步驟見[人工驗收清單](git-manual-acceptance.md)。
 
-- [ ] 三平台測試矩陣：Windows（路徑／CRLF／credential helper）、macOS（原生鍵盤／IME／安全儲存）、Linux（WebView／credential helper）。
+- [x] 三平台測試矩陣：Windows（路徑／CRLF／credential helper）、macOS（原生鍵盤／IME／安全儲存）、Linux（WebView／credential helper）。（自動：Windows／Linux／macOS CI 與原生 smoke、三平台 credential store 往返；人工：2026-10-25 使用者回報原生鍵盤／IME／安全儲存驗收通過）
 - [x] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。（自動測試全部使用 tempdir 合成 repo、本機 bare remote 與 loopback mock）
 - [x] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對，以及 Chrome 端到端；fetch／pull／push 中途取消見 `tests/git_remote.rs` 的 `cancelling_*_midway_changes_nothing`：讓合成 remote 的 pack 程式卡住後取消，比對 HEAD、index、工作檔 bytes、本機與遠端 refs、`index.lock`。這三項只在 Unix 執行，Windows 的取消只有 runner 層的程式碼路徑）
 - [x] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 與 Chrome 端到端確認開 Git 面板、diff、graph、衝突與 Zen Mode 不重掛 Terminal。原生 Git probe 會先啟動一個 shell，完整走過探測、diff、部分暫存、commit、graph 後，確認 xterm 節點與 runtime ID 都沒變、仍在執行，再從全部工作區總覽放大回去並結束；macOS（arm／Intel）WKWebView、Linux WebKitGTK、Windows WebView2 皆通過：[Desktop acceptance](https://github.com/wellwind/SessionBay/actions/runs/40152730507)）

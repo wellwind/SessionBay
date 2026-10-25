@@ -1,5 +1,12 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-25：Git 工作台與多工作區驗收完成
+
+使用者回報 Git 工作台與單一視窗多工作區的人工驗收通過，並同意合併 #114–#118。依此加上既有的自動化、exact-commit CI 與三平台原生 smoke 證據，勾選 [Git 工作台](git-workbench-plan.md) G1–G8 與三平台測試矩陣，以及[多工作區規劃](multi-workspace-plan.md)的全部項目；roadmap 對應項目同步勾選。
+
+- 尚缺：G7 要求列明實測的 GitLab 版本，這次回報沒有附上，補上後記錄於 Git 計畫。
+- 其他文件（broker 生命週期、發行與更新、平台支援、MVP 驗證等）的未勾項目不在這次驗收範圍內，維持未勾。
+
 ## 2026-10-25：Git 變更清單分段渲染
 
 補 Git 計畫的前端量測時發現，5,000 個 untracked 會讓變更清單一次渲染全部列（每列有 3 個按鈕與圖示）：JS heap 從 12 MiB 漲到 118 MiB、最長 long task 503 ms，graph 與 diff 也被拖慢。

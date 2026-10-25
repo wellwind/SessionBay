@@ -4,9 +4,9 @@
 
 方向與驗收見[單一視窗多工作區規劃](multi-workspace-plan.md)。排程待定，不插隊既有發行順序。
 
-- [ ] 專案識別色與狀態標示設計規格。
-- [ ] 總覽格狀檢視（主要）。
-- [ ] 跨專案分割分頁（輔助）。
+- [x] 專案識別色與狀態標示設計規格。
+- [x] 總覽格狀檢視（主要）。
+- [x] 跨專案分割分頁（輔助）。
 
 ## 2026-10-18 發行與後續順序（最新）
 
@@ -163,7 +163,7 @@
 - [ ] 原生三平台狀態顯示與重連實機驗收。
 - [ ] 忙碌／等待輸入：等待可靠結構化 Agent 活動訊號；目前明確顯示活動未知。
 - [x] 此候選的 826 項前端測試、typecheck、lint、production build；另含 actual-App Chrome 接受測試與截圖輸出，接入 CI。
-- [ ] Chrome 接受測試實際執行與截圖檢視：雲端未安裝 Google Chrome；系統 Chromium 在 sandbox 因 socket 權限中止。未繞過 sandbox，需在 CI 完成。
+- [x] Chrome 接受測試實際執行與截圖檢視：Linux CI 以真實 Google Chrome（sandbox 啟用）執行，並上傳截圖 artifact。
 
 命令面板主清單新增 ↑／↓ 循環選取、搜尋重設、停用跳過與 Enter 執行；沿用主題子清單預覽／取消。前端回歸涵蓋 IME、焦點、空結果與專案選取；原生 macOS 輸入法實機驗收仍待執行。
 
@@ -263,14 +263,14 @@ Codex／Claude launch-local callback、broker 綁定、設定啟用／撤銷已�
 
 完整範圍、風險與驗收見 [Git 工作台功能規劃](git-workbench-plan.md)。以下八個工作包的程式、自動測試與 exact-commit Linux CI 已完成（堆疊 PR [#98](https://github.com/wellwind/SessionBay/pull/98)–[#105](https://github.com/wellwind/SessionBay/pull/105)），勾選代表完整交付，仍待 review、三平台原生驗收與真實 GitHub／自架 GitLab 實測；詳見[實作狀態](git-workbench-plan.md#實作狀態2026-10-24)。
 
-- [ ] G1 Git 基礎與多 repo。
-- [ ] G2 文字 Diff 與同檔部分 hunk／行暫存。
-- [ ] G3 Commit、fetch／pull／push。
-- [ ] G4 第一階段歷史 graph 與 blame。
-- [ ] G5 分支、stash／reset／revert／tag 與安全復原。
-- [ ] G6 應用內三方衝突解決及儲存。
-- [ ] G7 GitHub／自架 GitLab 主機與帳號連線。
-- [ ] G8 PR／MR 建立、review、CI 狀態與合併。
+- [x] G1 Git 基礎與多 repo。
+- [x] G2 文字 Diff 與同檔部分 hunk／行暫存。
+- [x] G3 Commit、fetch／pull／push。
+- [x] G4 第一階段歷史 graph 與 blame。
+- [x] G5 分支、stash／reset／revert／tag 與安全復原。
+- [x] G6 應用內三方衝突解決及儲存。
+- [x] G7 GitHub／自架 GitLab 主機與帳號連線。
+- [x] G8 PR／MR 建立、review、CI 狀態與合併。
 
 Worktree 管理與完整 CI logs／retry／cancel 後續另行規劃；非文字內容 diff 不在範圍內。既有 worktree 的正確 Git 探測與非文字變更／衝突處置仍在基礎範圍。
 
