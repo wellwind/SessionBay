@@ -46,7 +46,7 @@ it('confirms recoverable deletion, supports undo and never stops or launches run
   const changed = vi.fn();
   render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} onHistoryChanged={changed} />);
   fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
-  expect(screen.getByText('原始 Agent 歷史會保留，執行中的工作會繼續。要真正刪除檔案，之後在資源回收筒選「移到系統垃圾桶…」。')).toBeInTheDocument();
+  expect(screen.getByText('原始 Agent 歷史會保留，執行中的工作會繼續。要連 Agent 的檔案一起刪除，選「移到系統垃圾桶…」，確認檔案清單後才會搬移。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(api.trashSession).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
@@ -217,6 +217,25 @@ it('moves a confirmed plan to the OS trash by plan ID only', async () => {
   await waitFor(() => expect(changed).toHaveBeenCalledOnce());
   expect(api.executeSessionOsTrash).toHaveBeenCalledExactlyOnceWith('plan-1');
   expect(await screen.findByRole('button', { name: '還原 Synthetic work' })).toBeInTheDocument();
+});
+it('moves a Session to the OS trash in one step and keeps Undo when backing out', async () => {
+  vi.mocked(api.prepareSessionOsTrash).mockResolvedValue({ planId: 'plan-1', trashId: entry.id, sessionId: session.id, kind: 'codex',
+    sourceRoot: '/synthetic', items: [{ relativePath: 'sessions/synthetic.jsonl', directory: false, bytes: 42, entries: 0 }], kept: [], blockers: [] });
+  vi.mocked(api.executeSessionOsTrash).mockResolvedValue({ moved: ['sessions/synthetic.jsonl'], failed: [] });
+  render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
+  fireEvent.click(screen.getByRole('button', { name: '移到系統垃圾桶…' }));
+  expect(await screen.findByText('sessions/synthetic.jsonl')).toBeInTheDocument();
+  expect(api.trashSession).toHaveBeenCalledExactlyOnceWith(session.id, session.trashIdentity);
+  expect(api.prepareSessionOsTrash).toHaveBeenCalledWith(entry.id);
+  fireEvent.click(screen.getByRole('button', { name: '返回資源回收筒' }));
+  expect(await screen.findByRole('button', { name: '復原刪除' })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
+  fireEvent.click(screen.getByRole('button', { name: '移到系統垃圾桶…' }));
+  fireEvent.click(await screen.findByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: '移到系統垃圾桶' }));
+  await waitFor(() => expect(api.executeSessionOsTrash).toHaveBeenCalledExactlyOnceWith('plan-1'));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
 it('lists OS-trashed Sessions by title and restores them before rescanning', async () => {
   const moved = { id: 'moved-1', title: 'Moved synthetic work', kind: 'claude' as const, externalId: 'synthetic-uuid',
