@@ -5,7 +5,7 @@
 //! never touched, and moving to the OS trash keeps the operation reversible.
 use crate::catalog::Catalog;
 use crate::models::AgentKind;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -46,25 +46,198 @@ pub struct OsTrashResult {
     pub failed: Vec<String>,
 }
 
-/// Moves absolute paths to the OS trash; tests inject a fake.
+/// One moved path, recorded so the user can find or restore it later.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MovedItem {
+    pub original: String,
+    /// Location inside the trash when the platform reports it (macOS).
+    pub trashed: Option<String>,
+}
+
+/// OS trash access; tests inject a fake.
 pub trait Mover {
-    fn move_to_trash(&self, path: &Path) -> Result<(), String>;
+    /// Returns the item's new location when the platform reports it.
+    fn move_to_trash(&self, path: &Path) -> Result<Option<PathBuf>, String>;
+    /// Whether the item still sits in the trash.
+    fn in_trash(&self, item: &MovedItem, moved_at: i64) -> Result<bool, String>;
+    fn restore(&self, item: &MovedItem, moved_at: i64) -> Result<(), String>;
 }
 
 pub struct SystemTrash;
 
+#[cfg(target_os = "macos")]
 impl Mover for SystemTrash {
-    fn move_to_trash(&self, path: &Path) -> Result<(), String> {
-        #[allow(unused_mut)]
-        let mut context = trash::TrashContext::default();
-        // Finder requires Apple Events permission and plays a sound per call.
-        #[cfg(target_os = "macos")]
-        {
-            use trash::macos::{DeleteMethod, TrashContextExtMacos};
-            context.set_delete_method(DeleteMethod::NsFileManager);
-        }
-        context.delete(path).map_err(|e| e.to_string())
+    fn move_to_trash(&self, path: &Path) -> Result<Option<PathBuf>, String> {
+        use objc2_foundation::{NSFileManager, NSString, NSURL};
+        // NSFileManager needs no Finder automation permission and reports the
+        // trashed URL, which Finder's "Put Back" cannot be relied on to keep.
+        let text = path.to_str().ok_or("路徑不是 UTF-8，無法移到垃圾桶。")?;
+        let url = NSURL::fileURLWithPath(&NSString::from_str(text));
+        let mut resulting = None;
+        NSFileManager::defaultManager()
+            .trashItemAtURL_resultingItemURL_error(&url, Some(&mut resulting))
+            .map_err(|e| e.localizedDescription().to_string())?;
+        Ok(resulting
+            .and_then(|url| url.path())
+            .map(|path| PathBuf::from(path.to_string())))
     }
+    fn in_trash(&self, item: &MovedItem, _: i64) -> Result<bool, String> {
+        // ~/.Trash cannot be listed without Full Disk Access, but a known path can be checked.
+        Ok(item
+            .trashed
+            .as_deref()
+            .is_some_and(|path| fs::symlink_metadata(path).is_ok()))
+    }
+    fn restore(&self, item: &MovedItem, _: i64) -> Result<(), String> {
+        let trashed = item.trashed.as_deref().ok_or("沒有垃圾桶位置紀錄。")?;
+        restore_by_rename(Path::new(trashed), Path::new(&item.original))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+impl Mover for SystemTrash {
+    fn move_to_trash(&self, path: &Path) -> Result<Option<PathBuf>, String> {
+        trash::delete(path).map_err(|e| e.to_string())?;
+        Ok(None)
+    }
+    fn in_trash(&self, item: &MovedItem, moved_at: i64) -> Result<bool, String> {
+        Ok(find_listed(item, moved_at)?.is_some())
+    }
+    fn restore(&self, item: &MovedItem, moved_at: i64) -> Result<(), String> {
+        if Path::new(&item.original).exists() {
+            return Err("原位置已有同名項目。".into());
+        }
+        let found = find_listed(item, moved_at)?.ok_or("垃圾桶中已找不到這個項目。")?;
+        trash::os_limited::restore_all([found]).map_err(|e| e.to_string())
+    }
+}
+
+/// Newest trash entry for this original path deleted no earlier than the move.
+#[cfg(not(target_os = "macos"))]
+fn find_listed(item: &MovedItem, moved_at: i64) -> Result<Option<trash::TrashItem>, String> {
+    Ok(trash::os_limited::list()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|t| {
+            t.original_path() == Path::new(&item.original) && t.time_deleted >= moved_at - 60
+        })
+        .max_by_key(|t| t.time_deleted))
+}
+
+/// Move a trashed path back without replacing anything at the original spot.
+pub fn restore_by_rename(trashed: &Path, original: &Path) -> Result<(), String> {
+    if fs::symlink_metadata(original).is_ok() {
+        return Err("原位置已有同名項目。".into());
+    }
+    fs::symlink_metadata(trashed).map_err(|_| "垃圾桶中已找不到這個項目。".to_owned())?;
+    if let Some(parent) = original.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::rename(trashed, original).map_err(|e| e.to_string())
+}
+
+pub struct OsTrashRecord {
+    pub id: String,
+    pub title: String,
+    pub kind: AgentKind,
+    pub external_id: String,
+    pub source_root: String,
+    pub moved_at: i64,
+    pub items: Vec<MovedItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OsTrashedItemState {
+    pub relative_path: String,
+    pub in_trash: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OsTrashedSession {
+    pub id: String,
+    pub title: String,
+    pub kind: AgentKind,
+    pub external_id: String,
+    pub source_root: String,
+    pub moved_at: i64,
+    pub items: Vec<OsTrashedItemState>,
+}
+
+/// Records with each item's current trash presence.
+pub fn list_moved(catalog: &Catalog, mover: &dyn Mover) -> Result<Vec<OsTrashedSession>, String> {
+    catalog
+        .os_trash_records()?
+        .into_iter()
+        .map(|record| {
+            let items = record
+                .items
+                .iter()
+                .map(|item| {
+                    Ok(OsTrashedItemState {
+                        relative_path: relative_label(&record.source_root, &item.original),
+                        in_trash: mover.in_trash(item, record.moved_at)?,
+                    })
+                })
+                .collect::<Result<_, String>>()?;
+            Ok(OsTrashedSession {
+                id: record.id,
+                title: record.title,
+                kind: record.kind,
+                external_id: record.external_id,
+                source_root: record.source_root,
+                moved_at: record.moved_at,
+                items,
+            })
+        })
+        .collect()
+}
+
+fn relative_label(root: &str, original: &str) -> String {
+    Path::new(original).strip_prefix(root).map_or_else(
+        |_| original.to_owned(),
+        |p| p.to_string_lossy().into_owned(),
+    )
+}
+
+/// Put every still-trashed item back; the record goes once nothing is left in the trash.
+pub fn restore_moved(
+    catalog: &Catalog,
+    id: &str,
+    mover: &dyn Mover,
+) -> Result<OsTrashResult, String> {
+    let record = catalog
+        .os_trash_records()?
+        .into_iter()
+        .find(|r| r.id == id)
+        .ok_or("紀錄已變更，請重新整理。")?;
+    let mut result = OsTrashResult {
+        moved: Vec::new(),
+        failed: Vec::new(),
+    };
+    for item in &record.items {
+        let label = relative_label(&record.source_root, &item.original);
+        if !mover.in_trash(item, record.moved_at)? {
+            result
+                .failed
+                .push(format!("{label}：垃圾桶中已找不到，可能已永久刪除。"));
+            continue;
+        }
+        match mover.restore(item, record.moved_at) {
+            Ok(()) => result.moved.push(label),
+            Err(e) => result.failed.push(format!("{label}：{e}")),
+        }
+    }
+    if record
+        .items
+        .iter()
+        .all(|item| !mover.in_trash(item, record.moved_at).unwrap_or(true))
+    {
+        catalog.forget_os_trash(id)?;
+    }
+    Ok(result)
 }
 
 /// Whether a Session Bay runtime still uses this Session (id, external id).
@@ -153,16 +326,27 @@ impl PlanStore {
             moved: Vec::new(),
             failed: Vec::new(),
         };
+        let moved_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        let mut moved = Vec::new();
         for item in &plan.items {
-            match mover.move_to_trash(&root.join(&item.relative_path)) {
-                Ok(()) => result.moved.push(item.relative_path.clone()),
+            let path = root.join(&item.relative_path);
+            match mover.move_to_trash(&path) {
+                Ok(trashed) => {
+                    result.moved.push(item.relative_path.clone());
+                    moved.push(MovedItem {
+                        original: path.to_string_lossy().into_owned(),
+                        trashed: trashed.map(|p| p.to_string_lossy().into_owned()),
+                    });
+                }
                 Err(e) => result.failed.push(format!("{}：{e}", item.relative_path)),
             }
         }
         // Once anything left, the indexed Session is no longer whole; drop it so
-        // the next scan reflects disk. Restoring from the OS trash re-indexes it.
-        if !result.moved.is_empty() {
-            catalog.purge_trashed(&plan.trash_id, &plan.session_id)?;
+        // the next scan reflects disk, and keep a record for finding or restoring it.
+        if !moved.is_empty() {
+            catalog.purge_trashed(&plan.trash_id, &plan.session_id, moved_at, &moved)?;
         } else if !result.failed.is_empty() {
             return Err(result.failed.join("\n"));
         }

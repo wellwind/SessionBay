@@ -33,6 +33,7 @@ api.trash = async (offset = 0, limit = 40) => {
   return { catalogRevision: String(revision), items: Array.from({ length: Math.min(limit, 10000 - offset) }, (_, i) => ({ id: `trash-${offset + i}`,
     session: session(offset + i), sourceRoot: '/synthetic/source', deletedAt: '2026-10-17T12:00:00Z', unavailableReason: null })), total: 10000 };
 };
+api.osTrashed = async () => [];
 api.prepareSessionOsTrash = async trashId => ({ planId: 'synthetic-plan', trashId, sessionId: 'synthetic-0',
   kind: 'codex', sourceRoot: '/synthetic/source',
   items: [{ relativePath: 'sessions/2026/10/synthetic-session.jsonl', directory: false, bytes: 2048, entries: 0 }],

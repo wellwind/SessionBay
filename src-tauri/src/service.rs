@@ -815,6 +815,12 @@ impl Service {
         let running = self.session_running()?;
         self.os_trash.prepare(&self.catalog, trash_id, &running)
     }
+    pub fn os_trashed(&self) -> Result<Vec<crate::os_trash::OsTrashedSession>, String> {
+        crate::os_trash::list_moved(&self.catalog, &crate::os_trash::SystemTrash)
+    }
+    pub fn restore_os_trashed(&self, id: &str) -> Result<crate::os_trash::OsTrashResult, String> {
+        crate::os_trash::restore_moved(&self.catalog, id, &crate::os_trash::SystemTrash)
+    }
     pub fn execute_os_trash(
         &self,
         plan_id: &str,

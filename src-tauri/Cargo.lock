@@ -3319,6 +3319,7 @@ dependencies = [
  "image-webp",
  "interprocess",
  "libc",
+ "objc2-foundation",
  "png 0.18.1",
  "portable-pty",
  "quick-xml",

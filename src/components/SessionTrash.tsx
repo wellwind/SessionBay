@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { api, errorMessage } from '../api';
-import type { OsTrashPlan, OsTrashResult, TrashedSession } from '../types';
+import type { OsTrashedSession, OsTrashPlan, OsTrashResult, TrashedSession } from '../types';
 import { Dialog } from './Dialog';
 import { agentName, dateLabel } from './History';
 
@@ -74,6 +74,7 @@ export function SessionTrash({ onClose, onChanged, refreshToken }: {
           onClick={() => void restore(entry.id)}>還原</button>
         </div>
       </article>} />
+    <MovedSessions revision={revision} onRestored={async () => { setRevision((value) => value + 1); await onChanged(); }} />
     <button disabled={busy} onClick={() => setRevision((value) => value + 1)}>重新整理</button>
     </>}
   </Dialog>;
@@ -135,7 +136,7 @@ function OsTrashReview({ entry, onClose, onMoved }: {
   </>;
   return <>
     <h3>{entry.session.title || entry.session.externalId}</h3>
-    <p>下列檔案會移到系統垃圾桶，可從垃圾桶放回；放回後重新掃描即可再次出現在 Session Bay。共享儲存不會變動，可能仍留有這個 Session 的片段紀錄。</p>
+    <p>下列檔案會移到系統垃圾桶。在系統垃圾桶清空前，可從本視窗的「已移到系統垃圾桶」還原；檔名是 Session ID，不是標題。共享儲存不會變動，可能仍留有這個 Session 的片段紀錄。</p>
     {loading && <p role="status">檢查 Session 檔案中…</p>}
     {error && <p role="alert" className="inline-error">{error}</p>}
     {plan && <>
@@ -166,4 +167,56 @@ function OsTrashReview({ entry, onClose, onMoved }: {
         onClick={() => void execute()}>{moving ? '移動中…' : '移到系統垃圾桶'}</button>
     </div>
   </>;
+}
+
+/** Sessions whose files went to the OS trash; the record maps ID-named trash items back to titles. */
+function MovedSessions({ revision, onRestored }: { revision: number; onRestored: () => Promise<void> }) {
+  const [items, setItems] = useState<OsTrashedSession[]>([]);
+  const [reload, setReload] = useState(0);
+  const [busy, setBusy] = useState('');
+  const [message, setMessage] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    void api.osTrashed().then(value => { if (!cancelled) setItems(value); }, reason => { if (!cancelled) setMessage(errorMessage(reason)); });
+    return () => { cancelled = true; };
+  }, [revision, reload]);
+  const run = async (id: string, action: () => Promise<void>) => {
+    setBusy(id);
+    setMessage('');
+    try { await action(); } catch (reason) { setMessage(errorMessage(reason)); }
+    finally { setBusy(''); setReload(value => value + 1); }
+  };
+  const restore = (entry: OsTrashedSession) => run(entry.id, async () => {
+    const result = await api.restoreOsTrashed(entry.id);
+    if (result.moved.length) {
+      await api.scan();
+      await onRestored();
+    }
+    setMessage(result.failed.length ? `部分項目未還原：${result.failed.join('；')}` : `已還原「${entry.title || entry.externalId}」，重新掃描後會出現在歷史中。`);
+  });
+  if (!items.length && !message) return null;
+  return <section aria-label="已移到系統垃圾桶" className="session-os-trash">
+    <h3>已移到系統垃圾桶</h3>
+    <p className="muted">系統垃圾桶中的項目以 Session ID 命名。清空垃圾桶即永久刪除；清空前可在這裡還原到原位置。</p>
+    {message && <p role="status">{message}</p>}
+    {items.map(entry => {
+      const remaining = entry.items.filter(item => item.inTrash).length;
+      const name = entry.title || entry.externalId;
+      return <article key={entry.id} className="session-trash-entry">
+        <div>
+          <h3>{name}</h3>
+          <p>{agentName(entry.kind)} · 移到垃圾桶 {dateLabel(new Date(entry.movedAt * 1000).toISOString())}
+            {' · '}{remaining ? `${remaining}／${entry.items.length} 項仍在垃圾桶` : '已從垃圾桶永久刪除'}</p>
+          <p className="session-trash-source">Session {entry.externalId}<br />
+            {entry.items.map(item => `${item.relativePath}${item.inTrash ? '' : '（已刪除）'}`).join('、')}</p>
+        </div>
+        <div className="history-undo-actions">
+          {remaining > 0 && <button className="secondary" disabled={!!busy} aria-label={`從系統垃圾桶還原 ${name}`}
+            onClick={() => void restore(entry)}>還原</button>}
+          <button className="secondary" disabled={!!busy} aria-label={`移除紀錄 ${name}`}
+            onClick={() => void run(entry.id, () => api.forgetOsTrashed(entry.id))}>移除紀錄</button>
+        </div>
+      </article>;
+    })}
+  </section>;
 }
