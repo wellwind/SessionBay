@@ -70,6 +70,7 @@ pub struct Service {
     pub config: ConfigStore,
     pub runtime: RuntimeManager,
     pub git: crate::git::GitService,
+    os_trash: crate::os_trash::PlanStore,
     pub file_staging: Mutex<Option<crate::file_input::FileStaging>>,
     pub image_staging: Mutex<Option<crate::image_input::ImageStaging>>,
     fresh_launches: Mutex<crate::fresh_launch::FreshLaunches>,
@@ -117,6 +118,7 @@ impl Service {
             config,
             runtime: RuntimeManager::new(),
             git,
+            os_trash: Default::default(),
             image_staging: Mutex::new(None),
             file_staging: Mutex::new(None),
             fresh_launches: Mutex::new(crate::fresh_launch::FreshLaunches::new(
@@ -791,6 +793,39 @@ impl Service {
         // Keep catalog commits outside the confirmation's admission/consume boundary.
         // Both launch paths reserve in the same fresh -> catalog -> settings order.
         self.catalog.with_launch_revision(&mut launch)
+    }
+
+    /// Live Session Bay runtimes that resume or launched this Session.
+    fn session_running(&self) -> Result<impl Fn(&str, &str) -> bool, String> {
+        let records = match &self.broker {
+            Some(broker) => broker.list()?,
+            None => Vec::new(),
+        };
+        Ok(move |session_id: &str, external_id: &str| {
+            records.iter().any(|record| {
+                matches!(
+                    record.info.state.as_str(),
+                    "running" | "stopping" | "unknown"
+                ) && (record.info.session_id.as_deref() == Some(session_id)
+                    || record.resume_id.as_deref() == Some(external_id))
+            })
+        })
+    }
+    pub fn prepare_os_trash(&self, trash_id: &str) -> Result<crate::os_trash::OsTrashPlan, String> {
+        let running = self.session_running()?;
+        self.os_trash.prepare(&self.catalog, trash_id, &running)
+    }
+    pub fn execute_os_trash(
+        &self,
+        plan_id: &str,
+    ) -> Result<crate::os_trash::OsTrashResult, String> {
+        let running = self.session_running()?;
+        self.os_trash.execute(
+            &self.catalog,
+            plan_id,
+            &running,
+            &crate::os_trash::SystemTrash,
+        )
     }
 
     /// Staging begin and retain check the live broker record. Missing metadata alone never grants access.

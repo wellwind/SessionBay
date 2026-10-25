@@ -33,10 +33,10 @@ api.trash = async (offset = 0, limit = 40) => {
   return { catalogRevision: String(revision), items: Array.from({ length: Math.min(limit, 10000 - offset) }, (_, i) => ({ id: `trash-${offset + i}`,
     session: session(offset + i), sourceRoot: '/synthetic/source', deletedAt: '2026-10-17T12:00:00Z', unavailableReason: null })), total: 10000 };
 };
-api.inspectSessionRemoval = async trashId => ({ trashId, sessionId: 'synthetic-0', externalId: 'external-0',
-  kind: 'codex', sourceRoot: '/synthetic/source', catalogRevision: String(revision),
-  indexedArtifacts: [{ relativePath: 'sessions/2026/10/synthetic-session.jsonl', status: 'metadataMatchesIndex', indexedBytes: 2048 }],
-  blockers: ['Codex：完整關聯清理與外部 Agent 排他協定尚未實作。', '永久移除尚未開放，檢查不會刪除資料。'] });
+api.prepareSessionOsTrash = async trashId => ({ planId: 'synthetic-plan', trashId, sessionId: 'synthetic-0',
+  kind: 'codex', sourceRoot: '/synthetic/source',
+  items: [{ relativePath: 'sessions/2026/10/synthetic-session.jsonl', directory: false, bytes: 2048, entries: 0 }],
+  kept: ['history.jsonl（共享輸入歷史）'], blockers: [] });
 document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') ?? 'dark';
 function Fixture() {
   const [project, setProject] = useState('a');

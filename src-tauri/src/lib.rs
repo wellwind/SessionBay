@@ -18,6 +18,7 @@ pub mod launch_provenance;
 pub mod models;
 pub mod opencode;
 pub mod opencode_state;
+pub mod os_trash;
 pub mod provider_hooks;
 pub mod providers;
 pub mod removal;

@@ -273,16 +273,18 @@ export interface TrashPage {
   total: number;
 }
 
-export interface RemovalInspection {
+export interface OsTrashItem { relativePath: string; directory: boolean; bytes: number; entries: number }
+export interface OsTrashPlan {
+  planId: string;
   trashId: string;
   sessionId: string;
-  externalId: string;
   kind: AgentKind;
   sourceRoot: string;
-  catalogRevision: string;
-  indexedArtifacts: { relativePath: string; status: 'metadataMatchesIndex' | 'changedOrUnavailable' | 'sharedStore'; indexedBytes: number | null }[];
+  items: OsTrashItem[];
+  kept: string[];
   blockers: string[];
 }
+export interface OsTrashResult { moved: string[]; failed: string[] }
 
 export interface TerminalFileCandidate { path: string; version: string; fromLaunchDirectory: boolean }
 export interface TerminalFileResolution {
