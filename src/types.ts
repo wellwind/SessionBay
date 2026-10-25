@@ -125,6 +125,7 @@ export interface Settings {
   terminalTheme: string;
   /** 「終端固定用深色」. Absent/false: the terminal follows the UI light/dark mode. */
   terminalAlwaysDark?: boolean;
+  systemNotifications?: boolean;
   fontFamily: string;
   fontSize: number;
   /** Percentage; absent in older version 1 settings means 100. */

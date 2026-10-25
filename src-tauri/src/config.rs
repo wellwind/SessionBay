@@ -35,6 +35,10 @@ pub struct Executables {
     pub opencode: String,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_opencode_executable() -> String {
     providers::definition(AgentKind::OpenCode)
         .executable
@@ -114,6 +118,9 @@ pub struct Settings {
     /// 「終端固定用深色」: opt out of the terminal following the UI light/dark mode.
     #[serde(default)]
     pub terminal_always_dark: bool,
+    /// OS notifications when a background Agent waits, finishes or fails.
+    #[serde(default = "default_true")]
+    pub system_notifications: bool,
     pub font_family: String,
     pub font_size: u16,
     #[serde(default = "default_app_zoom")]
@@ -161,6 +168,7 @@ impl Default for Settings {
             theme_palette: default_theme_palette(),
             terminal_theme: "bay".into(),
             terminal_always_dark: false,
+            system_notifications: true,
             font_family: DEFAULT_FONT_FAMILY.into(),
             font_size: 14,
             app_zoom: default_app_zoom(),
@@ -1145,6 +1153,13 @@ mod tests {
         pinned["terminalAlwaysDark"] = true.into();
         let pinned: Settings = serde_json::from_value(pinned).unwrap();
         assert!(pinned.terminal_always_dark);
+    }
+    #[test]
+    fn legacy_settings_enable_system_notifications() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("systemNotifications");
+        let migrated: Settings = serde_json::from_value(old).unwrap();
+        assert!(migrated.system_notifications);
     }
     #[test]
     fn future_theme_ids_roundtrip_without_resetting_settings() {

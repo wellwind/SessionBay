@@ -265,6 +265,7 @@ impl Service {
             "themePalette",
             "terminalTheme",
             "terminalAlwaysDark",
+            "systemNotifications",
             "fontFamily",
             "fontSize",
             "appZoom",
