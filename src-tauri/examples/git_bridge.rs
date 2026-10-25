@@ -57,10 +57,21 @@ fn fixture() -> Fixture {
     write("f.txt", "alpha\nBETA\ngamma\nDELTA\n");
     write("notes.txt", "untracked\n");
     // Long branch and path names for narrow-layout and resize checks.
-    git(&root, &["branch", "feature/very-long-branch-name-for-narrow-layout-checks-with-many-segments"]);
-    let deep = root.join("deeply/nested/directory/structure/with/very/long/segment/names/for/layout/review");
+    git(
+        &root,
+        &[
+            "branch",
+            "feature/very-long-branch-name-for-narrow-layout-checks-with-many-segments",
+        ],
+    );
+    let deep = root
+        .join("deeply/nested/directory/structure/with/very/long/segment/names/for/layout/review");
     std::fs::create_dir_all(&deep).unwrap();
-    std::fs::write(deep.join("synthetic-file-with-an-intentionally-long-name-for-ellipsis.txt"), "deep\n").unwrap();
+    std::fs::write(
+        deep.join("synthetic-file-with-an-intentionally-long-name-for-ellipsis.txt"),
+        "deep\n",
+    )
+    .unwrap();
     let service = GitService::with_data_dir(base.join("data"));
     Fixture {
         _temp: temp,
