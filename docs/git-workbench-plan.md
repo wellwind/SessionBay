@@ -136,7 +136,7 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 - [x] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對，以及 Chrome 端到端；fetch／pull／push 中途取消見 `tests/git_remote.rs` 的 `cancelling_*_midway_changes_nothing`：讓合成 remote 的 pack 程式卡住後取消，比對 HEAD、index、工作檔 bytes、本機與遠端 refs、`index.lock`。這三項只在 Unix 執行，Windows 的取消只有 runner 層的程式碼路徑）
 - [x] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 與 Chrome 端到端確認開 Git 面板、diff、graph、衝突與 Zen Mode 不重掛 Terminal。原生 Git probe 會先啟動一個 shell，完整走過探測、diff、部分暫存、commit、graph 後，確認 xterm 節點與 runtime ID 都沒變、仍在執行，再從全部工作區總覽放大回去並結束；macOS（arm／Intel）WKWebView、Linux WebKitGTK、Windows WebView2 皆通過：[Desktop acceptance](https://github.com/wellwind/SessionBay/actions/runs/40152730507)）
 - [x] Keyboard、focus、tooltip、一般／Zen、狹窄視窗、共用 panel resize、長路徑及長分支名稱通過。（`npm run test:git` 在 Chromium 與 WebKit 各 5 個端到端情境全部通過，涵蓋：graph 方向鍵、`Mod+Shift+G`／Escape 焦點返回、tooltip 顯示快捷鍵、Zen、900／760 px、鍵盤與拖曳調整共用面板寬度、長路徑與長 branch 名稱在面板內截斷且無水平捲動、Terminal 不重掛。原生鍵盤與 IME 屬上方三平台測試矩陣，仍需人工驗收）
-- [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。（已有後端時間量測，缺記憶體與前端量測）
+- [x] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。（後端時間、peak RSS、回傳大小，以及前端在 Chromium 的時間、long task 與 JS heap，見[實作狀態](#實作狀態2026-10-24)下方的量測；原生 WebView 未量測，不據此宣稱原生效能無虞）
 - [x] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。（見實作狀態表）
 
 ## 實作狀態（2026-10-24）
@@ -175,6 +175,19 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 | blame 10,000 行檔案 | 29 ms |
 | 檔案歷史（100 筆） | 45 ms |
 | refs 清單 | 59 ms |
+
+記憶體與前端量測（2026-10-25，macOS 26.4.1／Apple M1 Max／Git 2.55.0；同一個合成 repo）：
+
+- **後端**（release build，同上指令）：整個量測過程 peak RSS 32.5 MiB（呼叫 Git 前 11.3 MiB；不含 git 子程序）。回傳給前端的 JSON：status 766 KiB、log 每頁 47 KiB、diff 247 KiB、blame 993 KiB、檔案歷史 28 KiB、refs 0.8 KiB。
+- **前端**（Chromium 155、Vite dev server，透過 loopback Git bridge 的完整 App；指令 `SESSIONBAY_GIT_BRIDGE_LARGE=1 npx playwright test --config playwright.git.config.ts git-performance`，結果寫入 `test-results/git/**/git-performance.json`）：
+
+| 操作 | 時間 | 最長 long task | 量測後 JS heap |
+| --- | --- | --- | --- |
+| 開 Git 面板到變更清單出現（5,000 untracked） | 1.00 s | 68 ms | 24.0 MiB |
+| 開 graph（20,000 commits 第一頁） | 0.19 s | 無 | 23.2 MiB |
+| 開 10,000 行 diff | 0.58 s | 177 ms | 42.3 MiB |
+
+起始 heap 12.4 MiB。第一次量測時，變更清單會一次渲染全部 5,000 列：heap 118 MiB、最長 long task 503 ms，graph／diff 也被拖慢（1.57 s／3.58 s）。之後改成每組先顯示 200 列、按「再顯示」每次多 500 列，才得到上表的數字。時間包含 loopback HTTP；原生 IPC 與 WebKit／WebView2 尚未量測。
 
 ## 後續與尚待技術確認
 

@@ -18,6 +18,25 @@ const COMMITS: usize = 20_000;
 const FILES: usize = 5_000;
 const LINES: usize = 10_000;
 
+/// Peak resident set size of this test process in MiB (Unix; 0 elsewhere).
+fn peak_rss_mib() -> f64 {
+    #[cfg(unix)]
+    {
+        let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+        // SAFETY: getrusage fills the provided struct on success.
+        if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } == 0 {
+            let max = unsafe { usage.assume_init() }.ru_maxrss as f64;
+            // macOS reports bytes, Linux kilobytes.
+            return if cfg!(target_os = "macos") {
+                max / 1_048_576.0
+            } else {
+                max / 1024.0
+            };
+        }
+    }
+    0.0
+}
+
 fn timed<T>(label: &str, report: &mut String, action: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let value = action();
@@ -79,17 +98,25 @@ fn measure_large_synthetic_repository() {
 
     let service = GitService::new();
     let mut report = String::new();
+    let rss_before = peak_rss_mib();
     let found = timed("discover", &mut report, || service.discover(&root).unwrap());
     let ProjectGit::Ready(found) = found else {
         panic!()
     };
     let id = found.repos[0].id.clone();
+    let payloads = std::cell::RefCell::new(Vec::new());
     let call = |value: Value| {
         let mut value = value;
+        let op = value["op"].as_str().unwrap_or_default().to_owned();
         value["repoId"] = json!(id);
-        service
+        let result = service
             .handle(&root, serde_json::from_value::<GitRequest>(value).unwrap())
-            .unwrap()
+            .unwrap();
+        // IPC payload the frontend would receive for this request.
+        payloads
+            .borrow_mut()
+            .push((op, serde_json::to_vec(&result).unwrap().len()));
+        result
     };
     let status = timed(&format!("status ({FILES} untracked)"), &mut report, || {
         call(json!({ "op": "status" }))
@@ -115,5 +142,15 @@ fn measure_large_synthetic_repository() {
         call(json!({ "op": "fileHistory", "path": "file1.txt", "limit": 100 }))
     });
     timed("refs", &mut report, || call(json!({ "op": "refs" })));
+    for (op, bytes) in payloads.borrow().iter() {
+        writeln!(report, "payload {op}: {:.1} KiB", *bytes as f64 / 1024.0).unwrap();
+    }
+    writeln!(
+        report,
+        "peak RSS: {:.1} MiB (before Git calls {:.1} MiB)",
+        peak_rss_mib(),
+        rss_before
+    )
+    .unwrap();
     println!("{report}");
 }

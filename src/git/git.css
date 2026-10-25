@@ -240,3 +240,4 @@
 .git-ci.pending, .git-ci.running, .git-ci.unknown { color: var(--warning); }
 .git-scan-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 12px; }
 .git-danger-target { margin: 0 0 10px; padding: 6px 10px; border-left: 3px solid var(--danger); background: var(--danger-bg); color: var(--text); font-size: 13px; }
+.git-show-more { width: 100%; margin: 4px 0 8px; padding: 4px 8px; font-size: 12px; color: var(--accent); background: transparent; border: 1px dashed var(--border); }

@@ -1,5 +1,13 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-25：Git 變更清單分段渲染
+
+補 Git 計畫的前端量測時發現，5,000 個 untracked 會讓變更清單一次渲染全部列（每列有 3 個按鈕與圖示）：JS heap 從 12 MiB 漲到 118 MiB、最長 long task 503 ms，graph 與 diff 也被拖慢。
+
+- 每個分組先渲染 200 列，「再顯示」每次多 500 列；分組數量與「全部暫存／取消暫存」仍作用於整組。
+- 目前選取的檔案即使超出範圍也會顯示。換 repository 時從頭計算。
+- 改善後：開清單 1.00 s、最長 long task 68 ms；graph 0.19 s；10,000 行 diff 0.58 s；量測結束時 heap 42 MiB。量測方式與環境見 [Git 工作台](git-workbench-plan.md)。
+
 ## 2026-10-25：Git 取消與逾時會停止整個子程序樹
 
 補網路操作「中途取消」的自動測試時，發現取消只會 kill git 本身。git 生出的子程序（ssh、credential helper、hook，測試裡是讓 pack 程式卡住的 shell）會繼承輸出 pipe，runner 又要等讀取執行緒結束才回報，所以按「停止」後可能卡到子程序自己結束（實測 30 秒）。

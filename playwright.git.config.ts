@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 // browser UI is the full App with every other IPC call synthetic.
 export default defineConfig({
   testDir: './tests/browser',
-  testMatch: 'git-workbench.spec.ts',
+  testMatch: ['git-workbench.spec.ts', 'git-performance.spec.ts'],
   outputDir: './test-results/git',
   timeout: 60_000,
   workers: 1,

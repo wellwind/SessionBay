@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Minus, Plus, Undo2 } from 'lucide-react';
 import type { Change, RepoStatus, StatusEntry } from './types';
@@ -61,11 +62,24 @@ export interface ChangeActions {
   onDiscard?: (entries: StatusEntry[]) => void;
 }
 
+/** Rows rendered per group before "show more"; group actions still cover every entry. */
+export const CHANGE_PAGE = 200;
+const CHANGE_MORE = 500;
+
 export function GitChanges({ status, actions }: { status: RepoStatus; actions?: ChangeActions }) {
   const groups = groupEntries(status);
   const order: ChangeGroup[] = ['conflicts', 'staged', 'unstaged', 'untracked'];
+  // Thousands of rows (each with buttons and icons) cost hundreds of MiB and
+  // half-second tasks; render a window and grow it on request, per repository.
+  const [shown, setShown] = useState<{ repoId: string; limits: Partial<Record<ChangeGroup, number>> }>({ repoId: status.repoId, limits: {} });
+  const limits = shown.repoId === status.repoId ? shown.limits : {};
   if (!status.entries.length) return <p className="git-muted git-clean" role="status">工作目錄沒有變更。</p>;
   const rowKey = (group: ChangeGroup, entry: StatusEntry) => `${group}:${pathKey(entry.path)}`;
+  const limitFor = (group: ChangeGroup) => {
+    const active = groups[group].findIndex(entry => actions?.activeKey === rowKey(group, entry));
+    return Math.max(limits[group] ?? CHANGE_PAGE, active + 1);
+  };
+  const more = (group: ChangeGroup) => setShown({ repoId: status.repoId, limits: { ...limits, [group]: limitFor(group) + CHANGE_MORE } });
   return <div className="git-changes">
     {status.truncated && <p className="git-notice" role="status">變更過多，只列出前 {status.entries.length} 項。</p>}
     {order.filter(group => groups[group].length).map(group => <section key={group} className="git-change-group" aria-label={groupTitle[group]}>
@@ -76,7 +90,7 @@ export function GitChanges({ status, actions }: { status: RepoStatus; actions?: 
             : <button className="git-icon-button" disabled={actions.busy} aria-label={`全部暫存${groupTitle[group]}`} title={`暫存全部${groupTitle[group]}檔案`} onClick={() => actions.onStage(groups[group])}><Plus size={14} /></button>}
         </span>}
       </h3>
-      <ul>{groups[group].map(entry => <ChangeRow key={rowKey(group, entry)} entry={entry} group={group}
+      <ul>{groups[group].slice(0, limitFor(group)).map(entry => <ChangeRow key={rowKey(group, entry)} entry={entry} group={group}
         selected={actions?.activeKey === rowKey(group, entry)} onOpen={actions ? () => actions.onOpen(entry, group) : undefined}>
         {actions && group === 'staged' && <button disabled={actions.busy} aria-label={`取消暫存 ${entry.path.path}`} title="取消暫存" onClick={() => actions.onUnstage([entry])}><Minus size={14} /></button>}
         {actions?.onDiscard && (group === 'unstaged' || group === 'untracked') && !entry.submodule && <button disabled={actions.busy}
@@ -84,6 +98,8 @@ export function GitChanges({ status, actions }: { status: RepoStatus; actions?: 
           onClick={() => actions.onDiscard?.([entry])}><Undo2 size={14} /></button>}
         {actions && (group === 'unstaged' || group === 'untracked') && <button disabled={actions.busy} aria-label={`暫存 ${entry.path.path}`} title="暫存整個檔案" onClick={() => actions.onStage([entry])}><Plus size={14} /></button>}
       </ChangeRow>)}</ul>
+      {groups[group].length > limitFor(group) && <button className="git-show-more" onClick={() => more(group)}>
+        再顯示 {Math.min(CHANGE_MORE, groups[group].length - limitFor(group))} 項（尚有 {groups[group].length - limitFor(group)} 項）</button>}
     </section>)}
   </div>;
 }

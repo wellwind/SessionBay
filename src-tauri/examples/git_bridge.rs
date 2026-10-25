@@ -3,12 +3,16 @@
 //! at user repositories; binds 127.0.0.1 only.
 //!
 //! `cargo run --no-default-features --example git_bridge -- <port>`
+//!
+//! `SESSIONBAY_GIT_BRIDGE_LARGE=1` builds the same large repository as
+//! `tests/git_performance.rs` (20,000 commits, 5,000 untracked files and a
+//! 10,000-line diff) for frontend measurements.
 use sessionbay_lib::git::{hosting::HostRequest, GitRequest, GitService};
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     sync::Mutex,
 };
 
@@ -53,6 +57,9 @@ fn fixture() -> Fixture {
     git(&root, &["switch", "-q", "main"]);
     write("conflict.txt", "main line\n");
     git(&root, &["commit", "-q", "-am", "Main change"]);
+    if std::env::var_os("SESSIONBAY_GIT_BRIDGE_LARGE").is_some_and(|value| value == "1") {
+        large(&root);
+    }
     // Two edits in one hunk, plus an untracked file.
     write("f.txt", "alpha\nBETA\ngamma\nDELTA\n");
     write("notes.txt", "untracked\n");
@@ -78,6 +85,59 @@ fn fixture() -> Fixture {
         root,
         service,
     }
+}
+
+/// Mirrors tests/git_performance.rs: long branchy history, many untracked
+/// files and a 10,000-line modified file, on top of the regular fixture.
+fn large(root: &Path) {
+    use std::fmt::Write as _;
+    let mut stream = String::new();
+    for index in 0..20_000usize {
+        let branch = if index % 50 < 5 {
+            "refs/heads/side"
+        } else {
+            "refs/heads/main"
+        };
+        write!(stream, "commit {branch}\nmark :{}\ncommitter Synthetic <s@example.invalid> {} +0000\ndata 12\ncommit {index:05}\n", index + 1, 1_700_000_000 + index).unwrap();
+        writeln!(
+            stream,
+            "from {}",
+            if index == 0 {
+                "refs/heads/main^0".to_owned()
+            } else {
+                format!(":{index}")
+            }
+        )
+        .unwrap();
+        write!(
+            stream,
+            "M 644 inline file{}.txt\ndata 8\nv{index:06}\n\n",
+            index % 100
+        )
+        .unwrap();
+    }
+    let mut child = Command::new("git")
+        .args(["fast-import", "--quiet"])
+        .current_dir(root)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stream.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
+    git(root, &["reset", "-q", "--hard", "main"]);
+    for index in 0..5_000 {
+        std::fs::write(root.join(format!("untracked-{index}.txt")), b"x\n").unwrap();
+    }
+    let big: String = (0..10_000).map(|i| format!("line {i}\n")).collect();
+    std::fs::write(root.join("file0.txt"), big.replace("line 5", "LINE 5")).unwrap();
+    git(root, &["add", "file0.txt"]);
+    git(root, &["commit", "-q", "-m", "big file"]);
+    std::fs::write(root.join("file0.txt"), big).unwrap();
 }
 
 fn inspect(root: &Path) -> serde_json::Value {
