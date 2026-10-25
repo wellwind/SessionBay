@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import type { Session } from './types';
 
 vi.mock('./api', () => ({
-  api: { sessions: vi.fn(), transcript: vi.fn(), trashSession: vi.fn(), restoreSession: vi.fn(), prepareSessionOsTrash: vi.fn(), executeSessionOsTrash: vi.fn(), trash: vi.fn(), stop: vi.fn(), launch: vi.fn() },
+  api: { sessions: vi.fn(), transcript: vi.fn(), trashSession: vi.fn(), restoreSession: vi.fn(), prepareSessionOsTrash: vi.fn(), executeSessionOsTrash: vi.fn(), osTrashed: vi.fn(), restoreOsTrashed: vi.fn(), forgetOsTrashed: vi.fn(), scan: vi.fn(), trash: vi.fn(), stop: vi.fn(), launch: vi.fn() },
   errorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 const session: Session = { id: 'real-catalog-id', trashIdentity: 'displayed-source-token', sourceId: 'source', kind: 'codex', externalId: 'real-external-id', projectId: 'project', title: 'Synthetic work', cwd: '/synthetic', updatedAt: '2026-10-16T12:00:00Z', timeSource: 'event', archived: false, parentId: null, partial: false, snippet: null };
@@ -20,6 +20,7 @@ beforeEach(() => {
   vi.mocked(api.trashSession).mockResolvedValue(entry.id);
   vi.mocked(api.restoreSession).mockResolvedValue();
   vi.mocked(api.trash).mockResolvedValue({ catalogRevision: 'fixture', items: [entry], total: 1 });
+  vi.mocked(api.osTrashed).mockResolvedValue([]);
 });
 it('defaults recoverable delete to confirm, preserves Escape and prevents pending duplicate Enter', async () => {
   const user = userEvent.setup();
@@ -45,7 +46,7 @@ it('confirms recoverable deletion, supports undo and never stops or launches run
   const changed = vi.fn();
   render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} onHistoryChanged={changed} />);
   fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
-  expect(screen.getByText('原始 Agent 歷史會保留，執行中的工作會繼續。')).toBeInTheDocument();
+  expect(screen.getByText('原始 Agent 歷史會保留，執行中的工作會繼續。要真正刪除檔案，之後在資源回收筒選「移到系統垃圾桶…」。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(api.trashSession).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
@@ -216,6 +217,24 @@ it('moves a confirmed plan to the OS trash by plan ID only', async () => {
   await waitFor(() => expect(changed).toHaveBeenCalledOnce());
   expect(api.executeSessionOsTrash).toHaveBeenCalledExactlyOnceWith('plan-1');
   expect(await screen.findByRole('button', { name: '還原 Synthetic work' })).toBeInTheDocument();
+});
+it('lists OS-trashed Sessions by title and restores them before rescanning', async () => {
+  const moved = { id: 'moved-1', title: 'Moved synthetic work', kind: 'claude' as const, externalId: 'synthetic-uuid',
+    sourceRoot: '/synthetic/root', movedAt: 1_793_000_000,
+    items: [{ relativePath: 'projects/p/synthetic-uuid.jsonl', inTrash: true }, { relativePath: 'debug/synthetic-uuid.txt', inTrash: false }] };
+  vi.mocked(api.osTrashed).mockResolvedValueOnce([moved]).mockResolvedValue([]);
+  vi.mocked(api.restoreOsTrashed).mockResolvedValue({ moved: ['projects/p/synthetic-uuid.jsonl'], failed: [] });
+  vi.mocked(api.scan).mockResolvedValue({} as never);
+  const changed = vi.fn();
+  render(<SessionTrash onClose={vi.fn()} onChanged={changed} refreshToken={0} />);
+  expect(await screen.findByText('Moved synthetic work')).toBeInTheDocument();
+  expect(screen.getByText(/1／2 項仍在垃圾桶/)).toBeInTheDocument();
+  expect(screen.getByText(/debug\/synthetic-uuid.txt（已刪除）/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '從系統垃圾桶還原 Moved synthetic work' }));
+  expect(await screen.findByText(/已還原「Moved synthetic work」/)).toBeInTheDocument();
+  expect(api.restoreOsTrashed).toHaveBeenCalledExactlyOnceWith('moved-1');
+  expect(api.scan).toHaveBeenCalledOnce();
+  expect(changed).toHaveBeenCalled();
 });
 it('blocks execution while the plan has blockers and refreshes after a failure', async () => {
   vi.mocked(api.prepareSessionOsTrash).mockResolvedValueOnce(plan({ planId: '', blockers: ['Synthetic running blocker'] }));

@@ -314,6 +314,26 @@ async fn execute_session_os_trash(
     blocking(move || s.execute_os_trash(&plan_id)).await
 }
 #[tauri::command]
+async fn list_os_trashed_sessions(
+    state: AppState<'_>,
+) -> Result<Vec<crate::os_trash::OsTrashedSession>, String> {
+    let s = state.inner().clone();
+    blocking(move || s.os_trashed()).await
+}
+#[tauri::command]
+async fn restore_os_trashed_session(
+    state: AppState<'_>,
+    id: String,
+) -> Result<crate::os_trash::OsTrashResult, String> {
+    let s = state.inner().clone();
+    blocking(move || s.restore_os_trashed(&id)).await
+}
+#[tauri::command]
+async fn forget_os_trashed_session(state: AppState<'_>, id: String) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.forget_os_trash(&id)).await
+}
+#[tauri::command]
 async fn restore_session(state: AppState<'_>, session_id: String) -> Result<(), String> {
     let s = state.inner().clone();
     blocking(move || s.catalog.restore_session(&session_id)).await
@@ -763,6 +783,9 @@ pub fn run() {
             trash_session,
             restore_session,
             prepare_session_os_trash,
+            list_os_trashed_sessions,
+            restore_os_trashed_session,
+            forget_os_trashed_session,
             execute_session_os_trash,
             list_trashed_sessions,
             read_transcript,

@@ -309,7 +309,7 @@ export function HistoryView({
       </div>, document.body)}
       {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
         <p>「{trashTarget.title || trashTarget.externalId}」將從 Session Bay 歷史與搜尋隱藏，之後可從資源回收筒還原。</p>
-        <p>原始 Agent 歷史會保留，執行中的工作會繼續。</p>
+        <p>原始 Agent 歷史會保留，執行中的工作會繼續。要真正刪除檔案，之後在資源回收筒選「移到系統垃圾桶…」。</p>
         {trashError && <p className="inline-error" role="alert">{trashError}</p>}
         <div className="dialog-actions">
           <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>取消</button>

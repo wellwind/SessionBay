@@ -285,6 +285,15 @@ export interface OsTrashPlan {
   blockers: string[];
 }
 export interface OsTrashResult { moved: string[]; failed: string[] }
+export interface OsTrashedSession {
+  id: string;
+  title: string;
+  kind: AgentKind;
+  externalId: string;
+  sourceRoot: string;
+  movedAt: number;
+  items: { relativePath: string; inTrash: boolean }[];
+}
 
 export interface TerminalFileCandidate { path: string; version: string; fromLaunchDirectory: boolean }
 export interface TerminalFileResolution {

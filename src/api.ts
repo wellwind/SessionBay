@@ -24,7 +24,7 @@ import type {
   TerminalEvent,
   TranscriptPage,
   TrashPage,
-  OsTrashPlan, OsTrashResult,
+  OsTrashPlan, OsTrashResult, OsTrashedSession,
 } from './types';
 export const isDesktop = () => isTauri();
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -77,6 +77,9 @@ export const api = {
   trashSession: (sessionId: string, expectedIdentity: string) => call<string>('trash_session', { sessionId, expectedIdentity }),
   prepareSessionOsTrash: (trashId: string) => call<OsTrashPlan>('prepare_session_os_trash', { trashId }),
   executeSessionOsTrash: (planId: string) => call<OsTrashResult>('execute_session_os_trash', { planId }),
+  osTrashed: () => call<OsTrashedSession[]>('list_os_trashed_sessions'),
+  restoreOsTrashed: (id: string) => call<OsTrashResult>('restore_os_trashed_session', { id }),
+  forgetOsTrashed: (id: string) => call<void>('forget_os_trashed_session', { id }),
   restoreSession: (sessionId: string) => call<void>('restore_session', { sessionId }),
   trash: (offset = 0, limit = 40) => call<TrashPage>('list_trashed_sessions', { offset, limit }),
   transcript: (sessionId: string, beforeLine?: number) =>
