@@ -1,5 +1,14 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-25：Worktree 管理
+
+使用者在比較 Herdr、Orca 等 ADE 之後，指定 worktree 管理優先。這次做的是管理介面，「一個 prompt 分給多個 Agent」之後再在此基礎上擴充。
+
+- **新增**：可以建新 branch（起點選填，預設 HEAD），或用一個還沒被其他 worktree 使用的既有 branch。預設路徑是 `<repository 上層>/<repository 名稱>.worktrees/<branch，/ 換成 ->`，與 repo 放在一起比較好找，也不會藏在 App 資料夾裡。路徑必須是絕對路徑而且不存在；被拒絕的新增不會留下 branch。
+- **開啟**：建立後可以直接把它加成專案，並開啟「開始新工作」；清單中的其他 worktree 也能開成專案。每個 worktree 是獨立的專案，Sessions、Files、Git 都以它的目錄為範圍。
+- **移除**：絕不刪除 branch，也絕不丟棄變更。有變更時預設拒絕；確認之後會先把變更（含 untracked）存成 stash（存在共用的 repository），再移除。主要 worktree、目前所在的 worktree、鎖定中的 worktree 都不能移除。資料夾已不存在的 worktree，可以用「清理失效紀錄」（`git worktree prune`）處理。
+- 清單沿用 `refs.rs` 以 `-z` 解析的 `git worktree list`，再補上主要、目前與有無變更（最多 64 筆）。
+
 ## 2026-10-25：Git 工作台與多工作區驗收完成
 
 使用者回報 Git 工作台與單一視窗多工作區的人工驗收通過，並同意合併 #114–#118。依此加上既有的自動化、exact-commit CI 與三平台原生 smoke 證據，勾選 [Git 工作台](git-workbench-plan.md) G1–G8 與三平台測試矩陣，以及[多工作區規劃](multi-workspace-plan.md)的全部項目；roadmap 對應項目同步勾選。

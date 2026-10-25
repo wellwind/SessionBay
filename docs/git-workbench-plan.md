@@ -15,7 +15,7 @@
 - GitHub 與自架 GitLab：建立、檢視、留言、review／核准與合併 PR／MR，依平台實際能力顯示。
 - CI 第一版提供狀態與原平台連結；完整 logs、retry、cancel 留待後續。
 - 不做圖片、PDF 或其他非文字內容 diff。仍需顯示非文字檔案變更與衝突，並可安全處理整檔版本、刪除及重新命名。
-- 正確認識既有 worktree 是基礎要求；新增、移除、整理 worktree 的管理介面是後續階段。
+- 正確認識既有 worktree 是基礎要求。新增、開啟為專案、移除（有變更時先 stash、保留 branch）與清理失效紀錄已於 2026-10-25 加入，見[決策紀錄](decisions.md#2026-10-25worktree-管理)。
 - 一般 push 不自動推送所有 tag；tag 推送要明確選取。
 
 ## 專案、repo 與操作脈絡
@@ -191,6 +191,6 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 ## 後續與尚待技術確認
 
-Worktree 管理、完整 CI log／retry／cancel、進階 rebase／cherry-pick 操作介面與更多 hosting providers 後續另拆。非文字內容 diff 明確不在範圍內。
+完整 CI log／retry／cancel、進階 rebase／cherry-pick 操作介面與更多 hosting providers 後續另拆。非文字內容 diff 明確不在範圍內。
 
 最低 Git 版本、文字／三方編輯引擎、資料量限制與復原點策略已於 2026-10-24 決定（見[決策紀錄](decisions.md)）。最低可支援的 GitLab 版本仍待真實 instance 驗證；不得把未測試的平台能力寫成已驗證。
