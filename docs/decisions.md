@@ -8,6 +8,14 @@
 - 目前選取的檔案即使超出範圍也會顯示。換 repository 時從頭計算。
 - 改善後：開清單 1.00 s、最長 long task 68 ms；graph 0.19 s；10,000 行 diff 0.58 s；量測結束時 heap 42 MiB。量測方式與環境見 [Git 工作台](git-workbench-plan.md)。
 
+## 2026-10-25：Git 取消與逾時會停止整個子程序樹
+
+補網路操作「中途取消」的自動測試時，發現取消只會 kill git 本身。git 生出的子程序（ssh、credential helper、hook，測試裡是讓 pack 程式卡住的 shell）會繼承輸出 pipe，runner 又要等讀取執行緒結束才回報，所以按「停止」後可能卡到子程序自己結束（實測 30 秒）。
+
+- Unix：git 在自己的 process group 執行，取消、逾時或輸出過大時會 kill 整個 group。
+- 所有平台：被 kill 的執行反正會丟掉輸出，所以不再等讀取執行緒；在 Windows 等無法連帶終止後代程序的情況下，也能立即回報。
+- 取消後的錯誤訊息維持「網路操作可能已部分完成，不會自動重送」，狀態比對見 `cancelling_*_midway_changes_nothing`。
+
 ## 2026-10-24：跨專案分割分頁（多工作區 M2）
 
 狀態：**功能已實作，jsdom 與 Chrome 端到端測試通過；尚未 review、未做原生 WebView 驗收**。延續 M1，實作規劃中輔助用的跨專案並排。
