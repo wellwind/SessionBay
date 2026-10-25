@@ -28,6 +28,12 @@ export async function runGitSmoke(): Promise<void> {
   const boot = await api.bootstrap();
   const repoPath = boot.settings.profiles.find(profile => profile.id === 'smoke-shell')?.env.SESSIONBAY_SMOKE_GIT_REPO;
   if (!repoPath || !/[\\/]git-fixture$/.test(repoPath) || repoPath.includes('..')) fail('invalid isolated repository configuration');
+  // A live shell must survive every Git surface untouched: same xterm node,
+  // same runtime ID, still running (plan: Terminal identity is never restarted).
+  click(document.querySelector('.temporary-terminal-button'), 'temporary terminal button');
+  const terminalNode = await waitFor(() => document.querySelector('.runtime-dot.running') && document.querySelector('.terminal-pane .xterm'),
+    'shell for the identity check did not start');
+  const shell = (await api.runtimes()).find(runtime => runtime.state === 'running') ?? fail('shell runtime missing');
   const runtimesBefore = (await api.runtimes()).length;
 
   click(document.querySelector('button[aria-label="加入專案"]'), 'add project button');
@@ -77,5 +83,18 @@ export async function runGitSmoke(): Promise<void> {
   await waitFor(() => Array.from(document.querySelectorAll('.git-graph-cell')).filter(visible).length >= 2, 'graph lanes did not paint');
 
   if ((await api.runtimes()).length !== runtimesBefore) fail('Git tools launched a runtime');
-  await call('frontend_diagnostic', { phase: 'interaction', message: 'git:discover-diff-partial-stage-commit-graph' });
+  if (!terminalNode.isConnected || document.querySelector('.terminal-pane .xterm') === null) fail('Git tools remounted the terminal');
+  const after = (await api.runtimes()).find(runtime => runtime.id === shell.id);
+  if (after?.state !== 'running') fail('Git tools restarted or stopped the terminal runtime');
+
+  // Return through the all-workspaces overview (native WebView coverage too),
+  // then end the shell cleanly so the isolated broker is empty again.
+  click(Array.from(document.querySelectorAll('.sidebar-global')).find(button => button.textContent?.includes('全部工作區')), 'all-workspaces entry');
+  click(await waitFor(() => document.querySelector('.overview-card-open[aria-label^="放大 臨時 Terminal"]'), 'overview card for the shell missing'), 'overview card');
+  const input = await waitFor(() => Array.from(document.querySelectorAll<HTMLTextAreaElement>('.terminal-pane.focused .xterm-helper-textarea')).find(area => visible(area.closest('.terminal-pane'))), 'zoomed shell input missing');
+  if (!terminalNode.isConnected) fail('overview zoom remounted the terminal');
+  input.focus();
+  input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'exit 0\r' }));
+  await waitFor(async () => !(await api.runtimes()).some(runtime => runtime.id === shell.id), 'shell did not exit after the Git identity check');
+  await call('frontend_diagnostic', { phase: 'interaction', message: 'git:discover-diff-partial-stage-commit-graph-terminal-identity-overview' });
 }
