@@ -20,7 +20,8 @@ import { hasBlockingDialog } from '../dialog-focus';
 import { AgentIcon } from './AgentIcon';
 import { DatePicker, Select } from './controls';
 import { localDayBound } from '../workspace';
-import type { AgentKind, Project, Session, TranscriptPage } from '../types';
+import type { AgentKind, Project, Session, TranscriptPage, TrashedSession } from '../types';
+import { OsTrashReview } from './OsTrashReview';
 import { useSessionFeed } from '../use-session-feed';
 import { VirtualSessionList } from './VirtualSessionList';
 export const agentName = (kind: AgentKind) => agentNames[kind];
@@ -90,6 +91,8 @@ export function HistoryView({
   disabled?: boolean;
 }) {
   const [trashTarget, setTrashTarget] = useState<Session | null>(null);
+  // Set after the one-step delete parks the Session in the recycle bin.
+  const [osReview, setOsReview] = useState<TrashedSession | null>(null);
   const [trashBusy, setTrashBusy] = useState(false);
   const trashLock = useRef(false);
   const [trashError, setTrashError] = useState('');
@@ -254,15 +257,18 @@ export function HistoryView({
       if (generation === previewGeneration.current) setPreviewLoading(false);
     }
   };
-  const moveToTrash = async () => {
+  const moveToTrash = async (osTrash = false) => {
     if (!trashTarget?.trashIdentity || trashLock.current) return;
     trashLock.current = true;
     setTrashBusy(true);
     setTrashError('');
     try {
       const id = await api.trashSession(trashTarget.id, trashTarget.trashIdentity);
-      focusUndo.current = { trigger: trashTrigger.current };
-      setUndoQueue(queue => [...queue, { id, title: trashTarget.title || trashTarget.externalId }]);
+      if (osTrash) setOsReview({ id, session: trashTarget, sourceRoot: '', deletedAt: '', unavailableReason: null });
+      else {
+        focusUndo.current = { trigger: trashTrigger.current };
+        setUndoQueue(queue => [...queue, { id, title: trashTarget.title || trashTarget.externalId }]);
+      }
       setTrashTarget(null);
       setSelected(previous => previous?.id === trashTarget.id ? null : previous);
       setHistoryRevision((value) => value + 1);
@@ -272,6 +278,13 @@ export function HistoryView({
       setHistoryRevision((value) => value + 1);
     }
     finally { trashLock.current = false; setTrashBusy(false); }
+  };
+  // Backing out leaves the Session in the recycle bin, still undoable from the toast.
+  const leaveOsReview = () => {
+    if (!osReview) return;
+    focusUndo.current = { trigger: trashTrigger.current };
+    setUndoQueue(queue => [...queue, { id: osReview.id, title: osReview.session.title || osReview.session.externalId }]);
+    setOsReview(null);
   };
   const undoTrash = async () => {
     if (!undoId || trashLock.current || hasBlockingDialog()) return;
@@ -309,12 +322,16 @@ export function HistoryView({
       </div>, document.body)}
       {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
         <p>「{trashTarget.title || trashTarget.externalId}」將從 Session Bay 歷史與搜尋隱藏，之後可從資源回收筒還原。</p>
-        <p>原始 Agent 歷史會保留，執行中的工作會繼續。要真正刪除檔案，之後在資源回收筒選「移到系統垃圾桶…」。</p>
+        <p>原始 Agent 歷史會保留，執行中的工作會繼續。要連 Agent 的檔案一起刪除，選「移到系統垃圾桶…」，確認檔案清單後才會搬移。</p>
         {trashError && <p className="inline-error" role="alert">{trashError}</p>}
         <div className="dialog-actions">
           <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>取消</button>
+          <button className="danger" disabled={trashBusy} onClick={() => void moveToTrash(true)}>移到系統垃圾桶…</button>
           <button data-dialog-confirm className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
         </div>
+      </Dialog>}
+      {osReview && <Dialog title="移到系統垃圾桶" wide onClose={leaveOsReview}>
+        <OsTrashReview entry={osReview} onClose={leaveOsReview} onMoved={async () => { setOsReview(null); setHistoryRevision((value) => value + 1); await onHistoryChanged?.(); }} />
       </Dialog>}
       <div className="history-controls">
         <div className="search-field">
