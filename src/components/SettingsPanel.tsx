@@ -1205,6 +1205,17 @@ export function SettingsPanel({
                         <FieldError id="default-profile-error" message={errors.defaultProfileId} />
                       </label>
                     </div>
+                    <div className="settings-section-heading settings-section-space">
+                      <div>
+                        <h3>系統通知</h3>
+                      </div>
+                    </div>
+                    <label className="settings-check">
+                      <input type="checkbox" className="checkbox" checked={draft.systemNotifications !== false} disabled={locked}
+                        onChange={(event) => update('systemNotifications', event.currentTarget.checked)} />
+                      <span>Agent 需要注意時發送系統通知</span>
+                      <small>只在該工作不在畫面上或視窗不在前景時，於等待輸入／權限、完成或失敗時通知。</small>
+                    </label>
                   </>
                 )}
 

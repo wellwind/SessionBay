@@ -15,7 +15,14 @@ interface Activity {
   connecting: boolean;
   recentUntil: number;
   connectingUntil: number;
+  attention?: AttentionKind;
 }
+export type AttentionKind = 'waiting' | 'done' | 'failed';
+const ATTENTION: Partial<Record<AgentObservation, AttentionKind>> = {
+  terminalBlocked: 'waiting', terminalPermission: 'waiting', terminalQuestion: 'waiting', terminalAuthentication: 'waiting',
+  awaitingInput: 'waiting', awaitingPermission: 'waiting', waitingInput: 'waiting', waitingPermission: 'waiting',
+  permissionRequested: 'waiting', terminalDone: 'done', sessionEnded: 'done', terminalError: 'failed', failed: 'failed',
+};
 export const OUTPUT_RECENCY_MS = 1400;
 export const CONNECTING_RECENCY_MS = 1600;
 const NOTIFY_INTERVAL_MS = 100;
@@ -27,6 +34,8 @@ export class RuntimeActivityStore {
   private expiryAt?: number;
   private notification?: ReturnType<typeof setTimeout>;
   private disposed = false;
+  /** Called once per transition into an attention state while the pane is not in view. */
+  onAttention?: (id: string, kind: AttentionKind) => void;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot(ids: readonly string[]): string {
     let recent = false, unread = false, connecting = false;
@@ -88,6 +97,12 @@ export class RuntimeActivityStore {
       item.generations.add(event.generation);
     } else if (event.revision <= item.agent.revision) return;
     item.agent = { generation: event.generation, revision: event.revision, observation: event.observation, until: performance.now() + event.validForMs };
+    const attention = event.observation ? ATTENTION[event.observation] : undefined;
+    // Only working/progress observations re-arm; expiries and repeats of the same kind stay quiet.
+    if (attention !== item.attention && (attention || (event.observation && event.observation !== 'idle' && event.observation !== 'terminalIdle'))) {
+      item.attention = attention;
+      if (attention && !(item.visible && this.foreground)) this.onAttention?.(id, attention);
+    }
     this.changed(); this.scheduleExpiry();
   }
   begin(id: string, lease: string, runtimeId: string | undefined, visible: boolean, connecting = true) {

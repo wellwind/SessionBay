@@ -3,6 +3,7 @@ import { TerminalFileDialog } from './components/TerminalFileDialog';
 import type { TerminalFileOpen } from './terminal-file-links';
 import type { FileReference, Pane as FileLinkPane } from './types';
 import { RuntimeActivityProvider, RuntimeActivityIndicator } from './components/RuntimeActivity';
+import { AttentionNotifier } from './components/AttentionNotifier';
 import { projectOpenCount, tabRuntimeSummary } from './project-runtime';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -1558,7 +1559,7 @@ export default function App() {
             )}
           </ProjectNavigation>;
   return (
-    <RuntimeActivityProvider><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
+    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} workspace={workspace} projects={projects} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
       <header className="app-topbar">
         <div className="brand">

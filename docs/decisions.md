@@ -1,5 +1,9 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-25：Agent 需要注意時發送系統通知
+
+使用者要求系統通知。採 `tauri-plugin-notification` 2.5.1（Apache-2.0 OR MIT），由 Rust 命令送出並限制長度；前端只在 Agent 明確回報進入等待、完成或失敗，且該工作不在畫面或視窗不在前景時觸發。不從 terminal output 推測狀態，也不使用預估逾時。預設開啟、可在設定關閉。開發模式下 macOS 通知會以 Terminal 名義顯示；點擊通知切換工作尚未支援。細節見 [UX 規格](ux-spec.md#系統通知2026-10-25)。
+
 ## 2026-10-25：Git 工作台與多工作區驗收完成
 
 使用者回報 Git 工作台與單一視窗多工作區的人工驗收通過，並同意合併 #114–#118。依此加上既有的自動化、exact-commit CI 與三平台原生 smoke 證據，勾選 [Git 工作台](git-workbench-plan.md) G1–G8 與三平台測試矩陣，以及[多工作區規劃](multi-workspace-plan.md)的全部項目；roadmap 對應項目同步勾選。

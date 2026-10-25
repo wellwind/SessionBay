@@ -126,6 +126,7 @@ export const api = {
   stop: (runtimeId: string) => call<void>('stop_runtime', { runtimeId }),
   runtimes: () => call<RuntimeRecord[]>('list_runtimes'),
   close: () => call<void>('close_application'),
+  notify: (title: string, body: string) => call<void>('show_notification', { title, body }),
 };
 export const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);

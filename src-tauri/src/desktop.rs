@@ -323,6 +323,18 @@ async fn list_trashed_sessions(
     })
     .await
 }
+/// Show an OS notification. Text is length-bounded so a hostile pane title
+/// cannot flood the notification center.
+#[tauri::command]
+fn show_notification(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification()
+        .builder()
+        .title(crate::adapters::short_text(&title, 80))
+        .body(crate::adapters::short_text(&body, 160))
+        .show()
+        .map_err(|e| e.to_string())
+}
 #[tauri::command]
 async fn read_transcript(
     state: AppState<'_>,
@@ -700,6 +712,7 @@ fn workspace_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tau
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_menu(workspace_menu(app.handle())?)?;
@@ -754,6 +767,7 @@ pub fn run() {
             query_sessions,
             trash_session,
             restore_session,
+            show_notification,
             inspect_session_removal,
             list_trashed_sessions,
             read_transcript,

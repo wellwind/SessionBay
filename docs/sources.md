@@ -7,6 +7,7 @@
 | 主題 | 來源 | 適用內容 |
 | --- | --- | --- |
 | Tauri 原生對話框 | [Dialog plugin](https://v2.tauri.app/plugin/dialog/)／[JavaScript API](https://v2.tauri.app/reference/javascript/dialog/) | 2026-10-16 查閱；單一資料夾選擇、取消回傳 null、macOS／Windows／Linux 支援及 `dialog:allow-open`／安全確認用 `dialog:allow-message` 權限；不代表整個應用已通過各平台驗收 |
+| Tauri 通知外掛 | [Notification plugin](https://v2.tauri.app/plugin/notification/)／[crates.io 2.5.1](https://crates.io/crates/tauri-plugin-notification/2.5.1) | 2026-10-25 查閱；Apache-2.0 OR MIT；桌面版經 notify-rust 送出，需 tauri ^2.12；只以 Rust 端呼叫，不開放前端通知權限；macOS 開發模式以 Terminal 名義顯示；Windows／Linux 尚未實測 |
 | Tauri 程序模型 | [Process Model](https://v2.tauri.app/concept/process-model/) | Core、WebView 與平台差異 |
 | Tauri 串流傳輸 | [Calling the Frontend from Rust](https://v2.tauri.app/develop/calling-frontend/) | Events 限制與 Channels |
 | xterm.js | [官方儲存庫](https://github.com/xtermjs/xterm.js) | 終端元件、addons 與可選 renderer |
