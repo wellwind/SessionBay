@@ -31,7 +31,7 @@
 ## 阻擋條件
 
 - Session Bay 中仍有執行、停止中或狀態不明的工作使用這個 Session（Session ID 或 resume ID）。
-- 任一項目在最近 2 分鐘內有寫入；Antigravity 另檢查 `presence/<ID>.lock`。
+- 任一項目在最近 2 分鐘內有寫入；Antigravity 的 `presence/<ID>.lock` 被其他程序鎖住（CLI 結束後檔案會留下，只有鎖住才算使用中；判斷依據為 `agy` 使用 `flock`，屬推論）。
 - Session ID 不是單純檔名字元（`[A-Za-z0-9._-]`，最多 128 字）。
 - 路徑包含連結、離開來源根目錄、類型不符，或資料夾超過 20,000 個項目。
 - 已索引檔案已變更、遺失；Grok／Antigravity 的檔案不在單一 Session 目錄中。

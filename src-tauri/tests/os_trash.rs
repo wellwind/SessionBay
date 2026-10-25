@@ -270,12 +270,15 @@ fn antigravity_presence_lock_blocks_and_conversation_files_move() {
     );
     h.write(&format!("conversations/{id}.db"), "synthetic");
     h.write(&format!("annotations/{id}.pbtxt"), "synthetic");
+    // A leftover presence file from an exited CLI does not block; a held lock does.
     h.write(&format!("presence/{id}.lock"), "");
     let trash_id = h.index_and_trash();
     let store = PlanStore::with_recent_write(Duration::ZERO);
+    let holder = fs::File::open(h.path(&format!("presence/{id}.lock"))).unwrap();
+    holder.lock().unwrap();
     let locked = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
     assert!(locked.blockers.iter().any(|b| b.contains("使用中")));
-    fs::remove_file(h.path(&format!("presence/{id}.lock"))).unwrap();
+    holder.unlock().unwrap();
     let plan = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
     assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
     assert_eq!(plan.items.len(), 3);

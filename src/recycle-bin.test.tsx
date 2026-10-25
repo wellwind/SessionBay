@@ -46,7 +46,7 @@ it('confirms recoverable deletion, supports undo and never stops or launches run
   const changed = vi.fn();
   render(<HistoryView projects={[]} refreshToken={0} onResume={vi.fn()} onNew={vi.fn()} onHistoryChanged={changed} />);
   fireEvent.click(await screen.findByRole('button', { name: '刪除 Session' }));
-  expect(screen.getByText('原始 Agent 歷史會保留，執行中的工作會繼續。')).toBeInTheDocument();
+  expect(screen.getByText('原始 Agent 歷史會保留，執行中的工作會繼續。要真正刪除檔案，之後在資源回收筒選「移到系統垃圾桶…」。')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(api.trashSession).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: '刪除 Session' }));
