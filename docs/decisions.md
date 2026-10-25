@@ -1,5 +1,11 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-25：Session 可移到系統垃圾桶
+
+使用者要求能真正刪除 Session，選擇「移到系統垃圾桶」並涵蓋全部 Agent。原「原始 Agent 歷史維持唯讀」改為：除使用者逐筆確認的系統垃圾桶移動外維持唯讀。採 `trash` crate 5.2.9（MIT），macOS 用 `NSFileManager`。
+
+第一階段支援 Codex、Claude Code、Grok、Antigravity：後端持有單次計畫 ID，執行前重新驗證項目與時間戳，共享儲存一律保留。OpenCode 的 Session 在共用 SQLite 中，需另行設計（例如先匯出到垃圾桶再以官方方式刪除），尚未實作。永久刪除仍未開放。細節見 [Session 移到系統垃圾桶](session-os-trash.md)。
+
 ## 2026-10-25：Git 工作台與多工作區驗收完成
 
 使用者回報 Git 工作台與單一視窗多工作區的人工驗收通過，並同意合併 #114–#118。依此加上既有的自動化、exact-commit CI 與三平台原生 smoke 證據，勾選 [Git 工作台](git-workbench-plan.md) G1–G8 與三平台測試矩陣，以及[多工作區規劃](multi-workspace-plan.md)的全部項目；roadmap 對應項目同步勾選。

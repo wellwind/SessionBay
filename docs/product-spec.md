@@ -236,4 +236,4 @@ P1 除 F15、F16 用量功能，另包含手動工作狀態、Session 別名、�
 
 ## 原始來源移除影響檢查（2026-10-17）
 
-回收筒提供逐筆「檢查來源」，唯讀顯示已索引檔案、來源識別、metadata 是否仍符合索引及 provider 阻擋原因。共享資料庫不當成可刪檔案；來源變更或連結不明則拒絕／標示無法確認。這不是完整刪除計畫，沒有永久刪除按鈕。含原始 Agent 歷史的永久移除需求仍待 [provider 安全協定與逐次確認](permanent-removal.md)。
+回收筒提供逐筆「移到系統垃圾桶…」：列出將移動的 Session 檔案、保留不動的共享儲存與阻擋原因，使用者勾選確認後才把檔案移到系統垃圾桶（Codex、Claude Code、Grok、Antigravity；OpenCode 尚未支援），見 [Session 移到系統垃圾桶](session-os-trash.md)。共享資料庫不當成可刪檔案；來源變更或連結不明則拒絕。不經系統垃圾桶的永久移除仍待 [provider 安全協定與逐次確認](permanent-removal.md)。

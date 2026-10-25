@@ -7,6 +7,7 @@
 | 主題 | 來源 | 適用內容 |
 | --- | --- | --- |
 | Tauri 原生對話框 | [Dialog plugin](https://v2.tauri.app/plugin/dialog/)／[JavaScript API](https://v2.tauri.app/reference/javascript/dialog/) | 2026-10-16 查閱；單一資料夾選擇、取消回傳 null、macOS／Windows／Linux 支援及 `dialog:allow-open`／安全確認用 `dialog:allow-message` 權限；不代表整個應用已通過各平台驗收 |
+| Rust `trash` crate | [crates.io trash 5.2.9](https://crates.io/crates/trash/5.2.9)／[docs.rs](https://docs.rs/trash/5.2.9/trash/) | 2026-10-25 查閱；MIT；Windows／macOS／freedesktop 系統垃圾桶，macOS `DeleteMethod::NsFileManager` 不需 Finder Apple Events；只在合成資料與 Linux／macOS 測試替身驗證，真實系統垃圾桶與 Windows 尚未實測 |
 | Tauri 程序模型 | [Process Model](https://v2.tauri.app/concept/process-model/) | Core、WebView 與平台差異 |
 | Tauri 串流傳輸 | [Calling the Frontend from Rust](https://v2.tauri.app/develop/calling-frontend/) | Events 限制與 Channels |
 | xterm.js | [官方儲存庫](https://github.com/xtermjs/xterm.js) | 終端元件、addons 與可選 renderer |

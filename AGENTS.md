@@ -51,7 +51,7 @@ PR 應說明目的、影響文件、驗證方式與未定事項；有相關 issu
 
 ## 資料安全與整合邊界
 
-原始 Agent 歷史維持唯讀。範例與 fixtures 使用合成或去識別資料；勿提交憑證、真實對話或本機索引。啟動程序使用 executable、args 與 cwd 分別傳入，避免將不可信內容組成 Shell 指令。
+原始 Agent 歷史維持唯讀；唯一例外是使用者逐筆確認後移到系統垃圾桶（見 `docs/session-os-trash.md`），測試只能使用合成資料與替身 mover。範例與 fixtures 使用合成或去識別資料；勿提交憑證、真實對話或本機索引。啟動程序使用 executable、args 與 cwd 分別傳入，避免將不可信內容組成 Shell 指令。
 
 ## UI／UX 設計技能
 

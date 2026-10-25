@@ -29,6 +29,7 @@ tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
 base64 = "=0.22.1"
+trash = { version = "=5.2.9", default-features = false, features = ["coinit_apartmentthreaded"] }
 tauri-plugin-dialog = { version = "=2.8.3", optional = true }
 tauri = { version = "2", features = [], optional = true }
 serde = { version = "1", features = ["derive"] }

@@ -864,6 +864,38 @@ impl Catalog {
         })
     }
 
+    /// Drop a trashed Session from the index after its source files left for
+    /// the OS trash. Restoring them from the OS trash re-indexes on next scan.
+    pub fn purge_trashed(&self, trash_id: &str, session_id: &str) -> Result<(), String> {
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(error)?;
+        let owner: Option<String> = tx
+            .query_row(
+                "SELECT session_id FROM session_trash WHERE id=?1",
+                [trash_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(error)?;
+        if owner.as_deref() != Some(session_id) {
+            return Err("回收筒項目已變更，請重新整理。".into());
+        }
+        tx.execute(
+            "DELETE FROM messages WHERE file_id IN (SELECT id FROM files WHERE session_id=?1)",
+            [session_id],
+        )
+        .map_err(error)?;
+        tx.execute("DELETE FROM files WHERE session_id=?1", [session_id])
+            .map_err(error)?;
+        tx.execute("DELETE FROM sessions WHERE id=?1", [session_id])
+            .map_err(error)?;
+        tx.execute("DELETE FROM session_trash WHERE id=?1", [trash_id])
+            .map_err(error)?;
+        tx.commit().map_err(error)
+    }
+
     pub fn restore_session(&self, id: &str) -> Result<(), String> {
         let mut conn = self.connect()?;
         // Serialize with scanners/source edits so the checked provenance cannot

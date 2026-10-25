@@ -83,17 +83,20 @@ test('retry, deep deletion and undo preserve navigation without loading the data
 });
 
 for (const theme of ['dark', 'light']) for (const width of [1440, 600]) {
-  test(`read-only removal inspection ${theme} ${width}`, async ({ page }, info) => {
+  test(`OS trash review ${theme} ${width}`, async ({ page }, info) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/tests/browser/session-feed.html?theme=${theme}`);
     const launcher = page.getByRole('button', { name: '資源回收筒', exact: true });
     await launcher.click();
-    const inspect = page.getByRole('button', { name: /檢查來源 Synthetic Session 0 / });
+    const inspect = page.getByRole('button', { name: /移到系統垃圾桶 Synthetic Session 0 / });
     await inspect.click();
     await expect(page.getByText('sessions/2026/10/synthetic-session.jsonl')).toBeVisible();
     await expect(page.getByRole('button', { name: '返回資源回收筒' })).toBeFocused();
-    await expect(page.getByRole('button', { name: /永久|確認刪除/ })).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath(`removal-inspection-${theme}-${width}.png`), fullPage: true });
+    const move = page.getByRole('button', { name: '移到系統垃圾桶', exact: true });
+    await expect(move).toBeDisabled();
+    await page.getByRole('checkbox').check();
+    await expect(move).toBeEnabled();
+    await page.screenshot({ path: info.outputPath(`os-trash-review-${theme}-${width}.png`), fullPage: true });
     await page.keyboard.press('Escape');
     await expect(inspect).toBeFocused();
     await page.keyboard.press('Escape');
