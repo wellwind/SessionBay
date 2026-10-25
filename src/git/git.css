@@ -134,7 +134,7 @@
 
 /* Commit and sync */
 .git-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.git-row > .git-muted { flex: 1; }
+.git-row > .git-muted { flex: 1 1 auto; min-width: min(100%, 10em); }
 .git-row select { min-width: 0; max-width: 100%; padding: 3px 6px; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--control-border); border-radius: 0; }
 .git-sidebar .git-row button, .git-form > button { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 12px; }
 .git-sync-summary { font-size: 12px; }

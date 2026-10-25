@@ -89,7 +89,7 @@ try {
             if (($beforeHashes | ConvertTo-Json -Compress) -ne ($afterHashes | ConvertTo-Json -Compress)) { throw 'Read-only fixture changed.' }
         }
         if ($Git) {
-            if ($log -notmatch 'git:discover-diff-partial-stage-commit-graph') { throw 'Native Git smoke did not finish.' }
+            if ($log -notmatch 'git:discover-diff-partial-stage-commit-graph-terminal-identity-overview') { throw 'Native Git smoke did not finish.' }
             $subject = (& git -C $gitFixture log -1 --format=%s)
             $staged = (& git -C $gitFixture show HEAD:f.txt) -join "`n"
             if ($subject -ne 'Native smoke commit' -or $staged -ne "alpha`nbeta`ngamma`nDELTA") { throw 'Git smoke did not commit exactly the selected lines.' }
