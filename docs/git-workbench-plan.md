@@ -135,7 +135,7 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 - [x] 只用合成 repo 與經允許的測試 remote；不拿使用者工作目錄測 reset／force push／刪 tag。（自動測試全部使用 tempdir 合成 repo、本機 bare remote 與 loopback mock）
 - [x] 自動測試比對操作前後 HEAD、index、工作檔 bytes、refs；失敗／取消／重複點擊與外部修改均覆蓋。（過期快照、外部修改、確認過期、備份失敗與並發重複暫存的前後比對，以及 Chrome 端到端；fetch／pull／push 中途取消見 `tests/git_remote.rs` 的 `cancelling_*_midway_changes_nothing`：讓合成 remote 的 pack 程式卡住後取消，比對 HEAD、index、工作檔 bytes、本機與遠端 refs、`index.lock`。這三項只在 Unix 執行，Windows 的取消只有 runner 層的程式碼路徑）
 - [ ] Terminal／Agent 身分與持續執行不因開 Git panel、diff、graph 或切 repo 而重啟。（jsdom 與 Chrome 端到端確認開 Git 面板、diff、graph、衝突與 Zen Mode 不重掛 Terminal；原生 WebView 未驗）
-- [ ] Keyboard、focus、tooltip、一般／Zen、狹窄視窗、共用 panel resize、長路徑及長分支名稱通過。
+- [x] Keyboard、focus、tooltip、一般／Zen、狹窄視窗、共用 panel resize、長路徑及長分支名稱通過。（`npm run test:git` 在 Chromium 與 WebKit 各 5 個端到端情境全部通過，涵蓋：graph 方向鍵、`Mod+Shift+G`／Escape 焦點返回、tooltip 顯示快捷鍵、Zen、900／760 px、鍵盤與拖曳調整共用面板寬度、長路徑與長 branch 名稱在面板內截斷且無水平捲動、Terminal 不重掛。原生鍵盤與 IME 屬上方三平台測試矩陣，仍需人工驗收）
 - [ ] 大量 repo／檔案／commit／diff 的時間與記憶體量測附版本及硬體；尚未量測不宣稱效能無虞。（已有後端時間量測，缺記憶體與前端量測）
 - [x] 說明功能已實作、CI 通過、原生驗收通過三種不同狀態；只有證據足夠才勾選。（見實作狀態表）
 
