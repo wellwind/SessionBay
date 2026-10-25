@@ -541,7 +541,22 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         let directory = transport::private_directory(root.path()).unwrap();
-        let ownership = transport::lock(&directory).unwrap();
+        // private_directory briefly locks while initializing. A PTY test forking
+        // in parallel can inherit that descriptor until it execs, so the fresh
+        // lock may report WouldBlock for a moment; wait for it rather than flake.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let ownership = loop {
+            match transport::lock(&directory) {
+                Ok(lock) => break lock,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10))
+                }
+                Err(error) => panic!("{error}"),
+            }
+        };
         let host = Host::open_with_policy(
             directory.clone(),
             Policy {
