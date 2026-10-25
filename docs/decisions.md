@@ -983,3 +983,19 @@ Review 補強：選單收合只在焦點仍留於即將隱藏內容時返回入�
 - READER_REVISION 升為 2，舊快取會全部重讀一次。鏡像在移除來源後不會自動刪除，可以手動清掉 cache 目錄。
 - 量測（Linux box，合成 2.0 GiB／3,928 Sessions，release `opencode_benchmark` 跑 catalog sync，檔案在 page cache 內）：舊版直接拒讀；只放寬上限的舊演算法冷索引 24.4 s，未變更 10.3 s，WAL 寫入一筆 25.2 s，峰值 RSS 約 78 MiB。新版冷索引 16.4 s／15 MiB，未變更 0.06 s／11 MiB，WAL 寫入一筆 0.08 s，checkpoint 後 2.0 s（2 GiB 區塊比對，只寫入差異）。
 
+
+## 2026-10-24：內建字型與 WebKit 版面檢查
+
+使用者希望三平台畫面一致，詢問 Tauri 能否改用 Chrome。Tauri 2 只使用系統 webview（WebView2／WKWebView／WebKitGTK），不能改用已安裝的 Chrome；CEF runtime 仍在 Tauri 3 alpha 階段，不採用。三平台的差異主要來自兩處：字型依賴系統安裝，以及測試只跑 Chromium。使用者同意以下四項：
+
+- **內建字型**：UI 使用 Inter，CJK 使用 Noto Sans TC，等寬字使用 JetBrains Mono，三者都是 Fontsource 的 variable 版、OFL-1.1 授權，以 npm 精確版本鎖定。字型從 `'self'` 載入，CSP 與離線使用不受影響。Noto Sans TC 依 unicode-range 切成 108 個子集並依需要載入；三套字型合計約 4.7 MB。系統字型保留為 fallback。授權全文隨 `public/third-party/*-OFL.txt` 一起進 dist。
+- **Terminal 預設字型**：預設改為 JetBrains Mono，CJK 由 Noto Sans TC 接手。只有設定值等於舊預設 `ui-monospace, SFMono-Regular, Menlo, monospace`（使用者從未修改）時，讀取設定才會改成新預設；任何自訂值都保留。Monaco 也改用同一組等寬字型。xterm 與 Monaco 只會量測一次字寬，所以首次 render 前最多等 1 秒讓 Latin 字型載入完成。
+- **WebKit 測試**：新增 `playwright.webkit.config.ts`，以 Playwright WebKit 重跑 layout 類 spec，並加進 Linux CI。Playwright WebKit 與 WKWebView／WebKitGTK 屬同一引擎家族，但不是同一份 build，原生 smoke 仍是驗收依據。已知差異集中列在 config 的排除清單，見 [UI 設計系統](ui-design-system.md#webkit-已知差異)。
+- **CSS 固定措施**：加上 `font-synthesis: none` 與 `text-size-adjust: 100%`；即時變動的計數改用 tabular numerals。
+
+WebKit 測試抓到的問題：
+
+- 已修正：WebKit 點擊按鈕時不會讓按鈕取得焦點，焦點會停在最近一個可 focus 的祖先。原本 `ResponsiveControls` 選單項目被點擊後，焦點不會回到選單入口，後續 Dialog 也就無法把焦點還回去。現在改為「焦點元素仍包住被點擊的按鈕」也視為焦點沒有被 action 移走。
+- 只修測試：pane resize 後，WebKit 要一到兩個 frame 才會重新 fit xterm，Chromium 則是同步完成，所以版面量測改為 poll。
+- 後續已修正：split／resize 後捲動停在底部之上，原因是 xterm 6 漏掉 viewport 尺寸同步（#111）；選單開啟時，Escape 改在 document capture 階段關閉選單，因為 WebKit 點擊不給焦點，原本會把 Escape 送進 Terminal；CSS zoom 下的選單錨點改成對每個軸向各量測一次再修正。這些項目已從 WebKit 排除清單移除，總覽與 pane 選單的 spec 也加入 WebKit 執行。
+- 仍待查：pointer 拖曳排序的預覽位移；程式化 focus 時沒有畫出內縮 focus ring；`Control` 組合鍵；CSS `zoom` 模擬的 edge-to-edge 幾何。

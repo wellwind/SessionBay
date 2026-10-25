@@ -45,11 +45,20 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
       const button = trigger.current;
       const rect = button?.getBoundingClientRect();
       if (!button || !rect || rect.width === 0) return;
-      // Fixed offsets are scaled by any CSS zoom on ancestors; client rects are not.
-      const zoom = (button as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom
-        ?? (button.offsetWidth ? rect.width / button.offsetWidth : 1);
-      element.style.setProperty('--anchor-top', `${Math.round((rect.bottom + 4) / zoom)}px`);
-      element.style.setProperty('--anchor-right', `${Math.max(8, Math.round((window.innerWidth - rect.right) / zoom))}px`);
+      // CSS zoom on an ancestor scales fixed offsets differently per engine and
+      // axis (Chromium scales both, WebKit only some). Probe each axis once to
+      // learn how an offset maps to client pixels, then solve for the target.
+      const solve = (name: '--anchor-top' | '--anchor-right', initial: number, target: number, measure: () => number) => {
+        const set = (value: number) => element.style.setProperty(name, `${Math.round(value)}px`);
+        set(initial);
+        const first = measure();
+        if (Math.abs(first - target) < 1) return;
+        set(initial + 100);
+        const slope = (measure() - first) / 100;
+        set(Math.abs(slope) < 0.05 ? initial : initial + (target - first) / slope);
+      };
+      solve('--anchor-top', rect.bottom + 4, rect.bottom + 4, () => element.getBoundingClientRect().top);
+      solve('--anchor-right', Math.max(8, window.innerWidth - rect.right), rect.right, () => element.getBoundingClientRect().right);
     };
     place();
     window.addEventListener('resize', place);
@@ -67,19 +76,28 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
       if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"]')) return;
       if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
     };
+    // WebKit never focuses a clicked ⋯, so Escape may arrive anywhere (even xterm).
+    // While the menu is open, it closes the menu and never reaches the terminal.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.isComposing || event.keyCode === 229) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      event.preventDefault(); event.stopPropagation();
+      setOpen(false);
+      trigger.current?.focus();
+    };
     document.addEventListener('pointerdown', dismiss);
-    return () => document.removeEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', escape, true);
+    };
   }, [compact, open]);
   return <div ref={root} className={`responsive-controls${compact ? ' is-compact' : ''}`}
     onBlur={event => {
       if (event.relatedTarget instanceof Element && event.relatedTarget.closest('[role="dialog"], [role="alertdialog"]')) return;
       if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(false);
     }}
-    onKeyDown={event => {
-      if (compact && open && event.key === 'Escape') {
-        event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus();
-      }
-    }}>
+>
     {compact && <div className="compact-control-heading">
       {summary && <strong className="compact-control-title">{summary}</strong>}
       <button ref={trigger} type="button" className="icon-button" aria-label={label} title={label}
@@ -90,7 +108,10 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
         if (compact && closeOnAction && event.target instanceof Element && event.target.closest('button')) {
           setOpen(false);
           // Respect an action that has already moved focus (for example to xterm).
-          if (content.current?.contains(document.activeElement)) trigger.current?.focus();
+          // WebKit does not focus clicked buttons; focus stays on a focusable
+          // ancestor (or <body>), which is not a move either.
+          const active = document.activeElement;
+          if (!active || active.contains(event.target) || content.current?.contains(active)) trigger.current?.focus();
         }
       }}>{children}</div>
   </div>;

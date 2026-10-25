@@ -161,7 +161,7 @@ impl Default for Settings {
             theme_palette: default_theme_palette(),
             terminal_theme: "bay".into(),
             terminal_always_dark: false,
-            font_family: "ui-monospace, SFMono-Regular, Menlo, monospace".into(),
+            font_family: DEFAULT_FONT_FAMILY.into(),
             font_size: 14,
             app_zoom: default_app_zoom(),
             default_agent: AgentKind::Codex,
@@ -196,6 +196,11 @@ impl Default for Settings {
 fn clean_string(s: &str, max: usize) -> bool {
     !s.is_empty() && s.len() <= max && !s.contains('\0')
 }
+
+/// Matches the bundled JetBrains Mono in `src/fonts.ts`.
+pub const DEFAULT_FONT_FAMILY: &str =
+    "'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans TC Variable', monospace";
+const LEGACY_DEFAULT_FONT_FAMILY: &str = "ui-monospace, SFMono-Regular, Menlo, monospace";
 
 fn default_app_zoom() -> u16 {
     100
@@ -374,8 +379,13 @@ impl ConfigStore {
         match read_bounded(&path, 1024 * 1024) {
             Ok(bytes) => match serde_json::from_slice::<Settings>(&bytes)
                 .map_err(|e| e.to_string())
-                .and_then(|s| {
+                .and_then(|mut s| {
                     s.validate()?;
+                    // Only the untouched previous default follows the bundled font;
+                    // any value the user typed is kept.
+                    if s.font_family == LEGACY_DEFAULT_FONT_FAMILY {
+                        s.font_family = DEFAULT_FONT_FAMILY.into();
+                    }
                     Ok(s)
                 }) {
                 Ok(s) => (s, vec![]),
@@ -1109,6 +1119,20 @@ mod tests {
         assert_eq!(migrated.terminal_theme, "classic");
         assert_eq!(migrated.font_family, "Synthetic custom font");
         assert!(migrated.validate().is_ok());
+    }
+
+    #[test]
+    fn only_the_untouched_legacy_terminal_font_moves_to_the_bundled_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ConfigStore::open(temp.path().join("app")).unwrap();
+        let path = store.directory.join("settings.json");
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old["fontFamily"] = LEGACY_DEFAULT_FONT_FAMILY.into();
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        assert_eq!(store.load_settings().0.font_family, DEFAULT_FONT_FAMILY);
+        old["fontFamily"] = "Synthetic custom font".into();
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        assert_eq!(store.load_settings().0.font_family, "Synthetic custom font");
     }
 
     #[test]

@@ -109,14 +109,14 @@
 
 ## 5. 字體、尺寸與動態
 
-### 本機字體
+### 內建字體
 
 ```css
---font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "Noto Sans CJK TC", sans-serif;
---font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+--font-ui: 'Inter Variable', 'Noto Sans TC Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'Noto Sans CJK TC', sans-serif;
+--mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Noto Sans TC Variable', monospace;
 ```
 
-不新增遠端字體請求。保留終端既有自訂字體與大小設定；不要用 UI 字體規則覆蓋 xterm。中文標題使用系統無襯線，路徑、ID、argv、程式碼用等寬。
+Inter、Noto Sans TC 與 JetBrains Mono 隨 App 一起打包（Fontsource variable 版、OFL-1.1），從 `'self'` 載入，不發出遠端字體請求；系統字型只作為 fallback。CSS 以 `var(--font-ui)`、`var(--mono)` 取用，不要再寫死字型清單；TypeScript 端使用 `src/fonts.ts` 的 `MONO_FONT`。Terminal 的自訂字體與大小設定保持不變，不要用 UI 字體規則覆蓋 xterm。中文標題使用 UI 字體，路徑、ID、argv、程式碼使用等寬字體。即時變動的數字使用 `font-variant-numeric: tabular-nums`。
 
 | 層級 | 大小／行高 | 重量／用途 |
 | --- | --- | --- |
@@ -248,6 +248,21 @@ Code Modern／Code2026 保留原 tab active／inactive／hover 配色，但高 s
 此批的瀏覽器幾何與截圖驗收仍待資源充足的環境執行；單元測試不等於原生 Linux WebView／Snap 驗收。
 
 Zen 保留與一般模式相同的固定高度底部 statusbar；索引開始／進度／完成／取消／錯誤只替換列內內容，不再因 `statusbar-important` 切換而增減 Terminal 高度。模式切換本身的 fit 與索引期間的額外 resize 分開驗收。
+
+## WebKit 已知差異
+
+`npm run test:webkit` 以 Playwright WebKit 重跑 layout 類 spec（macOS 的 WKWebView 與 Linux 的 WebKitGTK 屬同一引擎家族，但不是同一份 build）。以下項目暫時只從 WebKit 執行中排除，Chromium 仍照常執行；清單維護在 `playwright.webkit.config.ts`：
+
+| 項目 | 現象 | 判斷 |
+| --- | --- | --- |
+| pointer 拖曳排序 | 預覽位移與 Chromium 不同 | 待查 pointer capture 差異 |
+| 程式化 focus 的 focus ring | 沒有畫出內縮 outline | 待查 `:focus-visible` 規則 |
+| `Control` 組合鍵 | Zen、`Control+9` 沒有反應 | macOS 實際使用 Cmd，疑似測試工具差異 |
+| CSS `zoom` 模擬 | edge-to-edge 幾何不同；Linux WebKit 的歷史密度 zoom 測試也不同 | App 實際使用原生 webview 縮放，疑似測試工具差異 |
+
+WebKit 點擊按鈕時不會讓按鈕取得焦點。焦點回復邏輯不能假設「被點擊的按鈕就是 `document.activeElement`」；選單開啟時的 Escape 也要在 document capture 階段處理，否則會送進 Terminal。
+
+已修正並移出清單：split／resize 後捲動停在底部之上（#111，xterm 6 viewport 尺寸未同步）、Escape 送不到 pane 選單、CSS zoom 下選單錨點偏移。
 
 ## 專案識別色
 

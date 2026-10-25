@@ -23,9 +23,13 @@
     "test:sidebar": "playwright test --config playwright.sidebar.config.ts",
     "test:ime": "playwright test --config playwright.ime.config.ts",
     "test:focus-mode": "playwright test --config playwright.focus-mode.config.ts",
-    "test:git": "playwright test --config playwright.git.config.ts"
+    "test:git": "playwright test --config playwright.git.config.ts",
+    "test:webkit": "playwright test --config playwright.webkit.config.ts"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@fontsource-variable/noto-sans-tc": "5.3.1",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "2.8.3",
     "@xterm/addon-fit": "0.11.0",
