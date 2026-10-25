@@ -1680,6 +1680,8 @@ kbd {
 .workspace-file-preview pre { flex: 1; margin: 0; padding: 10px; overflow: auto; tab-size: 4; font-size: 12px; line-height: 1.6; user-select: text; }
 .workspace-files button:focus-visible, .workspace-files-pane button:focus-visible, .workspace-files-toolbar button:focus-visible, .workspace-file-preview pre:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .session-trash-list { max-height: 52vh; overflow-y: auto; }
+.session-os-trash { margin: 16px 0; border-top: 1px solid var(--border); padding-top: 12px; }
+.session-os-trash > h3 { margin: 0 0 4px; }
 .session-trash-entry { display: flex; gap: 16px; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
 .session-trash-entry > div { min-width: 0; }
 .session-trash-entry h3 { margin: 0; overflow-wrap: anywhere; }

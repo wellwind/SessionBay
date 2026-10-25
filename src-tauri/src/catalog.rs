@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial,(SELECT root FROM sources WHERE id=s.source_id),(SELECT identity FROM files WHERE session_id=s.id LIMIT 1),(SELECT storage_root FROM sources WHERE id=s.source_id)";
 const MAX_ERRORS: usize = 100;
 const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
@@ -382,6 +382,17 @@ impl Catalog {
                 }
             }
             tx.commit().map_err(error)?;
+        }
+        if version < 6 {
+            // Survives rebuilds: the only pointer from a moved Session to its trashed files.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS session_os_trash(
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL,
+                external_id TEXT NOT NULL, source_root TEXT NOT NULL,
+                moved_at INTEGER NOT NULL, items TEXT NOT NULL);
+                PRAGMA user_version=6;",
+            )
+            .map_err(error)?;
         }
         #[cfg(unix)]
         {
@@ -862,6 +873,102 @@ impl Catalog {
             indexed_artifacts: artifacts,
             blockers,
         })
+    }
+
+    /// Drop a trashed Session from the index after its source files left for
+    /// the OS trash. Restoring them from the OS trash re-indexes on next scan.
+    pub fn purge_trashed(
+        &self,
+        trash_id: &str,
+        session_id: &str,
+        moved_at: i64,
+        moved: &[crate::os_trash::MovedItem],
+    ) -> Result<(), String> {
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(error)?;
+        let row: Option<(String, String, String)> = tx
+            .query_row(
+                "SELECT session_id,snapshot,source_root FROM session_trash WHERE id=?1",
+                [trash_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+            .map_err(error)?;
+        let Some((owner, snapshot, root)) = row.filter(|r| r.0 == session_id) else {
+            return Err("回收筒項目已變更，請重新整理。".into());
+        };
+        let session: Session = serde_json::from_str(&snapshot).map_err(error)?;
+        tx.execute(
+            "DELETE FROM messages WHERE file_id IN (SELECT id FROM files WHERE session_id=?1)",
+            [&owner],
+        )
+        .map_err(error)?;
+        tx.execute("DELETE FROM files WHERE session_id=?1", [&owner])
+            .map_err(error)?;
+        tx.execute("DELETE FROM sessions WHERE id=?1", [&owner])
+            .map_err(error)?;
+        tx.execute("DELETE FROM session_trash WHERE id=?1", [trash_id])
+            .map_err(error)?;
+        tx.execute(
+            "INSERT OR REPLACE INTO session_os_trash(id,title,kind,external_id,source_root,moved_at,items) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                trash_id,
+                session.title,
+                session.kind.as_str(),
+                session.external_id,
+                root,
+                moved_at,
+                serde_json::to_string(moved).map_err(error)?
+            ],
+        )
+        .map_err(error)?;
+        tx.commit().map_err(error)
+    }
+
+    pub fn os_trash_records(&self) -> Result<Vec<crate::os_trash::OsTrashRecord>, String> {
+        let conn = self.connect()?;
+        let mut statement = conn
+            .prepare("SELECT id,title,kind,external_id,source_root,moved_at,items FROM session_os_trash ORDER BY moved_at DESC,id LIMIT 500")
+            .map_err(error)?;
+        let rows = statement
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, String>(6)?,
+                ))
+            })
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        rows.into_iter()
+            .map(
+                |(id, title, kind, external_id, source_root, moved_at, items)| {
+                    Ok(crate::os_trash::OsTrashRecord {
+                        id,
+                        title,
+                        kind: AgentKind::parse(&kind)?,
+                        external_id,
+                        source_root,
+                        moved_at,
+                        items: serde_json::from_str(&items).map_err(error)?,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    pub fn forget_os_trash(&self, id: &str) -> Result<(), String> {
+        self.connect()?
+            .execute("DELETE FROM session_os_trash WHERE id=?1", [id])
+            .map(|_| ())
+            .map_err(error)
     }
 
     pub fn restore_session(&self, id: &str) -> Result<(), String> {

@@ -1,4 +1,5 @@
-//! Read-only removal inspection policy. There is deliberately no execute operation.
+//! Permanent-removal policy. Permanent deletion stays closed; the reversible
+//! move to the OS trash lives in `os_trash`, which reuses the inspection.
 use crate::models::AgentKind;
 
 /// Every provider uses the same policy boundary, including unsupported stores.

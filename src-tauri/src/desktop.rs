@@ -3,9 +3,9 @@ use crate::{
     config::{self, Installation, Settings},
     history_sources::{self, HistorySourceDiscovery},
     models::{
-        AgentKind, IndexStatus, Project, RemovalInspection, SessionPage, SessionQuery,
-        TranscriptPage, TrashPage, WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage,
-        WorkspaceFilePreview, WorkspaceFileSearch,
+        AgentKind, IndexStatus, Project, SessionPage, SessionQuery, TranscriptPage, TrashPage,
+        WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFilePage, WorkspaceFilePreview,
+        WorkspaceFileSearch,
     },
     runtime::RuntimeInfo,
     service::{Bootstrap, LaunchPreview, LaunchRequest, Service},
@@ -298,12 +298,40 @@ async fn trash_session(
     blocking(move || s.catalog.trash_session(&session_id, &expected_identity)).await
 }
 #[tauri::command]
-async fn inspect_session_removal(
+async fn prepare_session_os_trash(
     state: AppState<'_>,
     trash_id: String,
-) -> Result<RemovalInspection, String> {
+) -> Result<crate::os_trash::OsTrashPlan, String> {
     let s = state.inner().clone();
-    blocking(move || s.catalog.inspect_removal(&trash_id)).await
+    blocking(move || s.prepare_os_trash(&trash_id)).await
+}
+#[tauri::command]
+async fn execute_session_os_trash(
+    state: AppState<'_>,
+    plan_id: String,
+) -> Result<crate::os_trash::OsTrashResult, String> {
+    let s = state.inner().clone();
+    blocking(move || s.execute_os_trash(&plan_id)).await
+}
+#[tauri::command]
+async fn list_os_trashed_sessions(
+    state: AppState<'_>,
+) -> Result<Vec<crate::os_trash::OsTrashedSession>, String> {
+    let s = state.inner().clone();
+    blocking(move || s.os_trashed()).await
+}
+#[tauri::command]
+async fn restore_os_trashed_session(
+    state: AppState<'_>,
+    id: String,
+) -> Result<crate::os_trash::OsTrashResult, String> {
+    let s = state.inner().clone();
+    blocking(move || s.restore_os_trashed(&id)).await
+}
+#[tauri::command]
+async fn forget_os_trashed_session(state: AppState<'_>, id: String) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.forget_os_trash(&id)).await
 }
 #[tauri::command]
 async fn restore_session(state: AppState<'_>, session_id: String) -> Result<(), String> {
@@ -768,7 +796,11 @@ pub fn run() {
             trash_session,
             restore_session,
             show_notification,
-            inspect_session_removal,
+            prepare_session_os_trash,
+            list_os_trashed_sessions,
+            restore_os_trashed_session,
+            forget_os_trashed_session,
+            execute_session_os_trash,
             list_trashed_sessions,
             read_transcript,
             start_index,

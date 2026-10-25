@@ -4,6 +4,14 @@
 
 使用者要求系統通知。採 `tauri-plugin-notification` 2.5.1（Apache-2.0 OR MIT），由 Rust 命令送出並限制長度；前端只在 Agent 明確回報進入等待、完成或失敗，且該工作不在畫面或視窗不在前景時觸發。不從 terminal output 推測狀態，也不使用預估逾時。預設開啟、可在設定關閉。開發模式下 macOS 通知會以 Terminal 名義顯示；點擊通知切換工作尚未支援。細節見 [UX 規格](ux-spec.md#系統通知2026-10-25)。
 
+## 2026-10-25：Session 可移到系統垃圾桶
+
+使用者要求能真正刪除 Session，選擇「移到系統垃圾桶」並涵蓋全部 Agent。原「原始 Agent 歷史維持唯讀」改為：除使用者逐筆確認的系統垃圾桶移動外維持唯讀。採 `trash` crate 5.2.9（MIT），macOS 用 `NSFileManager`。
+
+使用者實測後回報在系統垃圾桶找不到、Session Bay 也看不到：項目以 Session ID 命名且 `NSFileManager` 不保證「放回原處」。因此追加搬移紀錄（原路徑與垃圾桶位置，不受重建索引影響）與從 Session Bay 還原。
+
+第一階段支援 Codex、Claude Code、Grok、Antigravity：後端持有單次計畫 ID，執行前重新驗證項目與時間戳，共享儲存一律保留。OpenCode 的 Session 在共用 SQLite 中，需另行設計（例如先匯出到垃圾桶再以官方方式刪除），尚未實作。永久刪除仍未開放。細節見 [Session 移到系統垃圾桶](session-os-trash.md)。
+
 ## 2026-10-25：Worktree 管理
 
 使用者在比較 Herdr、Orca 等 ADE 之後，指定 worktree 管理優先。這次做的是管理介面，「一個 prompt 分給多個 Agent」之後再在此基礎上擴充。
