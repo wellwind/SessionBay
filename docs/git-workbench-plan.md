@@ -1,6 +1,6 @@
 # Git 工作台功能規劃
 
-更新：2026-10-25。狀態：**G1–G8 已完成：功能已合併，exact-commit CI、三平台原生 smoke 與自動化驗收通過，使用者已於 2026-10-25 回報真實主機與原生人工驗收通過**。八個工作包為 PR #98–#105，後續修正見 #114–#118（見[實作狀態](#實作狀態2026-10-24)）。尚缺：實測的 GitLab 版本紀錄。
+更新：2026-10-25。狀態：**G1–G8 已完成：功能已合併，exact-commit CI、三平台原生 smoke 與自動化驗收通過，使用者已於 2026-10-25 回報真實主機與原生人工驗收通過**。八個工作包為 PR #98–#105，後續修正見 #114–#118（見[實作狀態](#實作狀態2026-10-24)）。GitLab 實測版本：CE 19.5.1。
 
 ## 產品目標與已確認範圍
 
@@ -120,7 +120,7 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 ### 第三階段：遠端協作
 
-- [x] G7 主機與帳號連線（依賴 G1；不需等待所有本機 UI）（2026-10-25 使用者回報人工驗收通過；回報未附實測的 GitLab 版本，補上後記錄於此）
+- [x] G7 主機與帳號連線（依賴 G1；不需等待所有本機 UI）（2026-10-25 使用者回報人工驗收通過；另以真實自架 **GitLab CE 19.5.1**（本機 Docker 拋棄式 instance）跑 `tests/git_real_gitlab.rs` 全數通過：連線與測試、remote 對應、MR 建立／列表／詳細／檔案、無 CI 不顯示通過、逐行留言、核准、唯讀帳號合併被平台拒絕（HTTP 401）、head 變更後舊 head 合併被拒、新 head 合併成功、token 不落地）
   - GitHub／自架 GitLab adapters、多主機／多帳號、remote 映射與安全認證。
   - 驗收：不同 host／account／repo 不串憑證或快取；token 不出現在一般設定與 log；無權限、失效登入、私有網路／CA 問題可診斷；列明實測 GitLab 版本。
 - [x] G8 PR／MR（依賴 G2、G3、G7；本機衝突流程銜接 G6）（2026-10-25 使用者回報人工驗收通過；自動化與 CI 證據見下方實作狀態）
@@ -193,4 +193,4 @@ Session Bay 自身的寫入使用 repo／common-dir 適當範圍序列化；Git 
 
 Worktree 管理、完整 CI log／retry／cancel、進階 rebase／cherry-pick 操作介面與更多 hosting providers 後續另拆。非文字內容 diff 明確不在範圍內。
 
-最低 Git 版本、文字／三方編輯引擎、資料量限制與復原點策略已於 2026-10-24 決定（見[決策紀錄](decisions.md)）。最低可支援的 GitLab 版本仍待真實 instance 驗證；不得把未測試的平台能力寫成已驗證。
+最低 Git 版本、文字／三方編輯引擎、資料量限制與復原點策略已於 2026-10-24 決定（見[決策紀錄](decisions.md)）。已以真實 GitLab CE 19.5.1 完成 G7／G8 端到端驗收（`SESSIONBAY_TEST_GITLAB_URL`／`SESSIONBAY_TEST_GITLAB_ADMIN_TOKEN` 指向拋棄式 instance 執行 `git_real_gitlab`）；更舊的版本未實測，不宣稱支援下限。
