@@ -114,9 +114,14 @@ test('split can take open work or a history Session from any project', async ({ 
   })).toBe(true);
 
   // A history Session of another project resumes straight into the split.
+  // The pane may still be settling into its compact menu; retry until the action shows.
   const menu = otherPane.getByRole('button', { name: /^面板選項 / });
-  if (await menu.isVisible()) await menu.click();
-  await otherPane.getByRole('button', { name: '上下分割', exact: true }).click();
+  const splitDown = otherPane.getByRole('button', { name: '上下分割', exact: true });
+  await expect(async () => {
+    if (await menu.isVisible() && await menu.getAttribute('aria-expanded') !== 'true') await menu.click();
+    await expect(splitDown).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 10_000 });
+  await splitDown.click();
   await dialog.getByRole('button', { name: /^既有工作/ }).click();
   await dialog.getByLabel('搜尋既有工作與 Session').fill('Synthetic other session 3');
   await dialog.getByRole('button', { name: /^接續 Synthetic other · Synthetic other session 3$/ }).click();

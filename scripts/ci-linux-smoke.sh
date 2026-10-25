@@ -198,7 +198,7 @@ for scenario in empty dark light; do
     smoke_wait_marker interaction
   fi
   smoke_wait_marker interaction monaco-worker-readonly-disposal
-  if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction git:discover-diff-partial-stage-commit-graph; fi
+  if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction git:discover-diff-partial-stage-commit-graph-terminal-identity-overview; fi
   if [[ "$scenario" != empty ]]; then smoke_wait_marker interaction bounded-files-preflight-chunks-large-model-range-disposal; smoke_wait_marker interaction file-images-binary-ipc-png-svg-webkit-decode; fi
   smoke_alive
   smoke_stop
