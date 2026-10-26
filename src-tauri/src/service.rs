@@ -112,13 +112,14 @@ impl Service {
         let (settings, warnings) = config.load_settings();
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
         let git = crate::git::GitService::with_data_dir(config.directory.clone());
+        let opencode_staging = config.directory.join("opencode-export");
         let fresh_launch_control = Arc::new(crate::fresh_launch::FreshLaunchControl::default());
         let service = Arc::new(Self {
             catalog,
             config,
             runtime: RuntimeManager::new(),
             git,
-            os_trash: Default::default(),
+            os_trash: crate::os_trash::PlanStore::default().with_staging(opencode_staging),
             image_staging: Mutex::new(None),
             file_staging: Mutex::new(None),
             fresh_launches: Mutex::new(crate::fresh_launch::FreshLaunches::new(
@@ -812,26 +813,47 @@ impl Service {
             })
         })
     }
+    /// The configured OpenCode CLI, when it resolves to an executable.
+    fn opencode_cli(&self) -> Result<Option<crate::os_trash::OpenCodeProcess>, String> {
+        let settings = self.settings()?;
+        Ok(config::resolve_executable(&settings.executables.opencode)
+            .ok()
+            .map(|executable| crate::os_trash::OpenCodeProcess { executable }))
+    }
     pub fn prepare_os_trash(&self, trash_id: &str) -> Result<crate::os_trash::OsTrashPlan, String> {
         let running = self.session_running()?;
-        self.os_trash.prepare(&self.catalog, trash_id, &running)
+        let cli = self.opencode_cli()?;
+        self.os_trash.prepare(
+            &self.catalog,
+            trash_id,
+            &running,
+            cli.as_ref().map(|c| c as &dyn crate::os_trash::OpenCodeCli),
+        )
     }
     pub fn os_trashed(&self) -> Result<Vec<crate::os_trash::OsTrashedSession>, String> {
         crate::os_trash::list_moved(&self.catalog, &crate::os_trash::SystemTrash)
     }
     pub fn restore_os_trashed(&self, id: &str) -> Result<crate::os_trash::OsTrashResult, String> {
-        crate::os_trash::restore_moved(&self.catalog, id, &crate::os_trash::SystemTrash)
+        let cli = self.opencode_cli()?;
+        crate::os_trash::restore_moved(
+            &self.catalog,
+            id,
+            &crate::os_trash::SystemTrash,
+            cli.as_ref().map(|c| c as &dyn crate::os_trash::OpenCodeCli),
+        )
     }
     pub fn execute_os_trash(
         &self,
         plan_id: &str,
     ) -> Result<crate::os_trash::OsTrashResult, String> {
         let running = self.session_running()?;
+        let cli = self.opencode_cli()?;
         self.os_trash.execute(
             &self.catalog,
             plan_id,
             &running,
             &crate::os_trash::SystemTrash,
+            cli.as_ref().map(|c| c as &dyn crate::os_trash::OpenCodeCli),
         )
     }
 

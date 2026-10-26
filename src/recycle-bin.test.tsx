@@ -237,6 +237,15 @@ it('moves a Session to the OS trash in one step and keeps Undo when backing out'
   await waitFor(() => expect(api.executeSessionOsTrash).toHaveBeenCalledExactlyOnceWith('plan-1'));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
 });
+it('explains the OpenCode export-then-delete path without a fake file size', async () => {
+  vi.mocked(api.prepareSessionOsTrash).mockResolvedValue({ planId: 'plan-oc', trashId: entry.id, sessionId: session.id, kind: 'opencode',
+    sourceRoot: '/synthetic/xdg/opencode', items: [{ relativePath: 'opencode-session-ses_x.json（先以官方 CLI 匯出，再刪除資料庫中的 Session）', directory: false, bytes: 0, entries: 0 }],
+    kept: ['opencode.db（共享資料庫）'], blockers: [] });
+  render(<SessionTrash onClose={vi.fn()} onChanged={vi.fn()} refreshToken={0} />);
+  fireEvent.click(await screen.findByRole('button', { name: '移到系統垃圾桶 Synthetic work' }));
+  expect(await screen.findByText(/opencode session delete/)).toBeInTheDocument();
+  expect(screen.queryByText(/0 B/)).not.toBeInTheDocument();
+});
 it('lists OS-trashed Sessions by title and restores them before rescanning', async () => {
   const moved = { id: 'moved-1', title: 'Moved synthetic work', kind: 'claude' as const, externalId: 'synthetic-uuid',
     sourceRoot: '/synthetic/root', movedAt: 1_793_000_000,

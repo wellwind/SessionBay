@@ -26,10 +26,13 @@ struct Harness {
 }
 impl Harness {
     fn new() -> Self {
+        Self::named("OpenCode history with spaces")
+    }
+    fn named(directory: &str) -> Self {
         isolate_mirror();
         let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("OpenCode history with spaces");
-        fs::create_dir(&root).unwrap();
+        let root = temp.path().join(directory);
+        fs::create_dir_all(&root).unwrap();
         #[cfg(unix)]
         let root = root.canonicalize().unwrap();
         let catalog = Catalog::open(&temp.path().join("catalog.db")).unwrap();
@@ -787,4 +790,194 @@ fn catalog_refresh_reindexes_only_changed_sessions_and_keeps_other_previews_fres
     h.sync();
     assert_eq!(h.search("appended"), 1);
     assert!(!h.catalog.transcript(&beta.id, None, 20).unwrap().stale);
+}
+
+/// Stands in for the official CLI: export prints the Session, delete and
+/// import edit the synthetic database like `opencode session delete`/`import`.
+struct FakeCli {
+    db: PathBuf,
+    calls: std::cell::RefCell<Vec<String>>,
+}
+impl sessionbay_lib::os_trash::OpenCodeCli for FakeCli {
+    fn export(
+        &self,
+        _: &std::path::Path,
+        id: &str,
+        target: &std::path::Path,
+    ) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("export {id}"));
+        fs::write(
+            target,
+            json!({"info": {"id": id}, "messages": []}).to_string(),
+        )
+        .map_err(|e| e.to_string())
+    }
+    fn delete(&self, _: &std::path::Path, id: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("delete {id}"));
+        Connection::open(&self.db)
+            .unwrap()
+            .execute("DELETE FROM session WHERE id=?1", [id])
+            .unwrap();
+        Ok(())
+    }
+    fn import(
+        &self,
+        _: &std::path::Path,
+        file: &std::path::Path,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        let export: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
+        let id = export["info"]["id"].as_str().unwrap();
+        self.calls.borrow_mut().push(format!("import {id}"));
+        Connection::open(&self.db).unwrap().execute(
+            "INSERT INTO session VALUES(?1,'global',?2,'Native OpenCode title','1.19.2',1760000000000,1760000001000,NULL,NULL,NULL)",
+            params![id, cwd.to_string_lossy()],
+        ).unwrap();
+        Ok(())
+    }
+}
+struct FakeTrash(PathBuf);
+impl sessionbay_lib::os_trash::Mover for FakeTrash {
+    fn move_to_trash(&self, path: &std::path::Path) -> Result<Option<PathBuf>, String> {
+        let target = self.0.join(path.file_name().unwrap());
+        fs::rename(path, &target).map_err(|e| e.to_string())?;
+        Ok(Some(target))
+    }
+    fn in_trash(&self, item: &sessionbay_lib::os_trash::MovedItem, _: i64) -> Result<bool, String> {
+        Ok(item
+            .trashed
+            .as_deref()
+            .is_some_and(|p| std::path::Path::new(p).exists()))
+    }
+    fn restore(&self, item: &sessionbay_lib::os_trash::MovedItem, _: i64) -> Result<(), String> {
+        sessionbay_lib::os_trash::restore_by_rename(
+            std::path::Path::new(item.trashed.as_deref().unwrap()),
+            std::path::Path::new(&item.original),
+        )
+    }
+}
+
+#[test]
+fn opencode_session_exports_to_trash_deletes_via_cli_and_imports_back() {
+    use sessionbay_lib::os_trash::{list_moved, restore_moved, PlanStore};
+    let h = Harness::named("xdg/opencode");
+    let work = h._temp.path().join("work");
+    let bin = h._temp.path().join("bin");
+    fs::create_dir_all(&work).unwrap();
+    fs::create_dir_all(&bin).unwrap();
+    h.db()
+        .execute("UPDATE session SET directory=?1", [work.to_string_lossy()])
+        .unwrap();
+    h.sync();
+    let session = h.session();
+    let trash_id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let cli = FakeCli {
+        db: h.root.join("opencode.db"),
+        calls: Default::default(),
+    };
+    let trash = FakeTrash(bin.clone());
+    let idle = |_: &str, _: &str| false;
+    let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
+    // Without the CLI nothing can be deleted.
+    let blocked = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
+    assert!(blocked.plan_id.is_empty());
+    assert!(blocked
+        .blockers
+        .iter()
+        .any(|b| b.contains("OpenCode 執行檔")));
+    let plan = store
+        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+        .unwrap();
+    assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
+    assert!(plan.kept.iter().any(|k| k.starts_with("opencode.db")));
+    store
+        .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
+        .unwrap();
+    assert_eq!(
+        *cli.calls.borrow(),
+        [format!("export {ID}"), format!("delete {ID}")]
+    );
+    assert!(bin.join(format!("opencode-session-{ID}.json")).exists());
+    let count = |db: Connection| {
+        db.query_row("SELECT count(*) FROM session", [], |r| r.get::<_, i64>(0))
+            .unwrap()
+    };
+    assert_eq!(count(h.db()), 0);
+    let records = list_moved(&h.catalog, &trash).unwrap();
+    assert!(records[0].items[0].in_trash);
+    let restored = restore_moved(&h.catalog, &records[0].id, &trash, Some(&cli)).unwrap();
+    assert!(restored.failed.is_empty(), "{:?}", restored.failed);
+    assert_eq!(count(h.db()), 1);
+    assert!(list_moved(&h.catalog, &trash).unwrap().is_empty());
+    h.sync();
+    assert_eq!(h.session().external_id, ID);
+}
+
+#[test]
+fn opencode_never_deletes_when_the_export_is_wrong() {
+    use sessionbay_lib::os_trash::PlanStore;
+    struct BadExport(FakeCli);
+    impl sessionbay_lib::os_trash::OpenCodeCli for BadExport {
+        fn export(
+            &self,
+            _: &std::path::Path,
+            _: &str,
+            target: &std::path::Path,
+        ) -> Result<(), String> {
+            fs::write(
+                target,
+                json!({"info": {"id": "ses_other"}, "messages": []}).to_string(),
+            )
+            .map_err(|e| e.to_string())
+        }
+        fn delete(&self, root: &std::path::Path, id: &str) -> Result<(), String> {
+            self.0.delete(root, id)
+        }
+        fn import(
+            &self,
+            root: &std::path::Path,
+            file: &std::path::Path,
+            cwd: &std::path::Path,
+        ) -> Result<(), String> {
+            self.0.import(root, file, cwd)
+        }
+    }
+    let h = Harness::named("xdg/opencode");
+    h.sync();
+    let session = h.session();
+    let trash_id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let cli = BadExport(FakeCli {
+        db: h.root.join("opencode.db"),
+        calls: Default::default(),
+    });
+    let staging = h._temp.path().join("staging");
+    let store = PlanStore::default().with_staging(staging.clone());
+    let idle = |_: &str, _: &str| false;
+    let plan = store
+        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+        .unwrap();
+    let error = store
+        .execute(
+            &h.catalog,
+            &plan.plan_id,
+            &idle,
+            &FakeTrash(staging.clone()),
+            Some(&cli),
+        )
+        .unwrap_err();
+    assert!(error.contains("與預期不同"));
+    assert!(cli.0.calls.borrow().is_empty());
+    assert_eq!(
+        h.db()
+            .query_row("SELECT count(*) FROM session", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(fs::read_dir(&staging).unwrap().count(), 0);
 }
