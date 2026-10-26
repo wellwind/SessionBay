@@ -1,6 +1,6 @@
 # Session 移到系統垃圾桶
 
-狀態：Codex、Claude Code、Grok、Antigravity 已實作；OpenCode 因 Session 存在共用 `opencode.db`，尚未支援。合成資料整合測試通過；macOS 真實 Agent 資料夾仍待使用者實測。
+狀態：Codex、Claude Code、Grok、Antigravity 已實作；OpenCode 因 Session 存在共用 `opencode.db`，尚未支援。合成資料整合測試通過；2026-10-26 使用者在 macOS 以真實 Agent 資料完成一步刪除、系統垃圾桶確認與從 Session Bay 還原的實測。Windows／Linux 尚未實測。
 
 ## 流程
 
