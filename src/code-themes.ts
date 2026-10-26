@@ -2,7 +2,9 @@ import type { ITheme } from '@xterm/xterm';
 import sources from './theme-sources/code-palettes.json';
 
 // Color data adapted from Microsoft's MIT-licensed VS Code default themes.
-// Pinned source, include chains and deliberate contrast changes: docs/theme-preview.md.
+// Pinned to microsoft/vscode@3588843f (theme-defaults, resolved include chains
+// stored in theme-sources/code-palettes.json). Colors below 4.5:1 text or 3:1
+// control contrast are nudged until readable; license in public/third-party.
 type Mode = 'dark' | 'light';
 export const codePaletteIds = ['code-modern', 'code-2026'] as const;
 function source(id: string, mode: Mode): Record<string, string> | undefined {
