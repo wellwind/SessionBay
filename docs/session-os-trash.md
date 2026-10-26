@@ -1,6 +1,6 @@
 # Session 移到系統垃圾桶
 
-狀態：Codex、Claude Code、Grok、Antigravity 已實作；OpenCode 因 Session 存在共用 `opencode.db`，尚未支援。合成資料整合測試通過；2026-10-26 使用者在 macOS 以真實 Agent 資料完成一步刪除與系統垃圾桶確認的實測（還原未單獨確認）。Windows／Linux 尚未實測。
+狀態：Codex、Claude Code、Grok、Antigravity 已實作；OpenCode 以官方 CLI 匯出後刪除（2026-10-26，合成資料與替身 CLI 測試，尚未以真實 OpenCode 實測）。合成資料整合測試通過；2026-10-26 使用者在 macOS 以真實 Agent 資料完成一步刪除與系統垃圾桶確認的實測（還原未單獨確認）。Windows／Linux 尚未實測。
 
 ## 流程
 
@@ -24,9 +24,20 @@
 | Claude Code | 主對話 `projects/<專案>/<ID>.jsonl` 與同名資料夾（含 subagent）、`session-env/<ID>`、`file-history/<ID>`、`debug/<ID>.txt`、`todos/<ID>-*.json`；subagent Session 只移自己的檔案 | `history.jsonl` |
 | Grok | 整個 `sessions/<工作目錄>/<ID>/` | `prompt_history.jsonl`、`session_search.sqlite`、`active_sessions.json` |
 | Antigravity | `brain/<ID>/`、`conversations/<ID>.db{,-shm,-wal}`、`annotations/<ID>.pbtxt` | `conversation_summaries.db` |
-| OpenCode | 尚未支援 | `opencode.db` |
+| OpenCode | `opencode export <ID>` 的完整 JSON（驗證 ID 後才刪除；Session 本身以 `opencode session delete <ID>` 刪除） | `opencode.db` 其餘內容 |
 
 共享儲存可能仍留有這個 Session 的片段（例如輸入歷史、摘要或狀態索引）；Agent 自己的 resume 清單可能仍顯示無法開啟的項目。
+
+## OpenCode
+
+OpenCode 的 Session 存在共用 `opencode.db`，不能搬檔案，也不由 Session Bay 直接改資料庫。依 OpenCode 1.19.4 原始碼（`packages/opencode/src/cli/cmd/{export,import,session}.ts`）：
+
+1. `opencode export <ID>` 把 Session 與全部 messages／parts 以 JSON 印到 stdout，Session Bay 寫入資料目錄下的 `opencode-export/`。
+2. 解析匯出檔並確認 `info.id` 與 Session ID 相同，才執行 `opencode session delete <ID>`；匯出或驗證失敗不刪除任何東西。
+3. 匯出檔移到系統垃圾桶並留下紀錄；若移動失敗，匯出檔保留在 `opencode-export/`，仍可還原。
+4. 還原：把匯出檔搬回，在原工作目錄執行 `opencode import <檔案>`（import 依執行目錄決定專案），成功後刪除暫存匯出檔並重新掃描。
+
+CLI 以 executable 與 args 分別傳入、120 秒逾時，並設定 `XDG_DATA_HOME` 指向已索引的資料夾，因此來源必須是名為 `opencode` 的標準資料夾。`import` 只寫回 v1 message／part（1.19.x 的 `opencode run` 也只寫 v1）；`session delete` 是否連帶刪除子 Session 依 OpenCode 行為而定。
 
 ## 阻擋條件
 

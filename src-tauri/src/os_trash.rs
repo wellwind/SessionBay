@@ -53,6 +53,132 @@ pub struct MovedItem {
     pub original: String,
     /// Location inside the trash when the platform reports it (macOS).
     pub trashed: Option<String>,
+    /// OpenCode exports are restored with `opencode import` run from here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_cwd: Option<String>,
+}
+
+/// Official OpenCode CLI operations against the database under `root`.
+pub trait OpenCodeCli {
+    fn export(&self, root: &Path, id: &str, target: &Path) -> Result<(), String>;
+    fn delete(&self, root: &Path, id: &str) -> Result<(), String>;
+    fn import(&self, root: &Path, file: &Path, cwd: &Path) -> Result<(), String>;
+}
+
+/// Runs the configured `opencode` executable with arguments passed separately.
+pub struct OpenCodeProcess {
+    pub executable: PathBuf,
+}
+
+const CLI_TIMEOUT: Duration = Duration::from_secs(120);
+
+impl OpenCodeProcess {
+    fn run(
+        &self,
+        root: &Path,
+        args: &[&std::ffi::OsStr],
+        cwd: &Path,
+        stdout: Option<&Path>,
+    ) -> Result<(), String> {
+        use std::process::{Command, Stdio};
+        let data_home = opencode_data_home(root).ok_or("OpenCode 資料位置無法對應 CLI。")?;
+        let log = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
+        let mut command = Command::new(&self.executable);
+        command
+            .args(args)
+            .current_dir(cwd)
+            // Point the CLI at the indexed database rather than whatever its default is.
+            .env("XDG_DATA_HOME", data_home)
+            .stdin(Stdio::null())
+            .stderr(log.reopen().map_err(|e| e.to_string())?);
+        match stdout {
+            Some(path) => command.stdout(fs::File::create(path).map_err(|e| e.to_string())?),
+            None => command.stdout(Stdio::null()),
+        };
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("無法啟動 OpenCode：{e}"))?;
+        let deadline = Instant::now() + CLI_TIMEOUT;
+        let status = loop {
+            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("OpenCode 指令逾時。".into());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        if status.success() {
+            return Ok(());
+        }
+        let detail = fs::read_to_string(log.path()).unwrap_or_default();
+        let tail: String = detail
+            .trim()
+            .chars()
+            .rev()
+            .take(300)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        Err(format!("OpenCode 指令失敗（{status}）：{tail}"))
+    }
+}
+
+impl OpenCodeCli for OpenCodeProcess {
+    fn export(&self, root: &Path, id: &str, target: &Path) -> Result<(), String> {
+        self.run(
+            root,
+            &["export".as_ref(), id.as_ref()],
+            &neutral_cwd(),
+            Some(target),
+        )
+    }
+    fn delete(&self, root: &Path, id: &str) -> Result<(), String> {
+        self.run(
+            root,
+            &["session".as_ref(), "delete".as_ref(), id.as_ref()],
+            &neutral_cwd(),
+            None,
+        )
+    }
+    fn import(&self, root: &Path, file: &Path, cwd: &Path) -> Result<(), String> {
+        self.run(root, &["import".as_ref(), file.as_os_str()], cwd, None)
+    }
+}
+
+fn neutral_cwd() -> PathBuf {
+    dirs::home_dir().unwrap_or_else(std::env::temp_dir)
+}
+
+/// OpenCode keeps its database at `$XDG_DATA_HOME/opencode`.
+fn opencode_data_home(root: &Path) -> Option<&Path> {
+    (root.file_name()? == "opencode")
+        .then(|| root.parent())
+        .flatten()
+}
+
+#[derive(serde::Deserialize)]
+struct ExportCheck {
+    info: ExportInfo,
+    messages: Vec<serde::de::IgnoredAny>,
+}
+#[derive(serde::Deserialize)]
+struct ExportInfo {
+    id: String,
+}
+
+/// The export must name this Session before the original may be deleted.
+fn verify_export(file: &Path, id: &str) -> Result<usize, String> {
+    let reader = std::io::BufReader::new(fs::File::open(file).map_err(|e| e.to_string())?);
+    let export: ExportCheck =
+        serde_json::from_reader(reader).map_err(|e| format!("OpenCode 匯出內容無法解析：{e}"))?;
+    if export.info.id != id {
+        return Err("OpenCode 匯出的 Session 與預期不同。".into());
+    }
+    Ok(export.messages.len())
 }
 
 /// OS trash access; tests inject a fake.
@@ -178,7 +304,7 @@ pub fn list_moved(catalog: &Catalog, mover: &dyn Mover) -> Result<Vec<OsTrashedS
                 .map(|item| {
                     Ok(OsTrashedItemState {
                         relative_path: relative_label(&record.source_root, &item.original),
-                        in_trash: mover.in_trash(item, record.moved_at)?,
+                        in_trash: available(mover, item, record.moved_at)?,
                     })
                 })
                 .collect::<Result<_, String>>()?;
@@ -207,6 +333,7 @@ pub fn restore_moved(
     catalog: &Catalog,
     id: &str,
     mover: &dyn Mover,
+    opencode: Option<&dyn OpenCodeCli>,
 ) -> Result<OsTrashResult, String> {
     let record = catalog
         .os_trash_records()?
@@ -219,13 +346,24 @@ pub fn restore_moved(
     };
     for item in &record.items {
         let label = relative_label(&record.source_root, &item.original);
-        if !mover.in_trash(item, record.moved_at)? {
+        if !available(mover, item, record.moved_at)? {
             result
                 .failed
                 .push(format!("{label}：垃圾桶中已找不到，可能已永久刪除。"));
             continue;
         }
-        match mover.restore(item, record.moved_at) {
+        let restored = match &item.import_cwd {
+            None => mover.restore(item, record.moved_at),
+            Some(cwd) => restore_opencode(
+                mover,
+                item,
+                record.moved_at,
+                &record.source_root,
+                cwd,
+                opencode,
+            ),
+        };
+        match restored {
             Ok(()) => result.moved.push(label),
             Err(e) => result.failed.push(format!("{label}：{e}")),
         }
@@ -233,11 +371,44 @@ pub fn restore_moved(
     if record
         .items
         .iter()
-        .all(|item| !mover.in_trash(item, record.moved_at).unwrap_or(true))
+        .all(|item| !available(mover, item, record.moved_at).unwrap_or(true))
     {
         catalog.forget_os_trash(id)?;
     }
     Ok(result)
+}
+
+/// An OpenCode export that never reached the trash stays restorable from staging.
+fn available(mover: &dyn Mover, item: &MovedItem, moved_at: i64) -> Result<bool, String> {
+    Ok(mover.in_trash(item, moved_at)?
+        || (item.import_cwd.is_some() && Path::new(&item.original).is_file()))
+}
+
+fn restore_opencode(
+    mover: &dyn Mover,
+    item: &MovedItem,
+    moved_at: i64,
+    root: &str,
+    cwd: &str,
+    opencode: Option<&dyn OpenCodeCli>,
+) -> Result<(), String> {
+    let cli = opencode.ok_or("找不到 OpenCode 執行檔；請在設定指定後再還原。")?;
+    let file = Path::new(&item.original);
+    if mover.in_trash(item, moved_at)? {
+        mover.restore(item, moved_at)?;
+    }
+    let cwd = Path::new(cwd);
+    if !cwd.is_dir() {
+        return Err(format!(
+            "原工作目錄 {} 已不存在；匯出檔保留在 {}。",
+            cwd.display(),
+            file.display()
+        ));
+    }
+    cli.import(Path::new(root), file, cwd)
+        .map_err(|e| format!("{e}；匯出檔保留在 {}。", file.display()))?;
+    let _ = fs::remove_file(file);
+    Ok(())
 }
 
 /// Whether a Session Bay runtime still uses this Session (id, external id).
@@ -259,6 +430,8 @@ struct Prepared {
 pub struct PlanStore {
     plans: Mutex<HashMap<String, Prepared>>,
     recent_write: Duration,
+    /// Where OpenCode exports wait before going to the OS trash.
+    staging: PathBuf,
 }
 
 impl Default for PlanStore {
@@ -273,7 +446,13 @@ impl PlanStore {
         Self {
             plans: Mutex::default(),
             recent_write,
+            staging: std::env::temp_dir().join("sessionbay-opencode-export"),
         }
+    }
+
+    pub fn with_staging(mut self, staging: PathBuf) -> Self {
+        self.staging = staging;
+        self
     }
 
     pub fn prepare(
@@ -281,8 +460,9 @@ impl PlanStore {
         catalog: &Catalog,
         trash_id: &str,
         running: RunningCheck,
+        opencode: Option<&dyn OpenCodeCli>,
     ) -> Result<OsTrashPlan, String> {
-        let (mut plan, stamps) = build(catalog, trash_id, running, self.recent_write)?;
+        let (mut plan, stamps) = build(catalog, trash_id, running, self.recent_write, opencode)?;
         let mut plans = self.plans.lock().map_err(|_| "垃圾桶計畫鎖定失敗")?;
         plans.retain(|_, p| p.created.elapsed() < PLAN_LIFETIME);
         if plan.blockers.is_empty() {
@@ -306,6 +486,7 @@ impl PlanStore {
         plan_id: &str,
         running: RunningCheck,
         mover: &dyn Mover,
+        opencode: Option<&dyn OpenCodeCli>,
     ) -> Result<OsTrashResult, String> {
         let prepared = self
             .plans
@@ -314,12 +495,22 @@ impl PlanStore {
             .remove(plan_id)
             .filter(|p| p.created.elapsed() < PLAN_LIFETIME)
             .ok_or("確認已過期，請重新檢查後再移到垃圾桶。")?;
-        let (plan, stamps) = build(catalog, &prepared.trash_id, running, self.recent_write)?;
+        let (plan, stamps) = build(
+            catalog,
+            &prepared.trash_id,
+            running,
+            self.recent_write,
+            opencode,
+        )?;
         if let Some(blocker) = plan.blockers.first() {
             return Err(blocker.clone());
         }
         if plan.session_id != prepared.session_id || stamps != prepared.stamps {
             return Err("確認後來源檔案已變更，未移動任何檔案；請重新檢查。".into());
+        }
+        if plan.kind == AgentKind::OpenCode {
+            let cli = opencode.ok_or("找不到 OpenCode 執行檔。")?;
+            return self.execute_opencode(catalog, &plan, mover, cli);
         }
         let root = PathBuf::from(&plan.source_root);
         let mut result = OsTrashResult {
@@ -338,6 +529,7 @@ impl PlanStore {
                     moved.push(MovedItem {
                         original: path.to_string_lossy().into_owned(),
                         trashed: trashed.map(|p| p.to_string_lossy().into_owned()),
+                        import_cwd: None,
                     });
                 }
                 Err(e) => result.failed.push(format!("{}：{e}", item.relative_path)),
@@ -350,6 +542,71 @@ impl PlanStore {
         } else if !result.failed.is_empty() {
             return Err(result.failed.join("\n"));
         }
+        Ok(result)
+    }
+}
+
+impl PlanStore {
+    /// Export, delete through the official CLI, then trash the export. The
+    /// original is only deleted once a parseable export names this Session.
+    fn execute_opencode(
+        &self,
+        catalog: &Catalog,
+        plan: &OsTrashPlan,
+        mover: &dyn Mover,
+        cli: &dyn OpenCodeCli,
+    ) -> Result<OsTrashResult, String> {
+        let session = catalog.trashed_snapshot(&plan.trash_id)?;
+        let id = &session.external_id;
+        let root = Path::new(&plan.source_root);
+        fs::create_dir_all(&self.staging).map_err(|e| e.to_string())?;
+        let file = self.staging.join(format!("opencode-session-{id}.json"));
+        let fail = |message: String| {
+            let _ = fs::remove_file(&file);
+            Err(message)
+        };
+        if let Err(e) = cli.export(root, id, &file) {
+            return fail(e);
+        }
+        if let Err(e) = verify_export(&file, id) {
+            return fail(e);
+        }
+        if let Err(e) = cli.delete(root, id) {
+            return fail(e);
+        }
+        let moved_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        let label = plan.items[0].relative_path.clone();
+        let mut result = OsTrashResult {
+            moved: Vec::new(),
+            failed: Vec::new(),
+        };
+        // The Session is gone from OpenCode either way; a failed trash move
+        // keeps the export in staging, which restore also accepts.
+        let trashed = match mover.move_to_trash(&file) {
+            Ok(trashed) => {
+                result.moved.push(label);
+                trashed
+            }
+            Err(e) => {
+                result
+                    .failed
+                    .push(format!("{label}：{e}（匯出檔保留在 {}）", file.display()));
+                None
+            }
+        };
+        let item = MovedItem {
+            original: file.to_string_lossy().into_owned(),
+            trashed: trashed.map(|p| p.to_string_lossy().into_owned()),
+            import_cwd: Some(
+                session
+                    .cwd
+                    .clone()
+                    .unwrap_or_else(|| neutral_cwd().to_string_lossy().into_owned()),
+            ),
+        };
+        catalog.purge_trashed(&plan.trash_id, &plan.session_id, moved_at, &[item])?;
         Ok(result)
     }
 }
@@ -388,6 +645,7 @@ fn build(
     trash_id: &str,
     running: RunningCheck,
     recent_write: Duration,
+    opencode: Option<&dyn OpenCodeCli>,
 ) -> Result<(OsTrashPlan, Vec<Stamp>), String> {
     let inspection = catalog.inspect_removal(trash_id)?;
     let mut plan = OsTrashPlan {
@@ -401,11 +659,6 @@ fn build(
         blockers: Vec::new(),
     };
     let id = inspection.external_id;
-    if plan.kind == AgentKind::OpenCode {
-        plan.blockers
-            .push("OpenCode 的 Session 存在共用資料庫中，尚未支援移到系統垃圾桶。".into());
-        return Ok((plan, Vec::new()));
-    }
     if !valid_external_id(&id) {
         plan.blockers
             .push("Session ID 含有無法安全對應檔名的字元。".into());
@@ -414,6 +667,42 @@ fn build(
     if running(&plan.session_id, &id) {
         plan.blockers
             .push("這個 Session 仍在 Session Bay 中執行；請先結束它。".into());
+    }
+    if plan.kind == AgentKind::OpenCode {
+        let session = catalog.trashed_snapshot(&plan.trash_id)?;
+        if opencode.is_none() {
+            plan.blockers
+                .push("找不到 OpenCode 執行檔；請在設定指定後再試。".into());
+        }
+        if opencode_data_home(Path::new(&plan.source_root)).is_none() {
+            plan.blockers.push(
+                "這個 OpenCode 來源不是標準的 opencode 資料夾，無法交給官方 CLI 處理。".into(),
+            );
+        }
+        let recent = chrono::DateTime::parse_from_rfc3339(&session.updated_at)
+            .ok()
+            .and_then(|t| {
+                (chrono::Utc::now() - t.with_timezone(&chrono::Utc))
+                    .to_std()
+                    .ok()
+            })
+            .is_none_or(|age| age < recent_write);
+        if recent {
+            plan.blockers
+                .push("最近 2 分鐘內仍有更新，OpenCode 可能仍在使用這個 Session。".into());
+        }
+        let item = OsTrashItem {
+            relative_path: format!(
+                "opencode-session-{id}.json（先以官方 CLI 匯出，再刪除資料庫中的 Session）"
+            ),
+            directory: false,
+            bytes: 0,
+            entries: 0,
+        };
+        plan.items = vec![item.clone()];
+        // The export is taken at execution time, so it captures the latest state.
+        let stamps = vec![Stamp { item, newest: 0 }];
+        return Ok((plan, stamps));
     }
     let indexed: Vec<&str> = inspection
         .indexed_artifacts
@@ -639,6 +928,33 @@ fn stamp(root: &Path, relative: &Path, directory: bool) -> Result<Option<Stamp>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn opencode_process_passes_args_separately_and_targets_the_source_root() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("synthetic opencode");
+        fs::write(
+            &script,
+            "#!/bin/sh\nif [ \"$1\" = fail ]; then echo 'synthetic failure' >&2; exit 3; fi\nprintf '%s|' \"$@\" \"$XDG_DATA_HOME\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+        let cli = OpenCodeProcess { executable: script };
+        let root = temp.path().join("xdg").join("opencode");
+        let out = temp.path().join("export.json");
+        cli.export(&root, "ses_a b;$(x)", &out).unwrap();
+        assert_eq!(
+            fs::read_to_string(&out).unwrap(),
+            format!("export|ses_a b;$(x)|{}|", temp.path().join("xdg").display())
+        );
+        let error = cli
+            .run(&root, &["fail".as_ref()], temp.path(), None)
+            .unwrap_err();
+        assert!(error.contains("synthetic failure"), "{error}");
+        assert!(cli.delete(&temp.path().join("custom"), "ses_a").is_err());
+    }
 
     #[test]
     fn external_ids_must_be_plain_file_names() {
