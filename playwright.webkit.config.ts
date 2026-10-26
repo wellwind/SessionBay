@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 // (macOS) and WebKitGTK (Linux). Not identical to those webviews; native smoke
 // remains the acceptance signal. Chromium-only specs (CDP IME) stay out.
 //
-// Known WebKit differences still under triage (docs/ui-design-system.md §5).
+// Known WebKit differences still under triage.
 // Each entry is excluded here only; Chromium configs still run them.
 const knownWebKitDifferences = [
   // Pointer reorder preview transforms differ under WebKit pointer capture.
