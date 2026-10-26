@@ -29,7 +29,7 @@ export function AttentionNotifier({ enabled, workspace, projects }: { enabled: b
       if (!pane || now - (sent.get(id) ?? -Infinity) < PANE_COOLDOWN_MS) return;
       sent.set(id, now);
       const { title, body } = attentionNotification(kind, pane, latest.current.projects);
-      void api.notify(title, body).catch(() => {});
+      void api.notify(title, body, id).catch(() => {});
     };
     return () => { store.onAttention = undefined; };
   }, [store, enabled]);

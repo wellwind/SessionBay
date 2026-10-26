@@ -3607,6 +3607,8 @@ dependencies = [
  "image-webp",
  "interprocess",
  "libc",
+ "mac-notification-sys",
+ "notify-rust",
  "objc2-foundation",
  "png 0.18.1",
  "portable-pty",
@@ -3618,7 +3620,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
- "tauri-plugin-notification",
  "tempfile",
  "tokio",
  "trash",
@@ -4134,25 +4135,6 @@ dependencies = [
  "tauri-utils",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
- "url",
-]
-
-[[package]]
-name = "tauri-plugin-notification"
-version = "2.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "533770889abb60a0407d5a32096182f0e6463f5a3dfaa675be94580aa14070e1"
-dependencies = [
- "log",
- "notify-rust",
- "rand",
- "serde",
- "serde_json",
- "serde_repr",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.21",
- "time",
  "url",
 ]
 

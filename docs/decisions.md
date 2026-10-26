@@ -1,5 +1,9 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-26：點擊系統通知切到該工作
+
+使用者要求點擊通知能切換到工作。`tauri-plugin-notification` 桌面版沒有點擊回呼，改為直接使用其底層 `notify-rust`／`mac-notification-sys`，在背景執行緒等待點擊後把視窗帶到前景並發出 `notification-activated`（只帶 pane ID）。為避免大量執行緒，同時最多 8 則等待點擊。移除 `tauri-plugin-notification` 依賴。
+
 ## 2026-10-25：Agent 需要注意時發送系統通知
 
 使用者要求系統通知。採 `tauri-plugin-notification` 2.5.1（Apache-2.0 OR MIT），由 Rust 命令送出並限制長度；前端只在 Agent 明確回報進入等待、完成或失敗，且該工作不在畫面或視窗不在前景時觸發。不從 terminal output 推測狀態，也不使用預估逾時。預設開啟、可在設定關閉。開發模式下 macOS 通知會以 Terminal 名義顯示；點擊通知切換工作尚未支援。細節見 [UX 規格](ux-spec.md#系統通知2026-10-25)。

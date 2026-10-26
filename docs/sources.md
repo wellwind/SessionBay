@@ -7,7 +7,7 @@
 | 主題 | 來源 | 適用內容 |
 | --- | --- | --- |
 | Tauri 原生對話框 | [Dialog plugin](https://v2.tauri.app/plugin/dialog/)／[JavaScript API](https://v2.tauri.app/reference/javascript/dialog/) | 2026-10-16 查閱；單一資料夾選擇、取消回傳 null、macOS／Windows／Linux 支援及 `dialog:allow-open`／安全確認用 `dialog:allow-message` 權限；不代表整個應用已通過各平台驗收 |
-| Tauri 通知外掛 | [Notification plugin](https://v2.tauri.app/plugin/notification/)／[crates.io 2.5.1](https://crates.io/crates/tauri-plugin-notification/2.5.1) | 2026-10-25 查閱；Apache-2.0 OR MIT；桌面版經 notify-rust 送出，需 tauri ^2.12；只以 Rust 端呼叫，不開放前端通知權限；macOS 開發模式以 Terminal 名義顯示；Windows／Linux 尚未實測 |
+| 系統通知與點擊 | [notify-rust 4.18.2](https://docs.rs/notify-rust/4.18.2/notify_rust/)／[mac-notification-sys 0.6.15](https://docs.rs/mac-notification-sys/0.6.15/mac_notification_sys/) | 2026-10-26 查閱；MIT／Apache-2.0；`tauri-plugin-notification` 2.5.1 桌面版只呼叫 `show()`、沒有點擊回呼，因此直接使用其底層：macOS `wait_for_click`（需主執行緒 run loop，Tauri 已提供；開發模式以 Terminal 身分顯示）、Windows `wait_for_response` 的 `Default`、XDG `default` action；Windows 的 `wait_for_action` 會把本體點擊回報成 `__closed`，不可使用。點擊行為尚未在各平台實測 |
 | Rust `trash` crate | [crates.io trash 5.2.9](https://crates.io/crates/trash/5.2.9)／[docs.rs](https://docs.rs/trash/5.2.9/trash/) | 2026-10-25 查閱；MIT；Windows／macOS／freedesktop 系統垃圾桶，macOS `DeleteMethod::NsFileManager` 不需 Finder Apple Events；只在合成資料與 Linux／macOS 測試替身驗證，真實系統垃圾桶與 Windows 尚未實測 |
 | Tauri 程序模型 | [Process Model](https://v2.tauri.app/concept/process-model/) | Core、WebView 與平台差異 |
 | Tauri 串流傳輸 | [Calling the Frontend from Rust](https://v2.tauri.app/develop/calling-frontend/) | Events 限制與 Channels |

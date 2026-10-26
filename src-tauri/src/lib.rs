@@ -32,6 +32,8 @@ mod workspace_images;
 #[cfg(feature = "desktop")]
 mod desktop;
 #[cfg(feature = "desktop")]
+mod notifications;
+#[cfg(feature = "desktop")]
 pub use desktop::run;
 
 #[cfg(windows)]
