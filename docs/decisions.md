@@ -1,5 +1,9 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-26：點擊系統通知切到該工作
+
+使用者要求點擊通知能切換到工作。`tauri-plugin-notification` 桌面版沒有點擊回呼，改為直接使用其底層 `notify-rust`／`mac-notification-sys`，在背景執行緒等待點擊後把視窗帶到前景並發出 `notification-activated`（只帶 pane ID）。為避免大量執行緒，同時最多 8 則等待點擊。移除 `tauri-plugin-notification` 依賴。
+
 ## 2026-10-26：OpenCode Session 以官方 CLI 匯出後刪除
 
 使用者要求 OpenCode 也能真正刪除。資料在共用 `opencode.db`，Session Bay 不直接寫入；改為官方 `opencode export` → 驗證匯出 ID → `opencode session delete`，匯出檔移到系統垃圾桶並可 `opencode import` 還原。依據為 OpenCode 1.19.4 原始碼；本機未安裝 OpenCode，只以合成資料庫與替身 CLI 測試，真實 CLI 尚待使用者實測。細節見 [Session 移到系統垃圾桶](session-os-trash.md#opencode)。

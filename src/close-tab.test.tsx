@@ -394,3 +394,17 @@ it('returns last-file close focus to the Files toggle when the tree is hidden', 
   expect(screen.queryByRole('tab', { name: /a.ts/ })).not.toBeInTheDocument();
   expect(bridge.stop).not.toHaveBeenCalled(); expect(bridge.write).not.toHaveBeenCalled();
 });
+
+describe('attention notification click', () => {
+  it('opens the workspace tab of the pane that raised it', async () => {
+    setup([shell({ id: 'runtime-a', paneId: 'pane-a' }), shell({ id: 'runtime-b', paneId: 'pane-b' })]);
+    await mountProject();
+    const { listen } = await import('@tauri-apps/api/event');
+    const handler = vi.mocked(listen).mock.calls.find(([name]) => name === 'notification-activated')?.[1];
+    expect(handler).toBeDefined();
+    act(() => handler!({ event: 'notification-activated', id: 0, payload: 'pane-b' }));
+    expect(await screen.findByRole('button', { name: 'pane-b 1', current: true })).toBeInTheDocument();
+    act(() => handler!({ event: 'notification-activated', id: 0, payload: 'pane-a' }));
+    expect(await screen.findByRole('button', { name: 'pane-a 1', current: true })).toBeInTheDocument();
+  });
+});

@@ -65,7 +65,7 @@ describe('AttentionNotifier', () => {
     observe(store!, 'awaitingInput');
     observe(store!, 'busy');
     observe(store!, 'terminalDone');
-    expect(api.notify).toHaveBeenCalledExactlyOnceWith('Claude Code 正在等待你的輸入或確認', 'Synthetic task · Synthetic project');
+    expect(api.notify).toHaveBeenCalledExactlyOnceWith('Claude Code 正在等待你的輸入或確認', 'Synthetic task · Synthetic project', 'p');
     view.rerender(<RuntimeActivityProvider><AttentionNotifier enabled={false} workspace={workspace} projects={projects} /><Probe /></RuntimeActivityProvider>);
     expect(store!.onAttention).toBeUndefined();
   });

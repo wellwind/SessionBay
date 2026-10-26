@@ -710,6 +710,8 @@ export default function App() {
     for (const task of [
       listen('app-close-requested', closeApplication),
       listen<string>('app-close-error', (event) => notify(event.payload)),
+      // A clicked attention notification names the pane that raised it.
+      listen<string | null>('notification-activated', (event) => { if (event.payload) focusRef.current(event.payload); }),
     ])
       void task
         .then((stop) => {
@@ -772,6 +774,7 @@ export default function App() {
     });
     return () => cancelAnimationFrame(frame);
   }, [quickRuntimeFocus, quickOpen]);
+  const focusRef = useRef<(id: string) => void>(() => {});
   const focus = useCallback((id: string) => {
     const tab = stateRef.current.workspace.tabs.find((t) => paneIds(t.layout).includes(id));
     if (!tab) return;
@@ -784,6 +787,7 @@ export default function App() {
       tabs: w.tabs.map((t) => (t.id === tab.id ? { ...t, focusedPaneId: id } : t)),
     }));
   }, []);
+  focusRef.current = focus;
   const startPane = useCallback(
     (id: string, cwdOverride?: string) =>
       setWorkspace((w) => {
