@@ -927,6 +927,21 @@ impl Catalog {
         tx.commit().map_err(error)
     }
 
+    /// The Session snapshot taken when it entered the recycle bin.
+    pub fn trashed_snapshot(&self, trash_id: &str) -> Result<Session, String> {
+        let snapshot: String = self
+            .connect()?
+            .query_row(
+                "SELECT snapshot FROM session_trash WHERE id=?1",
+                [trash_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(error)?
+            .ok_or("回收筒項目已變更，請重新整理。")?;
+        serde_json::from_str(&snapshot).map_err(error)
+    }
+
     pub fn os_trash_records(&self) -> Result<Vec<crate::os_trash::OsTrashRecord>, String> {
         let conn = self.connect()?;
         let mut statement = conn

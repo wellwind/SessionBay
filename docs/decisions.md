@@ -1,5 +1,9 @@
 # Session Bay 決策與待確認事項
 
+## 2026-10-26：OpenCode Session 以官方 CLI 匯出後刪除
+
+使用者要求 OpenCode 也能真正刪除。資料在共用 `opencode.db`，Session Bay 不直接寫入；改為官方 `opencode export` → 驗證匯出 ID → `opencode session delete`，匯出檔移到系統垃圾桶並可 `opencode import` 還原。依據為 OpenCode 1.19.4 原始碼；本機未安裝 OpenCode，只以合成資料庫與替身 CLI 測試，真實 CLI 尚待使用者實測。細節見 [Session 移到系統垃圾桶](session-os-trash.md#opencode)。
+
 ## 2026-10-26：系統垃圾桶與系統通知驗收
 
 使用者回報 macOS 實測「都沒問題」，涵蓋刪除確認框一步移到系統垃圾桶並在系統垃圾桶找到檔案，以及 Agent 需要注意時的系統通知（#122–#125）；從 Session Bay 還原是建議試用項目，未單獨確認。Windows／Linux 仍未實測；OpenCode 刪除與點擊通知切換工作仍未實作。

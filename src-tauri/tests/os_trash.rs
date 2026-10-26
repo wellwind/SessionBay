@@ -111,7 +111,7 @@ fn claude_session_and_its_sidecars_move_while_shared_history_stays() {
     h.write("history.jsonl", "{}\n");
     let trash_id = h.index_and_trash();
     let store = PlanStore::with_recent_write(Duration::ZERO);
-    let plan = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
+    let plan = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
     let items: Vec<_> = plan
         .items
@@ -129,7 +129,7 @@ fn claude_session_and_its_sidecars_move_while_shared_history_stays() {
     );
     assert!(plan.kept.iter().any(|k| k.starts_with("history.jsonl")));
     let result = store
-        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash)
+        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash, None)
         .unwrap();
     assert_eq!(result.moved.len(), 4);
     assert!(result.failed.is_empty());
@@ -140,7 +140,7 @@ fn claude_session_and_its_sidecars_move_while_shared_history_stays() {
     assert_eq!(h.catalog.query(&SessionQuery::default()).unwrap().total, 0);
     // The plan is single use.
     assert!(store
-        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash)
+        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash, None)
         .is_err());
 
     // The record names the Session and maps every trashed item back.
@@ -150,7 +150,7 @@ fn claude_session_and_its_sidecars_move_while_shared_history_stays() {
     assert!(records[0].items.iter().all(|i| i.in_trash));
     // An item already emptied from the trash is reported; the rest restore.
     fs::remove_file(h.trash.bin.join("3")).unwrap();
-    let restored = restore_moved(&h.catalog, &records[0].id, &h.trash).unwrap();
+    let restored = restore_moved(&h.catalog, &records[0].id, &h.trash, None).unwrap();
     assert_eq!(restored.moved.len(), 3);
     assert_eq!(restored.failed.len(), 1);
     assert!(h.path(&format!("projects/p/{CLAUDE_ID}.jsonl")).exists());
@@ -195,17 +195,19 @@ fn running_recent_or_changed_sessions_never_move() {
     let trash_id = h.index_and_trash();
     let recent = PlanStore::default();
     assert!(recent
-        .prepare(&h.catalog, &trash_id, &idle)
+        .prepare(&h.catalog, &trash_id, &idle, None)
         .unwrap()
         .blockers
         .iter()
         .any(|b| b.contains("最近")));
     let store = PlanStore::with_recent_write(Duration::ZERO);
     let running = |_: &str, external: &str| external == "synthetic-codex-1";
-    let blocked = store.prepare(&h.catalog, &trash_id, &running).unwrap();
+    let blocked = store
+        .prepare(&h.catalog, &trash_id, &running, None)
+        .unwrap();
     assert!(blocked.plan_id.is_empty());
     assert!(blocked.blockers.iter().any(|b| b.contains("執行")));
-    let plan = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
+    let plan = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
     // A sidecar appearing after confirmation changes the plan.
     h.write(
@@ -213,14 +215,14 @@ fn running_recent_or_changed_sessions_never_move() {
         "synthetic = true\n",
     );
     assert!(store
-        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash)
+        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash, None)
         .is_err());
     assert!(h.trash.moved.borrow().is_empty());
     assert!(h.path(rollout).exists());
-    let again = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
+    let again = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert_eq!(again.items.len(), 2);
     store
-        .execute(&h.catalog, &again.plan_id, &idle, &h.trash)
+        .execute(&h.catalog, &again.plan_id, &idle, &h.trash, None)
         .unwrap();
     assert!(!h.path(rollout).exists());
 }
@@ -243,13 +245,13 @@ fn grok_moves_the_whole_session_directory_only() {
     h.write("sessions/%2Fsynthetic/prompt_history.jsonl", "{}\n");
     let trash_id = h.index_and_trash();
     let store = PlanStore::with_recent_write(Duration::ZERO);
-    let plan = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
+    let plan = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
     assert_eq!(plan.items.len(), 1);
     assert!(plan.items[0].directory);
     assert_eq!(Path::new(&plan.items[0].relative_path), Path::new(dir));
     store
-        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash)
+        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash, None)
         .unwrap();
     assert!(!h.path(dir).exists());
     assert!(h
@@ -276,14 +278,14 @@ fn antigravity_presence_lock_blocks_and_conversation_files_move() {
     let store = PlanStore::with_recent_write(Duration::ZERO);
     let holder = fs::File::open(h.path(&format!("presence/{id}.lock"))).unwrap();
     holder.lock().unwrap();
-    let locked = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
+    let locked = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert!(locked.blockers.iter().any(|b| b.contains("使用中")));
     holder.unlock().unwrap();
-    let plan = store.prepare(&h.catalog, &trash_id, &idle).unwrap();
+    let plan = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
     assert_eq!(plan.items.len(), 3);
     store
-        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash)
+        .execute(&h.catalog, &plan.plan_id, &idle, &h.trash, None)
         .unwrap();
     assert!(!h.path(&format!("brain/{id}")).exists());
     assert!(!h.path(&format!("conversations/{id}.db")).exists());
@@ -307,6 +309,7 @@ fn macos_system_trash_round_trip() {
     let item = MovedItem {
         original: original.to_string_lossy().into_owned(),
         trashed: Some(trashed.to_string_lossy().into_owned()),
+        import_cwd: None,
     };
     assert!(SystemTrash.in_trash(&item, 0).unwrap());
     SystemTrash.restore(&item, 0).unwrap();

@@ -64,10 +64,11 @@ export function OsTrashReview({ entry, onClose, onMoved }: {
     {error && <p role="alert" className="inline-error">{error}</p>}
     {plan && <>
       <p className="session-trash-source">{agentNames[plan.kind]} · Session {entry.session.externalId}<br />來源 {plan.sourceRoot}</p>
+      {plan.kind === 'opencode' && <p>OpenCode 的對話存在共用資料庫中：會先用官方 <code>opencode export</code> 匯出完整 JSON，確認匯出內容後再用 <code>opencode session delete</code> 刪除，匯出檔移到系統垃圾桶；還原時以 <code>opencode import</code> 匯回原工作目錄。</p>}
       {!!plan.items.length && <ul aria-label="將移到系統垃圾桶">
         {plan.items.map(item => <li key={item.relativePath}>
           <span className="session-trash-source">{item.relativePath}{item.directory ? '/' : ''}</span>
-          {' · '}{item.directory ? `資料夾，${item.entries} 個項目，` : ''}{sizeLabel(item.bytes)}
+          {plan.kind !== 'opencode' && <>{' · '}{item.directory ? `資料夾，${item.entries} 個項目，` : ''}{sizeLabel(item.bytes)}</>}
         </li>)}
       </ul>}
       {!!plan.kept.length && <>
