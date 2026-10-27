@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
+import { output, root, testDir } from './root';
 export default defineConfig({
-  testDir: './tests/browser',
-  outputDir: 'test-results-flicker',
+  testDir,
+  outputDir: output('test-results-flicker'),
   testMatch: 'terminal-flicker.spec.ts',
   timeout: 30_000,
   workers: 1,
@@ -14,7 +15,7 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:1425',
   },
   webServer: {
-    command: 'npm run dev:web -- --port 1425',
+    cwd: root, command: 'npm run dev:web -- --port 1425',
     url: 'http://127.0.0.1:1425',
     reuseExistingServer: false,
   },

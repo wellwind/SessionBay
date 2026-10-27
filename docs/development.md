@@ -41,12 +41,16 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --locked --no-default-features
 cargo test --manifest-path src-tauri/Cargo.toml --locked
 ```
 
-Browser regression tests use Playwright with a synthetic bridge, not the native WebView:
+Browser regression tests use Playwright with a synthetic bridge, not the native WebView. Their configs live in `tests/browser/config/`:
 
 ```bash
 npx playwright install chromium webkit
-npm run test:sidebar     # also: test:tabs, test:layout, test:git, test:files, test:webkit, …
+npm run test:browser              # every config, one after another
+npm run test:browser -- tabs git  # only some configs
+npm run test:sidebar              # also: test:tabs, test:layout, test:git, test:files, test:webkit, …
 ```
+
+Some Monaco, activity and tab-drag specs depend on Linux key bindings and fail on macOS; CI runs them on Ubuntu.
 
 All tests use synthetic fixtures (`fixtures/`, `tests/`). Never commit real agent history, local catalogs or credentials.
 
