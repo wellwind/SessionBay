@@ -38,7 +38,7 @@ Session Bay 會啟動你本來就在用的 Agent CLI，本身不附帶任何 Age
 
 ## 更新與移除
 
-- **更新**：下載新版本，取代「應用程式」裡的 App。執行中的 Agent 不會因為更新而中斷；更新前請先關閉 Session Bay。
+- **更新**：GitHub 有新版本時，Session Bay 會在左下角顯示提示。按**查看版本**，下載新版本並取代「應用程式」裡的 App。執行中的 Agent 不會因為更新而中斷；更新前請先關閉 Session Bay。
 - **移除**：刪除 App 即可。Session Bay 自己的資料（索引、設定、版面）在 `~/Library/Application Support/dev.sessionbay.desktop`，想清乾淨也可以刪掉這個資料夾。Agent 的歷史永遠不會被動到。
 
 ## Linux 與 Windows

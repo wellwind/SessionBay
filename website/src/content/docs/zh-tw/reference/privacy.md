@@ -8,6 +8,8 @@ description: Session Bay 讀取什麼、儲存什麼，以及哪些資料絕不�
 - **Session Bay 自己的資料**放在 `~/Library/Application Support/dev.sessionbay.desktop`：搜尋索引、設定與視窗版面。索引含有對話內容，請把這個資料夾視為私人資料；只有你的使用者帳號能讀取。
 - **Agent 照常執行。** 你啟動的 Agent 依它自己的設定使用網路、檔案與權限。
 - **GitHub／GitLab 的 token** 存在系統的安全憑證儲存，不會寫進 Session Bay 的設定或紀錄。
-- **Session Bay 本身的網路連線**只限於你為 PR 功能加入的 GitHub 或 GitLab 主機。
+- **Session Bay 本身的網路連線**只有：
+  - 你為 PR 功能加入的 GitHub 或 GitLab 主機；
+  - 啟動時與每天一次，以匿名方式查詢公開的 GitHub Releases 清單，用來提示新版本。可以在**設定 → 外觀與預設值 → 版本更新**關閉。
 
 原始碼在 [GitHub](https://github.com/wellwind/SessionBay)，開發文件中有完整的[資料安全規則](https://github.com/wellwind/SessionBay/blob/main/docs/data-safety.md)（英文）。

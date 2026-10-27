@@ -10,6 +10,7 @@
 
   The directory is `0700` and the files are `0600`. The index contains conversation text, so treat it as private.
 - **Nothing leaves your machine.** Indexing, search and preview never contact a model provider or any server. Agents you launch still use the network according to their own settings.
+- **Update checks** fetch the public release list from `api.github.com` at startup and once a day, without any identifying data beyond the app version in the User-Agent. They can be turned off in Settings, and nothing is ever installed automatically.
 - Transcripts are rendered as plain text, so HTML never runs and remote images are never fetched. The OSC 52 clipboard escape sequence is blocked in terminals.
 - Settings are stored in plain text. Do not put passwords or API keys in custom arguments or environment variables.
 
