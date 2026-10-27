@@ -8,7 +8,7 @@
 
 A local-first desktop workbench that brings the history of all your AI coding agents together, organized by project, with real terminals, split panes and a Git workbench built in.
 
-[Website](https://wellwind.github.io/SessionBay/) · [Download](https://github.com/wellwind/SessionBay/releases) · [Guide](https://wellwind.github.io/SessionBay/guide/getting-started/) · [繁體中文](README.zh-TW.md)
+[Website](https://fullstackladder.dev/SessionBay/) · [Download](https://github.com/wellwind/SessionBay/releases) · [Guide](https://fullstackladder.dev/SessionBay/guide/getting-started/) · [繁體中文](README.zh-TW.md)
 
 </div>
 
@@ -39,7 +39,7 @@ The first preview targets **macOS on Apple Silicon** (macOS 12 or later).
 
 1. Download `Session.Bay_<version>_aarch64.dmg` from the [latest release](https://github.com/wellwind/SessionBay/releases).
 2. Open the disk image and drag **Session Bay** into **Applications**.
-3. The preview build is not notarized by Apple yet. The first time you open it, macOS will block it: open **System Settings → Privacy & Security** and click **Open Anyway**. See the [install guide](https://wellwind.github.io/SessionBay/guide/install/) for screenshots.
+3. The preview build is not notarized by Apple yet. The first time you open it, macOS will block it: open **System Settings → Privacy & Security** and click **Open Anyway**. See the [install guide](https://fullstackladder.dev/SessionBay/guide/install/) for screenshots.
 
 Linux and Windows builds can be produced from source, but they have not been validated for release yet.
 
@@ -67,7 +67,7 @@ See [Development](docs/development.md) for tests and platform notes.
 
 | | |
 | --- | --- |
-| [User guide](https://wellwind.github.io/SessionBay/guide/getting-started/) | Install, find sessions, terminals, Git, cleanup |
+| [User guide](https://fullstackladder.dev/SessionBay/guide/getting-started/) | Install, find sessions, terminals, Git, cleanup |
 | [Architecture](docs/architecture.md) | How the app, broker, indexer and runtime fit together |
 | [Agent integrations](docs/agent-integrations.md) | Where each agent's history is read from and how resume works |
 | [Data safety](docs/data-safety.md) | Read-only guarantees and the system trash flow |

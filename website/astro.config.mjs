@@ -3,7 +3,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-  site: 'https://wellwind.github.io',
+  site: 'https://fullstackladder.dev',
   base: '/SessionBay',
   integrations: [
     starlight({
