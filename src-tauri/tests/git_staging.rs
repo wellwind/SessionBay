@@ -179,7 +179,7 @@ fn crlf_unicode_and_missing_final_newline_are_preserved() {
             "selection": { "kind": "lines", "lines": only_add } }),
         )
         .unwrap_err();
-    assert!(error.contains("檔案結尾換行"), "{error}");
+    assert!(error.contains("end-of-file newline"), "{error}");
     repo.request(
         json!({ "op": "stageSelection", "path": "crlf.txt", "snapshot": diff["snapshot"],
         "selection": { "kind": "hunks", "hunks": [0] } }),
@@ -241,7 +241,10 @@ fn binary_rename_mode_and_whitespace_views_block_partial_operations() {
     let diff = repo.diff("image.bin", "unstaged");
     assert_eq!(diff["binary"], true);
     assert!(diff["hunks"].as_array().unwrap().is_empty());
-    assert!(diff["partialBlocked"].as_str().unwrap().contains("非文字"));
+    assert!(diff["partialBlocked"]
+        .as_str()
+        .unwrap()
+        .contains("Non-text"));
     repo.request(json!({ "op": "stagePaths", "paths": ["image.bin"] }))
         .unwrap();
     assert_eq!(repo.index_blob("image.bin"), b"\x00\x09\x02\x03");
@@ -251,10 +254,7 @@ fn binary_rename_mode_and_whitespace_views_block_partial_operations() {
         .request(json!({ "op": "diff", "path": "new.txt", "oldPath": "old.txt", "source": { "kind": "staged" } }))
         .unwrap();
     assert_eq!(diff["renamed"], true);
-    assert!(diff["partialBlocked"]
-        .as_str()
-        .unwrap()
-        .contains("重新命名"));
+    assert!(diff["partialBlocked"].as_str().unwrap().contains("renamed"));
     repo.request(json!({ "op": "unstagePaths", "paths": ["new.txt", "old.txt"] }))
         .unwrap();
     assert_eq!(
@@ -284,7 +284,7 @@ fn binary_rename_mode_and_whitespace_views_block_partial_operations() {
     assert!(view["partialBlocked"]
         .as_str()
         .unwrap()
-        .contains("忽略空白"));
+        .contains("Ignore whitespace"));
     let exact = repo.diff("ws.txt", "unstaged");
     assert_ne!(view["snapshot"], exact["snapshot"]);
     let error = repo

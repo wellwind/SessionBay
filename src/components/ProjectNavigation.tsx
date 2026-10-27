@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import './project-navigation.css';
+import { t } from '../i18n';
 
 export function navigationWidthLimits(layoutWidth: number) {
   // Reserve space within the actual layout, which can exceed the zoomed viewport.
@@ -47,11 +48,11 @@ export function ProjectNavigation({ hidden, preferredWidth, onWidthChange, child
   useEffect(() => { if (hidden) cancel(); }, [hidden, cancel]);
   const adjustable = maximum > minimum;
   return <>
-    <aside ref={sidebar} id={id} className="sidebar" hidden={hidden} aria-label="專案導覽" style={{ width }}>{children}</aside>
+    <aside ref={sidebar} id={id} className="sidebar" hidden={hidden} aria-label={t('Project navigation')} style={{ width }}>{children}</aside>
     <div className="project-navigation-resize" hidden={hidden || !adjustable}
-      role="separator" aria-label="調整專案導覽寬度" aria-orientation="vertical" aria-controls={id}
+      role="separator" aria-label={t('Resize project navigation')} aria-orientation="vertical" aria-controls={id}
       aria-valuemin={minimum} aria-valuemax={maximum} aria-valuenow={width}
-      aria-valuetext={`${width} 像素`} tabIndex={hidden || !adjustable ? -1 : 0}
+      aria-valuetext={t('{{width}} pixels', { width })} tabIndex={hidden || !adjustable ? -1 : 0}
       onPointerDown={event => {
         if (!adjustable || event.button !== 0 || event.isPrimary === false || drag.current) return;
         event.preventDefault(); event.stopPropagation(); event.currentTarget.focus();

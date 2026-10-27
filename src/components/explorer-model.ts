@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 export interface FileTab { path: string; pinned: boolean }
 export interface FileTabs { tabs: FileTab[]; active: string; notice: string }
 export type TabAction = { type: 'open'; path: string; pinned?: boolean } | { type: 'close'; path: string } | { type: 'move'; path: string; target: string };
@@ -18,7 +19,7 @@ export function fileTabsReducer(state: FileTabs, action: TabAction): FileTabs {
   const found = state.tabs.find(tab => tab.path === action.path);
   if (found) return { tabs: state.tabs.map(tab => tab.path === action.path ? { ...tab, pinned: tab.pinned || !!action.pinned } : tab), active: action.path, notice: '' };
   const preview = state.tabs.findIndex(tab => !tab.pinned);
-  if (preview < 0 && state.tabs.length >= 20) return { ...state, notice: '已開啟 20 個檔案，請先關閉分頁。' };
+  if (preview < 0 && state.tabs.length >= 20) return { ...state, notice: t('20 files are already open. Close a tab first.') };
   const tabs = [...state.tabs];
   const next = { path: action.path, pinned: !!action.pinned };
   if (preview >= 0) tabs.splice(preview, 1, next); else tabs.push(next);
@@ -44,5 +45,5 @@ export function monacoLanguage(path: string): string {
 }
 export function fileLanguage(path: string): string {
   const language = monacoLanguage(path);
-  return language === 'plaintext' ? '純文字' : language;
+  return language === 'plaintext' ? t('Plain text') : language;
 }

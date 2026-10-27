@@ -12,6 +12,7 @@ import {
 } from '../workspace-overview';
 import { useRuntimeActivity } from './RuntimeActivity';
 import './workspace-overview.css';
+import { t } from '../i18n';
 
 const TAIL_REFRESH_MS = 1000;
 const noopSubscribe = () => () => {};
@@ -74,56 +75,56 @@ export function WorkspaceOverview({ workspace, projects, visible, onOpen, onSpli
   return <section className="workspace-overview" hidden={!visible} aria-labelledby="workspace-overview-title">
     <header className="overview-header">
       <div className="overview-heading">
-        <h2 id="workspace-overview-title"><LayoutGrid size={18} aria-hidden="true" />開啟中的工作</h2>
+        <h2 id="workspace-overview-title"><LayoutGrid size={18} aria-hidden="true" />{t('Open work')}</h2>
         <p className="overview-summary" aria-live="polite">
-          {counts.input > 0 && <strong className="overview-summary-input">{counts.input} 個等待輸入</strong>}
-          {counts.error > 0 && <strong className="overview-summary-error">{counts.error} 個需要處理</strong>}
-          <span>{counts.active} 個開啟中 · 共 {items.length} 個</span>
+          {counts.input > 0 && <strong className="overview-summary-input">{t('{{count}} waiting for input', { count: counts.input })}</strong>}
+          {counts.error > 0 && <strong className="overview-summary-error">{t('{{count}} need attention', { count: counts.error })}</strong>}
+          <span>{t('{{active}} open · {{total}} total', { active: counts.active, total: items.length })}</span>
         </p>
       </div>
       <div className="overview-controls">
-        {onSplit && <div className="overview-split" role="group" aria-label="並排開啟">
+        {onSplit && <div className="overview-split" role="group" aria-label={t('Open side by side')}>
           <span className="overview-split-hint" aria-live="polite">{chosen.length
-            ? `已選 ${chosen.length}／${MAX_SPLIT_PANES}`
-            : `勾選 2–${MAX_SPLIT_PANES} 個並排；更多請留在總覽`}</span>
+            ? t('{{count}} / {{max}} selected', { count: chosen.length, max: MAX_SPLIT_PANES })
+            : t('Check 2–{{max}} to open side by side; keep the rest in the overview', { max: MAX_SPLIT_PANES })}</span>
           <button type="button" className="primary" disabled={chosen.length < 2}
-            onClick={() => { onSplit(chosen); setSelected([]); }}><Columns3 size={14} aria-hidden="true" />並排開啟</button>
-          {chosen.length > 0 && <button type="button" className="secondary" onClick={() => setSelected([])}>清除</button>}
+            onClick={() => { onSplit(chosen); setSelected([]); }}><Columns3 size={14} aria-hidden="true" />{t('Open side by side')}</button>
+          {chosen.length > 0 && <button type="button" className="secondary" onClick={() => setSelected([])}>{t('Clear')}</button>}
         </div>}
-        <label>狀態
-          <select aria-label="狀態篩選" value={filter.attention} onChange={event => setFilter({ ...filter, attention: event.target.value as OverviewFilter['attention'] })}>
-            <option value="all">全部</option>
-            <option value="attention">需要注意</option>
-            <option value="active">開啟中</option>
-            <option value="ended">已結束</option>
+        <label>{t('Status')}
+          <select aria-label={t('Status filter')} value={filter.attention} onChange={event => setFilter({ ...filter, attention: event.target.value as OverviewFilter['attention'] })}>
+            <option value="all">{t('All')}</option>
+            <option value="attention">{t('Needs attention (filter)')}</option>
+            <option value="active">{t('Open (state)')}</option>
+            <option value="ended">{t('Ended')}</option>
           </select>
         </label>
-        <label>專案
-          <select aria-label="專案篩選" value={filter.projectId === null ? '\u0000' : filter.projectId}
+        <label>{t('Project')}
+          <select aria-label={t('Project filter')} value={filter.projectId === null ? '\u0000' : filter.projectId}
             onChange={event => setFilter({ ...filter, projectId: event.target.value === '\u0000' ? null : event.target.value })}>
-            <option value="all">全部專案</option>
+            <option value="all">{t('All projects')}</option>
             {projectOptions.map(([id, name]) => <option key={id ?? '\u0000'} value={id ?? '\u0000'}>{name}</option>)}
           </select>
         </label>
-        <label>類型
-          <select aria-label="類型篩選" value={filter.kind} onChange={event => setFilter({ ...filter, kind: event.target.value as OverviewFilter['kind'] })}>
-            <option value="all">全部類型</option>
+        <label>{t('Type')}
+          <select aria-label={t('Type filter')} value={filter.kind} onChange={event => setFilter({ ...filter, kind: event.target.value as OverviewFilter['kind'] })}>
+            <option value="all">{t('All types')}</option>
             {kindOptions.map(kind => <option key={kind} value={kind}>{kind === 'shell' ? 'Shell' : agentNames[kind as AgentKind]}</option>)}
           </select>
         </label>
-        <label>排序
-          <select aria-label="排序方式" value={sort} onChange={event => setSort(event.target.value as OverviewSort)}>
-            <option value="attention">需要注意優先</option>
-            <option value="project">依專案</option>
+        <label>{t('Sort')}
+          <select aria-label={t('Sort order')} value={sort} onChange={event => setSort(event.target.value as OverviewSort)}>
+            <option value="attention">{t('Needs attention first')}</option>
+            <option value="project">{t('By project')}</option>
           </select>
         </label>
       </div>
     </header>
     {items.length === 0 ? <div className="empty-state overview-empty">
-      <LayoutGrid size={30} aria-hidden="true" /><h3>目前沒有開啟中的工作</h3>
-      <p>在任一專案開啟 Terminal 或 Agent 後，會在這裡同時顯示。</p>
-    </div> : shown.length === 0 ? <p className="overview-empty-filter">沒有符合篩選條件的工作。</p> :
-    <ul className="overview-grid" ref={grid} aria-label="開啟中的工作">
+      <LayoutGrid size={30} aria-hidden="true" /><h3>{t('No open work right now')}</h3>
+      <p>{t('Terminals and agents you open in any project show up here together.')}</p>
+    </div> : shown.length === 0 ? <p className="overview-empty-filter">{t('No work matches the filters.')}</p> :
+    <ul className="overview-grid" ref={grid} aria-label={t('Open work')}>
       {shown.map(item => <OverviewCard key={item.paneId} item={item} branch={branches[item.paneId]} color={projectColor(item.projectId, colorSlots)}
         selection={onSplit ? { checked: chosen.includes(item.paneId), disabled: !chosen.includes(item.paneId) && chosen.length >= MAX_SPLIT_PANES,
           onChange: () => toggleSelected(item.paneId) } : undefined}
@@ -140,7 +141,7 @@ function OverviewCard({ item, branch, color, tail, selection, onOpen, onKeyDown 
   const name = `${item.projectName} · ${item.kindLabel} ${item.title}`;
   return <li className={`overview-card attention-${item.attention}`} style={{ ['--card-project' as string]: color }}>
     <button type="button" className="overview-card-open" onClick={onOpen} onKeyDown={onKeyDown}
-      aria-label={`放大 ${name}，${item.statusText}${branch ? `，分支 ${branch}` : ''}`}>
+      aria-label={t('Expand {{name}}, {{status}}', { name, status: item.statusText }) + (branch ? t(', on branch {{branch}}', { branch }) : '')}>
       <span className="overview-card-head">
         <span className="project-initials" aria-hidden="true">{projectInitials(item.projectName)}</span>
         <span className="overview-card-project">{item.projectName}</span>
@@ -151,13 +152,13 @@ function OverviewCard({ item, branch, color, tail, selection, onOpen, onKeyDown 
         {branch && <span className="overview-branch"><GitBranch size={12} aria-hidden="true" />{branch}</span>}
         <span className="overview-cwd" title={item.cwd}>{item.cwd}</span>
       </span>
-      <pre className="overview-tail" aria-hidden="true">{tail.length ? tail.join('\n') : '（尚無輸出）'}</pre>
+      <pre className="overview-tail" aria-hidden="true">{tail.length ? tail.join('\n') : t('(no output yet)')}</pre>
     </button>
     {selection && <label className="overview-select">
       <input type="checkbox" checked={selection.checked} disabled={selection.disabled} onChange={selection.onChange}
-        aria-label={`並排選取 ${name}`} />並排</label>}
+        aria-label={t('Select {{name}} for side by side', { name })} />{t('Side by side')}</label>}
     {item.attention === 'input' &&
-      <button type="button" className="primary overview-reply" onClick={onOpen} aria-label={`放大並回覆 ${name}`}>
-        <MessageCircle size={14} aria-hidden="true" />放大並回覆</button>}
+      <button type="button" className="primary overview-reply" onClick={onOpen} aria-label={t('Expand and reply to {{name}}', { name })}>
+        <MessageCircle size={14} aria-hidden="true" />{t('Expand and reply')}</button>}
   </li>;
 }

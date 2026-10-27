@@ -1,9 +1,10 @@
+import { t } from './i18n';
 /** Keep these aligned with the Settings/catalog validation and default. */
 export const workspaceZoomMin = 50;
 export const workspaceZoomMax = 200;
 export const workspaceZoomDefault = 100;
 export type WorkspaceZoomAction = 'increase' | 'decrease' | 'reset';
-export const workspaceZoomShortcutHelp = '整個工作台（介面與所有終端）：macOS ⌘＋／⌘＝、⌘−、⌘0；Windows／Linux Ctrl＋／Ctrl＝、Ctrl−、Ctrl0。每次 10%，範圍 50–200%，還原 100%；立即套用並儲存。';
+export const workspaceZoomShortcutHelp = t('Whole workbench (interface and all terminals): macOS ⌘+ / ⌘=, ⌘−, ⌘0; Windows / Linux Ctrl+ / Ctrl=, Ctrl−, Ctrl0. Steps of 10%, range 50–200%, reset to 100%; applied and saved immediately.');
 export function workspaceZoomShortcut(event: KeyboardEvent, mac = /Mac|iPhone|iPad/.test(navigator.platform)): WorkspaceZoomAction | null {
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.metaKey !== mac || event.ctrlKey !== !mac) return null;
   if (event.key === '+' || event.key === '=') return 'increase';
@@ -32,7 +33,7 @@ export class WorkspaceZoomController {
   isApplied(percent: number) { return this.applied === percent && !this.running && !this.queue.length; }
   apply(percent: number): Promise<void> {
     if (!Number.isInteger(percent) || percent < workspaceZoomMin || percent > workspaceZoomMax)
-      return Promise.reject(new Error('工作台縮放須為 50–200 的整數百分比。'));
+      return Promise.reject(new Error(t('Workbench zoom must be a whole percentage from 50 to 200.')));
     const result = new Promise<void>((resolve, reject) => { this.queue.push({ percent, resolve, reject }); });
     if (!this.running) void this.drain();
     return result;
@@ -52,7 +53,7 @@ export class WorkspaceZoomController {
         }
         batch.forEach(({ resolve }) => resolve());
       } catch (error) {
-        const failure = new Error(`工作台縮放未能套用：${error instanceof Error ? error.message : String(error)}`);
+        const failure = new Error(t('Could not apply workbench zoom: {{error}}', { error: error instanceof Error ? error.message : String(error) }));
         batch.forEach(({ reject }) => reject(failure));
       }
     }

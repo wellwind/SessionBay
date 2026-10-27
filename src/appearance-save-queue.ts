@@ -1,5 +1,6 @@
 import type { Settings } from './types';
 import type { Appearance } from './themes';
+import { t } from './i18n';
 
 type Patch = Partial<Appearance>;
 interface Request {
@@ -42,7 +43,7 @@ export class AppearanceSaveQueue {
           if (preparation) await preparation;
           // Native work can be delayed. Read the current baseline only afterwards.
           const current = this.options.getSettings();
-          if (!current) throw new Error('設定尚未載入。');
+          if (!current) throw new Error(t('Settings have not loaded yet.'));
           const saved = await this.options.save({ ...current, ...patch });
           const committed = Object.fromEntries(Object.keys(patch).map(key => [key, saved[key as keyof Settings]])) as Patch;
           this.options.committed(committed);

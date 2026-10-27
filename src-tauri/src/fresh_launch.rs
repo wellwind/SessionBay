@@ -1,5 +1,6 @@
 //! Current-backend fresh launch evidence for older compatible PTY brokers.
 //! A caller intent key is never a runtime/pane identity or attachment capability.
+use crate::tr;
 use crate::{
     broker::{BrokerClient, LaunchPreflightError, RuntimeRecord},
     runtime::{LaunchSpec, RuntimeInfo},
@@ -194,7 +195,7 @@ impl FreshLaunches {
             .checked_add(10 * 60 * 1000)
             .ok_or("Invalid fresh launch intent time")?;
         if nonce.is_nil() || issued > now.saturating_add(30_000) || now >= expires_at {
-            return Err("啟動請求已過期或時間不符；請重新開啟啟動器。原請求不會重送。".into());
+            return Err(tr!("The launch request expired or its time does not match; reopen the launcher. The original request is not resent."));
         }
         self.attempts.retain(|_, attempt| attempt.expires_at > now);
         if intent.kind == "shell" || intent.session_id.is_some() || intent.resume_id.is_some() {
@@ -219,11 +220,11 @@ impl FreshLaunches {
         let first = !self.attempts.contains_key(&key);
         if first {
             if without_hooks {
-                return Err("沒有可確認的未啟動請求；原請求不會重送。".into());
+                return Err(tr!("There is no pending launch request to confirm; the original request is not resent."));
             }
             if self.attempts.len() >= 128 {
                 return Err(
-                    "目前十分鐘內的啟動請求已達上限，請稍後再試；既有 Agent 繼續運作。".into(),
+                    tr!("Too many launch requests in the last ten minutes; try again later. Existing agents keep running."),
                 );
             }
             let mut request = intent.clone();
@@ -277,12 +278,14 @@ impl FreshLaunches {
             return Err("Fresh launch intent was reused with different parameters".into());
         }
         if attempt.admission.load(Ordering::Acquire) == CANCELLED {
-            return Err("啟動請求已取消；未送出 Launch。".into());
+            return Err(tr!(
+                "The launch request was cancelled; nothing was launched."
+            ));
         }
         let mut send = first;
         if attempt.invalidated || (attempt.rejected.is_some() && attempt.context != context) {
             attempt.invalidated = true;
-            return Err("啟動請求已失效；設定或目錄資料可能已變更，請重新開啟啟動器。".into());
+            return Err(tr!("The launch request is no longer valid; settings or folder data may have changed. Reopen the launcher."));
         }
         if let Some(error) = &attempt.rejected {
             if !without_hooks {
@@ -293,7 +296,7 @@ impl FreshLaunches {
             attempt
                 .admission
                 .compare_exchange(REJECTED, CONSUMED, Ordering::AcqRel, Ordering::Acquire)
-                .map_err(|_| "啟動請求已取消；未送出 Launch。")?;
+                .map_err(|_| tr!("The launch request was cancelled; nothing was launched."))?;
             // Consume before any fallible IPC. Failure/unknown can never recreate a rejection.
             attempt.rejected = None;
             attempt.spec.env.remove(crate::provider_hooks::OPT_IN);
@@ -313,7 +316,7 @@ impl FreshLaunches {
                 attempt
                     .admission
                     .compare_exchange(REJECTED, CONSUMED, Ordering::AcqRel, Ordering::Acquire)
-                    .map_err(|_| "啟動請求已取消；未送出 Launch。")?;
+                    .map_err(|_| tr!("The launch request was cancelled; nothing was launched."))?;
             }
             match broker.launch(attempt.spec.clone(), &attempt.request) {
                 Ok(info) => {
@@ -334,9 +337,9 @@ impl FreshLaunches {
             .filter(|r| r.info.pane_id == attempt.spec.pane_id)
             .collect();
         if matching.len() != 1 {
-            return Err(format!(
-                "啟動結果尚未確認，未授予檔案能力；請重新整理工作階段，不會重試或停止 Agent。 {}",
-                launch_error.unwrap_or_default()
+            return Err(tr!(
+                "The launch result is not confirmed yet, so no file access was granted. Refresh the session; the agent is not retried or stopped. {{error}}",
+                error = launch_error.unwrap_or_default()
             ));
         }
         let record = matching[0];
@@ -529,7 +532,7 @@ mod tests {
                 LaunchPreflightError::MissingProviderHooks
             )
         );
-        assert!(!error.contains("尚未確認"));
+        assert!(!error.contains("not confirmed yet"));
         assert_eq!(broker.launches.get(), 0);
         assert_eq!(cache.attempts.len(), 1);
         // Even a now-compatible broker cannot turn a duplicate into implicit confirmation.
@@ -723,7 +726,7 @@ mod tests {
                 .unwrap();
             controls.cancel(&r.pane_id).unwrap(); // Must finish without fresh or catalog admission.
             transaction.commit().unwrap();
-            assert!(worker.join().unwrap().unwrap_err().contains("已取消"));
+            assert!(worker.join().unwrap().unwrap_err().contains("cancelled"));
         });
         assert_eq!(state.lock().unwrap().1.launches.get(), 0);
     }
@@ -750,7 +753,7 @@ mod tests {
                 .unwrap();
             controls.cancel(&r.pane_id).unwrap();
             drop(guard);
-            assert!(worker.join().unwrap().unwrap_err().contains("已取消"));
+            assert!(worker.join().unwrap().unwrap_err().contains("cancelled"));
         });
         let mut state = state.lock().unwrap();
         let (cache, broker) = &mut *state;

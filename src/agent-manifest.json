@@ -11,7 +11,7 @@
         "supported": true,
         "sourceEnv": "CODEX_HOME",
         "rootPlaceholder": "/Users/you/.codex",
-        "description": "唯讀索引 Codex 本機歷史，支援搜尋、預覽與接續工作。",
+        "description": "Read-only index of local Codex history, with search, preview and resume.",
         "parserId": "codex",
         "defaultDirectory": ".codex",
         "probeDirectory": null
@@ -19,7 +19,7 @@
       "resume": {
         "manualId": false,
         "argument": "resume",
-        "description": "從已索引的歷史接續，使用 codex resume。"
+        "description": "Resumes from indexed history with codex resume."
       },
       "launch": {
         "versionArgs": [
@@ -50,7 +50,7 @@
         "supported": true,
         "sourceEnv": "CLAUDE_CONFIG_DIR",
         "rootPlaceholder": "/Users/you/.claude",
-        "description": "唯讀索引 Claude Code 本機歷史，支援搜尋、預覽與接續工作。",
+        "description": "Read-only index of local Claude Code history, with search, preview and resume.",
         "parserId": "claude",
         "defaultDirectory": ".claude",
         "probeDirectory": null
@@ -58,7 +58,7 @@
       "resume": {
         "manualId": false,
         "argument": "--resume",
-        "description": "從已索引的歷史接續，使用 claude --resume。"
+        "description": "Resumes from indexed history with claude --resume."
       },
       "launch": {
         "versionArgs": [
@@ -86,7 +86,7 @@
         "supported": true,
         "sourceEnv": "GROK_HOME",
         "rootPlaceholder": "/Users/you/.grok",
-        "description": "唯讀索引 Grok Build 本機歷史，支援搜尋、預覽與接續工作。",
+        "description": "Read-only index of local Grok Build history, with search, preview and resume.",
         "parserId": "grok",
         "defaultDirectory": ".grok",
         "probeDirectory": "sessions"
@@ -94,7 +94,7 @@
       "resume": {
         "manualId": true,
         "argument": "--resume",
-        "description": "可從歷史接續或指定對話 ID；使用 --resume，不使用建立新對話的 --session-id。"
+        "description": "Resume from history or by conversation ID, using --resume (not --session-id, which creates a new conversation)."
       },
       "launch": {
         "versionArgs": [
@@ -122,7 +122,7 @@
         "supported": true,
         "sourceEnv": null,
         "rootPlaceholder": "/Users/you/.gemini/antigravity-cli",
-        "description": "CLI 歷史讀取（相容性驗證中）：本機 metadata 與持久化 transcript；1.3.5 真實磁碟樣本尚待驗證。不包含 App／IDE，未知或截斷格式會顯示警告。",
+        "description": "CLI history reading (compatibility being verified): local metadata and persisted transcripts; real 1.3.5 samples are not verified yet. The app and IDE are not included; unknown or truncated formats show a warning.",
         "parserId": "antigravity",
         "defaultDirectory": ".gemini/antigravity-cli",
         "probeDirectory": "brain"
@@ -130,7 +130,7 @@
       "resume": {
         "manualId": true,
         "argument": "--conversation",
-        "description": "可開始新工作，或指定對話 ID，以 agy --conversation 接續。"
+        "description": "Start new work, or resume a conversation ID with agy --conversation."
       },
       "launch": {
         "versionArgs": [
@@ -158,7 +158,7 @@
         "supported": true,
         "sourceEnv": null,
         "rootPlaceholder": "/Users/you/.local/share/opencode",
-        "description": "唯讀讀取來源目錄內 opencode.db（依官方 v1.19.2／1.19.3 結構）；支援搜尋、預覽與 --session 接續。舊 JSON 與自訂 DB 檔名尚未支援；Linux 已以真實 CLI 1.19.2／1.19.3 寫入的資料庫驗收。",
+        "description": "Reads opencode.db in the source folder read-only (official v1.19.2 / 1.19.3 schema), with search, preview and --session resume. The old JSON storage and custom database names are not supported yet; verified on Linux with databases written by the real CLI 1.19.2 / 1.19.3.",
         "parserId": "opencode",
         "defaultDirectory": ".local/share/opencode",
         "probeDirectory": null
@@ -166,7 +166,7 @@
       "resume": {
         "manualId": true,
         "argument": "--session",
-        "description": "以 opencode --session 接續指定對話；不使用 --continue 猜測或 --fork 複製。"
+        "description": "Resumes the chosen conversation with opencode --session; never guesses with --continue or copies with --fork."
       },
       "launch": {
         "versionArgs": [

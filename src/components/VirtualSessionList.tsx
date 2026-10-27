@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { t } from '../i18n';
 
 // Fixed row geometry keeps both layout work and mounted nodes independent of list size.
 export function VirtualSessionList<T extends { id: string }>({ items, total, label, className,
@@ -93,8 +94,8 @@ export function VirtualSessionList<T extends { id: string }>({ items, total, lab
       </div>
     </div>
     {(loading || error || !done) && <div className="session-feed-status" role="status">
-      {error ? <><span role="alert">{error}</span><button onClick={retry}>重試載入</button></> :
-        loading ? '讀取中…' : <button onClick={loadMore}>載入更多 Session</button>}
+      {error ? <><span role="alert">{error}</span><button onClick={retry}>{t('Retry loading')}</button></> :
+        loading ? t('Loading…') : <button onClick={loadMore}>{t('Load more sessions')}</button>}
     </div>}
   </>;
 }

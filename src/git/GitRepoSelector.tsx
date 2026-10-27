@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, FolderGit2, GitBranch, Link2 } from 
 import type { KeyboardEvent } from 'react';
 import type { RepoInfo, RepoStatus } from './types';
 import { branchLabel, operationLabel } from './types';
+import { t } from '../i18n';
 
 export function repoChangeCount(status: RepoStatus | undefined) {
   return status?.entries.length ?? 0;
@@ -21,7 +22,7 @@ export function GitRepoSelector({ repos, statuses, errors, selectedId, onSelect 
     onSelect(repos[next].id);
     event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus();
   };
-  return <div className="git-repo-list" role="radiogroup" aria-label="選擇 repository" onKeyDown={keys}>
+  return <div className="git-repo-list" role="radiogroup" aria-label={t('Choose repository')} onKeyDown={keys}>
     {repos.map(repo => {
       const status = statuses[repo.id];
       const selected = repo.id === selectedId;
@@ -31,18 +32,18 @@ export function GitRepoSelector({ repos, statuses, errors, selectedId, onSelect 
         <FolderGit2 size={15} aria-hidden="true" />
         <span className="git-repo-text">
           <span className="git-repo-name">{repo.name}
-            {repo.linkedWorktree && <span className="git-chip" title={`linked worktree；共用 ${repo.commonDir}`}><Link2 size={11} aria-hidden="true" />worktree</span>}
+            {repo.linkedWorktree && <span className="git-chip" title={t('linked worktree; shares {{dir}}', { dir: repo.commonDir })}><Link2 size={11} aria-hidden="true" />worktree</span>}
           </span>
-          <span className="git-repo-path">{repo.enclosesProject ? `${repo.root}（專案位於其子目錄）` : repo.relativePath || '專案根目錄'}</span>
+          <span className="git-repo-path">{repo.enclosesProject ? t('{{root}} (the project is in a subfolder)', { root: repo.root }) : repo.relativePath || t('Project root')}</span>
           <span className="git-repo-meta">
-            {errors[repo.id] ? <span className="git-danger"><AlertTriangle size={11} aria-hidden="true" />狀態讀取失敗</span>
+            {errors[repo.id] ? <span className="git-danger"><AlertTriangle size={11} aria-hidden="true" />{t('Could not read status')}</span>
               : status ? <>
-                <span><GitBranch size={11} aria-hidden="true" />{status.branch.unborn ? `${status.branch.head ?? 'HEAD'}（尚無 commit）` : branchLabel(status.branch)}</span>
-                {status.branch.ahead > 0 && <span aria-label={`領先 ${status.branch.ahead}`}><ArrowUp size={11} aria-hidden="true" />{status.branch.ahead}</span>}
-                {status.branch.behind > 0 && <span aria-label={`落後 ${status.branch.behind}`}><ArrowDown size={11} aria-hidden="true" />{status.branch.behind}</span>}
-                <span>{changes ? `${changes}${status.truncated ? '+' : ''} 項變更` : '無變更'}</span>
+                <span><GitBranch size={11} aria-hidden="true" />{status.branch.unborn ? t('{{head}} (no commits yet)', { head: status.branch.head ?? 'HEAD' }) : branchLabel(status.branch)}</span>
+                {status.branch.ahead > 0 && <span aria-label={t('Ahead {{count}}', { count: status.branch.ahead })}><ArrowUp size={11} aria-hidden="true" />{status.branch.ahead}</span>}
+                {status.branch.behind > 0 && <span aria-label={t('Behind {{count}}', { count: status.branch.behind })}><ArrowDown size={11} aria-hidden="true" />{status.branch.behind}</span>}
+                <span>{changes ? t('{{count}} changes', { count: `${changes}${status.truncated ? '+' : ''}` }) : t('No changes')}</span>
                 {status.operation && <span className="git-warning">{operationLabel[status.operation]}</span>}
-              </> : <span>讀取中…</span>}
+              </> : <span>{t('Loading…')}</span>}
           </span>
         </span>
       </button>;

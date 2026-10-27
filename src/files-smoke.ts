@@ -1,4 +1,5 @@
 import { api, call } from './api';
+import { t } from './i18n';
 
 /** Native WebView self-test using the runner's isolated fixture and real IPC. */
 export async function runFilesSmoke(): Promise<void> {
@@ -18,7 +19,7 @@ export async function runFilesSmoke(): Promise<void> {
   const root = boot.settings.profiles.find(p => p.id === 'smoke-shell')?.env.SESSIONBAY_SMOKE_WORKSPACE;
   if (!root || !/^[A-Za-z]:\\.*\\workspace-fixture$/.test(root) || root.includes('..') || boot.settings.sources.length)
     throw new Error('Files smoke: invalid isolated fixture configuration');
-  click(document.querySelector<HTMLButtonElement>('button[aria-label="加入專案"]'));
+  click(document.querySelector<HTMLButtonElement>(`button[aria-label="${t('Add project')}"]`));
   await waitFor(() => !!document.querySelector('[role="dialog"] input'), 'project form missing');
   const inputs = document.querySelectorAll<HTMLInputElement>('[role="dialog"] input');
   for (const [input, value] of [[inputs[0], root], [inputs[1], 'Synthetic files smoke']] as const) {
@@ -32,8 +33,8 @@ export async function runFilesSmoke(): Promise<void> {
   if (!project) throw new Error('Files smoke: project not persisted');
   const projectButton = Array.from(document.querySelectorAll<HTMLButtonElement>('.project-main')).find(b => b.textContent?.includes(project.name));
   click(projectButton ?? null);
-  await waitFor(() => !!document.querySelector('button[aria-label="新增工作區分頁"]'), 'project workspace missing');
-  click(document.querySelector<HTMLButtonElement>('button[aria-label="新增工作區分頁"]'));
+  await waitFor(() => !!document.querySelector(`button[aria-label="${t('New workspace tab')}"]`), 'project workspace missing');
+  click(document.querySelector<HTMLButtonElement>(`button[aria-label="${t('New workspace tab')}"]`));
   await waitFor(() => document.querySelector<HTMLButtonElement>('[role="dialog"] button.primary')?.disabled === false, 'shell preview unavailable');
   click(document.querySelector<HTMLButtonElement>('[role="dialog"] button.primary'));
   await waitFor(() => !!document.querySelector('.runtime-dot.running'), 'isolated shell did not start');
@@ -46,7 +47,7 @@ export async function runFilesSmoke(): Promise<void> {
   await waitFor(() => toggle?.getAttribute('aria-expanded') === 'true', 'Files activity did not open its sidebar');
   await waitFor(() => !!document.querySelector('.project-files-sidebar button[title="hello.txt"]'), 'native directory IPC did not render');
   click(document.querySelector<HTMLButtonElement>('.project-files-sidebar button[title="hello.txt"]'));
-  await waitFor(() => document.querySelector('[aria-label="唯讀內容：hello.txt"]')?.textContent?.includes('<literal>安全文字</literal>') === true, 'native text IPC did not render literal content');
+  await waitFor(() => document.querySelector(`[aria-label="${t('Read-only content: {{path}}', { path: 'hello.txt' })}"]`)?.textContent?.includes('<literal>安全文字</literal>') === true, 'native text IPC did not render literal content');
   if (document.querySelector('[data-file-explorer] literal') || !terminal.isConnected || !!visibleTerminal())
     throw new Error('Files smoke: content executed or terminal remounted');
   const denied = async (path: string) => {

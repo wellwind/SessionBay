@@ -5,6 +5,7 @@ use crate::models::{
     WorkspaceFileChunk, WorkspaceFileInfo, WorkspaceFileKind, WorkspaceFilePage,
     WorkspaceFilePreview, WorkspaceFileSearch,
 };
+use crate::tr;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::{
@@ -19,7 +20,7 @@ const MAX_FILE_BYTES: usize = 256 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_CHUNK_BYTES: usize = 256 * 1024;
 const SAMPLE_BYTES: usize = 64 * 1024;
-const FILE_CHANGED: &str = "檔案在讀取期間已變更，請重新開啟";
+const FILE_CHANGED: &str = "The file changed while it was being read; open it again";
 
 #[derive(Debug, PartialEq, Eq)]
 struct FileSnapshot {
@@ -77,15 +78,15 @@ pub(crate) fn read_bounded(
 ) -> Result<Vec<u8>, String> {
     let parts = relative_parts(path, false)?;
     if version.len() != 64 || !version.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(FILE_CHANGED.into());
+        return Err(crate::i18n::tr(FILE_CHANGED));
     }
     let mut file = platform::open_file(root, &parts)?;
     let snapshot = platform::snapshot(&file)?;
     if snapshot.version != version {
-        return Err(FILE_CHANGED.into());
+        return Err(crate::i18n::tr(FILE_CHANGED));
     }
     if snapshot.size_bytes == 0 || snapshot.size_bytes > max_bytes as u64 {
-        return Err("圖片大小必須介於 1 byte 與 10 MiB".into());
+        return Err(tr!("The image size must be between 1 byte and 10 MiB"));
     }
     Ok(read_opened_chunk(&mut file, &snapshot, 0, max_bytes)?.bytes)
 }
@@ -99,15 +100,15 @@ pub(crate) fn read_chunk(
 ) -> Result<WorkspaceFileChunk, String> {
     let parts = relative_parts(path, false)?;
     if !(1..=MAX_CHUNK_BYTES).contains(&max_bytes) {
-        return Err("單次讀取大小必須介於 1 byte 與 256 KiB".into());
+        return Err(tr!("A single read must be between 1 byte and 256 KiB"));
     }
     if version.len() != 64 || !version.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(FILE_CHANGED.into());
+        return Err(crate::i18n::tr(FILE_CHANGED));
     }
     let mut file = platform::open_file(root, &parts)?;
     let snapshot = platform::snapshot(&file)?;
     if snapshot.version != version {
-        return Err(FILE_CHANGED.into());
+        return Err(crate::i18n::tr(FILE_CHANGED));
     }
     read_opened_chunk(&mut file, &snapshot, offset, max_bytes)
 }
@@ -118,10 +119,9 @@ fn read_opened_chunk(
     offset: u64,
     max_bytes: usize,
 ) -> Result<WorkspaceFileChunk, String> {
-    let remaining = before
-        .size_bytes
-        .checked_sub(offset)
-        .ok_or("讀取位置超過檔案大小，請重新開啟")?;
+    let remaining = before.size_bytes.checked_sub(offset).ok_or(tr!(
+        "The read position is past the end of the file; open it again"
+    ))?;
     let length = remaining.min(max_bytes as u64);
     file.seek(SeekFrom::Start(offset))
         .map_err(platform::fs_error)?;
@@ -133,7 +133,7 @@ fn read_opened_chunk(
     // Check the same opened file, including identity/link/type checks, after
     // the read. A later call reopens and compares this revision again.
     if &platform::snapshot(file)? != before || bytes.len() as u64 != length {
-        return Err(FILE_CHANGED.into());
+        return Err(crate::i18n::tr(FILE_CHANGED));
     }
     Ok(WorkspaceFileChunk {
         bytes,
@@ -181,7 +181,7 @@ fn relative_parts(path: &str, allow_root: bool) -> Result<Vec<&str>, String> {
         return Ok(Vec::new());
     }
     if path.len() > MAX_PATH_BYTES || !path.split('/').all(valid_name) {
-        return Err("檔案路徑必須是專案內的相對路徑，不可包含上層目錄、裝置名稱或串流".into());
+        return Err(tr!("The file path must be relative to the project, without parent folders, device names or streams"));
     }
     Ok(path.split('/').collect())
 }
@@ -194,7 +194,7 @@ pub(crate) fn list(
 ) -> Result<WorkspaceFilePage, String> {
     let parts = relative_parts(path, true)?;
     if offset > MAX_DIRECTORY_ENTRIES {
-        return Err("目錄分頁位置超過上限，請重新整理".into());
+        return Err(tr!("The folder page position is over the limit; refresh"));
     }
     platform::list(root, path, &parts, offset, show_hidden)
 }
@@ -212,7 +212,9 @@ const SEARCH_MAX_DURATION: std::time::Duration = std::time::Duration::from_milli
 
 pub(crate) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, String> {
     if query.len() > 256 || query.chars().any(char::is_control) {
-        return Err("搜尋文字不可超過 256 bytes 或包含控制字元".into());
+        return Err(tr!(
+            "Search text cannot exceed 256 bytes or contain control characters"
+        ));
     }
     let query = query.trim().to_lowercase();
     if query.is_empty() {
@@ -228,7 +230,9 @@ pub(crate) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, St
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = root;
-        Err("此平台尚未支援安全遞迴檔名搜尋".into())
+        Err(tr!(
+            "Safe recursive file name search is not supported on this platform yet"
+        ))
     }
 }
 
@@ -255,9 +259,9 @@ mod platform {
 
     pub(super) fn fs_error(error: io::Error) -> String {
         match error.kind() {
-            io::ErrorKind::NotFound => "檔案或目錄已不存在，請重新整理".into(),
-            io::ErrorKind::PermissionDenied => "沒有權限讀取此檔案或目錄".into(),
-            _ => format!("無法安全讀取：不允許符號連結或非一般檔案／目錄（{error}）"),
+            io::ErrorKind::NotFound => tr!("The file or folder no longer exists; refresh"),
+            io::ErrorKind::PermissionDenied => tr!("No permission to read this file or folder"),
+            _ => tr!("Cannot read safely: symlinks and non-regular files or folders are not allowed ({{error}})", error = error),
         }
     }
 
@@ -287,15 +291,17 @@ mod platform {
             .raw_os_error()
             .map_or_else(|| "none".into(), |code| code.to_string());
         let message = match error.kind() {
-            io::ErrorKind::NotFound => "檔案或目錄已不存在，請重新整理",
-            io::ErrorKind::PermissionDenied => "沒有權限讀取此檔案或目錄",
-            _ => "無法安全讀取：不允許符號連結或非一般檔案／目錄",
+            io::ErrorKind::NotFound => tr!("The file or folder no longer exists; refresh"),
+            io::ErrorKind::PermissionDenied => tr!("No permission to read this file or folder"),
+            _ => {
+                tr!("Cannot read safely: symlinks and non-regular files or folders are not allowed")
+            }
         };
         format!("{message} [workspace-files operation={operation} stage={stage} errno={errno}]")
     }
 
     fn c_name(name: &[u8]) -> Result<CString, String> {
-        CString::new(name).map_err(|_| "檔案路徑不可包含空字元".into())
+        CString::new(name).map_err(|_| tr!("The file path cannot contain null characters"))
     }
 
     fn open_at(
@@ -324,14 +330,16 @@ mod platform {
     }
 
     fn open_root(root: &Path) -> Result<File, String> {
-        let text = root.to_str().ok_or("專案目錄不是有效的 UTF-8 本機路徑")?;
+        let text = root
+            .to_str()
+            .ok_or(tr!("The project folder is not a valid UTF-8 local path"))?;
         if !root.is_absolute()
             || text.starts_with("//")
             || text.contains('\\')
             || text.split('/').any(|part| matches!(part, "." | ".."))
             || text.chars().any(char::is_control)
         {
-            return Err("專案必須有絕對本機目錄，無法預覽遠端或未知路徑".into());
+            return Err(tr!("The project needs an absolute local folder; remote or unknown paths cannot be previewed"));
         }
         let mut directory = open_at(libc::AT_FDCWD, c"/", true, OpenStage::FilesystemRoot)?;
         let mut ancestor_index = 0;
@@ -347,7 +355,7 @@ mod platform {
                         OpenStage::ProjectAncestor(ancestor_index),
                     )?;
                 }
-                _ => return Err("專案目錄含有不支援的路徑成分".into()),
+                _ => return Err(tr!("The project folder has unsupported path components")),
             }
         }
         Ok(directory)
@@ -439,7 +447,7 @@ mod platform {
             let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
             name.to_str()
                 .map(|name| Some(name.to_owned()))
-                .map_err(|_| "目錄含有非 UTF-8 檔名，無法安全顯示".into())
+                .map_err(|_| tr!("The folder has non-UTF-8 file names that cannot be shown safely"))
         }
     }
 
@@ -469,7 +477,7 @@ mod platform {
             seen += 1;
             name_bytes += name.len();
             if seen > MAX_DIRECTORY_ENTRIES || name_bytes > MAX_DIRECTORY_NAME_BYTES {
-                return Err("目錄過大：最多可預覽 100,000 個項目及 16 MiB 的檔名".into());
+                return Err(tr!("The folder is too large: up to 100,000 items and 16 MiB of file names can be previewed"));
             }
             if !show_hidden && name.starts_with('.') {
                 continue;
@@ -627,12 +635,16 @@ mod platform {
     }
 
     fn open_file_from(directory: File, parts: &[&str]) -> Result<File, String> {
-        let (name, parents) = parts.split_last().ok_or("請選擇一般文字檔案")?;
+        let (name, parents) = parts
+            .split_last()
+            .ok_or(tr!("Choose a regular text file"))?;
         let directory = descend(directory, parents)?;
         let name = c_name(name.as_bytes())?;
         let before = stat_at(directory.as_raw_fd(), &name).map_err(fs_error)?;
         if before.st_mode & libc::S_IFMT != libc::S_IFREG {
-            return Err("只能預覽一般檔案，不支援符號連結、目錄或特殊檔案".into());
+            return Err(tr!(
+                "Only regular files can be previewed, not symlinks, folders or special files"
+            ));
         }
         // O_NONBLOCK avoids blocking if a regular file is replaced by a FIFO
         // between fstatat and openat. O_NOFOLLOW prevents a symlink replacement.
@@ -642,12 +654,14 @@ mod platform {
             || metadata.dev() != before.st_dev as u64
             || metadata.ino() != before.st_ino as u64
         {
-            return Err("檔案在讀取前已變更，請重新整理；只能預覽一般檔案".into());
+            return Err(tr!(
+                "The file changed before it was read; refresh. Only regular files can be previewed"
+            ));
         }
         // A regular-file alias may share an inode with a name outside this root.
         // Validate the opened descriptor, not only the earlier directory entry.
         if metadata.nlink() > 1 {
-            return Err("多重硬連結不支援：無法預覽與其他路徑共用的檔案".into());
+            return Err(tr!("Multiple hard links are not supported: files shared with other paths cannot be previewed"));
         }
         Ok(file)
     }
@@ -659,10 +673,12 @@ mod platform {
     pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
         let metadata = file.metadata().map_err(fs_error)?;
         if !metadata.is_file() {
-            return Err("只能預覽一般檔案".into());
+            return Err(tr!("Only regular files can be previewed"));
         }
         if metadata.nlink() != 1 {
-            return Err("多重硬連結或已移除檔案不支援：請重新開啟".into());
+            return Err(tr!(
+                "Multiple hard links and removed files are not supported; open it again"
+            ));
         }
         Ok(FileSnapshot {
             size_bytes: metadata.len(),
@@ -687,7 +703,9 @@ mod platform {
         let mut file = open_file_from(directory, parts)?;
         let metadata = file.metadata().map_err(fs_error)?;
         if metadata.len() > MAX_FILE_BYTES as u64 {
-            return Err("檔案過大：文字預覽上限為 256 KiB".into());
+            return Err(tr!(
+                "The file is too large: the text preview limit is 256 KiB"
+            ));
         }
         let mut bytes = Vec::new();
         // The second bound also protects against a concurrently growing file.
@@ -696,16 +714,19 @@ mod platform {
             .read_to_end(&mut bytes)
             .map_err(fs_error)?;
         if bytes.len() > MAX_FILE_BYTES {
-            return Err("檔案過大：文字預覽上限為 256 KiB".into());
+            return Err(tr!(
+                "The file is too large: the text preview limit is 256 KiB"
+            ));
         }
         let size_bytes = bytes.len();
-        let text = String::from_utf8(bytes)
-            .map_err(|_| "不支援此檔案編碼：只能預覽 UTF-8 文字".to_owned())?;
+        let text = String::from_utf8(bytes).map_err(|_| {
+            tr!("This file encoding is not supported: only UTF-8 text can be previewed")
+        })?;
         if text
             .chars()
             .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
         {
-            return Err("不支援二進位或含控制字元的檔案，只能預覽 UTF-8 文字".into());
+            return Err(tr!("Binary files and files with control characters are not supported; only UTF-8 text can be previewed"));
         }
         Ok(WorkspaceFilePreview {
             path: path.to_owned(),
@@ -763,7 +784,7 @@ mod platform {
                     "openat",
                     "project-ancestor:3",
                 );
-                assert_eq!(message, format!("沒有權限讀取此檔案或目錄 [workspace-files operation=openat stage=project-ancestor:3 errno={errno}]"));
+                assert_eq!(message, format!("No permission to read this file or folder [workspace-files operation=openat stage=project-ancestor:3 errno={errno}]"));
             }
             let secret = "private-directory/private-file/private-content";
             let message =
@@ -861,7 +882,7 @@ mod platform {
             fs::hard_link(&path, root.join("alias.txt")).unwrap();
             assert!(read_opened_chunk(&mut file, &before, 0, MAX_CHUNK_BYTES)
                 .unwrap_err()
-                .contains("多重硬連結"));
+                .contains("Multiple hard links"));
         }
 
         #[test]
@@ -911,7 +932,7 @@ mod platform {
     use super::*;
 
     const UNSUPPORTED: &str =
-        "此平台尚未支援安全檔案預覽：無法保證拒絕目錄連結／重新解析點，因此已停用讀取";
+        "Safe file preview is not supported on this platform yet: directory links and reparse points cannot be reliably rejected, so reading is disabled";
 
     pub(super) fn fs_error(error: std::io::Error) -> String {
         error.to_string()

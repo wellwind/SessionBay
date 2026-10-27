@@ -1,10 +1,11 @@
 import { agentLifecycleText, isAgentPane } from './agent-status';
 import type { Pane, PaneState, Workspace, WorkspaceTab } from './types';
 import { paneIds } from './workspace';
+import { t } from './i18n';
 
 /** Lifecycle only: PTY output and process liveness cannot establish busy or idle. */
 export function runtimePaneLabel(pane: Pane): string {
-  if (pane.state === 'running') return '已開啟';
+  if (pane.state === 'running') return t('Open');
   return agentLifecycleText(pane.state);
 }
 export function tabRuntimeSummary(tab: WorkspaceTab, panes: Workspace['panes']): string {
@@ -22,7 +23,7 @@ export function tabRuntimeSummary(tab: WorkspaceTab, panes: Workspace['panes']):
     const label = runtimePaneLabel(pane);
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
-  return [...counts].map(([label, count]) => `${label}${count > 1 ? ` ×${count}` : ''}`).join('；') || '狀態未知';
+  return [...counts].map(([label, count]) => `${label}${count > 1 ? ` ×${count}` : ''}`).join(t('; ')) || t('Status unknown');
 }
 export function projectRuntimeSummary(tabs: WorkspaceTab[], panes: Workspace['panes']): string {
   const agents = new Set(tabs.flatMap(tab => paneIds(tab.layout)).flatMap(id => {
@@ -30,7 +31,7 @@ export function projectRuntimeSummary(tabs: WorkspaceTab[], panes: Workspace['pa
     return pane && isAgentPane(pane) ? [pane.runtimeId ? `runtime:${pane.runtimeId}` : `pane:${id}`] : [];
   }));
   const attention = new Set(tabs.flatMap(tab => paneIds(tab.layout)).filter(id => panes[id] && ['failed', 'interrupted', 'disconnected'].includes(panes[id].state)).map(id => panes[id].runtimeId ? `runtime:${panes[id].runtimeId}` : `pane:${id}`)).size;
-  return `${tabs.length} 分頁 · ${agents.size} Agent${attention ? ` · ${attention} 需注意` : ''}`;
+  return `${t('{{count}} tabs', { count: tabs.length })} · ${t('{{count}} agents', { count: agents.size })}` + (attention ? t(' · {{count}} need attention', { count: attention }) : '');
 }
 /** Live work for a project: unique runtimes (split panes share one) that are starting or running. */
 export function projectOpenCount(tabs: WorkspaceTab[], panes: Workspace['panes']): number {
@@ -43,5 +44,5 @@ export function projectOpenCount(tabs: WorkspaceTab[], panes: Workspace['panes']
 }
 /** Project card count label: history and live work are separate facts. */
 export function projectCountLabel(historyCount: number, openCount: number): string {
-  return `歷史 ${historyCount} · 開啟中 ${openCount}`;
+  return t('History {{history}} · Open {{open}}', { history: historyCount, open: openCount });
 }

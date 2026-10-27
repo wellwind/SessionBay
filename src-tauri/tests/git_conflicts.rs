@@ -84,14 +84,14 @@ fn text_conflict_is_resolved_saved_marked_and_continued() {
     assert!(file["ours"]["label"]
         .as_str()
         .unwrap()
-        .contains("目前 branch（main）"));
+        .contains("Current branch (main)"));
     assert!(file["result"]["text"].as_str().unwrap().contains("<<<<<<<"));
 
     // Markers still present: marking resolved is refused.
     let error = repo
         .request(json!({ "op": "markResolved", "path": "f.txt", "token": file["token"] }))
         .unwrap_err();
-    assert!(error.contains("衝突標記"), "{error}");
+    assert!(error.contains("conflict markers"), "{error}");
     assert_eq!(repo.conflicts(), vec!["f.txt"]);
 
     let saved = repo
@@ -130,7 +130,7 @@ fn concurrent_edits_stop_the_write() {
     let error = repo
         .request(json!({ "op": "saveConflict", "path": "f.txt", "token": file["token"], "content": "mine\n" }))
         .unwrap_err();
-    assert!(error.contains("已在開啟後變更"), "{error}");
+    assert!(error.contains("changed after opening"), "{error}");
     assert_eq!(
         fs::read(repo.root.join("f.txt")).unwrap(),
         b"agent wrote this\n"
@@ -140,7 +140,7 @@ fn concurrent_edits_stop_the_write() {
     assert!(repo
         .request(json!({ "op": "continueOperation" }))
         .unwrap_err()
-        .contains("未解決"));
+        .contains("unresolved"));
 }
 
 #[test]
@@ -238,11 +238,11 @@ fn abort_restores_the_pre_merge_state_and_rebase_labels_follow_semantics() {
     assert!(file["ours"]["label"]
         .as_str()
         .unwrap()
-        .contains("Rebase 目標"));
+        .contains("Rebase target"));
     assert!(file["theirs"]["label"]
         .as_str()
         .unwrap()
-        .contains("正在重放"));
+        .contains("being replayed"));
     assert!(file["theirs"]["detail"]
         .as_str()
         .unwrap()

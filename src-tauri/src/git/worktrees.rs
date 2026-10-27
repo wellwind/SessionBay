@@ -10,6 +10,7 @@ use super::{
     remote::check_ref_name,
     runner::{Access, GitError, GitRunner, Invocation},
 };
+use crate::tr;
 use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
@@ -169,13 +170,16 @@ pub fn add(
     base: Option<&str>,
     path: Option<&str>,
 ) -> Result<WorktreeAdded, String> {
-    check_ref_name(runner, repo, branch, "Branch ")?;
+    check_ref_name(runner, repo, branch, &crate::tr!("branch"))?;
     let exists = branch_exists(runner, repo, branch);
     if create && exists {
-        return Err(format!("Branch {branch} 已存在；請改用「使用既有 branch」"));
+        return Err(tr!(
+            "Branch {{branch}} already exists; use \"Existing branch\" instead",
+            branch = branch
+        ));
     }
     if !create && !exists {
-        return Err(format!("找不到 branch：{branch}"));
+        return Err(tr!("Branch not found: {{branch}}", branch = branch));
     }
     let worktrees = list(runner, repo)?;
     if !create
@@ -183,7 +187,10 @@ pub fn add(
             .iter()
             .any(|w| w.branch.as_deref() == Some(branch))
     {
-        return Err(format!("Branch {branch} 已在另一個 worktree 使用中"));
+        return Err(tr!(
+            "Branch {{branch}} is already used by another worktree",
+            branch = branch
+        ));
     }
     let main = worktrees
         .iter()
@@ -194,14 +201,17 @@ pub fn add(
         Some(path) => {
             let path = PathBuf::from(path);
             if !path.is_absolute() {
-                return Err("Worktree 路徑必須是絕對路徑".into());
+                return Err(tr!("The worktree path must be absolute"));
             }
             path
         }
         None => default_path(&main, branch),
     };
     if target.exists() {
-        return Err(format!("路徑已存在，未建立 worktree：{}", target.display()));
+        return Err(tr!(
+            "The path already exists, so no worktree was created: {{path}}",
+            path = target.display()
+        ));
     }
     let target_arg = target.to_string_lossy().into_owned();
     let mut args = vec!["worktree".to_owned(), "add".into()];
@@ -230,21 +240,23 @@ pub fn remove(
     let target = worktrees
         .iter()
         .find(|w| same_path(Path::new(&w.path), Path::new(path)))
-        .ok_or("找不到這個 worktree")?;
+        .ok_or(tr!("This worktree was not found"))?;
     if target.main {
-        return Err("主要 worktree 不能移除".into());
+        return Err(tr!("The main worktree cannot be removed"));
     }
     if target.current {
-        return Err("無法移除目前所在的 worktree；請從主要 repository 移除".into());
+        return Err(tr!(
+            "The current worktree cannot be removed; remove it from the main repository"
+        ));
     }
     if target.locked {
-        return Err("Worktree 已鎖定，未移除".into());
+        return Err(tr!("The worktree is locked and was not removed"));
     }
     let checkout = PathBuf::from(&target.path);
     let mut note = String::new();
     if target.dirty == Some(true) {
         if !stash {
-            return Err("Worktree 有未提交的變更，未移除；可選擇先 stash 再移除".into());
+            return Err(tr!("The worktree has uncommitted changes and was not removed; you can stash them first, then remove it"));
         }
         let label = target.branch.clone().unwrap_or_else(|| "detached".into());
         // `stash -u` cleans untracked files through an internal `:/` pathspec.
@@ -257,14 +269,19 @@ pub fn remove(
                 "push".into(),
                 "--include-untracked".into(),
                 "-m".into(),
-                format!("Session Bay：移除 worktree {label} 前的變更"),
+                tr!(
+                    "Session Bay: changes before removing worktree {{label}}",
+                    label = label
+                ),
             ],
             &[("GIT_LITERAL_PATHSPECS", "0")],
         )?;
         if dirty(runner, &checkout) == Some(true) {
-            return Err("Stash 後仍有變更，未移除 worktree".into());
+            return Err(tr!(
+                "Changes remain after stashing, so the worktree was not removed"
+            ));
         }
-        note = "；變更已存成 stash，可在 Stash 區取回".into();
+        note = tr!("; the changes were stashed and can be restored from Stash");
     }
     git(
         runner,
@@ -278,9 +295,10 @@ pub fn remove(
         ],
         &[],
     )?;
-    Ok(Outcome::plain(format!(
-        "已移除 worktree（branch {} 保留）{note}",
-        target.branch.as_deref().unwrap_or("detached")
+    Ok(Outcome::plain(tr!(
+        "Removed the worktree (branch {{branch}} kept){{note}}",
+        branch = target.branch.as_deref().unwrap_or("detached"),
+        note = note
     )))
 }
 
@@ -292,5 +310,5 @@ pub fn prune(runner: &GitRunner, repo: &RepoInfo) -> Result<Outcome, String> {
         vec!["worktree".into(), "prune".into()],
         &[],
     )?;
-    Ok(Outcome::plain("已清理失效的 worktree 紀錄"))
+    Ok(Outcome::plain(tr!("Pruned stale worktree records")))
 }

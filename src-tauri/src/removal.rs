@@ -1,23 +1,23 @@
 //! Permanent-removal policy. Permanent deletion stays closed; the reversible
 //! move to the OS trash lives in `os_trash`, which reuses the inspection.
 use crate::models::AgentKind;
+use crate::tr;
 
 /// Every provider uses the same policy boundary, including unsupported stores.
 /// A filesystem snapshot is not an exclusive lease on the provider's live data.
 pub fn blockers(kind: AgentKind) -> Vec<String> {
     let provider = match kind {
-        AgentKind::Codex => "Codex：需確認 rollout、索引與其他關聯資料的清除規則，不能只刪 JSONL。",
-        AgentKind::Claude => "Claude：需確認主對話、subagent 與其他關聯資料的清除規則，不能只刪 JSONL。",
-        AgentKind::Grok => "Grok：需確認對話與 metadata 的一致性及完整清除規則。",
-        AgentKind::Antigravity => "Antigravity：共用 conversation_summaries.db 必須逐筆處理；禁止刪除整個資料庫。",
-        AgentKind::OpenCode => "OpenCode：共用 opencode.db 與 WAL 必須以已驗證 schema 交易逐筆處理；禁止刪除整個資料庫。",
+        AgentKind::Codex => tr!("Codex: the cleanup rules for rollouts, indexes and other related data must be confirmed; deleting the JSONL alone is not enough."),
+        AgentKind::Claude => tr!("Claude: the cleanup rules for the main conversation, subagents and other related data must be confirmed; deleting the JSONL alone is not enough."),
+        AgentKind::Grok => tr!("Grok: consistency between conversations and metadata and the full cleanup rules must be confirmed."),
+        AgentKind::Antigravity => tr!("Antigravity: the shared conversation_summaries.db must be handled row by row; deleting the whole database is not allowed."),
+        AgentKind::OpenCode => tr!("OpenCode: the shared opencode.db and WAL must be handled row by row in transactions on a verified schema; deleting the whole database is not allowed."),
     };
     vec![
-        provider.into(),
-        "回收筒未保存移入時的來源檔案雜湊；此處檢查目前索引，不能證明與移入時內容相同。".into(),
-        "尚無可排除外部 Agent 寫入的協定；停止 Session Bay 中的工作仍不足以證明來源未被使用。"
-            .into(),
-        "永久移除尚未開放。執行前仍需重新驗證完整來源、排除並行變更並逐次明確確認。".into(),
+        provider,
+        tr!("The recycle bin did not save source file hashes when items were moved in; this check uses the current index and cannot prove the content is unchanged."),
+        tr!("There is no protocol yet to rule out writes by an external agent; stopping work in Session Bay does not prove the source is unused."),
+        tr!("Permanent removal is not available yet. It would still need to re-verify the full source, rule out concurrent changes and get explicit confirmation each time."),
     ]
 }
 
@@ -35,7 +35,10 @@ mod tests {
         ] {
             assert_eq!(blockers(kind).len(), 4);
         }
-        assert!(blockers(AgentKind::OpenCode)[0].contains("禁止刪除整個資料庫"));
-        assert!(blockers(AgentKind::Antigravity)[0].contains("禁止刪除整個資料庫"));
+        assert!(
+            blockers(AgentKind::OpenCode)[0].contains("deleting the whole database is not allowed")
+        );
+        assert!(blockers(AgentKind::Antigravity)[0]
+            .contains("deleting the whole database is not allowed"));
     }
 }

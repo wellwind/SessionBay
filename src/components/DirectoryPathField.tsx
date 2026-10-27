@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { InputHTMLAttributes, ReactNode } from 'react';
 import { FolderOpen, LoaderCircle } from 'lucide-react';
 import { canPickDirectory, pickDirectory } from '../directory-picker';
+import { t } from '../i18n';
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'children'> & {
   label: string;
@@ -44,10 +45,10 @@ export function DirectoryPathField({ label, value, onChange, className = 'field-
     setPicking(true);
     setError('');
     try {
-      const selected = await pickDirectory(`選擇${label}`, original);
+      const selected = await pickDirectory(t('Choose {{label}}', { label }), original);
       if (current() && selected !== null) latest.current.onChange(selected);
     } catch (reason) {
-      if (current()) setError(`無法開啟資料夾選擇器：${reason instanceof Error ? reason.message : String(reason)} 可直接輸入路徑。`);
+      if (current()) setError(t('Could not open the folder picker: {{error}} You can type the path instead.', { error: reason instanceof Error ? reason.message : String(reason) }));
     } finally {
       inFlight.current = false;
       if (mounted.current) {
@@ -70,14 +71,14 @@ export function DirectoryPathField({ label, value, onChange, className = 'field-
             onChange(event.target.value);
           }} />
         <button ref={button} type="button" className="secondary directory-picker-button"
-          disabled={disabled || picking || !available} aria-label={`選擇${label}`} aria-busy={picking}
+          disabled={disabled || picking || !available} aria-label={t('Choose {{label}}', { label })} aria-busy={picking}
           aria-describedby={!available ? feedbackId : undefined} onClick={() => { void browse(); }}>
           {picking ? <LoaderCircle size={15} aria-hidden="true" /> : <FolderOpen size={15} aria-hidden="true" />}
-          {picking ? '選擇中…' : '選擇資料夾'}
+          {picking ? t('Choosing…') : t('Choose folder')}
         </button>
       </div>
       {error ? <span id={feedbackId} className="inline-warning" role="alert">{error}</span> :
-        !available && <span id={feedbackId} className="small-muted">桌面應用程式可選擇資料夾；目前請直接輸入路徑。</span>}
+        !available && <span id={feedbackId} className="small-muted">{t('The desktop app can pick a folder; for now, type the path.')}</span>}
       {children}
     </div>
   );

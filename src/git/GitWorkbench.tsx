@@ -37,6 +37,7 @@ import { gitApi } from './git-api';
 import type { CommitDetail, IssueKind, Outcome, Refs, RepoInfo, RepoPath, StatusEntry } from './types';
 import { branchLabel, operationLabel, pathKey } from './types';
 import './git.css';
+import { t } from '../i18n';
 
 export interface GitWorkbenchProps {
   projectId: string;
@@ -61,7 +62,7 @@ export interface GitWorkbenchProps {
 }
 
 const issueTitle: Record<IssueKind, string> = {
-  bare: '裸 repository', broken: '無法使用的 Git 目錄', dubiousOwnership: '目錄擁有者不受信任', submodule: '子模組',
+  bare: t('Bare repository'), broken: t('Unusable Git directory'), dubiousOwnership: t('Untrusted folder owner'), submodule: t('Submodule'),
 };
 
 export default function GitWorkbench(props: GitWorkbenchProps) {
@@ -149,14 +150,14 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
   const handleOutcome = (repoId: string) => (outcome: Outcome | { error: string }) => {
     if ('error' in outcome) setMessage({ tone: 'error', text: outcome.error });
     else setMessage({ tone: outcome.conflicts ? 'error' : 'success',
-      text: `${outcome.message}${outcome.recovery ? '（已建立復原點，可在「復原點」還原）' : ''}` });
+      text: `${outcome.message}${outcome.recovery ? t(' (a recovery point was created; restore it from "Recovery points")') : ''}` });
     void git.refreshStatus(repoId);
     void loadRefs(repoId);
   };
   const commitActions = (repo: RepoInfo) => (detail: CommitDetail) => git.statuses[repo.id]?.branch.oid ? <>
     <button onClick={() => setHistoryAction({ kind: 'revert', repo, commit: detail })}>Revert…</button>
     <button className="danger" disabled={detail.oid === git.statuses[repo.id]?.branch.oid}
-      onClick={() => setHistoryAction({ kind: 'reset', repo, commit: detail })}>Reset 到此…</button>
+      onClick={() => setHistoryAction({ kind: 'reset', repo, commit: detail })}>{t('Reset to here…')}</button>
   </> : null;
   const mutate = async (repoId: string, label: string, action: () => Promise<unknown>) => {
     setBusy(true); setMessage(null);
@@ -175,7 +176,7 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
 
   const renderDocument = (document: GitDocument) => {
     const repo = project?.state === 'ready' ? project.repos.find(item => item.id === document.repoId) : undefined;
-    if (!repo) return <p className="git-muted git-pad">此 repository 已不在專案中。</p>;
+    if (!repo) return <p className="git-muted git-pad">{t('This repository is no longer in the project.')}</p>;
     const status = git.statuses[repo.id];
     const replace = (spec: DocumentSpec) => dispatch({ type: 'replace', key: document.key, spec });
     const spec = document.spec;
@@ -188,9 +189,9 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         onSource={spec.source.kind === 'commit' || spec.source.kind === 'compare' ? undefined : source => replace({ ...spec, source })}
         onChanged={() => void git.refreshStatus(repo.id)}
         actions={!spec.untracked && <>
-          <button className="git-icon-button" aria-label={`Blame ${spec.path.path}`} title="Blame（逐行作者）"
+          <button className="git-icon-button" aria-label={t('Blame {{path}}', { path: spec.path.path })} title={t('Blame (author per line)')}
             onClick={() => openBlame(spec.path, spec.source.kind === 'commit' ? spec.source.commit : null)}><ScrollText size={14} /></button>
-          <button className="git-icon-button" aria-label={`${spec.path.path} 的歷史`} title="檔案歷史" onClick={() => openHistory(spec.path)}><History size={14} /></button>
+          <button className="git-icon-button" aria-label={t('History of {{path}}', { path: spec.path.path })} title={t('File history')} onClick={() => openHistory(spec.path)}><History size={14} /></button>
         </>} />;
       case 'comparison': return spec.source.kind === 'commit'
         ? <CommitPanel key={document.key} projectId={projectId} repoId={repo.id} repoName={repo.name} commit={spec.source.commit}
@@ -213,31 +214,31 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
   const sidebarBody = () => {
     if (!project) return git.discoveryError
       ? <div className="git-empty" role="alert"><AlertTriangle size={18} aria-hidden="true" /><p>{git.discoveryError}</p>
-        <button onClick={() => void git.discover()}>重試</button></div>
-      : <div className="git-empty" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><p>正在尋找 Git repository…</p>
-        <button onClick={git.cancelDiscovery}>取消掃描</button></div>;
+        <button onClick={() => void git.discover()}>{t('Retry')}</button></div>
+      : <div className="git-empty" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><p>{t('Looking for Git repositories…')}</p>
+        <button onClick={git.cancelDiscovery}>{t('Cancel scan')}</button></div>;
     if (project.state === 'unavailable') return <div className="git-empty" role="status">
-      <AlertTriangle size={18} aria-hidden="true" /><p>{project.message}</p><p className="git-muted">安裝 Git 後重新整理即可使用 Git 工具。</p></div>;
+      <AlertTriangle size={18} aria-hidden="true" /><p>{project.message}</p><p className="git-muted">{t('Install Git and refresh to use the Git tools.')}</p></div>;
     return <>
       {project.repos.length === 0 && <div className="git-empty" role="status"><GitBranch size={18} aria-hidden="true" />
-        <p>此專案沒有可操作的 Git 工作目錄。</p>
-        <p className="git-muted">只有 Git 確認的工作目錄才會提供 Git 操作。</p></div>}
+        <p>{t('This project has no usable Git working tree.')}</p>
+        <p className="git-muted">{t('Git actions are only offered for working trees that Git confirms.')}</p></div>}
       {project.repos.length > 0 && <GitRepoSelector repos={project.repos} statuses={git.statuses} errors={git.statusErrors}
         selectedId={git.selectedId} onSelect={git.setSelectedId} />}
       {(project.truncated || project.cancelled) && <div className="git-scan-note" role="status">
-        <span className="git-muted">{project.cancelled ? '已取消子目錄掃描' : `子目錄掃描已在${{ time: '時間', directories: '目錄數量', repositories: 'repository 數量' }[project.limitReason ?? 'time']}上限停止`}；
-          開啟檔案時會自動找出它所屬的 repository。</span>
-        <button className="git-link" disabled={git.discovering} onClick={() => void git.discover(true)}>繼續掃描</button>
+        <span className="git-muted">{project.cancelled ? t('Subfolder scan cancelled') : t('Subfolder scan stopped at the {{limit}} limit', { limit: { time: t('time'), directories: t('folder count'), repositories: t('repository count') }[project.limitReason ?? 'time'] })}{t('; ')}
+          {t('opening a file finds its repository automatically.')}</span>
+        <button className="git-link" disabled={git.discovering} onClick={() => void git.discover(true)}>{t('Continue scan')}</button>
       </div>}
       {project.issues.length > 0 && <details className="git-issues">
-        <summary>{project.issues.length} 個未提供操作的位置</summary>
+        <summary>{t('{{count}} locations without Git actions', { count: project.issues.length })}</summary>
         <ul>{project.issues.map(issue => <li key={`${issue.kind}:${issue.relativePath}`}>
           <strong>{issueTitle[issue.kind]}</strong> <code>{issue.relativePath || '.'}</code><p>{issue.message}</p></li>)}</ul>
       </details>}
       {selectedRepo && <div className="git-context" aria-live="polite">
         <span className="git-context-repo" title={selectedRepo.root}>{selectedRepo.name}</span>
         {selectedStatus && <>
-          <span title="目前 branch"><GitBranch size={12} aria-hidden="true" />{branchLabel(selectedStatus.branch)}</span>
+          <span title={t('Current branch')}><GitBranch size={12} aria-hidden="true" />{branchLabel(selectedStatus.branch)}</span>
           {selectedStatus.branch.upstream && <span className="git-muted" title="upstream">→ {selectedStatus.branch.upstream}</span>}
           {selectedStatus.operation && <span className="git-warning">{operationLabel[selectedStatus.operation]}</span>}
         </>}
@@ -246,13 +247,13 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
       {selectedRepo && selectedStatus?.operation && <OperationBar projectId={projectId} repo={selectedRepo} status={selectedStatus}
         onOutcome={handleOutcome(selectedRepo.id)} />}
       {message && <p className={message.tone === 'success' ? 'git-success' : 'git-error'} role={message.tone === 'error' ? 'alert' : 'status'}>{message.text}</p>}
-      {selectedRepo && selectedStatus && <Section title="變更">
+      {selectedRepo && selectedStatus && <Section title={t('Changes')}>
         <GitChanges status={selectedStatus} actions={{
           busy, activeKey: activeEntryKey,
           onOpen: (entry, group) => openEntry(selectedRepo, entry, group),
-          onStage: entries => void mutate(selectedRepo.id, entries.length > 1 ? `已暫存 ${entries.length} 個檔案。` : `已暫存 ${entries[0].path.path}。`,
+          onStage: entries => void mutate(selectedRepo.id, entries.length > 1 ? t('Staged {{count}} files.', { count: entries.length }) : t('Staged {{path}}.', { path: entries[0].path.path }),
             () => gitApi.stagePaths(projectId, selectedRepo.id, entries.map(entry => entry.path))),
-          onUnstage: entries => void mutate(selectedRepo.id, entries.length > 1 ? `已取消暫存 ${entries.length} 個檔案。` : `已取消暫存 ${entries[0].path.path}。`,
+          onUnstage: entries => void mutate(selectedRepo.id, entries.length > 1 ? t('Unstaged {{count}} files.', { count: entries.length }) : t('Unstaged {{path}}.', { path: entries[0].path.path }),
             () => gitApi.unstagePaths(projectId, selectedRepo.id, entries.flatMap(entry => entry.origPath ? [entry.path, entry.origPath] : [entry.path]))),
           onDiscard: entries => setDiscarding({ repo: selectedRepo, entries }),
         }} />
@@ -263,7 +264,7 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
           void git.refreshStatus(selectedRepo.id);
         }} />
       </Section>}
-      {selectedRepo && selectedStatus && <Section title="同步">
+      {selectedRepo && selectedStatus && <Section title={t('Sync')}>
         <SyncPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} refs={refs[selectedRepo.id] ?? null} onDone={result => {
           setMessage(result);
           void git.refreshStatus(selectedRepo.id);
@@ -279,27 +280,27 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         <WorktreesPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} refs={refs[selectedRepo.id] ?? null}
           onOutcome={handleOutcome(selectedRepo.id)} onOpen={onOpenWorktree} />
       </Section>}
-      {selectedRepo && selectedStatus && <Section title={`Stash${selectedStatus.stashCount ? `（${selectedStatus.stashCount}）` : ''}`} open={false}>
+      {selectedRepo && selectedStatus && <Section title={selectedStatus.stashCount ? t('Stash ({{count}})', { count: selectedStatus.stashCount }) : 'Stash'} open={false}>
         <StashPanel projectId={projectId} repo={selectedRepo} status={selectedStatus} onOutcome={handleOutcome(selectedRepo.id)} />
       </Section>}
       {selectedRepo && <Section title="Tags" open={false}>
         <TagsPanel projectId={projectId} repo={selectedRepo} refs={refs[selectedRepo.id] ?? null} onOutcome={handleOutcome(selectedRepo.id)} />
       </Section>}
-      {selectedRepo && <Section title="復原點" open={false}>
+      {selectedRepo && <Section title={t('Recovery points')} open={false}>
         <RecoveryPanel projectId={projectId} repo={selectedRepo} revision={selectedStatus?.revision} onRestored={result => {
           setMessage(result); void git.refreshStatus(selectedRepo.id); void loadRefs(selectedRepo.id);
         }} />
       </Section>}
-      {selectedRepo && selectedStatus && <Section title="PR／MR" open={false}>
+      {selectedRepo && selectedStatus && <Section title={t('PRs / MRs')} open={false}>
         <PullsPanel projectId={projectId} repo={selectedRepo} status={selectedStatus}
           onOpen={(remote, pull) => open(selectedRepo, { kind: 'pullRequest', remote, number: pull.number, title: pull.title })} />
       </Section>}
-      <Section title="主機與帳號" open={false}>
+      <Section title={t('Hosts and accounts')} open={false}>
         <HostsPanel projectId={projectId} repo={selectedRepo} />
       </Section>
-      {selectedRepo && <Section title="歷史">
+      {selectedRepo && <Section title={t('History')}>
         <div className="git-row">
-          <button onClick={() => open(selectedRepo, { kind: 'graph' })}><GitBranch size={14} aria-hidden="true" />開啟歷史 graph</button>
+          <button onClick={() => open(selectedRepo, { kind: 'graph' })}><GitBranch size={14} aria-hidden="true" />{t('Open history graph')}</button>
         </div>
       </Section>}
       {historyAction && git.statuses[historyAction.repo.id] && (historyAction.kind === 'reset'
@@ -307,15 +308,15 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
           onOutcome={handleOutcome(historyAction.repo.id)} onClose={() => setHistoryAction(null)} />
         : <RevertDialog projectId={projectId} repo={historyAction.repo} status={git.statuses[historyAction.repo.id]} commit={historyAction.commit}
           onOutcome={handleOutcome(historyAction.repo.id)} onClose={() => setHistoryAction(null)} />)}
-      {discarding && <DangerDialog title={`捨棄 ${discarding.entries.length} 個檔案的變更？`} confirmLabel="捨棄變更"
-        acknowledge={`我了解 ${discarding.repo.name} 這些檔案的未提交變更會被移除`}
-        impact={<ul>{discarding.entries.map(entry => <li key={pathKey(entry.path)}>{entry.untracked ? '刪除未追蹤檔案' : '還原為 index 版本'}：<code>{entry.path.path}</code></li>)}</ul>}
-        recovery="自動建立復原點：保存 tracked 工作檔的未提交變更與 index，並逐位元組備份要刪除的 untracked 檔案（上限 50 MB）；備份失敗則不會刪除。"
+      {discarding && <DangerDialog title={t('Discard changes to {{count}} files?', { count: discarding.entries.length })} confirmLabel={t('Discard changes')}
+        acknowledge={t('I understand uncommitted changes to these files in {{repo}} will be removed', { repo: discarding.repo.name })}
+        impact={<ul>{discarding.entries.map(entry => <li key={pathKey(entry.path)}>{entry.untracked ? t('Delete untracked file') : t('Restore the index version')}{t(': ')}<code>{entry.path.path}</code></li>)}</ul>}
+        recovery={t('A recovery point saves uncommitted changes to tracked files and the index, and backs up untracked files byte for byte before deleting them (up to 50 MB). If the backup fails, nothing is deleted.')}
         onClose={() => setDiscarding(null)}
         onConfirm={async () => handleOutcome(discarding.repo.id)(await gitApi.discard(projectId, { repoId: discarding.repo.id,
           paths: discarding.entries.filter(entry => !entry.untracked).map(entry => entry.path),
           untracked: discarding.entries.filter(entry => entry.untracked).map(entry => entry.path) }))} />}
-      {selectedRepo && selectedStatus && <Section title="比較" open={false} actions={<GitCompare size={13} aria-hidden="true" />}>
+      {selectedRepo && selectedStatus && <Section title={t('Compare')} open={false} actions={<GitCompare size={13} aria-hidden="true" />}>
         <CompareForm refs={refs[selectedRepo.id] ?? null} onCompare={(base, head, mergeBase) =>
           open(selectedRepo, { kind: 'comparison', source: { kind: 'compare', base, head, mergeBase } })} />
       </Section>}
@@ -330,10 +331,10 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
         }
       }}>
       <div className="project-files-heading"><strong>Git</strong><span />
-        {git.discovering && project && <button aria-label="取消掃描" title="取消 repository 掃描" onClick={git.cancelDiscovery}><X size={15} /></button>}
-        <button aria-label="重新整理 Git" title="重新尋找 repository 並讀取狀態" disabled={git.discovering} onClick={() => void git.discover()}>
+        {git.discovering && project && <button aria-label={t('Cancel scan')} title={t('Cancel repository scan')} onClick={git.cancelDiscovery}><X size={15} /></button>}
+        <button aria-label={t('Refresh Git')} title={t('Find repositories again and reload their status')} disabled={git.discovering} onClick={() => void git.discover()}>
           <RefreshCw size={15} className={git.discovering ? 'spin' : undefined} /></button>
-        <button aria-label="收合 Git 面板" onClick={onHideSidebar}><PanelRightClose size={15} /></button>
+        <button aria-label={t('Collapse Git panel')} onClick={onHideSidebar}><PanelRightClose size={15} /></button>
       </div>
       <div className="git-sidebar-body">{sidebarBody()}</div>
     </aside>, sidebarHost)}
@@ -341,9 +342,9 @@ function Workbench({ projectId, visible, active, sidebarVisible, sidebarHost, ta
       <GitDocumentTabs state={documents} active={active} onActivate={key => { dispatch({ type: 'activate', key }); onActivate(); }} onClose={close} />
     </div>, tabsHost)}
     {documentHost && createPortal(<section ref={documentRoot} hidden={!visible || !active} className="git-document"
-      data-git-workbench={visible && active ? '' : undefined} aria-label="Git 檢視">
+      data-git-workbench={visible && active ? '' : undefined} aria-label={t('Git view')}>
       {activeDocument && visible && active ? renderDocument(activeDocument)
-        : <div className="explorer-empty"><GitBranch size={28} aria-hidden="true" /><strong>從 Git 面板開啟差異或歷史</strong></div>}
+        : <div className="explorer-empty"><GitBranch size={28} aria-hidden="true" /><strong>{t('Open a diff or history from the Git panel')}</strong></div>}
     </section>, documentHost)}
   </>;
 }

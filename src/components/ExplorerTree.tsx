@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, FileCode2, FileJson, FileText, Folder, Folde
 import { api, errorMessage } from '../api';
 import type { WorkspaceFileEntry } from '../types';
 import type { KeyboardEvent } from 'react';
+import { t } from '../i18n';
 
 export function FileIcon({ path }: { path: string }) {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
@@ -44,30 +45,30 @@ function Directory({ path, depth, focus, setFocus, ...props }: TreeProps & { pat
     // A directory instance is keyed by project, hidden setting and refresh generation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return <ul role={depth ? 'group' : 'tree'} className="workspace-file-tree" aria-label={depth ? undefined : '專案根目錄'}>
+  return <ul role={depth ? 'group' : 'tree'} className="workspace-file-tree" aria-label={depth ? undefined : t('Project root')}>
     {entries.map((entry, index) => <li key={entry.path} role="treeitem" aria-selected={props.selected === entry.path}
       aria-expanded={entry.kind === 'directory' ? !!expanded[entry.path] : undefined}>
       <button data-tree-row data-path={entry.path} data-parent={path} data-directory={entry.kind === 'directory'}
         className={props.selected === entry.path ? 'selected' : ''} disabled={entry.kind === 'blocked'}
         tabIndex={focus === entry.path || (!focus && depth === 0 && index === entries.findIndex(item => item.kind !== 'blocked')) ? 0 : -1}
         onFocus={() => setFocus(entry.path)}
-        title={entry.kind === 'blocked' ? '連結或特殊檔案不開啟' : entry.path}
+        title={entry.kind === 'blocked' ? t('Links and special files are not opened') : entry.path}
         aria-expanded={entry.kind === 'directory' ? !!expanded[entry.path] : undefined}
         onClick={() => entry.kind === 'directory' ? setExpanded(old => ({ ...old, [entry.path]: !old[entry.path] })) : props.onOpen(entry.path)}
         onDoubleClick={() => { if (entry.kind === 'file') props.onOpen(entry.path, true); }}
         onContextMenu={event => { event.preventDefault(); props.onMenu(entry.path, event.currentTarget, event.clientX, event.clientY); }}>
         {entry.kind === 'directory' ? <>{expanded[entry.path] ? <ChevronDown size={13} /> : <ChevronRight size={13} />}{expanded[entry.path] ? <FolderOpen size={15} /> : <Folder size={15} />}</>
           : <><span className="explorer-tree-spacer" />{entry.kind === 'blocked' ? <LockKeyhole size={15} /> : <FileIcon path={entry.path} />}</>}
-        <span>{entry.name}</span>{entry.kind === 'blocked' && <small>不開啟</small>}
+        <span>{entry.name}</span>{entry.kind === 'blocked' && <small>{t('Not opened')}</small>}
       </button>
       {entry.kind === 'directory' && expanded[entry.path] !== undefined && <div hidden={!expanded[entry.path]}>
         <Directory {...props} key={entry.path} path={entry.path} depth={depth + 1} focus={focus} setFocus={setFocus} />
       </div>}
     </li>)}
-    {busy && <li role="none"><span role="status">讀取目錄中…</span></li>}
-    {error && <li role="none"><p role="alert">{error}</p><button onClick={() => void load(entries.length ? next ?? 0 : 0)}>重試目錄</button></li>}
-    {!busy && !error && !entries.length && <li role="none" className="file-muted">沒有可顯示的檔案</li>}
-    {next !== null && !error && <li role="none"><button disabled={busy} onClick={() => void load(next)}>載入更多檔案</button></li>}
+    {busy && <li role="none"><span role="status">{t('Reading folder…')}</span></li>}
+    {error && <li role="none"><p role="alert">{error}</p><button onClick={() => void load(entries.length ? next ?? 0 : 0)}>{t('Retry folder')}</button></li>}
+    {!busy && !error && !entries.length && <li role="none" className="file-muted">{t('No files to show')}</li>}
+    {next !== null && !error && <li role="none"><button disabled={busy} onClick={() => void load(next)}>{t('Load more files')}</button></li>}
   </ul>;
 }
 export function ExplorerTree(props: TreeProps) {

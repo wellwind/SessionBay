@@ -2,6 +2,7 @@
 //! Session Bay settings: Git credential helpers (Keychain, Credential
 //! Manager, libsecret) keyed by host and account, or the GitHub CLI store.
 use super::super::runner::{Access, GitRunner, Invocation};
+use crate::tr;
 use serde::Serialize;
 use std::{path::Path, process::Stdio, time::Duration};
 
@@ -74,13 +75,13 @@ pub fn helper_info(runner: &GitRunner, cwd: &Path, host: &str) -> HelperInfo {
 fn credential_input(host: &str, account: &str, password: Option<&str>) -> Result<Vec<u8>, String> {
     for value in [host, account] {
         if value.is_empty() || value.contains(['\n', '\0', '\r']) {
-            return Err("主機或帳號名稱無效".into());
+            return Err(tr!("Invalid host or account name"));
         }
     }
     let mut input = format!("protocol=https\nhost={host}\nusername={account}\n");
     if let Some(password) = password {
         if password.contains(['\n', '\0', '\r']) {
-            return Err("Token 含無效字元".into());
+            return Err(tr!("The token contains invalid characters"));
         }
         input.push_str(&format!("password={password}\n"));
     }
@@ -135,9 +136,9 @@ pub fn approve(
     let info = helper_info(runner, cwd, host);
     if !info.secure {
         return Err(if info.plaintext {
-            "目前的 Git credential helper 會以明文保存（store）；Session Bay 不會寫入，token 只在本次執行期間保留".into()
+            tr!("Your Git credential helper stores secrets in plain text (store), so Session Bay will not write to it; the token is kept for this run only")
         } else {
-            "沒有設定安全的 Git credential helper；token 只在本次執行期間保留".into()
+            tr!("No secure Git credential helper is set up; the token is kept for this run only")
         });
     }
     runner
@@ -149,7 +150,12 @@ pub fn approve(
             )?),
         )
         .map(|_| ())
-        .map_err(|e| format!("無法寫入安全憑證儲存：{e}"))
+        .map_err(|e| {
+            tr!(
+                "Cannot write to the secure credential store: {{error}}",
+                error = e
+            )
+        })
 }
 
 pub fn reject(runner: &GitRunner, cwd: &Path, host: &str, account: &str) -> Result<(), String> {

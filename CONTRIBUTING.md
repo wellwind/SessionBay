@@ -22,7 +22,7 @@ Thanks for helping! Bug reports, ideas and pull requests are all welcome.
 - **Agent history stays read-only.** The only exception is the reviewed "move to system trash" flow ([Data safety](docs/data-safety.md)).
 - **Tests use synthetic data only.** Never commit real agent history, local catalogs or credentials.
 - **Launch processes safely.** Pass the executable, arguments and working directory separately, and never build shell command strings from untrusted text.
-- **Translate new UI text.** Add every user-facing string to both `src/locales/en.json` and `src/locales/zh-TW.json`.
+- **Translate new UI text.** Write it in English inside `t('…')` (TypeScript) or `tr!("…")` (Rust), and add the Traditional Chinese translation to `src/locales/zh-TW.json`. `npm test` fails when a translation is missing. Don't speak Chinese? Leave a note in the PR and a maintainer will add it.
 - **Match the code style.**
   - TypeScript: ESLint, strict mode.
   - Rust: `rustfmt` and Clippy with `-D warnings`.

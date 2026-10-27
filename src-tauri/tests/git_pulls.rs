@@ -218,7 +218,7 @@ fn github_review_and_merge_are_bound_to_the_seen_head() {
     let error = fixture
         .git(json!({ "op": "pullReview", "number": 7, "event": "approve", "expectedHead": seen }))
         .unwrap_err();
-    assert!(error.contains("遠端已有新的 commit"), "{error}");
+    assert!(error.contains("A new commit is on the remote"), "{error}");
     assert!(fixture
         .git(json!({ "op": "pullMerge", "number": 7, "method": "merge", "expectedHead": seen }))
         .is_err());
@@ -250,7 +250,7 @@ fn github_review_and_merge_are_bound_to_the_seen_head() {
     assert!(fixture
         .git(json!({ "op": "pullMerge", "number": 7, "method": "rebase", "expectedHead": fresh }))
         .unwrap_err()
-        .contains("不允許"));
+        .contains("does not allow"));
     fixture
         .git(json!({ "op": "pullMerge", "number": 7, "method": "squash", "expectedHead": fresh }))
         .unwrap();
@@ -271,7 +271,7 @@ fn github_review_and_merge_are_bound_to_the_seen_head() {
     assert!(fixture
         .git(json!({ "op": "pullCreate", "title": "x", "source": "feature", "target": "main" }))
         .unwrap_err()
-        .contains("請先推送"));
+        .contains("push this branch"));
     git(
         &fixture.root,
         &["update-ref", "refs/remotes/origin/feature", "HEAD"],
@@ -353,13 +353,13 @@ fn gitlab_permissions_ci_and_positions_follow_the_platform() {
     )
     .unwrap();
     assert_eq!(approve["sha"], seen);
-    assert!(fixture.git(json!({ "op": "pullReview", "number": 3, "event": "requestChanges", "body": "x", "expectedHead": seen })).unwrap_err().contains("不支援"));
+    assert!(fixture.git(json!({ "op": "pullReview", "number": 3, "event": "requestChanges", "body": "x", "expectedHead": seen })).unwrap_err().contains("does not support"));
     // The platform's refusal is reported, not hidden behind a uniform button.
     let error = fixture
         .git(json!({ "op": "pullMerge", "number": 3, "method": "merge", "expectedHead": seen }))
         .unwrap_err();
     assert!(
-        error.contains("平台拒絕") || error.contains("HTTP 405"),
+        error.contains("host rejected") || error.contains("HTTP 405"),
         "{error}"
     );
     // An unmapped remote has no account to use.
@@ -370,5 +370,5 @@ fn gitlab_permissions_ci_and_positions_follow_the_platform() {
     assert!(fixture
         .git(json!({ "op": "pulls", "remote": "fork" }))
         .unwrap_err()
-        .contains("尚未對應"));
+        .contains("not linked to a host account"));
 }

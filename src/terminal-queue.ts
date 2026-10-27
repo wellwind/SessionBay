@@ -1,3 +1,4 @@
+import { t } from './i18n';
 /** Keeps IPC input writes ordered without allowing a stalled PTY to grow memory forever. */
 export class TerminalInputQueue {
   private tail: Promise<void> = Promise.resolve();
@@ -14,7 +15,7 @@ export class TerminalInputQueue {
   enqueue(runtimeId: string, data: string): boolean {
     const bytes = new TextEncoder().encode(data).byteLength;
     if (this.pendingBytes + bytes > this.limit) {
-      this.onError(new Error('待送終端輸入已達 256 KiB 上限。請等待程序讀取後再試，或分段貼上。'));
+      this.onError(new Error(t('Pending terminal input reached the 256 KiB limit. Wait for the program to read it, or paste in smaller parts.')));
       return false;
     }
     const generation = this.generation;

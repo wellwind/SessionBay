@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, PointerEvent } from 'react';
 import { Maximize, Minus, Plus } from 'lucide-react';
 import './image-viewer.css';
+import { t } from '../i18n';
 
 export interface ImageViewerProps {
   path: string; blob: Blob; width: number; height: number; sizeBytes: number;
@@ -108,16 +109,16 @@ export function ImageViewer({ path, blob, width, height, sizeBytes, format, firs
   };
   const unavailable = failed || !current?.loaded;
   const percentage = `${Number((scale * 100).toFixed(1))}%`;
-  return <div className="image-viewer" aria-label={`圖片：${path}`}>
-    <div className="image-viewer-toolbar" role="toolbar" aria-label="圖片檢視工具">
+  return <div className="image-viewer" aria-label={t('Image: {{path}}', { path })}>
+    <div className="image-viewer-toolbar" role="toolbar" aria-label={t('Image viewer tools')}>
       <span className="image-viewer-path" title={path}>{path}</span>
-      <button type="button" aria-label="縮小圖片" title="縮小（-）" disabled={unavailable || scale <= MIN_ZOOM} onClick={() => setManualZoom(scale / 1.25)}><Minus size={15} /></button>
-      <output className="image-viewer-zoom" aria-label="圖片縮放比例">{percentage}</output>
-      <button type="button" aria-label="放大圖片" title="放大（+）" disabled={unavailable || scale >= MAX_ZOOM} onClick={() => setManualZoom(scale * 1.25)}><Plus size={15} /></button>
-      <button type="button" aria-label="符合視窗" title="符合視窗（0）" aria-pressed={zoom.fit} disabled={unavailable} onClick={fit}><Maximize size={15} /></button>
-      <button type="button" aria-label="原始大小 1:1" title="原始大小（1 image pixel = 1 CSS pixel）" aria-pressed={!zoom.fit && scale === 1} disabled={unavailable} onClick={() => setManualZoom(1, true)}>1:1</button>
+      <button type="button" aria-label={t('Zoom out')} title={t('Zoom out (-)')} disabled={unavailable || scale <= MIN_ZOOM} onClick={() => setManualZoom(scale / 1.25)}><Minus size={15} /></button>
+      <output className="image-viewer-zoom" aria-label={t('Image zoom')}>{percentage}</output>
+      <button type="button" aria-label={t('Zoom in')} title={t('Zoom in (+)')} disabled={unavailable || scale >= MAX_ZOOM} onClick={() => setManualZoom(scale * 1.25)}><Plus size={15} /></button>
+      <button type="button" aria-label={t('Fit to window')} title={t('Fit to window (0)')} aria-pressed={zoom.fit} disabled={unavailable} onClick={fit}><Maximize size={15} /></button>
+      <button type="button" aria-label={t('Actual size 1:1')} title={t('Actual size (1 image pixel = 1 CSS pixel)')} aria-pressed={!zoom.fit && scale === 1} disabled={unavailable} onClick={() => setManualZoom(1, true)}>1:1</button>
     </div>
-    <div ref={viewport} className="image-viewer-viewport" role="region" aria-label={`圖片預覽：${path}`} tabIndex={0}
+    <div ref={viewport} className="image-viewer-viewport" role="region" aria-label={t('Image preview: {{path}}', { path })} tabIndex={0}
       data-panning={dragging || undefined} onKeyDown={keys} onDragStart={event => event.preventDefault()}
       onPointerDown={event => {
         if (unavailable || event.button !== 0 || !event.isPrimary || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
@@ -134,8 +135,8 @@ export function ImageViewer({ path, blob, width, height, sizeBytes, format, firs
         event.currentTarget.scrollLeft = start.left - (event.clientX - start.x);
         event.currentTarget.scrollTop = start.top - (event.clientY - start.y);
       }} onPointerUp={endPan} onPointerCancel={endPan} onLostPointerCapture={endPan}>
-      {failed ? <p className="image-viewer-message" role="alert">無法顯示圖片。</p> : <>
-        {!current?.loaded && <p className="image-viewer-message" role="status">載入圖片中…</p>}
+      {failed ? <p className="image-viewer-message" role="alert">{t('Cannot display the image.')}</p> : <>
+        {!current?.loaded && <p className="image-viewer-message" role="status">{t('Loading image…')}</p>}
         {current?.url && <div className="image-viewer-stage" style={{ width: stageWidth, height: stageHeight }}>
           <img ref={image} src={current.url} alt={path} width={width} height={height} draggable={false} decoding="async"
             style={{ width: imageWidth, height: imageHeight, visibility: current.loaded ? 'visible' : 'hidden' }}
@@ -150,7 +151,7 @@ export function ImageViewer({ path, blob, width, height, sizeBytes, format, firs
     </div>
     <div className="image-viewer-status"><span>{width.toLocaleString()} × {height.toLocaleString()} px · {format.toUpperCase()}</span>
       <span title={`${sizeBytes.toLocaleString()} bytes`}>{readableSize(sizeBytes)}</span>
-      {firstFrameOnly && <span>僅顯示第一幀</span>}
+      {firstFrameOnly && <span>{t('Showing the first frame only')}</span>}
     </div>
   </div>;
 }

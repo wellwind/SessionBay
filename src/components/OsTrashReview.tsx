@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorMessage } from '../api';
 import { agentNames } from '../agents';
 import type { OsTrashPlan, OsTrashResult, TrashedSession } from '../types';
+import { t } from '../i18n';
 
 function sizeLabel(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -53,42 +54,42 @@ export function OsTrashReview({ entry, onClose, onMoved }: {
   const ready = !!plan?.planId && !plan.blockers.length;
   if (partial) return <>
     <h3>{entry.session.title || entry.session.externalId}</h3>
-    <p role="alert" className="inline-error">部分檔案未能移到系統垃圾桶，Session Bay 已不再顯示這個 Session。</p>
-    <ul aria-label="未移動">{partial.failed.map(reason => <li key={reason}>{reason}</li>)}</ul>
-    <div className="history-undo-actions"><button ref={backButton} onClick={() => void onMoved()}>完成</button></div>
+    <p role="alert" className="inline-error">{t('Some files could not be moved to the system trash. Session Bay no longer shows this session.')}</p>
+    <ul aria-label={t('Not moved')}>{partial.failed.map(reason => <li key={reason}>{reason}</li>)}</ul>
+    <div className="history-undo-actions"><button ref={backButton} onClick={() => void onMoved()}>{t('Done')}</button></div>
   </>;
   return <>
     <h3>{entry.session.title || entry.session.externalId}</h3>
-    <p>下列檔案會移到系統垃圾桶。在系統垃圾桶清空前，可從本視窗的「已移到系統垃圾桶」還原；檔名是 Session ID，不是標題。共享儲存不會變動，可能仍留有這個 Session 的片段紀錄。</p>
-    {loading && <p role="status">檢查 Session 檔案中…</p>}
+    <p>{t('These files will move to the system trash. Until the trash is emptied, you can restore them from "Moved to system trash" in this window. File names are session IDs, not titles. Shared storage is not changed and may still hold fragments of this session.')}</p>
+    {loading && <p role="status">{t('Checking session files…')}</p>}
     {error && <p role="alert" className="inline-error">{error}</p>}
     {plan && <>
-      <p className="session-trash-source">{agentNames[plan.kind]} · Session {entry.session.externalId}<br />來源 {plan.sourceRoot}</p>
-      {plan.kind === 'opencode' && <p>OpenCode 的對話存在共用資料庫中：會先用官方 <code>opencode export</code> 匯出完整 JSON，確認匯出內容後再用 <code>opencode session delete</code> 刪除，匯出檔移到系統垃圾桶；還原時以 <code>opencode import</code> 匯回原工作目錄。</p>}
-      {!!plan.items.length && <ul aria-label="將移到系統垃圾桶">
+      <p className="session-trash-source">{agentNames[plan.kind]} · Session {entry.session.externalId}<br />{t('Source {{root}}', { root: plan.sourceRoot })}</p>
+      {plan.kind === 'opencode' && <p>{t('OpenCode keeps conversations in a shared database. Session Bay first exports the full JSON with the official ')}<code>opencode export</code>{t(' command, verifies the export, deletes the session with ')}<code>opencode session delete</code>{t(' and moves the export to the system trash. Restoring runs ')}<code>opencode import</code>{t(' in the original working directory.')}</p>}
+      {!!plan.items.length && <ul aria-label={t('Will move to the system trash')}>
         {plan.items.map(item => <li key={item.relativePath}>
           <span className="session-trash-source">{item.relativePath}{item.directory ? '/' : ''}</span>
-          {plan.kind !== 'opencode' && <>{' · '}{item.directory ? `資料夾，${item.entries} 個項目，` : ''}{sizeLabel(item.bytes)}</>}
+          {plan.kind !== 'opencode' && <>{' · '}{item.directory ? t('folder, {{count}} items, ', { count: item.entries }) : ''}{sizeLabel(item.bytes)}</>}
         </li>)}
       </ul>}
       {!!plan.kept.length && <>
-        <p>保留不動的共享儲存：</p>
-        <ul aria-label="保留的共享儲存">{plan.kept.map(name => <li key={name} className="session-trash-source">{name}</li>)}</ul>
+        <p>{t('Shared storage left untouched:')}</p>
+        <ul aria-label={t('Shared storage kept')}>{plan.kept.map(name => <li key={name} className="session-trash-source">{name}</li>)}</ul>
       </>}
-      {!!plan.blockers.length && <ul aria-label="無法移動原因" className="inline-error">
+      {!!plan.blockers.length && <ul aria-label={t('Why it cannot be moved')} className="inline-error">
         {plan.blockers.map(reason => <li key={reason}>{reason}</li>)}
       </ul>}
       {ready && <label className="checkbox-label">
         <input type="checkbox" className="checkbox" checked={confirmed} disabled={moving}
           onChange={event => setConfirmed(event.target.checked)} />
-        我了解這些檔案會離開 Agent 的歷史資料夾，Agent 將無法再接續這個 Session。
+        {t('I understand these files will leave the agent\'s history folder and the agent can no longer resume this session.')}
       </label>}
     </>}
     <div className="history-undo-actions">
-      <button ref={backButton} className="secondary" disabled={moving} onClick={onClose}>返回資源回收筒</button>
-      <button className="secondary" disabled={loading || moving} onClick={() => setRevision(value => value + 1)}>重新檢查</button>
+      <button ref={backButton} className="secondary" disabled={moving} onClick={onClose}>{t('Back to recycle bin')}</button>
+      <button className="secondary" disabled={loading || moving} onClick={() => setRevision(value => value + 1)}>{t('Check again')}</button>
       <button className="danger" disabled={!ready || !confirmed || moving || loading}
-        onClick={() => void execute()}>{moving ? '移動中…' : '移到系統垃圾桶'}</button>
+        onClick={() => void execute()}>{moving ? t('Moving…') : t('Move to system trash')}</button>
     </div>
   </>;
 }

@@ -1,3 +1,4 @@
+use crate::tr;
 use crate::{
     broker::{RuntimeRecord, UiEvent},
     config::{self, Installation, Settings},
@@ -55,6 +56,11 @@ fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn set_locale(locale: String) {
+    crate::i18n::set_locale(&locale);
+}
+
+#[tauri::command]
 fn frontend_diagnostic(phase: String, message: String) -> Result<bool, String> {
     if std::env::var("SESSIONBAY_SMOKE").as_deref() != Ok("1")
         || std::env::var("SESSIONBAY_SMOKE_MANUAL").as_deref() == Ok("1")
@@ -93,7 +99,7 @@ async fn blocking<T: Send + 'static>(
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(task)
         .await
-        .map_err(|e| format!("背景工作失敗：{e}"))?
+        .map_err(|e| tr!("Background task failed: {{error}}", error = e))?
 }
 
 #[tauri::command]
@@ -457,11 +463,16 @@ fn with_images<T>(
     s: &Service,
     f: impl FnOnce(&mut crate::image_input::ImageStaging) -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut store = s.image_staging.lock().map_err(|_| "圖片暫存鎖定失敗。")?;
+    let mut store = s
+        .image_staging
+        .lock()
+        .map_err(|_| tr!("Could not lock the image staging area."))?;
     if store.is_none() {
         *store = Some(crate::image_input::ImageStaging::open(&s.config.directory)?);
     }
-    f(store.as_mut().ok_or("圖片暫存未就緒。")?)
+    f(store
+        .as_mut()
+        .ok_or(tr!("The image staging area is not ready."))?)
 }
 #[tauri::command]
 async fn begin_image_input(
@@ -527,11 +538,16 @@ fn with_files<T>(
     s: &Service,
     f: impl FnOnce(&mut crate::file_input::FileStaging) -> Result<T, String>,
 ) -> Result<T, String> {
-    let mut store = s.file_staging.lock().map_err(|_| "檔案暫存鎖定失敗。")?;
+    let mut store = s
+        .file_staging
+        .lock()
+        .map_err(|_| tr!("Could not lock the file staging area."))?;
     if store.is_none() {
         *store = Some(crate::file_input::FileStaging::open(&s.config.directory)?);
     }
-    f(store.as_mut().ok_or("檔案暫存未就緒。")?)
+    f(store
+        .as_mut()
+        .ok_or(tr!("The file staging area is not ready."))?)
 }
 #[tauri::command]
 async fn begin_file_input(
@@ -776,6 +792,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            set_locale,
             frontend_diagnostic,
             bootstrap,
             detect_installations,
@@ -837,7 +854,7 @@ pub fn run() {
             close_application
         ])
         .build(tauri::generate_context!())
-        .expect("無法啟動 Session Bay");
+        .expect("failed to start Session Bay");
     app.run(|app, event| {
         let Some(state) = service_for_event(&event, || {
             app.try_state::<Arc<Service>>()

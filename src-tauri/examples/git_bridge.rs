@@ -154,6 +154,8 @@ fn main() {
         .nth(1)
         .and_then(|p| p.parse().ok())
         .unwrap_or(1441);
+    // Browser specs run the UI in Traditional Chinese; the core follows it.
+    sessionbay_lib::i18n::set_locale(&std::env::args().nth(2).unwrap_or_else(|| "zh-TW".into()));
     let state = Mutex::new(fixture());
     let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
     eprintln!("git bridge on http://127.0.0.1:{port}");

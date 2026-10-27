@@ -4,7 +4,7 @@ Session Bay is a local-first desktop workbench for AI coding agents: unified ses
 
 ## Layout
 
-- `src/`: React/TypeScript UI. `src/locales/` holds the `en` and `zh-TW` strings.
+- `src/`: React/TypeScript UI. `src/i18n.ts` and `src/locales/` hold translations; `src-tauri/src/i18n.rs` reads the same catalog.
 - `src-tauri/src/`: Rust catalog, adapters, config, service, broker/runtime, Git and Tauri IPC (`desktop.rs`).
 - `src-tauri/tests/`, `src/*.test.ts(x)`, `tests/browser/`: tests. `fixtures/` holds synthetic data only.
 - `docs/`: developer docs (architecture, agent integrations, data safety, development).
@@ -22,7 +22,7 @@ Session Bay is a local-first desktop workbench for AI coding agents: unified ses
 ## Style
 
 - Docs, code comments, commit messages and PR descriptions are in English. The user guide and README also have a Traditional Chinese version (`README.zh-TW.md`, `website/src/content/docs/zh-tw/`); keep both in sync.
-- Every user-facing UI string goes through i18n and must exist in both `en` and `zh-TW`.
+- Write user-facing text in English and wrap it: `t('…')` in TypeScript, `tr!("…")` in Rust. Add the Traditional Chinese translation to `src/locales/zh-TW.json`; `src/locales/en.json` only holds English plural forms (`<key>_one`). `src/i18n.test.ts` fails when a translation is missing. Most UI tests run in zh-TW.
 - Rust uses rustfmt and Clippy. TypeScript uses ESLint and strict mode, with two-space indentation.
 - Keep comments concise and focused on intent or non-obvious constraints.
 - Separate verified results from unverified assumptions in PRs and docs. Never claim a platform works without testing on it.

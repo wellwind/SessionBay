@@ -8,6 +8,7 @@ use super::{
     runner::{Access, GitError, GitErrorKind, GitRunner, Invocation},
     status::{self, Operation},
 };
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -163,21 +164,22 @@ pub fn commit(
     cancel: Arc<AtomicBool>,
 ) -> Result<CommitResult, String> {
     if message.trim().is_empty() {
-        return Err("Commit 訊息不可空白".into());
+        return Err(tr!("The commit message cannot be empty"));
     }
     if message.len() > 64 * 1024 || message.contains('\0') {
-        return Err("Commit 訊息過長或含無效字元".into());
+        return Err(tr!(
+            "The commit message is too long or has invalid characters"
+        ));
     }
     if index_token(runner, repo)? != token {
         return Err(
-            "Index 已在預覽後變更（可能是 Agent 或其他 Git 操作），未建立 commit；請重新檢視預覽"
-                .into(),
+            tr!("The index changed after the preview (perhaps an agent or another Git operation), so no commit was created; review the preview again"),
         );
     }
     let (files, _) = diff::changed_files(runner, repo, &DiffSource::Staged)?;
     let merging = matches!(status::operation(repo), Some(Operation::Merge));
     if files.is_empty() && !merging {
-        return Err("沒有已暫存的變更".into());
+        return Err(tr!("No staged changes"));
     }
     // -F - keeps the message out of argv; no -a, no paths, no --no-verify:
     // exactly the index is committed and the user's hooks and signing run.
@@ -200,7 +202,7 @@ pub fn commit(
         }
         return Err(text);
     }
-    let oid = head(runner, repo)?.ok_or("Commit 後找不到 HEAD")?;
+    let oid = head(runner, repo)?.ok_or(tr!("HEAD is missing after the commit"))?;
     let summary = runner
         .ok(Invocation::new(
             &repo.root_path,
@@ -304,7 +306,11 @@ fn valid_name(value: &str, what: &str) -> Result<(), String> {
         || value.ends_with('/')
         || value.ends_with(".lock")
     {
-        return Err(format!("{what}名稱無效：{value}"));
+        return Err(tr!(
+            "Invalid {{what}} name: {{value}}",
+            what = what,
+            value = value
+        ));
     }
     Ok(())
 }
@@ -324,19 +330,23 @@ pub fn check_ref_name(
         ))
         .map_err(String::from)?;
     if !output.success() {
-        return Err(format!("{what}名稱無效：{value}"));
+        return Err(tr!(
+            "Invalid {{what}} name: {{value}}",
+            what = what,
+            value = value
+        ));
     }
     Ok(())
 }
 
 pub fn remote_exists(runner: &GitRunner, repo: &RepoInfo, remote: &str) -> Result<(), String> {
-    valid_name(remote, "Remote ")?;
+    valid_name(remote, &crate::tr!("remote"))?;
     let remotes = runner
         .ok(Invocation::new(&repo.root_path, Access::Read, ["remote"]))
         .map_err(String::from)?
         .stdout_text();
     if !remotes.lines().any(|line| line == remote) {
-        return Err(format!("找不到 remote：{remote}"));
+        return Err(tr!("Remote not found: {{remote}}", remote = remote));
     }
     Ok(())
 }
@@ -355,8 +365,9 @@ fn network(
                 .cancel(cancel),
         )
         .map_err(|error| match error.kind {
-            GitErrorKind::Timeout | GitErrorKind::Cancelled => format!(
-                "{error}。網路操作可能已部分完成；請重新整理確認遠端狀態，Session Bay 不會自動重送"
+            GitErrorKind::Timeout | GitErrorKind::Cancelled => tr!(
+                "{{error}}. The network operation may have partly completed; refresh to check the remote. Session Bay does not resend it automatically",
+                error = error
             ),
             _ => error.to_string(),
         })?;
@@ -405,10 +416,12 @@ pub fn pull(
     let (Some(_), Some(remote), Some(branch)) =
         (&plan.branch, &plan.upstream_remote, &plan.upstream_branch)
     else {
-        return Err("目前 branch 沒有 upstream；請先設定推送目的地或從 remote branch 建立".into());
+        return Err(tr!("The current branch has no upstream; set a push target first or create it from a remote branch"));
     };
     if status::operation(repo).is_some() {
-        return Err("有進行中的合併／rebase 等操作，請先完成或中止".into());
+        return Err(tr!(
+            "A merge, rebase or similar operation is in progress; finish or abort it first"
+        ));
     }
     let flag = match strategy {
         PullStrategy::Merge => "--no-rebase",
@@ -452,8 +465,18 @@ pub fn push(
     cancel: Arc<AtomicBool>,
 ) -> Result<PushResult, String> {
     remote_exists(runner, repo, &request.remote)?;
-    check_ref_name(runner, repo, &request.local_branch, "本機 branch ")?;
-    check_ref_name(runner, repo, &request.remote_branch, "遠端 branch ")?;
+    check_ref_name(
+        runner,
+        repo,
+        &request.local_branch,
+        &crate::tr!("local branch"),
+    )?;
+    check_ref_name(
+        runner,
+        repo,
+        &request.remote_branch,
+        &crate::tr!("remote branch"),
+    )?;
     let local = format!("refs/heads/{}", request.local_branch);
     let pushed = runner
         .run(Invocation::new(
@@ -463,7 +486,10 @@ pub fn push(
         ))
         .map_err(String::from)?;
     if !pushed.success() {
-        return Err(format!("本機 branch 不存在：{}", request.local_branch));
+        return Err(tr!(
+            "Local branch does not exist: {{branch}}",
+            branch = request.local_branch
+        ));
     }
     let pushed = pushed.stdout_text().trim().to_owned();
     // Never --tags or follow-tags: tags are pushed one by one, explicitly.
@@ -477,7 +503,7 @@ pub fn push(
     }
     if let Some(expected) = &request.force_with_lease {
         if expected.len() < 7 || !expected.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err("Force push 需要明確的遠端 commit".into());
+            return Err(tr!("Force push needs an explicit remote commit"));
         }
         args.push(format!(
             "--force-with-lease=refs/heads/{}:{expected}",

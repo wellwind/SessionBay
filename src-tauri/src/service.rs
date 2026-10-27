@@ -1,3 +1,4 @@
+use crate::tr;
 use crate::{
     broker::{BrokerClient, RuntimeRecord, UiEmitter},
     catalog::Catalog,
@@ -143,7 +144,7 @@ impl Service {
         self.settings
             .lock()
             .map(|v| v.clone())
-            .map_err(|_| "設定鎖定失敗".into())
+            .map_err(|_| tr!("Could not lock the settings"))
     }
     pub fn resolve_terminal_file(
         &self,
@@ -256,7 +257,10 @@ impl Service {
             .fresh_launches
             .lock()
             .map_err(|_| "Fresh launch lock failed")?;
-        let mut current = self.settings.lock().map_err(|_| "設定鎖定失敗")?;
+        let mut current = self
+            .settings
+            .lock()
+            .map_err(|_| tr!("Could not lock the settings"))?;
         // Palette/font changes do not change the scan's immutable source snapshot.
         // Compare all other fields so this exception cannot silently widen to source edits.
         let mut previous = serde_json::to_value(&*current).map_err(|e| e.to_string())?;
@@ -278,13 +282,13 @@ impl Service {
             None
         } else {
             if self.index_status()?.running {
-                return Err("請先取消索引並等待完成，再修改來源設定".into());
+                return Err(tr!(
+                    "Cancel indexing and wait for it to finish before changing source settings"
+                ));
             }
-            Some(
-                self.scan_guard
-                    .try_lock()
-                    .map_err(|_| "請先取消索引並等待完成，再修改來源設定")?,
-            )
+            Some(self.scan_guard.try_lock().map_err(|_| {
+                tr!("Cancel indexing and wait for it to finish before changing source settings")
+            })?)
         };
         settings.validate()?;
         if let Some(broker) = &self.broker {
@@ -304,14 +308,21 @@ impl Service {
         Ok(settings)
     }
     pub fn index_status(&self) -> Result<IndexStatus, String> {
-        let mut status = self.index.lock().map_err(|_| "索引狀態鎖定失敗")?.clone();
+        let mut status = self
+            .index
+            .lock()
+            .map_err(|_| tr!("Could not lock the index status"))?
+            .clone();
         // Also report committed changes while a scan is still running.
         status.revision = self.catalog.revision()?;
         Ok(status)
     }
     pub fn start_index(self: &Arc<Self>, rebuild: bool) -> Result<IndexStatus, String> {
         {
-            let mut status = self.index.lock().map_err(|_| "索引狀態鎖定失敗")?;
+            let mut status = self
+                .index
+                .lock()
+                .map_err(|_| tr!("Could not lock the index status"))?;
             if status.running {
                 return Ok(status.clone());
             }
@@ -325,7 +336,10 @@ impl Service {
         let service = Arc::clone(self);
         std::thread::spawn(move || {
             let result = (|| {
-                let _guard = service.scan_guard.lock().map_err(|_| "索引鎖定失敗")?;
+                let _guard = service
+                    .scan_guard
+                    .lock()
+                    .map_err(|_| tr!("Could not lock the index"))?;
                 if rebuild {
                     service.catalog.clear()?;
                 }
@@ -369,16 +383,19 @@ impl Service {
     pub fn clear_index(&self) -> Result<(), String> {
         self.cancel_index();
         if self.index_status()?.running {
-            return Err("索引正在停止，請稍後再清除".into());
+            return Err(tr!("Indexing is stopping; clear it again shortly"));
         }
         let _guard = self
             .scan_guard
             .try_lock()
-            .map_err(|_| "索引正在停止，請稍後再清除")?;
+            .map_err(|_| tr!("Indexing is stopping; clear it again shortly"))?;
         self.catalog.clear()?;
         let mut empty = empty_index();
         empty.revision = self.catalog.revision()?;
-        *self.index.lock().map_err(|_| "索引狀態鎖定失敗")? = empty;
+        *self
+            .index
+            .lock()
+            .map_err(|_| tr!("Could not lock the index status"))? = empty;
         Ok(())
     }
     pub fn begin_reconcile(self: &Arc<Self>) {
@@ -411,10 +428,10 @@ impl Service {
             || request.pane_id.len() > 128
             || request.pane_id.contains('\0')
         {
-            return Err("面板 ID 無效".into());
+            return Err(tr!("Invalid pane ID"));
         }
         if request.cols < 2 || request.cols > 1000 || request.rows < 1 || request.rows > 1000 {
-            return Err("終端尺寸無效".into());
+            return Err(tr!("Invalid terminal size"));
         }
         if request.session_id.is_some() && request.resume_id.is_some() {
             return Err("Choose an indexed session or a manual resume ID, not both.".into());
@@ -441,7 +458,7 @@ impl Service {
             let home = temporary_terminal_home(dirs::home_dir())?;
             cwd = Some(
                 home.to_str()
-                    .ok_or("家目錄路徑不是有效的 Unicode")?
+                    .ok_or(tr!("The home folder path is not valid Unicode"))?
                     .to_owned(),
             );
         }
@@ -451,7 +468,7 @@ impl Service {
                 .projects()?
                 .into_iter()
                 .find(|p| &p.id == project_id)
-                .ok_or("找不到專案，請重新選擇")?;
+                .ok_or(tr!("Project not found; choose it again"))?;
             if cwd.is_none() && request.session_id.is_none() {
                 cwd = project.launch_path.or(project.path);
             }
@@ -475,12 +492,12 @@ impl Service {
                 return Err("Session does not belong to the selected project.".into());
             }
             if agent.as_ref() != Some(&session.kind) {
-                return Err("Session 的工具與啟動選項不一致".into());
+                return Err(tr!("The session's tool does not match the launch options"));
             }
             if !settings.sources.iter().any(|s| {
                 s.id == source.id && s.enabled && s.root == source.root && s.kind == session.kind
             }) {
-                return Err("Session 的來源已停用或變更，請重新索引".into());
+                return Err(tr!("The session's source was disabled or changed; reindex"));
             }
             let id = &session.external_id;
             validate_resume_id(id)?;
@@ -546,10 +563,12 @@ impl Service {
                 resume_key = Some(provider_resume_key(kind, &source_root, id)?);
             }
         }
-        let cwd = cwd.ok_or("請先選擇專案或指定工作目錄；未分類歷史不會猜測目前目錄")?;
+        let cwd = cwd.ok_or(tr!("Choose a project or a working directory first; the folder of unclassified history is never guessed"))?;
         let cwd = PathBuf::from(cwd);
         if !cwd.is_absolute() || !cwd.is_dir() {
-            return Err("工作目錄不存在或不是絕對路徑；請重新定位專案".into());
+            return Err(tr!(
+                "The working directory does not exist or is not absolute; relocate the project"
+            ));
         }
         let executable = if let Some(kind) = &agent {
             args.extend(crate::launch_options::arguments(
@@ -567,7 +586,7 @@ impl Service {
                 .profiles
                 .iter()
                 .find(|p| p.id == profile_id)
-                .ok_or("找不到 Shell Profile")?;
+                .ok_or(tr!("Shell profile not found"))?;
             args = profile.args.clone();
             env = profile.env.clone();
             config::resolve_executable(&profile.executable)?
@@ -634,7 +653,9 @@ impl Service {
         }
         let spec = self.plan_launch(request)?;
         if spec.env.contains_key(crate::provider_hooks::OPT_IN) {
-            return Err("真實 hooks 需要 persistent broker 啟動".into());
+            return Err(tr!(
+                "Activity hooks require launching through the persistent broker"
+            ));
         }
         self.runtime.launch(spec, request.cols, request.rows, emit)
     }
@@ -670,7 +691,7 @@ impl Service {
                     .projects()?
                     .into_iter()
                     .find(|project| &project.id == project_id)
-                    .ok_or("找不到專案，請重新選擇")?;
+                    .ok_or(tr!("Project not found; choose it again"))?;
                 if cwd.is_none() {
                     cwd = project.launch_path.or(project.path);
                 }
@@ -783,10 +804,7 @@ impl Service {
                     }
                     let provenance = provenance.as_ref().ok_or("Launch provenance unavailable")?;
                     provenance.prune_current_generation(generation, &records)?;
-                    provenance.record(generation, record).map_err(|error| format!(
-                        "{error}（啟動證明位置：{}；僅能整理確定已結束工作階段的證明，勿刪 lock 或附件）",
-                        self.config.directory.join("launch-provenance-v1").display()
-                    ))
+                    provenance.record(generation, record).map_err(|error| tr!("{{error}} (launch proof location: {{v1}}; only clean up proofs of sessions that have certainly ended, and never delete locks or attachments)", error = error, v1 = self.config.directory.join("launch-provenance-v1").display()))
                 },
                 &context,
                 without_hooks,
@@ -865,9 +883,11 @@ impl Service {
             .list()?
             .into_iter()
             .find(|record| record.info.id == runtime_id)
-            .ok_or("檔案目標工作階段不存在。")?;
+            .ok_or(tr!("The target session for the file does not exist."))?;
         if broker.generation() != generation {
-            return Err("背景程序已變更，請重新確認工作階段。".into());
+            return Err(tr!(
+                "The background process changed; confirm the session again."
+            ));
         }
         crate::fresh_launch::check_file_capability(&record, || {
             let matched = {
@@ -893,9 +913,7 @@ impl Service {
                     .map_err(|_| "Fresh launch lock failed")?
                     .capability_error(&generation, runtime_id)
                 {
-                    return Err(format!(
-                        "Agent 已啟動，但本機檔案能力證明無法保存：{error}。尚未插入。"
-                    ));
+                    return Err(tr!("The agent started, but its local file access proof could not be saved: {{error}}. Nothing was inserted.", error = error));
                 }
             }
             Ok(matched)
@@ -942,9 +960,13 @@ impl Service {
 }
 
 fn temporary_terminal_home(home: Option<PathBuf>) -> Result<PathBuf, String> {
-    let home = home.ok_or("無法取得本機家目錄，請檢查系統使用者設定")?;
+    let home = home.ok_or(tr!(
+        "Cannot find your home folder; check your system user settings"
+    ))?;
     if !home.is_absolute() || !home.is_dir() {
-        return Err("本機家目錄不存在或不是絕對目錄".into());
+        return Err(tr!(
+            "Your home folder does not exist or is not an absolute path"
+        ));
     }
     Ok(home)
 }
@@ -1442,7 +1464,8 @@ mod tests {
         .unwrap();
         let bootstrap = service.bootstrap().unwrap();
         assert_eq!(bootstrap.warnings.len(), 1);
-        assert!(bootstrap.warnings[0].contains("布局已還原預設值；原檔保留"));
+        assert!(bootstrap.warnings[0]
+            .contains("The layout was reset to defaults; the original file is kept"));
     }
     #[test]
     fn temporary_home_fails_closed_without_a_real_absolute_directory() {

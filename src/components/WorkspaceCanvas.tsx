@@ -7,6 +7,7 @@ import { usePaneBranches } from '../use-pane-branches';
 import type { Divider } from '../workspace';
 import type { TerminalFileOpen } from '../terminal-file-links';
 import { TerminalPane } from './TerminalPane';
+import { t } from '../i18n';
 export function WorkspaceCanvas({
   workspace,
   knownProjectIds,
@@ -53,7 +54,7 @@ export function WorkspaceCanvas({
   const colorSlots = useMemo(() => projectColorSlots(projects.map((project) => project.id)), [projects]);
   const identity = (pane: Pane) => {
     if (!mixedPanes.includes(pane)) return undefined;
-    const name = pane.projectId === null ? '臨時 Terminal' : projects.find((project) => project.id === pane.projectId)?.name ?? '僅工作區專案';
+    const name = pane.projectId === null ? t('Temporary terminal') : projects.find((project) => project.id === pane.projectId)?.name ?? t('Workspace-only project');
     return { initials: projectInitials(name), name, color: projectColor(pane.projectId, colorSlots), branch: branches[pane.id] };
   };
   const geometry = tab ? layoutRects(tab.layout) : { panes: {}, dividers: [] };
@@ -85,7 +86,7 @@ export function WorkspaceCanvas({
     <div
       className={`workspace-canvas${tab?.layout.kind === 'pane' ? ' single-pane' : ''}`}
       style={{ display: visible ? undefined : 'none' }}
-      aria-label="開發工作區"
+      aria-label={t('Development workspace')}
     >
       <div className="workspace-canvas-body">
       <div className="workspace-terminal-surface" ref={root}>
@@ -129,7 +130,7 @@ export function WorkspaceCanvas({
           <div
             key={divider.id}
             role="separator"
-            aria-label={divider.axis === 'horizontal' ? '左右面板比例' : '上下面板比例'}
+            aria-label={divider.axis === 'horizontal' ? t('Left and right pane ratio') : t('Top and bottom pane ratio')}
             aria-orientation={divider.axis === 'horizontal' ? 'vertical' : 'horizontal'}
             aria-valuenow={Math.round(divider.ratio * 100)}
             aria-valuemin={15}

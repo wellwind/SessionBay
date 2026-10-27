@@ -4,6 +4,7 @@ import { AlertTriangle, LoaderCircle } from 'lucide-react';
 import { Dialog } from '../components/Dialog';
 import { errorMessage } from '../api';
 import { GitTargetContext } from './git-target';
+import { t } from '../i18n';
 
 /**
  * Destructive confirmations always spell out the impact and what a recovery
@@ -26,21 +27,21 @@ export function DangerDialog({ title, impact, recovery, confirmLabel, acknowledg
   const [error, setError] = useState('');
   return <Dialog title={title} onClose={() => { if (!busy) onClose(); }}>
     <div className="git-danger-body">
-      {target && <p className="git-danger-target">目標專案：<strong>{target}</strong></p>}
-      <p className="git-danger-heading"><AlertTriangle size={16} aria-hidden="true" />影響範圍</p>
+      {target && <p className="git-danger-target">{t('Target project: ')}<strong>{target}</strong></p>}
+      <p className="git-danger-heading"><AlertTriangle size={16} aria-hidden="true" />{t('Impact')}</p>
       <div className="git-danger-impact">{impact}</div>
       {children}
-      <p className="git-danger-heading">復原</p>
-      <div className="git-muted">{recovery ?? '此操作沒有自動復原點，完成後無法由 Session Bay 還原。'}</div>
+      <p className="git-danger-heading">{t('Recovery')}</p>
+      <div className="git-muted">{recovery ?? t('This operation has no automatic recovery point; Session Bay cannot undo it afterwards.')}</div>
       <label className="git-check git-ack"><input type="checkbox" checked={checked} onChange={event => setChecked(event.target.checked)} />{acknowledge}</label>
       {error && <p className="git-error" role="alert">{error}</p>}
     </div>
     <div className="dialog-actions">
-      <button disabled={busy} onClick={onClose}>取消</button>
+      <button disabled={busy} onClick={onClose}>{t('Cancel')}</button>
       <button className="danger" data-dialog-confirm disabled={!checked || busy} onClick={() => {
         setBusy(true); setError('');
         onConfirm().then(onClose, failure => { setError(errorMessage(failure)); setBusy(false); });
-      }}>{busy ? <><LoaderCircle className="spin" size={14} aria-hidden="true" /> 處理中…</> : confirmLabel}</button>
+      }}>{busy ? <><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Working…')}</> : confirmLabel}</button>
     </div>
   </Dialog>;
 }

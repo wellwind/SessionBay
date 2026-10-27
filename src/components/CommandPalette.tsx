@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import './command-palette.css';
+import { t } from '../i18n';
 
 export interface PaletteOption {
   id: string;
@@ -12,7 +13,7 @@ export interface PaletteOption {
   run: () => void;
 }
 
-export function CommandPalette({ options, query, onQueryChange, label = '搜尋命令或專案', placeholder = '輸入命令或專案名稱…', listLabel = '命令與專案', emptyLabel = '沒有符合的命令或專案' }: {
+export function CommandPalette({ options, query, onQueryChange, label = t('Search commands or projects'), placeholder = t('Type a command or project name…'), listLabel = t('Commands and projects'), emptyLabel = t('No matching commands or projects') }: {
   label?: string; placeholder?: string; listLabel?: string; emptyLabel?: string;
   options: PaletteOption[]; query: string; onQueryChange: (query: string) => void;
 }) {
@@ -56,7 +57,7 @@ export function CommandPalette({ options, query, onQueryChange, label = '搜尋�
           }
         }} />
     </div>
-    <p id={`${listId}-help`} className="palette-help">↑／↓ 選取；Enter 執行；Escape 關閉</p>
+    <p id={`${listId}-help`} className="palette-help">{t('↑ / ↓ to select; Enter to run; Escape to close')}</p>
     <div role="listbox" aria-label={listLabel} id={listId} className="palette-results">
       {filtered.map(option => <button type="button" role="option" key={option.id} id={`${listId}-${option.id}`}
         tabIndex={-1} disabled={option.disabled} aria-disabled={option.disabled || undefined}

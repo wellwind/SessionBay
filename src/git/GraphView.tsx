@@ -10,6 +10,7 @@ import type { CommitDetail, LogCommit, LogFilter } from './types';
 import type { ReactNode } from 'react';
 import { formatTime } from './types';
 import { RefChips } from './RefChips';
+import { t } from '../i18n';
 
 export const PAGE = 200;
 const LANE = 14, ROW = 26;
@@ -93,18 +94,18 @@ export function GraphView({ projectId, repoId, repoName, headOid, preferences, o
       event.preventDefault();
       setFilter({ text: draft.text.trim() || undefined, author: draft.author.trim() || undefined, path: draft.path.trim() ? { path: draft.path.trim() } : null });
     }}>
-      <span className="git-doc-title"><strong>歷史</strong><span className="git-muted"> · {repoName}</span></span>
-      <label className="git-search"><Search size={13} aria-hidden="true" /><input type="search" aria-label="搜尋 commit 訊息" placeholder="訊息" value={draft.text} onChange={event => setDraft({ ...draft, text: event.target.value })} /></label>
-      <label className="git-search"><input aria-label="作者篩選" placeholder="作者" value={draft.author} onChange={event => setDraft({ ...draft, author: event.target.value })} /></label>
-      <label className="git-search"><input aria-label="路徑篩選" placeholder="路徑" value={draft.path} onChange={event => setDraft({ ...draft, path: event.target.value })} /></label>
-      <button type="submit">篩選</button>
-      {(filter.text || filter.author || filter.path) && <button type="button" onClick={() => { setDraft({ text: '', author: '', path: '' }); setFilter({}); }}>清除</button>}
-      <button type="button" className="git-icon-button" aria-label="重新載入歷史" title="重新載入歷史" onClick={() => void load(true, 0)}><RefreshCw size={14} /></button>
+      <span className="git-doc-title"><strong>{t('History')}</strong><span className="git-muted"> · {repoName}</span></span>
+      <label className="git-search"><Search size={13} aria-hidden="true" /><input type="search" aria-label={t('Search commit messages')} placeholder={t('Message')} value={draft.text} onChange={event => setDraft({ ...draft, text: event.target.value })} /></label>
+      <label className="git-search"><input aria-label={t('Filter by author')} placeholder={t('Author')} value={draft.author} onChange={event => setDraft({ ...draft, author: event.target.value })} /></label>
+      <label className="git-search"><input aria-label={t('Filter by path')} placeholder={t('Path')} value={draft.path} onChange={event => setDraft({ ...draft, path: event.target.value })} /></label>
+      <button type="submit">{t('Filter')}</button>
+      {(filter.text || filter.author || filter.path) && <button type="button" onClick={() => { setDraft({ text: '', author: '', path: '' }); setFilter({}); }}>{t('Clear')}</button>}
+      <button type="button" className="git-icon-button" aria-label={t('Reload history')} title={t('Reload history')} onClick={() => void load(true, 0)}><RefreshCw size={14} /></button>
     </form>
-    {filtered && <p className="git-notice">篩選結果以清單呈現；篩選會略過部分祖先，因此不繪製分支線。</p>}
+    {filtered && <p className="git-notice">{t('Filtered results are shown as a list; filtering skips some ancestors, so branch lines are not drawn.')}</p>}
     {error && <p className="git-error" role="alert">{error}</p>}
     <div className="git-graph-split">
-      <div ref={list} className="git-graph-list" role="listbox" aria-label="Commit 歷史" aria-busy={loading}
+      <div ref={list} className="git-graph-list" role="listbox" aria-label={t('Commit history')} aria-busy={loading}
         onScroll={event => {
           const element = event.currentTarget;
           if (hasMore && !loading && element.scrollTop + element.clientHeight > element.scrollHeight - ROW * 20) void load(false, commits.length);
@@ -124,9 +125,9 @@ export function GraphView({ projectId, repoId, repoName, headOid, preferences, o
           <span className="git-graph-meta">{formatTime(commit.authoredAt)}</span>
           <code className="git-graph-meta">{commit.oid.slice(0, 7)}</code>
         </div>)}
-        {!loading && !commits.length && !error && <p className="git-muted git-pad">{filtered ? '沒有符合篩選的 commit。' : '此 repository 尚無 commit。'}</p>}
-        {loading && <p className="git-muted git-pad" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 讀取歷史…</p>}
-        {hasMore && !loading && <button className="git-load-more" onClick={() => void load(false, commits.length)}>載入更多 commit</button>}
+        {!loading && !commits.length && !error && <p className="git-muted git-pad">{filtered ? t('No commits match the filter.') : t('This repository has no commits yet.')}</p>}
+        {loading && <p className="git-muted git-pad" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Loading history…')}</p>}
+        {hasMore && !loading && <button className="git-load-more" onClick={() => void load(false, commits.length)}>{t('Load more commits')}</button>}
       </div>
       {selectedCommit && <CommitPanel key={selectedCommit.oid} projectId={projectId} repoId={repoId} repoName={repoName} commit={selectedCommit.oid}
         preferences={preferences} onPreferences={onPreferences} onSelectCommit={oid => {

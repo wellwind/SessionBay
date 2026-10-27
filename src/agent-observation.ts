@@ -1,14 +1,15 @@
+import { t } from './i18n';
 /** Provider observations and explicitly labelled terminal-reported status. */
 export const AGENT_OBSERVATION_LABELS = {
-  terminalIdle: '閒置（終端回報）', terminalWorking: '工作中（終端回報）', terminalDone: '已完成（終端回報）',
-  terminalBlocked: '等待操作（終端回報）', terminalPermission: '等待權限（終端回報）', terminalQuestion: '等待輸入（終端回報）',
-  terminalAuthentication: '等待登入（終端回報）', terminalError: '失敗（終端回報）',
-  promptSubmitted: '收到新提示', toolPending: '工具即將執行', toolFinished: '工具已回報結果',
-  awaitingInput: '等待輸入', awaitingPermission: '等待權限確認',
-  waitingInput: '收到等待輸入通知', waitingPermission: '收到權限等待通知',
-  permissionRequested: '收到權限請求', turnStopRequested: '收到回合停止請求',
-  invocationStarted: '模型呼叫開始', invocationEnded: '模型呼叫結束', sessionEnded: 'Session 已回報結束',
-  interrupted: '收到中斷回報', failed: '收到失敗回報', busy: '工作中', idle: '閒置', retry: '重試中',
+  terminalIdle: t('Idle (terminal report)'), terminalWorking: t('Working (terminal report)'), terminalDone: t('Done (terminal report)'),
+  terminalBlocked: t('Waiting for action (terminal report)'), terminalPermission: t('Waiting for permission (terminal report)'), terminalQuestion: t('Waiting for input (terminal report)'),
+  terminalAuthentication: t('Waiting for login (terminal report)'), terminalError: t('Failed (terminal report)'),
+  promptSubmitted: t('New prompt received'), toolPending: t('Tool about to run'), toolFinished: t('Tool reported its result'),
+  awaitingInput: t('Waiting for input'), awaitingPermission: t('Waiting for permission'),
+  waitingInput: t('Input-waiting notice received'), waitingPermission: t('Permission-waiting notice received'),
+  permissionRequested: t('Permission request received'), turnStopRequested: t('Turn stop request received'),
+  invocationStarted: t('Model call started'), invocationEnded: t('Model call ended'), sessionEnded: t('Session reported its end'),
+  interrupted: t('Interruption reported'), failed: t('Failure reported'), busy: t('Working'), idle: t('Idle'), retry: t('Retrying'),
 } as const;
 export type AgentObservation = keyof typeof AGENT_OBSERVATION_LABELS;
 export interface AgentActivityEvent {

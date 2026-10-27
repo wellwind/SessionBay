@@ -1,5 +1,6 @@
 import type { LayoutNode, Pane, Project, RuntimeRecord, Workspace, WorkspaceTab } from './types';
 import { displayNameError } from './display-name';
+import { t } from './i18n';
 
 /** Display-only edits never change IDs, layout, runtime identity or start tokens. */
 export function renameWorkspaceTab(workspace: Workspace, id: string, value: string): Workspace {
@@ -249,7 +250,7 @@ export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]
       ? record.state as Pane['state'] : 'disconnected';
     const pane: Pane = {
       id: record.paneId, kind: record.kind, projectId, cwd: record.cwd,
-      title: existing?.title || (record.kind === 'shell' ? '已保留的 Shell' : `已保留的 ${record.kind}`),
+      title: existing?.title || (record.kind === 'shell' ? t('Preserved shell') : t('Preserved {{kind}}', { kind: record.kind })),
       sessionId: record.sessionId ?? undefined, resumeId: record.resumeId ?? undefined,
       profileId: record.profileId ?? undefined,
       homeDirectory: record.kind === 'shell' && projectId === null && !record.sessionId && !record.resumeId &&
@@ -258,7 +259,7 @@ export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]
           !existing.sessionId && !existing.resumeId &&
           (existing.runtimeId ?? existing.homePolicyRuntimeId) === record.id)),
       runtimeId: record.id, state, exitCode: record.exitCode,
-      ...(state === 'interrupted' ? { error: '背景程序已中斷；請確認後明確重新啟動。' } : {}),
+      ...(state === 'interrupted' ? { error: t('The background process was interrupted. Check it, then restart it explicitly.') } : {}),
     };
     if (existing && existing.projectId !== projectId) next = closePane(next, record.paneId);
     const hasTab = next.tabs.some((tab) => paneIds(tab.layout).includes(record.paneId));
@@ -435,7 +436,7 @@ export function mergeWorkspaceProjects(
     const cwd = panes.find((pane) => pane.cwd)?.cwd || '';
     result.push({
       id: tab.projectId,
-      name: previous?.name || cwd.split(/[\\/]/).filter(Boolean).at(-1) || '已還原工作區',
+      name: previous?.name || cwd.split(/[\\/]/).filter(Boolean).at(-1) || t('Restored workspace'),
       path: previous?.path || cwd || null,
       launchPath: previous?.launchPath || null,
       exists: previous?.exists ?? Boolean(cwd),

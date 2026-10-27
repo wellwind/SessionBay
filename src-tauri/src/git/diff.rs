@@ -7,6 +7,7 @@ use super::{
     path::RepoPath,
     runner::{path_arg, Access, GitError, GitErrorKind, GitRunner, Invocation},
 };
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{ffi::OsString, time::Duration};
@@ -147,7 +148,7 @@ pub struct DiffRequest<'a> {
 /// keeps names like `-x` from being read as flags.
 pub fn resolve_commit(runner: &GitRunner, repo: &RepoInfo, rev: &str) -> Result<String, GitError> {
     if rev.is_empty() || rev.len() > 512 || rev.contains(['\0', '\n']) {
-        return Err(GitError::failed("revision 無效"));
+        return Err(GitError::failed(tr!("Invalid revision")));
     }
     let output = runner.run(
         Invocation::new(
@@ -158,7 +159,10 @@ pub fn resolve_commit(runner: &GitRunner, repo: &RepoInfo, rev: &str) -> Result<
         .arg(format!("{rev}^{{commit}}")),
     )?;
     if !output.success() {
-        return Err(GitError::failed(format!("找不到 commit：{rev}")));
+        return Err(GitError::failed(tr!(
+            "Commit not found: {{rev}}",
+            rev = rev
+        )));
     }
     Ok(output.stdout_text().trim().to_owned())
 }
@@ -276,9 +280,11 @@ pub fn endpoints(
                 }
                 (1, None) => parents[0].clone(),
                 (_, None) => {
-                    return Err(GitError::failed("Merge commit 需要明確選擇要比較的 parent"))
+                    return Err(GitError::failed(tr!(
+                        "A merge commit needs an explicit parent to compare with"
+                    )))
                 }
-                _ => return Err(GitError::failed("指定的 parent 不存在")),
+                _ => return Err(GitError::failed(tr!("The chosen parent does not exist"))),
             };
             Ok(vec![base.into(), commit.into()])
         }
@@ -295,7 +301,7 @@ pub fn endpoints(
                 vec![base.into(), head.into()]
             })
         }
-        _ => Err(GitError::failed("此來源沒有 commit 端點")),
+        _ => Err(GitError::failed(tr!("This source has no commit end"))),
     }
 }
 
@@ -361,7 +367,9 @@ pub fn parse(output: &[u8]) -> Result<RawDiff, GitError> {
         if line.starts_with(b"diff --git ") {
             sections += 1;
             if sections > 1 {
-                return Err(GitError::failed("此 diff 含多個檔案區段，無法安全處理"));
+                return Err(GitError::failed(tr!(
+                    "This diff has several file sections and cannot be handled safely"
+                )));
             }
         }
         let text = String::from_utf8_lossy(line);
@@ -397,8 +405,8 @@ pub fn parse(output: &[u8]) -> Result<RawDiff, GitError> {
     for line in lines {
         let bare = line.strip_suffix(b"\n").unwrap_or(line);
         if bare.starts_with(b"@@ ") {
-            let (old_start, old_count, new_start, new_count, section) =
-                parse_hunk_header(bare).ok_or_else(|| GitError::failed("無法解析 diff hunk"))?;
+            let (old_start, old_count, new_start, new_count, section) = parse_hunk_header(bare)
+                .ok_or_else(|| GitError::failed(tr!("Cannot parse the diff hunk")))?;
             diff.hunks.push(RawHunk {
                 old_start,
                 old_count,
@@ -410,12 +418,14 @@ pub fn parse(output: &[u8]) -> Result<RawDiff, GitError> {
             continue;
         }
         if line.starts_with(b"diff --git ") {
-            return Err(GitError::failed("此 diff 含多個檔案區段，無法安全處理"));
+            return Err(GitError::failed(tr!(
+                "This diff has several file sections and cannot be handled safely"
+            )));
         }
         let hunk = diff
             .hunks
             .last_mut()
-            .ok_or_else(|| GitError::failed("diff 內容缺少 hunk 標頭"))?;
+            .ok_or_else(|| GitError::failed(tr!("The diff content is missing a hunk header")))?;
         match line.first() {
             Some(b'\\') => {
                 if let Some(previous) = hunk.lines.last_mut() {
@@ -437,7 +447,7 @@ pub fn parse(output: &[u8]) -> Result<RawDiff, GitError> {
                 bytes: b"\n".to_vec(),
                 no_newline: false,
             }),
-            _ => return Err(GitError::failed("無法解析 diff 內容行")),
+            _ => return Err(GitError::failed(tr!("Cannot parse a diff content line"))),
         }
     }
     for hunk in &diff.hunks {
@@ -452,7 +462,9 @@ pub fn parse(output: &[u8]) -> Result<RawDiff, GitError> {
             .filter(|l| l.kind != LineKind::Delete)
             .count() as u32;
         if old != hunk.old_count || new != hunk.new_count {
-            return Err(GitError::failed("diff hunk 行數與標頭不符"));
+            return Err(GitError::failed(tr!(
+                "The diff hunk line count does not match its header"
+            )));
         }
     }
     Ok(diff)
@@ -545,9 +557,9 @@ pub fn file_diff(
         Ok(raw) => raw,
         Err(error) if error.kind == GitErrorKind::TooLarge => {
             result.too_large = true;
-            result.partial_blocked = Some(format!(
-                "Diff 超過 {} MB 檢視上限；可整檔暫存，但不提供部分行操作",
-                MAX_DIFF_BYTES / 1024 / 1024
+            result.partial_blocked = Some(tr!(
+                "The diff exceeds the {{limit}} MB viewing limit; you can stage the whole file, but partial line operations are not available",
+                limit = MAX_DIFF_BYTES / 1024 / 1024
             ));
             return Ok(result);
         }
@@ -614,25 +626,25 @@ pub fn file_diff(
 
 fn partial_blocked(diff: &FileDiff) -> Option<String> {
     let reason = if !diff.source.stageable() {
-        "此比較來源僅供檢視"
+        tr!("This comparison is view-only")
     } else if diff.ignore_whitespace {
-        "「忽略空白」只影響檢視；關閉後才能部分暫存，確保 patch 與實際內容一致"
+        tr!("\"Ignore whitespace\" only affects the view; turn it off to stage partially, so the patch matches the real content")
     } else if diff.binary {
-        "非文字檔不提供部分行操作；請整檔暫存或取消暫存"
+        tr!("Non-text files do not support partial line operations; stage or unstage the whole file")
     } else if diff.submodule {
-        "子模組指標只能整體操作"
+        tr!("Submodule pointers can only be changed as a whole")
     } else if diff.renamed {
-        "重新命名的檔案請整檔暫存或取消暫存"
+        tr!("Stage or unstage renamed files as a whole")
     } else if diff.unsupported_encoding {
-        "檔案不是 UTF-8 文字，不提供部分行操作"
+        tr!("The file is not UTF-8 text, so partial line operations are not available")
     } else if diff.truncated || diff.too_large {
-        "Diff 已超過檢視上限，不提供部分行操作"
+        tr!("The diff exceeds the viewing limit, so partial line operations are not available")
     } else if diff.hunks.is_empty() {
-        "沒有可選取的文字變更"
+        tr!("No text changes to select")
     } else {
         return None;
     };
-    Some(reason.into())
+    Some(reason)
 }
 
 #[cfg(test)]
@@ -717,11 +729,11 @@ pub fn changed_files(
         let letter = status.chars().next().unwrap_or('M').to_string();
         let first = fields
             .next()
-            .ok_or_else(|| GitError::failed("無法解析變更檔案清單"))?;
+            .ok_or_else(|| GitError::failed(tr!("Cannot parse the changed file list")))?;
         let (path, old_path) = if letter == "R" || letter == "C" {
             let second = fields
                 .next()
-                .ok_or_else(|| GitError::failed("無法解析重新命名"))?;
+                .ok_or_else(|| GitError::failed(tr!("Cannot parse the rename")))?;
             (RepoPath(second.to_vec()), Some(RepoPath(first.to_vec())))
         } else {
             (RepoPath(first.to_vec()), None)

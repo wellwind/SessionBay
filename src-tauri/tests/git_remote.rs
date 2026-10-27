@@ -118,7 +118,10 @@ fn commit_rejects_a_changed_index_and_reports_hooks_and_signing() {
             json!({ "op": "commit", "message": "x", "token": preview["token"] }),
         )
         .unwrap_err();
-    assert!(error.contains("Index 已在預覽後變更"), "{error}");
+    assert!(
+        error.contains("The index changed after the preview"),
+        "{error}"
+    );
     assert_eq!(head(&a), before);
 
     #[cfg(unix)]
@@ -158,7 +161,7 @@ fn commit_rejects_a_changed_index_and_reports_hooks_and_signing() {
             json!({ "op": "commit", "message": "x", "token": preview["token"] }),
         )
         .unwrap_err();
-    assert!(error.contains("簽章失敗"), "{error}");
+    assert!(error.contains("Signing failed"), "{error}");
     assert_eq!(head(&a), before);
 }
 
@@ -210,7 +213,7 @@ fn rejected_and_offline_pushes_are_never_reported_as_success() {
     let error = fixture
         .request(&a, json!({ "op": "push", "remote": "origin", "localBranch": "main", "remoteBranch": "main" }))
         .unwrap_err();
-    assert!(error.contains("遠端拒絕推送"), "{error}");
+    assert!(error.contains("The remote rejected the push"), "{error}");
 
     // ff-only pull refuses diverged history; merge pull integrates it.
     let error = fixture
@@ -236,7 +239,7 @@ fn rejected_and_offline_pushes_are_never_reported_as_success() {
         .request(&a, json!({ "op": "fetch", "remote": "origin" }))
         .unwrap_err();
     assert!(
-        error.contains("無法連線遠端") || error.contains("Git 操作失敗"),
+        error.contains("Cannot reach the remote") || error.contains("The Git operation failed"),
         "{error}"
     );
     assert_eq!(head(&a), before);
@@ -310,8 +313,11 @@ fn cancel_midway(op: Value, program: &str) {
     });
     assert!(started.elapsed() < Duration::from_secs(15));
     let message = result.expect_err("a cancelled network operation must not report success");
-    assert!(message.contains("取消"), "{message}");
-    assert!(message.contains("不會自動重送"), "{message}");
+    assert!(message.contains("cancelled"), "{message}");
+    assert!(
+        message.contains("does not resend it automatically"),
+        "{message}"
+    );
     assert_eq!(
         local_state(&a, &bare),
         before,

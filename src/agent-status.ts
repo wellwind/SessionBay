@@ -1,5 +1,6 @@
 import { agentKinds } from './agents';
 import type { AgentKind, Pane, PaneState, Workspace } from './types';
+import { t } from './i18n';
 
 export interface AgentRuntimeStatus {
   key: string;
@@ -29,11 +30,11 @@ const priority: Record<PaneState, number> = {
   placeholder: 0, starting: 1, running: 2, disconnected: 3, failed: 4, interrupted: 5, exited: 6,
 };
 export const agentLifecycleLabels: Record<PaneState, string> = {
-  placeholder: '尚未啟動', starting: '啟動中', running: '程序存活',
-  exited: '已結束', failed: '失敗', disconnected: '連線中斷', interrupted: '程序中斷',
+  placeholder: t('Not started'), starting: t('Starting'), running: t('Process alive'),
+  exited: t('Ended'), failed: t('Failed'), disconnected: t('Disconnected'), interrupted: t('Process interrupted'),
 };
 export function agentLifecycleText(state: PaneState): string {
-  return state === 'disconnected' ? '連線中斷 · 存活未知' : agentLifecycleLabels[state];
+  return state === 'disconnected' ? t('Disconnected · liveness unknown') : agentLifecycleLabels[state];
 }
 export function isAgentPane(pane: Pane): pane is Pane & { kind: AgentKind } {
   return agentKinds.some((kind) => kind === pane.kind);
@@ -74,9 +75,9 @@ export function agentStatusGroups(workspace: Workspace): AgentStatusGroup[] {
   return [...groups].map(([projectId, agents]) => ({ projectId, agents, counts: countAgentStatuses(agents) }));
 }
 export function agentCountText(counts: AgentStatusCounts): string {
-  return `已開啟 ${counts.opened} · 存活 ${counts.live} · 已結束 ${counts.exited} · 中斷 ${counts.interrupted}`
-    + (counts.disconnected ? ` · 斷線 ${counts.disconnected}` : '')
-    + (counts.failed ? ` · 失敗 ${counts.failed}` : '')
-    + (counts.unstarted ? ` · 未啟動 ${counts.unstarted}` : '')
-    + (counts.pending ? ` · 待確認 ${counts.pending}` : '');
+  return t('Open {{opened}} · alive {{live}} · ended {{exited}} · interrupted {{interrupted}}', { ...counts })
+    + (counts.disconnected ? t(' · disconnected {{count}}', { count: counts.disconnected }) : '')
+    + (counts.failed ? t(' · failed {{count}}', { count: counts.failed }) : '')
+    + (counts.unstarted ? t(' · not started {{count}}', { count: counts.unstarted }) : '')
+    + (counts.pending ? t(' · pending {{count}}', { count: counts.pending }) : '');
 }

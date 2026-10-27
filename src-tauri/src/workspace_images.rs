@@ -4,6 +4,7 @@
 mod svg;
 mod webp;
 
+use crate::tr;
 use image::{
     AnimationDecoder, DynamicImage, ImageDecoder, ImageEncoder, ImageFormat, ImageReader, Limits,
 };
@@ -49,7 +50,7 @@ fn raster_format(bytes: &[u8]) -> Option<ImageFormat> {
 pub(crate) fn read(root: &Path, path: &str, version: &str) -> Result<Vec<u8>, String> {
     let _guard = DECODE_LOCK
         .try_lock()
-        .map_err(|_| "另一張圖片仍在解碼，請稍候再試")?;
+        .map_err(|_| tr!("Another image is still decoding; try again shortly"))?;
     let bytes = crate::workspace_files::read_bounded(root, path, version, MAX_INPUT_BYTES)?;
     decode(&bytes)
 }
@@ -61,14 +62,16 @@ pub(super) fn dimensions(width: u32, height: u32) -> Result<(), String> {
         || height > MAX_EDGE
         || u64::from(width) * u64::from(height) > MAX_PIXELS
     {
-        return Err("圖片不得超過 8192 px 單邊或 1600 萬像素".into());
+        return Err(tr!(
+            "Images cannot exceed 8192 px on a side or 16 million pixels"
+        ));
     }
     Ok(())
 }
 
 fn decode(bytes: &[u8]) -> Result<Vec<u8>, String> {
     if bytes.is_empty() || bytes.len() > MAX_INPUT_BYTES {
-        return Err("圖片大小必須介於 1 byte 與 10 MiB".into());
+        return Err(tr!("The image size must be between 1 byte and 10 MiB"));
     }
     let Some(format) = raster_format(bytes) else {
         let (width, height, bytes) = svg::normalize(bytes)?;
@@ -108,7 +111,7 @@ fn decode(bytes: &[u8]) -> Result<Vec<u8>, String> {
             .map_err(image_error)?
             .into_frames()
             .next()
-            .ok_or("APNG 沒有可預覽的影格")?
+            .ok_or(tr!("The APNG has no frame to preview"))?
             .map_err(image_error)?;
         let mut image = DynamicImage::ImageRgba8(first.into_buffer());
         image.apply_orientation(orientation);
@@ -153,7 +156,7 @@ fn decode(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let limit = output
         .len()
         .checked_add(MAX_OUTPUT_BYTES)
-        .ok_or("圖片預覽大小溢位")?;
+        .ok_or(tr!("The image preview size overflowed"))?;
     let mut writer = CappedWriter {
         bytes: output,
         limit,
@@ -170,13 +173,17 @@ fn decode(bytes: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 fn image_error(error: image::ImageError) -> String {
-    format!("圖片損壞、不支援或超過解碼限制：{error}")
+    tr!(
+        "The image is corrupt, unsupported or over the decode limit: {{error}}",
+        error = error
+    )
 }
 
 fn envelope(metadata: &Metadata) -> Result<Vec<u8>, String> {
-    let header = serde_json::to_vec(metadata).map_err(|_| "圖片預覽資訊無法編碼")?;
+    let header = serde_json::to_vec(metadata)
+        .map_err(|_| tr!("Cannot encode the image preview information"))?;
     if header.len() > MAX_HEADER_BYTES {
-        return Err("圖片預覽資訊超過上限".into());
+        return Err(tr!("The image preview information exceeds the limit"));
     }
     let mut result = Vec::with_capacity(8 + header.len());
     result.extend_from_slice(b"SBI1");
@@ -192,7 +199,9 @@ struct CappedWriter {
 impl Write for CappedWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
-            return Err(io::Error::other("圖片預覽編碼超過 20 MiB"));
+            return Err(io::Error::other(tr!(
+                "The encoded image preview exceeds 20 MiB"
+            )));
         }
         let needed = self.bytes.len() + bytes.len();
         if needed > self.bytes.capacity() {
@@ -201,7 +210,9 @@ impl Write for CappedWriter {
                 .min(self.limit);
             self.bytes
                 .try_reserve_exact(capacity - self.bytes.len())
-                .map_err(|_| io::Error::other("圖片預覽編碼記憶體不足"))?;
+                .map_err(|_| {
+                    io::Error::other(tr!("Not enough memory to encode the image preview"))
+                })?;
         }
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())
@@ -218,25 +229,25 @@ fn png_animation(bytes: &[u8]) -> Result<bool, String> {
     while offset < bytes.len() {
         count += 1;
         if count > 100_000 || bytes.len() - offset < 12 {
-            return Err("PNG 區塊損壞".into());
+            return Err(tr!("The PNG chunks are corrupt"));
         }
         let size = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
         let end = offset
             .checked_add(12)
             .and_then(|n| n.checked_add(size))
             .filter(|end| *end <= bytes.len())
-            .ok_or("PNG 區塊損壞")?;
+            .ok_or(tr!("The PNG chunks are corrupt"))?;
         let kind = &bytes[offset + 4..offset + 8];
         animated |= kind == b"acTL";
         if kind == b"IEND" {
             if size != 0 || end != bytes.len() {
-                return Err("PNG 結尾損壞".into());
+                return Err(tr!("The end of the PNG is corrupt"));
             }
             return Ok(animated);
         }
         offset = end;
     }
-    Err("PNG 缺少結尾區塊".into())
+    Err(tr!("The PNG is missing its end chunk"))
 }
 
 #[cfg(test)]
@@ -438,7 +449,7 @@ mod tests {
         assert!(
             read(Path::new("/does-not-exist"), "image.png", &"0".repeat(64))
                 .unwrap_err()
-                .contains("仍在解碼")
+                .contains("still decoding")
         );
     }
     #[test]

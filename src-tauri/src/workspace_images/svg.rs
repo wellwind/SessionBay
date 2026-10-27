@@ -1,6 +1,7 @@
 //! Reject unsupported SVG rather than strip it and silently change the image.
 //! No URL references, CSS, scripts, reusable subtrees or offscreen effects are
 //! admitted. The resulting bytes are only suitable for an <img>, never DOM HTML.
+use crate::tr;
 use quick_xml::{
     events::{BytesStart, Event},
     Reader, Writer, XmlVersion,
@@ -11,7 +12,9 @@ const MAX_ELEMENTS: usize = 4096;
 const MAX_DEPTH: usize = 32;
 const MAX_ATTRIBUTE_BYTES: usize = 64 * 1024;
 const MAX_NUMBERS: usize = 50_000;
-const INVALID: &str = "SVG 僅支援有限的靜態圖形；不可含腳本、樣式、外部資源、參照或動畫";
+fn invalid() -> String {
+    tr!("SVG only supports limited static graphics, without scripts, styles, external resources, references or animation")
+}
 
 pub(super) fn recognizes(bytes: &[u8]) -> bool {
     // The inspect sample can end within UTF-8; only the valid prefix is needed
@@ -39,14 +42,14 @@ pub(super) fn recognizes(bytes: &[u8]) -> bool {
 
 pub(super) fn validate(bytes: &[u8]) -> Result<(u32, u32), String> {
     if bytes.len() > MAX_BYTES {
-        return Err("SVG 不得超過 512 KiB".into());
+        return Err(tr!("SVG files cannot exceed 512 KiB"));
     }
-    let text = std::str::from_utf8(bytes).map_err(|_| "SVG 必須使用 UTF-8")?;
+    let text = std::str::from_utf8(bytes).map_err(|_| tr!("SVG files must use UTF-8"))?;
     if text
         .chars()
         .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
     {
-        return Err(INVALID.into());
+        return Err(invalid());
     }
     let mut reader = Reader::from_str(text.trim_start_matches('\u{feff}'));
     reader.config_mut().check_comments = true;
@@ -57,18 +60,18 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(u32, u32), String> {
     let mut declared = false;
     let mut size = None;
     loop {
-        let event = reader.read_event().map_err(|_| INVALID)?;
+        let event = reader.read_event().map_err(|_| invalid())?;
         let is_empty = matches!(&event, Event::Empty(_));
         match event {
             Event::Start(element) | Event::Empty(element) => {
                 elements += 1;
                 if elements > MAX_ELEMENTS || depth >= MAX_DEPTH {
-                    return Err("SVG 結構超過預覽上限".into());
+                    return Err(tr!("The SVG structure exceeds the preview limit"));
                 }
                 let is_root = depth == 0;
                 if is_root {
                     if root_seen {
-                        return Err(INVALID.into());
+                        return Err(invalid());
                     }
                     root_seen = true;
                 }
@@ -81,65 +84,71 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(u32, u32), String> {
                 }
             }
             Event::End(_) => {
-                depth = depth.checked_sub(1).ok_or(INVALID)?;
+                depth = depth.checked_sub(1).ok_or_else(invalid)?;
             }
             Event::Decl(declaration) => {
-                if root_seen || declared || declaration.version().map_err(|_| INVALID)? != "1.0" {
-                    return Err(INVALID.into());
+                if root_seen || declared || declaration.version().map_err(|_| invalid())? != "1.0" {
+                    return Err(invalid());
                 }
                 declared = true;
                 if let Some(encoding) = declaration.encoding() {
-                    if !encoding.map_err(|_| INVALID)?.eq_ignore_ascii_case("utf-8") {
-                        return Err(INVALID.into());
+                    if !encoding
+                        .map_err(|_| invalid())?
+                        .eq_ignore_ascii_case("utf-8")
+                    {
+                        return Err(invalid());
                     }
                 }
             }
             Event::Text(text) => {
                 if depth == 0 && !text.trim().is_empty() {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             Event::CData(_) => {
                 if depth == 0 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             Event::GeneralRef(reference) => {
                 if depth == 0 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
-                if reference.resolve_char_ref().map_err(|_| INVALID)?.is_none()
+                if reference
+                    .resolve_char_ref()
+                    .map_err(|_| invalid())?
+                    .is_none()
                     && !matches!(reference.as_ref(), "amp" | "lt" | "gt" | "apos" | "quot")
                 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             Event::Comment(_) => {}
             Event::Eof => break,
-            _ => return Err(INVALID.into()),
+            _ => return Err(invalid()),
         }
     }
     if depth != 0 || !root_seen {
-        return Err(INVALID.into());
+        return Err(invalid());
     }
-    size.ok_or_else(|| "SVG 需要明確的正數 width/height（px）或 viewBox".into())
+    size.ok_or_else(|| tr!("SVG files need an explicit positive width/height (px) or a viewBox"))
 }
 
 pub(super) fn normalize(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let (width, height) = validate(bytes)?;
-    let text = std::str::from_utf8(bytes).map_err(|_| INVALID)?;
+    let text = std::str::from_utf8(bytes).map_err(|_| invalid())?;
     let mut reader = Reader::from_str(text.trim_start_matches('\u{feff}'));
     let mut writer = Writer::new(Vec::with_capacity(bytes.len()));
     let mut root = false;
     loop {
-        let event = reader.read_event().map_err(|_| INVALID)?;
+        let event = reader.read_event().map_err(|_| invalid())?;
         let empty = matches!(&event, Event::Empty(_));
         match event {
             Event::Start(element) | Event::Empty(element) if !root => {
                 root = true;
                 let mut normalized = BytesStart::new("svg");
                 for attribute in element.attributes() {
-                    let attribute = attribute.map_err(|_| INVALID)?;
+                    let attribute = attribute.map_err(|_| invalid())?;
                     if !matches!(attribute.key.into_inner(), "width" | "height") {
                         normalized.push_attribute(attribute);
                     }
@@ -154,13 +163,13 @@ pub(super) fn normalize(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
                     } else {
                         Event::Start(normalized)
                     })
-                    .map_err(|_| INVALID)?;
+                    .map_err(|_| invalid())?;
             }
             Event::Eof => break,
-            event => writer.write_event(event).map_err(|_| INVALID)?,
+            event => writer.write_event(event).map_err(|_| invalid())?,
         }
         if writer.get_ref().len() > MAX_BYTES {
-            return Err("SVG 正規化後超過 512 KiB".into());
+            return Err(tr!("The SVG exceeds 512 KiB after normalization"));
         }
     }
     Ok((width, height, writer.into_inner()))
@@ -190,7 +199,7 @@ fn element_attributes(
                     | "desc"
             ))
     {
-        return Err(INVALID.into());
+        return Err(invalid());
     }
     let mut namespace = false;
     let mut width = None;
@@ -198,21 +207,21 @@ fn element_attributes(
     let mut view_box = None;
     for (index, attribute) in element.attributes().enumerate() {
         if index >= 32 {
-            return Err("SVG 屬性數量超過上限".into());
+            return Err(tr!("The SVG has too many attributes"));
         }
-        let attribute = attribute.map_err(|_| INVALID)?;
+        let attribute = attribute.map_err(|_| invalid())?;
         let key = attribute.key.into_inner();
         if attribute.value.len() > MAX_ATTRIBUTE_BYTES {
-            return Err("SVG 屬性超過上限".into());
+            return Err(tr!("An SVG attribute exceeds the limit"));
         }
         let value = attribute
             .normalized_value(XmlVersion::Explicit1_0)
-            .map_err(|_| INVALID)?;
+            .map_err(|_| invalid())?;
         let value = value.trim();
         match key {
             "xmlns" if root => {
                 if value != "http://www.w3.org/2000/svg" {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
                 namespace = true;
             }
@@ -229,13 +238,13 @@ fn element_attributes(
             "viewBox" if root => {
                 let parsed = numeric_list(value, "", numbers)?;
                 if parsed.len() != 4 || parsed[2] <= 0.0 || parsed[3] <= 0.0 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
                 view_box = Some((parsed[2], parsed[3]));
             }
             "version" if root => {
                 if value != "1.1" && value != "1.0" {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "preserveAspectRatio" if root => {
@@ -244,7 +253,7 @@ fn element_attributes(
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b == b' ')
                 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "id" => {
@@ -253,12 +262,12 @@ fn element_attributes(
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
                 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "fill" | "stroke" | "color" => {
                 if !color(value) {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "d" if name == "path" => {
@@ -278,7 +287,7 @@ fn element_attributes(
             "opacity" | "fill-opacity" | "stroke-opacity" => {
                 let n = length(value)?;
                 if !(0.0..=1.0).contains(&n) {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "stroke-dasharray" => {
@@ -288,17 +297,17 @@ fn element_attributes(
             }
             "fill-rule" | "clip-rule" => {
                 if !matches!(value, "nonzero" | "evenodd") {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "stroke-linecap" => {
                 if !matches!(value, "butt" | "round" | "square") {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "stroke-linejoin" => {
                 if !matches!(value, "miter" | "round" | "bevel") {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "font-family" => {
@@ -307,7 +316,7 @@ fn element_attributes(
                         .chars()
                         .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | ','))
                 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "font-weight" => {
@@ -325,17 +334,17 @@ fn element_attributes(
                         | "800"
                         | "900"
                 ) {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "font-style" => {
                 if !matches!(value, "normal" | "italic" | "oblique") {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "text-anchor" => {
                 if !matches!(value, "start" | "middle" | "end") {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "dominant-baseline" => {
@@ -343,34 +352,38 @@ fn element_attributes(
                     value,
                     "auto" | "middle" | "central" | "hanging" | "alphabetic"
                 ) {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             "vector-effect" => {
                 if !matches!(value, "none" | "non-scaling-stroke") {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
-            _ => return Err(INVALID.into()),
+            _ => return Err(invalid()),
         }
     }
     if !root {
         return Ok(None);
     }
     if !namespace {
-        return Err("SVG 必須宣告標準 SVG namespace".into());
+        return Err(tr!("SVG files must declare the standard SVG namespace"));
     }
     let (width, height) = match (width, height, view_box) {
         (Some(w), Some(h), _) => (w, h),
         (None, None, Some(size)) => size,
-        _ => return Err("SVG 需要明確的 width/height（px）或 viewBox".into()),
+        _ => {
+            return Err(tr!(
+                "SVG files need an explicit width/height (px) or a viewBox"
+            ))
+        }
     };
     if width <= 0.0
         || height <= 0.0
         || width > f64::from(super::MAX_EDGE)
         || height > f64::from(super::MAX_EDGE)
     {
-        return Err("SVG 尺寸超過上限".into());
+        return Err(tr!("The SVG dimensions exceed the limit"));
     }
     let size = (width.ceil() as u32, height.ceil() as u32);
     super::dimensions(size.0, size.1)?;
@@ -382,9 +395,9 @@ fn length(value: &str) -> Result<f64, String> {
         .strip_suffix("px")
         .unwrap_or(value)
         .parse()
-        .map_err(|_| INVALID)?;
+        .map_err(|_| invalid())?;
     if !number.is_finite() || number.abs() > 1_000_000.0 {
-        return Err(INVALID.into());
+        return Err(invalid());
     }
     Ok(number)
 }
@@ -436,7 +449,7 @@ fn numeric_list(value: &str, commands: &str, total: &mut usize) -> Result<Vec<f6
             }
         }
         if digits == 0 {
-            return Err(INVALID.into());
+            return Err(invalid());
         }
         if offset < bytes.len() && matches!(bytes[offset], b'e' | b'E') {
             offset += 1;
@@ -448,13 +461,13 @@ fn numeric_list(value: &str, commands: &str, total: &mut usize) -> Result<Vec<f6
                 offset += 1;
             }
             if offset == exponent_start {
-                return Err(INVALID.into());
+                return Err(invalid());
             }
         }
         result.push(length(&value[start..offset])?);
         *total += 1;
         if *total > MAX_NUMBERS {
-            return Err("SVG 路徑複雜度超過上限".into());
+            return Err(tr!("The SVG path is too complex"));
         }
     }
     Ok(result)
@@ -463,10 +476,10 @@ fn numeric_list(value: &str, commands: &str, total: &mut usize) -> Result<Vec<f6
 fn transform(mut value: &str, numbers: &mut usize) -> Result<(), String> {
     while !value.trim().is_empty() {
         value = value.trim_start_matches(|c: char| c.is_ascii_whitespace() || c == ',');
-        let open = value.find('(').ok_or(INVALID)?;
+        let open = value.find('(').ok_or_else(invalid)?;
         let name = value[..open].trim();
         let rest = &value[open + 1..];
-        let close = rest.find(')').ok_or(INVALID)?;
+        let close = rest.find(')').ok_or_else(invalid)?;
         let args = numeric_list(&rest[..close], "", numbers)?;
         if !match name {
             "matrix" => args.len() == 6,
@@ -475,7 +488,7 @@ fn transform(mut value: &str, numbers: &mut usize) -> Result<(), String> {
             "skewX" | "skewY" => args.len() == 1,
             _ => false,
         } {
-            return Err(INVALID.into());
+            return Err(invalid());
         }
         value = &rest[close + 1..];
     }

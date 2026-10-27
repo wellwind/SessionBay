@@ -1083,7 +1083,7 @@ mod tests {
         assert_eq!(record.file_input, None);
         assert!(crate::file_input::check_runtime(&record)
             .unwrap_err()
-            .contains("缺少可核對"));
+            .contains("no verifiable"));
         record.image_input = true;
         assert!(crate::file_input::check_runtime(&record).is_ok());
         record.file_input = Some(false);
@@ -1092,13 +1092,13 @@ mod tests {
         assert_eq!(restored.file_input, Some(false));
         assert!(crate::file_input::check_runtime(&record)
             .unwrap_err()
-            .contains("啟動路由"));
+            .contains("was not launched"));
         record.file_input = Some(true);
         assert!(crate::file_input::check_runtime(&record).is_ok());
         record.info.state = "stopped".into();
         assert!(crate::file_input::check_runtime(&record)
             .unwrap_err()
-            .contains("已停止"));
+            .contains("has stopped"));
         record.info.state = "running".into();
         record.kind = "shell".into();
         assert!(crate::file_input::check_runtime(&record).is_err());

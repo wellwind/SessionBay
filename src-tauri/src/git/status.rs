@@ -4,6 +4,7 @@ use super::{
     path::RepoPath,
     runner::{Access, GitError, GitRunner, Invocation},
 };
+use crate::tr;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -191,7 +192,7 @@ pub fn parse(stdout: &[u8]) -> Result<RepoStatus, GitError> {
         entries: Vec::new(),
         truncated: false,
     };
-    let bad = || GitError::failed("無法解析 git status 輸出");
+    let bad = || GitError::failed(tr!("Cannot parse the git status output"));
     let mut records = stdout.split(|b| *b == 0).peekable();
     while let Some(record) = records.next() {
         if record.is_empty() {

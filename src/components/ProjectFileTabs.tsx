@@ -3,13 +3,14 @@ import { useActiveTabVisibility } from './useActiveTabVisibility';
 import { Pin, X } from 'lucide-react';
 import { FileIcon } from './ExplorerTree';
 import type { FileTabs, TabAction } from './explorer-model';
+import { t } from '../i18n';
 
 export function ProjectFileTabs({ state, active, dispatch, close }: {
   state: FileTabs; active: boolean; dispatch: (action: TabAction) => void; close: (path: string) => void;
 }) {
   const dragged = useRef('');
   const activeTab = useActiveTabVisibility(active ? state.active ?? undefined : undefined);
-  return <div className="project-file-tabs explorer" role="tablist" aria-label="唯讀檔案分頁" onKeyDown={event => {
+  return <div className="project-file-tabs explorer" role="tablist" aria-label={t('Read-only file tabs')} onKeyDown={event => {
     if (document.querySelector('[role="dialog"], dialog[open]') || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
     const index = tabs.indexOf(event.target as HTMLButtonElement);
@@ -31,9 +32,9 @@ export function ProjectFileTabs({ state, active, dispatch, close }: {
       onDrop={event => { event.stopPropagation(); if (dragged.current) { event.preventDefault(); dispatch({ type: 'move', path: dragged.current, target: tab.path }); dragged.current = ''; } }}>
       <button role="tab" aria-selected={active && state.active === tab.path} tabIndex={state.active === tab.path ? 0 : -1} title={tab.path}
         onClick={() => dispatch({ type: 'open', path: tab.path })} onDoubleClick={() => dispatch({ type: 'open', path: tab.path, pinned: true })}>
-        <FileIcon path={tab.path} /><span>{tab.path.split('/').pop()}</span>{tab.pinned && <Pin size={12} aria-label="已固定" />}
+        <FileIcon path={tab.path} /><span>{tab.path.split('/').pop()}</span>{tab.pinned && <Pin size={12} aria-label={t('Pinned')} />}
       </button>
-      <button aria-label={`關閉檔案 ${tab.path}`} title="關閉檔案分頁" onClick={() => close(tab.path)}><X size={13} /></button>
+      <button aria-label={t('Close file {{path}}', { path: tab.path })} title={t('Close file tab')} onClick={() => close(tab.path)}><X size={13} /></button>
     </div>)}
   </div>;
 }

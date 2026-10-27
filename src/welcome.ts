@@ -1,4 +1,4 @@
-/** First-launch welcome flag. Kept in localStorage so dismissing with 「稍後設定」
+/** First-launch welcome flag. Kept in localStorage so dismissing with "Set up later"
  * (which does not complete onboarding) never re-shows the welcome wizard. */
 export const welcomeStorageKey = 'sessionbay.welcome.v1';
 export function hasSeenWelcome(): boolean {

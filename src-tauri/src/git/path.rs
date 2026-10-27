@@ -2,6 +2,7 @@
 //!
 //! The UI receives a readable `path`; `raw` (base64 bytes) is present only when
 //! the bytes are not UTF-8, so non-UTF-8 names survive a round trip.
+use crate::tr;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -22,19 +23,19 @@ impl RepoPath {
     pub fn validate(&self) -> Result<(), String> {
         let bytes = &self.0;
         if bytes.is_empty() || bytes.len() > 4096 || bytes.contains(&0) {
-            return Err("檔案路徑無效".into());
+            return Err(tr!("Invalid file path"));
         }
         if bytes.starts_with(b"/") || bytes.contains(&b'\\') && cfg!(windows) {
-            return Err("檔案路徑必須是 repository 相對路徑".into());
+            return Err(tr!("The file path must be relative to the repository"));
         }
         if bytes
             .split(|b| *b == b'/')
             .any(|part| part == b".." || part == b"." || part.is_empty())
         {
-            return Err("檔案路徑不可包含 . 或 .. 片段".into());
+            return Err(tr!("The file path cannot contain . or .. segments"));
         }
         if bytes.split(|b| *b == b'/').next() == Some(b".git") {
-            return Err("不可直接操作 .git 內部檔案".into());
+            return Err(tr!("Files inside .git cannot be changed directly"));
         }
         Ok(())
     }

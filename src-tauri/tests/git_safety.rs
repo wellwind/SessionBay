@@ -103,7 +103,7 @@ fn dirty_tree_detached_head_and_other_worktrees_are_handled_safely() {
     let error = repo
         .request(json!({ "op": "switchBranch", "name": "side" }))
         .unwrap_err();
-    assert!(error.contains("未提交"), "{error}");
+    assert!(error.contains("uncommitted"), "{error}");
     assert_eq!(repo.snapshot(), before);
     fs::write(repo.root.join("f.txt"), b"one\n").unwrap();
 
@@ -129,7 +129,7 @@ fn dirty_tree_detached_head_and_other_worktrees_are_handled_safely() {
     assert!(repo
         .request(json!({ "op": "switchBranch", "name": "side" }))
         .unwrap_err()
-        .contains("另一個 worktree"));
+        .contains("another worktree"));
     let side = git(&repo.root, &["rev-parse", "side"]).trim().to_owned();
     assert!(repo
         .request(json!({ "op": "deleteBranch", "name": "side", "expected": side, "force": true }))
@@ -150,7 +150,10 @@ fn stale_confirmations_and_missing_backups_change_nothing() {
     let error = repo
         .request(json!({ "op": "reset", "target": "HEAD~1", "mode": "hard", "expectedHead": "0".repeat(40) }))
         .unwrap_err();
-    assert!(error.contains("HEAD 已在確認後變更"), "{error}");
+    assert!(
+        error.contains("HEAD changed after you confirmed"),
+        "{error}"
+    );
     assert_eq!(repo.snapshot(), before);
 
     // Without recovery storage the destructive operation refuses to start.
@@ -161,7 +164,7 @@ fn stale_confirmations_and_missing_backups_change_nothing() {
     let error = unprotected
         .request(json!({ "op": "reset", "target": "HEAD", "mode": "hard", "expectedHead": head }))
         .unwrap_err();
-    assert!(error.contains("復原點"), "{error}");
+    assert!(error.contains("recovery point"), "{error}");
     assert_eq!(unprotected.snapshot(), before);
 
     // An untracked entry that cannot be backed up stops the discard.
@@ -172,7 +175,7 @@ fn stale_confirmations_and_missing_backups_change_nothing() {
         let error = repo
             .request(json!({ "op": "discard", "untracked": ["link"] }))
             .unwrap_err();
-        assert!(error.contains("無法安全備份"), "{error}");
+        assert!(error.contains("cannot be backed up safely"), "{error}");
         assert_eq!(repo.snapshot(), before);
         fs::remove_file(repo.root.join("link")).unwrap();
     }
@@ -201,7 +204,7 @@ fn hard_reset_and_discard_are_recoverable_without_overwriting_new_work() {
     assert!(repo
         .request(json!({ "op": "restoreRecovery", "id": id }))
         .unwrap_err()
-        .contains("未提交"));
+        .contains("uncommitted"));
     assert_eq!(fs::read(repo.root.join("f.txt")).unwrap(), b"newer work\n");
     git(&repo.root, &["checkout", "--", "f.txt"]);
 
@@ -289,7 +292,7 @@ fn unmerged_branch_delete_needs_force_and_can_be_restored() {
     let error = repo
         .request(json!({ "op": "deleteBranch", "name": "topic", "expected": topic }))
         .unwrap_err();
-    assert!(error.contains("強制刪除"), "{error}");
+    assert!(error.contains("force delete"), "{error}");
     let outcome = repo
         .request(json!({ "op": "deleteBranch", "name": "topic", "expected": topic, "force": true }))
         .unwrap();
@@ -301,7 +304,7 @@ fn unmerged_branch_delete_needs_force_and_can_be_restored() {
     assert!(repo
         .request(json!({ "op": "restoreRecovery", "id": outcome["recovery"]["id"] }))
         .unwrap_err()
-        .contains("已存在"));
+        .contains("already exists"));
 }
 
 #[test]

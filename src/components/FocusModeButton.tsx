@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Maximize2, Minimize2 } from 'lucide-react';
+import { t } from '../i18n';
 
 /** A single icon-only toggle; portal keeps the tooltip outside tab-strip clipping. */
 export function FocusModeButton({ active, onClick, buttonRef }: {
@@ -14,7 +15,7 @@ export function FocusModeButton({ active, onClick, buttonRef }: {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const label = active ? '退出專注模式' : '進入專注模式';
+  const label = active ? t('Exit focus mode') : t('Enter focus mode');
   const open = !!anchor && (hovered || focused) && !dismissed;
   useEffect(() => {
     if (!open) return;

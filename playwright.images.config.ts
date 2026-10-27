@@ -6,7 +6,7 @@ export default defineConfig({
   testMatch: 'image-input.spec.ts',
   timeout: 30_000,
   workers: 1,
-  use: {
+  use: { locale: 'zh-TW',
     browserName: 'chromium',
     channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? undefined : 'chrome',
     headless: true,

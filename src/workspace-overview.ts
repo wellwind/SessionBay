@@ -3,12 +3,13 @@ import { isAgentObservation, type AgentObservation } from './agent-observation';
 import { paneRuntimeStatusText } from './pane-runtime-status';
 import type { AgentKind, Pane, PaneState, Project, Workspace } from './types';
 import { paneIds } from './workspace';
+import { t } from './i18n';
 
 /** Ordered from most to least in need of the user. */
 export const ATTENTION_ORDER = ['input', 'error', 'working', 'idle', 'other', 'ended'] as const;
 export type Attention = (typeof ATTENTION_ORDER)[number];
 export const ATTENTION_LABELS: Record<Attention, string> = {
-  input: '等待輸入', error: '需要處理', working: '工作中', idle: '執行中', other: '準備中', ended: '已結束',
+  input: t('Waiting for input'), error: t('Needs attention'), working: t('Working'), idle: t('Running'), other: t('Preparing'), ended: t('Ended'),
 };
 
 export interface OverviewItem {
@@ -54,7 +55,7 @@ export function overviewItems(
       if (!pane) continue;
       const observed = observation(pane).split('|').filter(Boolean);
       const attention = paneAttention(pane, observed);
-      const projectName = pane.projectId === null ? '臨時 Terminal' : names.get(pane.projectId) ?? '僅工作區專案';
+      const projectName = pane.projectId === null ? t('Temporary terminal') : names.get(pane.projectId) ?? t('Workspace-only project');
       const statusText = observed.map(value => paneRuntimeStatusText(pane, false, value)).find(Boolean) ||
         paneRuntimeStatusText(pane, false, '') || ATTENTION_LABELS[attention];
       items.push({

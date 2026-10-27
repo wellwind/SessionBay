@@ -1,5 +1,6 @@
 //! User-triggered opaque file staging. Files are never decoded or executed. Never accepts an input/output filesystem path.
 //! Pending files are deleted on discard; retained files survive UI/runtime teardown.
+use crate::tr;
 use serde::{
     de::{self, SeqAccess, Visitor},
     Deserialize, Deserializer, Serialize,
@@ -91,7 +92,9 @@ fn private_directory(directory: &Path) -> Result<(), String> {
             || m.uid() != unsafe { libc::geteuid() }
             || m.permissions().mode() & 0o077 != 0
         {
-            return Err("檔案暫存位置必須是目前使用者專用的真實目錄。".into());
+            return Err(tr!(
+                "The file staging location must be a real folder owned by the current user."
+            ));
         }
     }
     #[cfg(windows)]
@@ -116,24 +119,24 @@ impl FileStaging {
         })
     }
     fn quota_error(&self, limit: &str) -> String {
-        format!("檔案暫存已達 {limit} 上限。保留位置：{}。請先結束使用這些檔案的 Agent；僅手動移除確定不再用於接續對話的檔案。不要刪除 staging.lock。", self.directory.display())
+        tr!("File staging reached its {{limit}} limit. Location: {{v1}}. End the agents using these files first, and only remove files by hand that you are sure are no longer needed to resume conversations. Do not delete staging.lock.", limit = limit, v1 = self.directory.display())
     }
     fn check_directory(&self) -> Result<(), String> {
         let current = open_directory(&self.directory)?;
         if !same_file(&self.directory_handle, &current)? {
-            return Err("檔案暫存目錄已被替換。".into());
+            return Err(tr!("The file staging folder was replaced."));
         }
         Ok(())
     }
     pub fn begin(&mut self, runtime: &str, name: &str, size: usize) -> Result<String, String> {
         if size > MAX_FILE_BYTES {
-            return Err("每個檔案不得超過 10 MiB。".into());
+            return Err(tr!("Each file can be at most 10 MiB."));
         }
         let sanitized = sanitize_name(name)?;
         if self.pending.len() >= MAX_PENDING
             || self.pending.values().map(|p| p.expected).sum::<usize>() + size > MAX_PENDING_BYTES
         {
-            return Err("待處理檔案已達 4 個／20 MiB 上限。".into());
+            return Err(tr!("Pending files reached the limit of 4 files / 20 MiB."));
         }
         self.check_directory()?;
         let mut stored = 0u64;
@@ -145,7 +148,7 @@ impl FileStaging {
             }
             count += 1;
             if count >= MAX_STORED_FILES {
-                return Err(self.quota_error("2048 個檔案目錄"));
+                return Err(self.quota_error(&tr!("2048 file folders")));
             }
             let directory = entry.path();
             let _handle = open_directory(&directory)?;
@@ -154,12 +157,14 @@ impl FileStaging {
                 .enumerate()
             {
                 if index > 0 {
-                    return Err("檔案暫存子目錄含非預期的多個檔案；未寫入檔案。".into());
+                    return Err(tr!("A file staging subfolder unexpectedly has several files; nothing was written."));
                 }
                 let metadata = fs::symlink_metadata(child.map_err(|e| e.to_string())?.path())
                     .map_err(|e| e.to_string())?;
                 if !metadata.is_file() {
-                    return Err("檔案暫存目錄含非預期項目；未寫入檔案。".into());
+                    return Err(tr!(
+                        "The file staging folder has unexpected items; nothing was written."
+                    ));
                 }
                 stored = stored.saturating_add(metadata.len());
             }
@@ -182,7 +187,7 @@ impl FileStaging {
                 .directory
                 .join(format!("upload-{}", Uuid::new_v4().simple()));
             if directory.symlink_metadata().is_ok() {
-                return Err("暫存目錄名稱衝突，請重試。".into());
+                return Err(tr!("The staging folder name conflicted; try again."));
             }
             directory
         };
@@ -268,14 +273,14 @@ impl FileStaging {
             .pending
             .get_mut(id)
             .filter(|p| p.runtime == runtime)
-            .ok_or("找不到此工作階段的待處理檔案。")?;
+            .ok_or(tr!("No pending file was found for this session."))?;
         if p.verified
             || bytes.is_empty()
             || bytes.len() > MAX_CHUNK_BYTES
             || offset != p.received
             || bytes.len() > p.expected - p.received
         {
-            return Err("檔案分段大小或順序無效。".into());
+            return Err(tr!("Invalid file chunk size or order."));
         }
         p.file.write_all(bytes).map_err(|e| e.to_string())?;
         p.received += bytes.len();
@@ -287,9 +292,9 @@ impl FileStaging {
             .pending
             .get_mut(id)
             .filter(|p| p.runtime == runtime)
-            .ok_or("找不到此工作階段的待處理檔案。")?;
+            .ok_or(tr!("No pending file was found for this session."))?;
         if p.received != p.expected {
-            return Err("檔案尚未接收完整。".into());
+            return Err(tr!("The file has not been fully received."));
         }
         p.file.flush().map_err(|e| e.to_string())?;
         verify_pending_path(p)?;
@@ -307,13 +312,13 @@ impl FileStaging {
             .pending
             .get(id)
             .filter(|p| p.runtime == runtime)
-            .ok_or("找不到此工作階段的待處理檔案。")?;
+            .ok_or(tr!("No pending file was found for this session."))?;
         if !p.verified {
-            return Err("檔案尚未通過驗證。".into());
+            return Err(tr!("The file has not been verified yet."));
         }
         verify_pending_path(p)?;
         self.check_directory()?;
-        let p = self.pending.remove(id).ok_or("找不到檔案。")?;
+        let p = self.pending.remove(id).ok_or(tr!("File not found."))?;
         p.file.as_file().sync_all().map_err(|e| e.to_string())?;
         p.file.keep().map_err(|e| e.error.to_string())?;
         Ok(())
@@ -321,13 +326,15 @@ impl FileStaging {
     pub fn discard(&mut self, runtime: &str, id: &str) -> Result<(), String> {
         if let Some(p) = self.pending.get(id) {
             if p.runtime != runtime {
-                return Err("檔案屬於另一個工作階段。".into());
+                return Err(tr!("The file belongs to another session."));
             }
         }
         if let Some(pending) = self.pending.remove(id) {
             if self.check_directory().is_err() || verify_pending_path(&pending).is_err() {
                 let _ = pending.file.keep(); // Do not unlink a substituted path.
-                return Err("檔案暫存位置已變更，未刪除不明檔案。".into());
+                return Err(tr!(
+                    "The file staging location changed, so unknown files were not deleted."
+                ));
             }
             pending.file.close().map_err(|e| e.to_string())?;
             fs::remove_dir(pending.directory).map_err(|e| e.to_string())?;
@@ -371,7 +378,7 @@ fn lock_store(directory: &Path) -> Result<File, String> {
             .map_err(|e| e.to_string())?
     };
     if !file.metadata().map_err(|e| e.to_string())?.is_file() {
-        return Err("檔案暫存鎖不是一般檔案。".into());
+        return Err(tr!("The file staging lock is not a regular file."));
     }
     #[cfg(unix)]
     {
@@ -381,13 +388,14 @@ fn lock_store(directory: &Path) -> Result<File, String> {
             || m.uid() != unsafe { libc::geteuid() }
             || m.permissions().mode() & 0o077 != 0
         {
-            return Err("檔案暫存鎖權限不安全。".into());
+            return Err(tr!("The file staging lock permissions are unsafe."));
         }
     }
     #[cfg(windows)]
     windows_security::verify_file(&file).map_err(|e| e.to_string())?;
-    file.try_lock()
-        .map_err(|_| "另一個 Session Bay 程序正在使用檔案暫存，請在原視窗操作。")?;
+    file.try_lock().map_err(|_| {
+        tr!("Another Session Bay process is using file staging; use the original window.")
+    })?;
     Ok(file)
 }
 
@@ -410,7 +418,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
     let file = options.open(path).map_err(|e| e.to_string())?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_dir() {
-        return Err("檔案暫存位置不是目錄。".into());
+        return Err(tr!("The file staging location is not a folder."));
     }
     #[cfg(unix)]
     {
@@ -418,7 +426,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
         if metadata.uid() != unsafe { libc::geteuid() }
             || metadata.permissions().mode() & 0o077 != 0
         {
-            return Err("檔案暫存目錄權限不安全。".into());
+            return Err(tr!("The file staging folder permissions are unsafe."));
         }
     }
     #[cfg(windows)]
@@ -428,7 +436,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
             & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
             != 0
         {
-            return Err("檔案暫存位置不能是連結。".into());
+            return Err(tr!("The file staging location cannot be a link."));
         }
         windows_security::verify_file(&file).map_err(|e| e.to_string())?;
     }
@@ -452,7 +460,7 @@ fn same_file(a: &File, b: &File) -> Result<bool, String> {
 }
 fn verify_pending_path(p: &Pending) -> Result<(), String> {
     if !same_file(&p.directory_handle, &open_directory(&p.directory)?)? {
-        return Err("檔案暫存子目錄已被替換。".into());
+        return Err(tr!("A file staging subfolder was replaced."));
     }
     let mut options = fs::OpenOptions::new();
     options.read(true);
@@ -470,7 +478,7 @@ fn verify_pending_path(p: &Pending) -> Result<(), String> {
     if !current.metadata().map_err(|e| e.to_string())?.is_file()
         || !same_file(p.file.as_file(), &current)?
     {
-        return Err("檔案暫存檔案已被替換。".into());
+        return Err(tr!("A staged file was replaced."));
     }
     #[cfg(unix)]
     {
@@ -480,7 +488,7 @@ fn verify_pending_path(p: &Pending) -> Result<(), String> {
             || m.uid() != unsafe { libc::geteuid() }
             || m.permissions().mode() & 0o077 != 0
         {
-            return Err("檔案暫存檔案權限不安全。".into());
+            return Err(tr!("A staged file has unsafe permissions."));
         }
     }
     #[cfg(windows)]
@@ -497,14 +505,16 @@ fn verify_pending_path(p: &Pending) -> Result<(), String> {
         }
         // SAFETY: the successful call initialized the structure.
         if unsafe { info.assume_init() }.nNumberOfLinks != 1 {
-            return Err("檔案暫存檔案不能有其他硬連結。".into());
+            return Err(tr!("A staged file cannot have other hard links."));
         }
     }
     Ok(())
 }
 
 pub fn safe_path(path: &Path) -> Result<String, String> {
-    let value = path.to_str().ok_or("檔案暫存路徑不是有效 UTF-8。")?;
+    let value = path
+        .to_str()
+        .ok_or(tr!("The file staging path is not valid UTF-8."))?;
     if value.chars().any(|c| {
         c.is_control()
             || matches!(
@@ -512,7 +522,7 @@ pub fn safe_path(path: &Path) -> Result<String, String> {
                 '\'' | '"' | '`' | '$' | ';' | '|' | '&' | '<' | '>' | '(' | ')'
             )
     }) {
-        return Err("檔案暫存路徑含不安全字元，無法插入終端。".into());
+        return Err(tr!("The file staging path has unsafe characters, so it cannot be inserted into the terminal."));
     }
     Ok(value.to_owned())
 }
@@ -520,7 +530,7 @@ pub fn safe_path(path: &Path) -> Result<String, String> {
 /// Bounded bytes also keep percent-encoded terminal references within practical CLI limits.
 fn sanitize_name(original: &str) -> Result<String, String> {
     if original.len() > 4096 {
-        return Err("檔名不得超過 4096 bytes。".into());
+        return Err(tr!("File names can be at most 4096 bytes."));
     }
     let mut name: String = original.chars().map(|c| {
         if c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\'' | '`' | '$' | ';' | '&' | '(' | ')')
@@ -569,19 +579,19 @@ fn sanitize_name(original: &str) -> Result<String, String> {
 
 pub fn check_runtime(record: &crate::broker::RuntimeRecord) -> Result<(), String> {
     if record.info.state != "running" || record.info.exit_code.is_some() {
-        return Err("檔案目標工作階段已停止。".into());
+        return Err(tr!("The target session for the file has stopped."));
     }
     if !matches!(
         record.kind.as_str(),
         "codex" | "claude" | "grok" | "opencode"
     ) {
-        return Err("此 Agent 類型尚未支援本機檔案參照；Shell 與 Antigravity 不支援。".into());
+        return Err(tr!("This agent type does not support local file references yet; shells and Antigravity are not supported."));
     }
     match record.file_input {
         Some(true) => Ok(()),
-        Some(false) => Err("此工作階段的啟動路由不是已驗證的直接本機 Agent；Shell、自訂、SSH／WSL 包裝程式不支援檔案參照。".into()),
+        Some(false) => Err(tr!("This session was not launched as a verified direct local agent; shells, custom commands and SSH / WSL wrappers do not support file references.")),
         None if record.image_input => Ok(()),
-        None => Err("此工作階段缺少可核對的本機啟動證明，尚未插入。請保留目前 Agent；可另開新的直接本機 Agent 分頁使用檔案輸入。".into()),
+        None => Err(tr!("This session has no verifiable local launch proof, so nothing was inserted. Keep the current agent, and open a new direct local agent tab to use file input.")),
     }
 }
 
@@ -721,7 +731,7 @@ mod tests {
         assert!(store
             .begin("runtime", "next", 0)
             .unwrap_err()
-            .contains("多個檔案"));
+            .contains("several files"));
         assert!(store.discard("runtime", &id).is_err());
         assert_eq!(fs::read(&unknown).unwrap(), b"keep this");
         assert!(!Path::new(&result.path).exists());

@@ -1,4 +1,5 @@
 pub use crate::models::Installation;
+use crate::tr;
 use crate::{
     models::{AgentKind, HistorySource, InstallationStatus, LoginStatus},
     providers,
@@ -115,7 +116,7 @@ pub struct Settings {
     #[serde(default = "default_theme_palette")]
     pub theme_palette: String,
     pub terminal_theme: String,
-    /// 「終端固定用深色」: opt out of the terminal following the UI light/dark mode.
+    /// "Always use a dark terminal": opt out of the terminal following the UI light/dark mode.
     #[serde(default)]
     pub terminal_always_dark: bool,
     /// OS notifications when a background Agent waits, finishes or fails.
@@ -176,7 +177,7 @@ impl Default for Settings {
             default_profile_id: "default".into(),
             profiles: vec![ShellProfile {
                 id: "default".into(),
-                name: "預設 Shell".into(),
+                name: tr!("Default shell"),
                 executable: shell,
                 args: shell_args,
                 env: HashMap::new(),
@@ -263,22 +264,30 @@ impl Settings {
 
     pub fn validate(&self) -> Result<(), String> {
         if self.version != 1 {
-            return Err("不支援的設定版本；請保留原檔並更新應用程式".into());
+            return Err(tr!(
+                "Unsupported settings version; keep the original file and update the app"
+            ));
         }
         if !["dark", "light", "system"].contains(&self.theme.as_str())
             || !valid_theme_id(&self.theme_palette)
             || !valid_theme_id(&self.terminal_theme)
         {
-            return Err("主題設定無效".into());
+            return Err(tr!("Invalid theme settings"));
         }
         if !(9..=32).contains(&self.font_size) || !clean_string(&self.font_family, 256) {
-            return Err("字型大小須為 9–32，且字型名稱不可為空".into());
+            return Err(tr!(
+                "Font size must be 9–32 and the font name cannot be empty"
+            ));
         }
         if !(50..=200).contains(&self.app_zoom) {
-            return Err("工作台縮放須為 50–200 的整數百分比".into());
+            return Err(tr!(
+                "Workbench zoom must be a whole percentage from 50 to 200"
+            ));
         }
         if self.profiles.is_empty() || self.profiles.len() > 32 || self.sources.len() > 32 {
-            return Err("至少需要一個 Shell Profile，最多 32 個 Profile／來源".into());
+            return Err(tr!(
+                "At least one shell profile is needed, and at most 32 profiles or sources"
+            ));
         }
         let mut profiles = HashSet::new();
         for p in &self.profiles {
@@ -289,7 +298,9 @@ impl Settings {
                 || p.args.len() > 64
                 || p.args.iter().any(|a| a.len() > 8192 || a.contains('\0'))
             {
-                return Err("Shell Profile 的 ID、名稱、執行檔或參數無效".into());
+                return Err(tr!(
+                    "Invalid shell profile ID, name, executable or arguments"
+                ));
             }
             if p.env.len() > 64
                 || p.env.iter().any(|(k, v)| {
@@ -301,7 +312,7 @@ impl Settings {
                         || v.contains('\0')
                 })
             {
-                return Err("環境變數格式無效".into());
+                return Err(tr!("Invalid environment variable format"));
             }
             #[cfg(windows)]
             if p.env
@@ -311,11 +322,11 @@ impl Settings {
                 .len()
                 != p.env.len()
             {
-                return Err("Windows 環境變數名稱不區分大小寫，不可重複設定".into());
+                return Err(tr!("Windows environment variable names are case-insensitive and cannot be set twice"));
             }
         }
         if !profiles.contains(&self.default_profile_id) {
-            return Err("預設 Shell Profile 不存在".into());
+            return Err(tr!("The default shell profile does not exist"));
         }
         let mut ids = HashSet::new();
         let mut roots = HashSet::new();
@@ -325,21 +336,25 @@ impl Settings {
                 || !clean_string(&s.root, 4096)
                 || !Path::new(&s.root).is_absolute()
             {
-                return Err("來源 ID 不可重複，資料根目錄必須是絕對路徑".into());
+                return Err(tr!(
+                    "Source IDs must be unique and data roots must be absolute paths"
+                ));
             }
             #[cfg(windows)]
             if !crate::windows_fs::valid_filesystem_path(Path::new(&s.root)) {
-                return Err("來源根目錄必須是完整檔案系統路徑，不可使用裝置名稱或資料串流".into());
+                return Err(tr!(
+                    "Source roots must be full file system paths, not device names or data streams"
+                ));
             }
             let root = fs::canonicalize(&s.root).unwrap_or_else(|_| PathBuf::from(&s.root));
             if !roots.insert((format!("{:?}", s.kind), root)) {
-                return Err("同一 Agent 的資料根目錄不可重複".into());
+                return Err(tr!("The same agent cannot have the same data root twice"));
             }
         }
         for provider in providers::definitions() {
             let kind = provider.id;
             if !clean_string(self.executables.for_kind(kind), 4096) {
-                return Err("Agent 執行檔設定不可空白".into());
+                return Err(tr!("The agent executable setting cannot be empty"));
             }
             crate::launch_options::validate(kind, self.agent_options.for_kind(kind))?;
         }
@@ -349,18 +364,18 @@ impl Settings {
                 "codex" | "claude" | "opencode" | "grok" | "antigravity"
             )
         }) {
-            return Err("此 Agent 尚未支援真實 hooks".into());
+            return Err(tr!("This agent does not support activity hooks yet"));
         }
         if self.shortcuts.len() > 32 {
-            return Err("快捷鍵設定過多".into());
+            return Err(tr!("Too many shortcut settings"));
         }
         let mut keys = HashSet::new();
         for (id, key) in &self.shortcuts {
             if !clean_string(id, 64) || key.len() > 64 || key.contains('\0') {
-                return Err("快捷鍵格式無效".into());
+                return Err(tr!("Invalid shortcut format"));
             }
             if !key.is_empty() && !keys.insert(key.to_lowercase()) {
-                return Err(format!("快捷鍵衝突：{key}"));
+                return Err(tr!("Shortcut conflict: {{key}}", key = key));
             }
         }
         Ok(())
@@ -373,7 +388,8 @@ pub struct ConfigStore {
 }
 impl ConfigStore {
     pub fn open(directory: PathBuf) -> Result<Self, String> {
-        fs::create_dir_all(&directory).map_err(|e| format!("無法建立應用資料目錄：{e}"))?;
+        fs::create_dir_all(&directory)
+            .map_err(|e| tr!("Cannot create the app data folder: {{e}}", e = e))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -399,11 +415,11 @@ impl ConfigStore {
                 Ok(s) => (s, vec![]),
                 Err(e) => (
                     Settings::default(),
-                    vec![format!("設定檔無法讀取，已使用預設值；原檔保留：{e}")],
+                    vec![tr!("The settings file cannot be read, so defaults are used; the original file is kept: {{e}}", e = e)],
                 ),
             },
             Err(_) if !path.exists() => (Settings::default(), vec![]),
-            Err(e) => (Settings::default(), vec![format!("設定檔讀取失敗：{e}")]),
+            Err(e) => (Settings::default(), vec![tr!("Could not read the settings file: {{e}}", e = e)]),
         }
     }
     pub fn save_settings(&self, settings: &Settings) -> Result<(), String> {
@@ -429,7 +445,10 @@ impl ConfigStore {
             Ok(v) => (v, None),
             Err(e) => (
                 serde_json::json!({"version":1,"tabs":[],"panes":[],"activeTabId":null}),
-                Some(format!("布局已還原預設值；原檔保留：{e}")),
+                Some(tr!(
+                    "The layout was reset to defaults; the original file is kept: {{e}}",
+                    e = e
+                )),
             ),
         }
     }
@@ -460,7 +479,7 @@ impl ConfigStore {
         if result.is_err() {
             let _ = fs::remove_file(temporary);
         }
-        result.map_err(|e| format!("設定儲存失敗：{e}"))
+        result.map_err(|e| tr!("Could not save settings: {{e}}", e = e))
     }
 }
 
@@ -471,17 +490,17 @@ fn read_bounded(path: &Path, max: usize) -> Result<Vec<u8>, String> {
         .read_to_end(&mut data)
         .map_err(|e| e.to_string())?;
     if data.len() > max {
-        return Err("檔案超過大小限制".into());
+        return Err(tr!("The file exceeds the size limit"));
     }
     Ok(data)
 }
 
 pub fn validate_workspace(value: &serde_json::Value) -> Result<(), String> {
     if value.get("version").and_then(|v| v.as_u64()) != Some(1) || !value.is_object() {
-        return Err("不支援的布局版本".into());
+        return Err(tr!("Unsupported layout version"));
     }
     if serde_json::to_vec(value).map_err(|e| e.to_string())?.len() > 2 * 1024 * 1024 {
-        return Err("布局超過 2 MiB 限制".into());
+        return Err(tr!("The layout exceeds the 2 MiB limit"));
     }
     fn check(v: &serde_json::Value, depth: usize) -> bool {
         if depth > 32 {
@@ -498,7 +517,9 @@ pub fn validate_workspace(value: &serde_json::Value) -> Result<(), String> {
         }
     }
     if !check(value, 0) {
-        return Err("布局不可保存 Runtime/PID，或超過巢狀與數量限制".into());
+        return Err(tr!(
+            "The layout cannot store runtimes or PIDs, or it exceeds the nesting and count limits"
+        ));
     }
     Ok(())
 }
@@ -697,12 +718,12 @@ fn resolve_executable_with_paths(
     extensions: &[String],
 ) -> Result<PathBuf, String> {
     if !clean_string(value, 4096) || value.chars().any(char::is_control) {
-        return Err("執行檔名稱無效".into());
+        return Err(tr!("Invalid executable name"));
     }
     let value = Path::new(value);
     let candidates = if value.components().count() > 1 || value.is_absolute() {
         if !value.is_absolute() {
-            return Err("自訂執行檔請填寫絕對路徑".into());
+            return Err(tr!("Use an absolute path for a custom executable"));
         }
         executable_candidates(value, extensions)
     } else {
@@ -716,14 +737,14 @@ fn resolve_executable_with_paths(
         if executable_file(&path) {
             #[cfg(windows)]
             if is_windows_batch_script(&path) {
-                return Err(format!("找到 Windows 批次包裝檔 {}；為保留參數邊界，請改用官方原生 .exe 執行檔，或設定直接執行程式的 Shell Profile。Session Bay 不會將參數拼接為 cmd.exe 指令。", path.display()));
+                return Err(tr!("Found a Windows batch wrapper {{v1}}. To keep argument boundaries intact, use the official native .exe instead, or set up a shell profile that runs the program directly. Session Bay never joins arguments into a cmd.exe command.", v1 = path.display()));
             }
             return Ok(path);
         }
     }
-    Err(format!(
-        "找不到可執行檔 {}，請在設定指定完整路徑",
-        value.display()
+    Err(tr!(
+        "Executable {{v1}} not found; set the full path in Settings",
+        v1 = value.display()
     ))
 }
 
@@ -787,7 +808,7 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
                 .filter(|path| path.is_dir())
                 .or_else(|| std::env::current_dir().ok())
                 .or_else(|| path.parent().map(Path::to_owned))
-                .ok_or("無法取得版本查詢的工作目錄")?,
+                .ok_or(tr!("Cannot get a working directory for the version check"))?,
             env: HashMap::new(),
             session_id: None,
             resume_key: None,
@@ -807,7 +828,9 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
         // A continuously readable output channel must not postpone the deadline.
         if Instant::now() >= deadline {
             runtime.stop(&info.id)?;
-            return Err("工具版本查詢逾時；仍可嘗試啟動".into());
+            return Err(tr!(
+                "The tool version check timed out; you can still try launching"
+            ));
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         match receiver.recv_timeout(remaining) {
@@ -826,7 +849,9 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
                 return if exit_code == Some(0) && !value.is_empty() {
                     Ok(value)
                 } else {
-                    Err("工具版本查詢失敗；仍可嘗試啟動".into())
+                    Err(tr!(
+                        "The tool version check failed; you can still try launching"
+                    ))
                 };
             }
             Ok(TerminalEvent::Error { message, .. }) => {
@@ -835,7 +860,9 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
             }
             Err(_) => {
                 runtime.stop(&info.id)?;
-                return Err("工具版本查詢逾時；仍可嘗試啟動".into());
+                return Err(tr!(
+                    "The tool version check timed out; you can still try launching"
+                ));
             }
         }
     }
@@ -1093,7 +1120,7 @@ mod tests {
     fn reject_duplicate_shortcuts_and_profiles() {
         let mut s = Settings::default();
         s.shortcuts.insert("extra".into(), "Mod+Shift+F".into());
-        assert!(s.validate().unwrap_err().contains("衝突"));
+        assert!(s.validate().unwrap_err().contains("conflict"));
         s.shortcuts.clear();
         s.profiles.push(s.profiles[0].clone());
         assert!(s.validate().is_err());
@@ -1237,7 +1264,7 @@ mod tests {
         let started = Instant::now();
         assert!(version(&executable, AgentKind::Codex)
             .unwrap_err()
-            .contains("逾時"));
+            .contains("timed out"));
         assert!(started.elapsed() < Duration::from_secs(6));
     }
     #[cfg(unix)]
@@ -1279,7 +1306,7 @@ mod tests {
         let start = Instant::now();
         assert!(version(&executable, AgentKind::Codex)
             .unwrap_err()
-            .contains("逾時"));
+            .contains("timed out"));
         assert!(start.elapsed() < Duration::from_secs(6));
         let pid = fs::read_to_string(pidfile).unwrap();
         let path = PathBuf::from(format!("/proc/{}/status", pid.trim()));
@@ -1336,7 +1363,7 @@ mod windows_tests {
         );
         assert!(version(&silent, AgentKind::Codex)
             .unwrap_err()
-            .contains("失敗"));
+            .contains("failed"));
     }
 
     fn fixture(root: &Path, name: &str) -> PathBuf {
@@ -1446,7 +1473,7 @@ mod windows_tests {
             let path = std::env::join_paths([temp.path()]).unwrap();
             let error =
                 resolve_executable_with_paths("agent", Some(&path), &[], &extensions).unwrap_err();
-            assert!(error.contains("原生 .exe"));
+            assert!(error.contains("native .exe"));
             assert!(resolve_executable_with_paths(
                 wrapper.to_str().unwrap(),
                 None,

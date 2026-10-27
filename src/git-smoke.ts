@@ -1,4 +1,5 @@
 import { api, call } from './api';
+import { t } from './i18n';
 
 /** Native WebView Git self-test over the runner's synthetic repository and real IPC. */
 export async function runGitSmoke(): Promise<void> {
@@ -36,7 +37,7 @@ export async function runGitSmoke(): Promise<void> {
   const shell = (await api.runtimes()).find(runtime => runtime.state === 'running') ?? fail('shell runtime missing');
   const runtimesBefore = (await api.runtimes()).length;
 
-  click(document.querySelector('button[aria-label="加入專案"]'), 'add project button');
+  click(document.querySelector(`button[aria-label="${t('Add project')}"]`), 'add project button');
   const inputs = await waitFor(() => {
     const found = document.querySelectorAll<HTMLInputElement>('[role="dialog"] input');
     return found.length >= 2 && found;
@@ -59,12 +60,12 @@ export async function runGitSmoke(): Promise<void> {
   const repo = await call<{ state: string; repos: { id: string; name: string }[] }>('git_request', { projectId: project.id, request: { op: 'discover' } });
   const repoId = repo.repos[0]?.id ?? fail('discover returned no repository');
 
-  click(await waitFor(() => sidebar.querySelector('button[aria-label^="f.txt，已修改"]'), 'unstaged change missing'), 'f.txt change');
+  click(await waitFor(() => sidebar.querySelector(`button[aria-label^="f.txt${t(', {{description}}', { description: t('Modified') })}"]`), 'unstaged change missing'), 'f.txt change');
   const documentRoot = await waitFor(() => document.querySelector('.git-document:not([hidden])'), 'diff document missing');
-  click(await waitFor(() => documentRoot.querySelector('[role="checkbox"][aria-label="選取刪除第 4 行"]'), 'line checkbox missing'), 'deleted line 4');
-  click(documentRoot.querySelector('[role="checkbox"][aria-label="選取新增第 4 行"]'), 'added line 4');
-  click(await waitFor(() => buttonByText(documentRoot, '暫存所選 2 行'), 'stage button missing'), 'stage selection');
-  await waitFor(() => documentRoot.textContent?.includes('已暫存所選 2 行。'), 'partial stage did not report success');
+  click(await waitFor(() => documentRoot.querySelector(`[role="checkbox"][aria-label="${t('Select deleted line {{line}}', { line: 4 })}"]`), 'line checkbox missing'), 'deleted line 4');
+  click(documentRoot.querySelector(`[role="checkbox"][aria-label="${t('Select added line {{line}}', { line: 4 })}"]`), 'added line 4');
+  click(await waitFor(() => buttonByText(documentRoot, t('Stage {{count}} selected lines', { count: 2 })), 'stage button missing'), 'stage selection');
+  await waitFor(() => documentRoot.textContent?.includes(t('Staged {{count}} selected lines.', { count: 2 })), 'partial stage did not report success');
   const staged = await call<{ hunks: { lines: { kind: string; text: string }[] }[] }>('git_request', {
     projectId: project.id, request: { op: 'diff', repoId, path: 'f.txt', source: { kind: 'staged' } },
   });
@@ -72,14 +73,14 @@ export async function runGitSmoke(): Promise<void> {
   if (added.join(',') !== 'DELTA') fail(`index holds unexpected staged lines: ${added.join(',')}`);
 
   setValue(await waitFor(() => sidebar.querySelector<HTMLTextAreaElement>('textarea'), 'commit message box missing'), 'Native smoke commit');
-  click(await waitFor(() => { const button = buttonByText(sidebar, '檢視並 Commit'); return button && !button.disabled && button; }, 'commit preview disabled'), 'commit preview');
+  click(await waitFor(() => { const button = buttonByText(sidebar, t('Review and commit')); return button && !button.disabled && button; }, 'commit preview disabled'), 'commit preview');
   const dialog = await waitFor(() => document.querySelector('[role="dialog"]'), 'commit dialog missing');
-  click(buttonByText(dialog, '建立 commit'), 'create commit');
+  click(buttonByText(dialog, t('Create commit')), 'create commit');
   await waitFor(() => !document.querySelector('[role="dialog"]'), 'commit did not finish');
   const log = await call<{ commits: { subject: string }[] }>('git_request', { projectId: project.id, request: { op: 'log', repoId, filter: {}, offset: 0, limit: 5 } });
   if (log.commits[0]?.subject !== 'Native smoke commit') fail('commit not recorded');
 
-  click(await waitFor(() => buttonByText(sidebar, '開啟歷史 graph'), 'graph button missing'), 'open graph');
+  click(await waitFor(() => buttonByText(sidebar, t('Open history graph')), 'graph button missing'), 'open graph');
   await waitFor(() => Array.from(document.querySelectorAll('.git-graph-cell')).filter(visible).length >= 2, 'graph lanes did not paint');
 
   if ((await api.runtimes()).length !== runtimesBefore) fail('Git tools launched a runtime');
@@ -89,8 +90,8 @@ export async function runGitSmoke(): Promise<void> {
 
   // Return through the all-workspaces overview (native WebView coverage too),
   // then end the shell cleanly so the isolated broker is empty again.
-  click(Array.from(document.querySelectorAll('.sidebar-global')).find(button => button.textContent?.includes('全部工作區')), 'all-workspaces entry');
-  click(await waitFor(() => document.querySelector('.overview-card-open[aria-label^="放大 臨時 Terminal"]'), 'overview card for the shell missing'), 'overview card');
+  click(Array.from(document.querySelectorAll('.sidebar-global')).find(button => button.textContent?.includes(t('All workspaces'))), 'all-workspaces entry');
+  click(await waitFor(() => document.querySelector(`.overview-card-open[aria-label^="${t('Expand {{name}}, {{status}}', { name: '\u0000', status: '' }).split('\u0000')[0]}${t('Temporary terminal')}"]`), 'overview card for the shell missing'), 'overview card');
   const input = await waitFor(() => Array.from(document.querySelectorAll<HTMLTextAreaElement>('.terminal-pane.focused .xterm-helper-textarea')).find(area => visible(area.closest('.terminal-pane'))), 'zoomed shell input missing');
   if (!terminalNode.isConnected) fail('overview zoom remounted the terminal');
   input.focus();

@@ -5,6 +5,7 @@ import { gitApi } from './git-api';
 import { DangerDialog } from './DangerDialog';
 import type { Outcome, RepoInfo, RepoStatus, StashEntry } from './types';
 import { formatTime } from './types';
+import { t } from '../i18n';
 
 export function StashPanel({ projectId, repo, status, onOutcome }: {
   projectId: string; repo: RepoInfo; status: RepoStatus; onOutcome: (outcome: Outcome | { error: string }) => void;
@@ -31,34 +32,34 @@ export function StashPanel({ projectId, repo, status, onOutcome }: {
       event.preventDefault();
       void run(() => gitApi.stashPush(projectId, { repoId: repo.id, message, includeUntracked: untracked, keepIndex })).then(() => setMessage(''));
     }}>
-      <label className="git-field">Stash 訊息<input value={message} onChange={event => setMessage(event.target.value)} /></label>
-      <label className="git-check"><input type="checkbox" checked={untracked} onChange={event => setUntracked(event.target.checked)} />包含 untracked 檔案</label>
-      <label className="git-check"><input type="checkbox" checked={keepIndex} onChange={event => setKeepIndex(event.target.checked)} />保留已暫存內容（--keep-index）</label>
-      <button type="submit" disabled={busy || !status.entries.length}>Stash 變更</button>
+      <label className="git-field">{t('Stash message')}<input value={message} onChange={event => setMessage(event.target.value)} /></label>
+      <label className="git-check"><input type="checkbox" checked={untracked} onChange={event => setUntracked(event.target.checked)} />{t('Include untracked files')}</label>
+      <label className="git-check"><input type="checkbox" checked={keepIndex} onChange={event => setKeepIndex(event.target.checked)} />{t('Keep staged content (--keep-index)')}</label>
+      <button type="submit" disabled={busy || !status.entries.length}>{t('Stash changes')}</button>
     </form>
     {stashes.length > 0 && <>
-      <label className="git-check"><input type="checkbox" checked={restoreIndex} onChange={event => setRestoreIndex(event.target.checked)} />套用時一併還原暫存狀態（--index）</label>
-      <ul className="git-file-list" aria-label="Stash 清單">{stashes.map(entry => <li key={entry.oid} className="git-change">
+      <label className="git-check"><input type="checkbox" checked={restoreIndex} onChange={event => setRestoreIndex(event.target.checked)} />{t('Also restore the staged state when applying (--index)')}</label>
+      <ul className="git-file-list" aria-label={t('Stash list')}>{stashes.map(entry => <li key={entry.oid} className="git-change">
         <span className="git-change-open"><code>stash@{`{${entry.index}}`}</code><span className="git-change-name">{entry.message}</span>
           <span className="git-change-dir">{formatTime(entry.createdAt)}</span></span>
         <span className="git-change-actions">
-          <button disabled={busy} aria-label={`套用 stash@{${entry.index}}`} title="套用（保留 stash）"
+          <button disabled={busy} aria-label={t('Apply stash@{{{index}}}', { index: entry.index })} title={t('Apply (keep the stash)')}
             onClick={() => void run(() => gitApi.stashApply(projectId, { repoId: repo.id, index: entry.index, expected: entry.oid, pop: false, restoreIndex }))}><ArchiveRestore size={14} /></button>
-          <button disabled={busy} aria-label={`套用並移除 stash@{${entry.index}}`} title="Pop（套用成功才移除）"
+          <button disabled={busy} aria-label={t('Apply and remove stash@{{{index}}}', { index: entry.index })} title={t('Pop (removed only if applying succeeds)')}
             onClick={() => void run(() => gitApi.stashApply(projectId, { repoId: repo.id, index: entry.index, expected: entry.oid, pop: true, restoreIndex }))}>Pop</button>
-          <button disabled={busy} aria-label={`刪除 stash@{${entry.index}}`} title="刪除 stash" onClick={() => setDanger({ kind: 'drop', entry })}><Trash2 size={14} /></button>
+          <button disabled={busy} aria-label={t('Delete stash@{{{index}}}', { index: entry.index })} title={t('Delete stash')} onClick={() => setDanger({ kind: 'drop', entry })}><Trash2 size={14} /></button>
         </span>
       </li>)}</ul>
-      <button className="danger" disabled={busy} onClick={() => setDanger({ kind: 'clear' })}>清除全部 stash…</button>
+      <button className="danger" disabled={busy} onClick={() => setDanger({ kind: 'clear' })}>{t('Clear all stashes…')}</button>
     </>}
-    {!stashes.length && <p className="git-muted">沒有 stash。</p>}
+    {!stashes.length && <p className="git-muted">{t('No stashes.')}</p>}
     {danger && <DangerDialog
-      title={danger.kind === 'drop' ? `刪除 stash@{${danger.entry.index}}？` : `清除 ${repo.name} 的全部 stash？`}
-      confirmLabel={danger.kind === 'drop' ? '刪除 stash' : `清除 ${stashes.length} 個 stash`}
-      acknowledge={danger.kind === 'drop' ? '我了解此 stash 會從清單移除' : `我了解 ${stashes.length} 個 stash 會全部移除`}
-      impact={danger.kind === 'drop' ? <p>{repo.name}：「{danger.entry.message}」會從 stash 清單移除。</p>
+      title={danger.kind === 'drop' ? t('Delete stash@{{{index}}}?', { index: danger.entry.index }) : t('Clear all stashes in {{repo}}?', { repo: repo.name })}
+      confirmLabel={danger.kind === 'drop' ? t('Delete stash') : t('Clear {{count}} stashes', { count: stashes.length })}
+      acknowledge={danger.kind === 'drop' ? t('I understand this stash will be removed from the list') : t('I understand all {{count}} stashes will be removed', { count: stashes.length })}
+      impact={danger.kind === 'drop' ? <p>{t('{{repo}}: "{{message}}" will be removed from the stash list.', { repo: repo.name, message: danger.entry.message })}</p>
         : <ul>{stashes.map(entry => <li key={entry.oid}>{entry.message}</li>)}</ul>}
-      recovery="自動建立復原點保存 stash commit，可在「復原點」放回 stash 清單（順序可能不同）。"
+      recovery={t('A recovery point saves the stash commit, so you can put it back from "Recovery points" (the order may change).')}
       onClose={() => setDanger(null)}
       onConfirm={async () => {
         const result = danger.kind === 'drop'

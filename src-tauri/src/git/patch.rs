@@ -5,6 +5,7 @@
 //! *new* side is the current index and applies it in reverse: unselected
 //! additions become context and unselected deletions disappear.
 use super::diff::{LineKind, RawDiff, RawLine};
+use crate::tr;
 use serde::Deserialize;
 use std::collections::HashSet;
 
@@ -38,7 +39,11 @@ pub fn selected_lines(diff: &RawDiff, selection: &Selection) -> Result<HashSet<L
     match selection {
         Selection::Hunks { hunks } => {
             for &hunk in hunks {
-                let lines = &diff.hunks.get(hunk).ok_or("選取的區塊已不存在")?.lines;
+                let lines = &diff
+                    .hunks
+                    .get(hunk)
+                    .ok_or(tr!("The selected hunk no longer exists"))?
+                    .lines;
                 for (line, raw) in lines.iter().enumerate() {
                     if raw.kind != LineKind::Context {
                         selected.insert(LineRef { hunk, line });
@@ -52,16 +57,16 @@ pub fn selected_lines(diff: &RawDiff, selection: &Selection) -> Result<HashSet<L
                     .hunks
                     .get(reference.hunk)
                     .and_then(|hunk| hunk.lines.get(reference.line))
-                    .ok_or("選取的行已不存在")?;
+                    .ok_or(tr!("The selected line no longer exists"))?;
                 if raw.kind == LineKind::Context {
-                    return Err("未變更的內容行不能暫存".into());
+                    return Err(tr!("Unchanged context lines cannot be staged"));
                 }
                 selected.insert(*reference);
             }
         }
     }
     if selected.is_empty() {
-        return Err("沒有選取任何變更行".into());
+        return Err(tr!("No changed lines are selected"));
     }
     Ok(selected)
 }
@@ -99,12 +104,16 @@ struct Built {
 }
 
 fn check_eof_markers(lines: &[RawLine]) -> Result<(), String> {
-    for (side, excluded) in [("原始", LineKind::Add), ("結果", LineKind::Delete)] {
+    for (side, excluded) in [
+        (tr!("original"), LineKind::Add),
+        (tr!("result"), LineKind::Delete),
+    ] {
         let side_lines: Vec<&RawLine> = lines.iter().filter(|l| l.kind != excluded).collect();
         if let Some(position) = side_lines.iter().position(|l| l.no_newline) {
             if position + 1 != side_lines.len() {
-                return Err(format!(
-                    "此選取會讓{side}內容的檔案結尾換行不一致；請一併選取相鄰的檔案末尾變更"
+                return Err(tr!(
+                    "This selection makes the end-of-file newline of the {{side}} content inconsistent; also select the adjacent end-of-file change",
+                    side = side
                 ));
             }
         }
@@ -120,7 +129,7 @@ pub fn build(
     direction: Direction,
 ) -> Result<Option<Vec<u8>>, String> {
     if diff.binary || diff.renamed || diff.submodule {
-        return Err("此檔案不支援部分行操作".into());
+        return Err(tr!("This file does not support partial line operations"));
     }
     let mut built = Vec::new();
     for (hunk_index, hunk) in diff.hunks.iter().enumerate() {

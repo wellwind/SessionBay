@@ -5,6 +5,7 @@ import { gitApi } from './git-api';
 import { hostingApi } from './hosting-api';
 import type { RemoteMapping } from './hosting-api';
 import type { PullSummary, RepoInfo, RepoStatus } from './types';
+import { t } from '../i18n';
 
 /** PR/MR list for a mapped remote, plus creating one from the current branch. */
 export function PullsPanel({ projectId, repo, status, onOpen }: {
@@ -32,27 +33,27 @@ export function PullsPanel({ projectId, repo, status, onOpen }: {
     catch (failure) { setError(errorMessage(failure)); setPulls(null); }
   }, [projectId, repo.id, remote, state]);
   useEffect(() => { void load(false); }, [load]);
-  if (!mappings.length) return <p className="git-muted">尚無已確認對應主機帳號的 remote；請先在「主機與帳號」新增帳號並確認 remote 對應。</p>;
+  if (!mappings.length) return <p className="git-muted">{t('No remote is linked to a confirmed host account yet. Add an account under "Hosts and accounts" and confirm the remote mapping first.')}</p>;
   const source = status.branch.head;
   return <div className="git-form">
     <div className="git-row">
-      <select aria-label="PR／MR 的 remote" value={remote} onChange={event => setRemote(event.target.value)}>
+      <select aria-label={t('Remote for PRs / MRs')} value={remote} onChange={event => setRemote(event.target.value)}>
         {mappings.map(item => <option key={item.remote} value={item.remote}>{item.remote} · {item.mapping?.project}</option>)}
       </select>
-      <select aria-label="PR／MR 狀態" value={state} onChange={event => setState(event.target.value)}>
-        <option value="open">開啟中</option><option value="closed">已關閉</option><option value="all">全部</option>
+      <select aria-label={t('PR / MR state')} value={state} onChange={event => setState(event.target.value)}>
+        <option value="open">{t('Open (state)')}</option><option value="closed">{t('Closed')}</option><option value="all">{t('All')}</option>
       </select>
-      <button className="git-icon-button" aria-label="重新整理 PR／MR" title="重新整理" onClick={() => void load(true)}><RefreshCw size={14} /></button>
+      <button className="git-icon-button" aria-label={t('Refresh PRs / MRs')} title={t('Refresh')} onClick={() => void load(true)}><RefreshCw size={14} /></button>
     </div>
     {error && <p className="git-error" role="alert">{error}</p>}
-    <ul className="git-file-list" aria-label="PR／MR">{pulls?.map(pull => <li key={pull.number} className="git-change">
+    <ul className="git-file-list" aria-label={t('PRs / MRs')}>{pulls?.map(pull => <li key={pull.number} className="git-change">
       <button className="git-change-open" onClick={() => onOpen(remote, pull)} aria-label={`#${pull.number} ${pull.title}`}>
         <GitPullRequest size={13} aria-hidden="true" /><span className="git-change-name">#{pull.number} {pull.title}</span>
-        <span className="git-change-dir">{pull.draft ? '草稿 · ' : ''}{pull.author} · {pull.sourceBranch} → {pull.targetBranch}</span>
+        <span className="git-change-dir">{pull.draft ? t('Draft · ') : ''}{pull.author} · {pull.sourceBranch} → {pull.targetBranch}</span>
       </button>
     </li>)}</ul>
-    {pulls && !pulls.length && <p className="git-muted">沒有符合的 PR／MR。</p>}
-    {!creating ? <button disabled={!source} title={source ? undefined : 'detached HEAD 無法建立 PR'} onClick={() => setCreating(true)}>從 {source ?? 'HEAD'} 建立 PR／MR…</button>
+    {pulls && !pulls.length && <p className="git-muted">{t('No matching PRs / MRs.')}</p>}
+    {!creating ? <button disabled={!source} title={source ? undefined : t('Cannot create a PR from a detached HEAD')} onClick={() => setCreating(true)}>{t('Create PR / MR from {{branch}}…', { branch: source ?? 'HEAD' })}</button>
       : <form className="git-form git-inline-form" onSubmit={event => {
         event.preventDefault();
         if (!source) return;
@@ -62,12 +63,12 @@ export function PullsPanel({ projectId, repo, status, onOpen }: {
             failure => setError(errorMessage(failure)))
           .finally(() => setBusy(false));
       }}>
-        <p className="git-muted">來源 {remote}/{source}（需已推送）</p>
-        <label className="git-field">目標 branch<input value={draft.target} required onChange={event => setDraft({ ...draft, target: event.target.value })} /></label>
-        <label className="git-field">標題<input value={draft.title} required onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
-        <label className="git-field">說明<textarea rows={3} value={draft.body} onChange={event => setDraft({ ...draft, body: event.target.value })} /></label>
-        <label className="git-check"><input type="checkbox" checked={draft.draft} onChange={event => setDraft({ ...draft, draft: event.target.checked })} />建立為草稿</label>
-        <div className="git-row"><button type="button" onClick={() => setCreating(false)}>取消</button><button type="submit" className="primary" disabled={busy}>建立</button></div>
+        <p className="git-muted">{t('Source {{remote}}/{{branch}} (must be pushed)', { remote, branch: source ?? '' })}</p>
+        <label className="git-field">{t('Target branch')}<input value={draft.target} required onChange={event => setDraft({ ...draft, target: event.target.value })} /></label>
+        <label className="git-field">{t('Title')}<input value={draft.title} required onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
+        <label className="git-field">{t('Description')}<textarea rows={3} value={draft.body} onChange={event => setDraft({ ...draft, body: event.target.value })} /></label>
+        <label className="git-check"><input type="checkbox" checked={draft.draft} onChange={event => setDraft({ ...draft, draft: event.target.checked })} />{t('Create as draft')}</label>
+        <div className="git-row"><button type="button" onClick={() => setCreating(false)}>{t('Cancel')}</button><button type="submit" className="primary" disabled={busy}>{t('Create')}</button></div>
       </form>}
   </div>;
 }

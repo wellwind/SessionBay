@@ -51,7 +51,7 @@ fn project_identity_is_required_and_null_original_path_cannot_use_launch_overrid
             .service
             .list_workspace_files(unknown, "", 0, false)
             .unwrap_err()
-            .contains("找不到專案"));
+            .contains("Project not found"));
         assert!(fixture
             .service
             .read_workspace_file(unknown, "file.txt")
@@ -62,12 +62,12 @@ fn project_identity_is_required_and_null_original_path_cannot_use_launch_overrid
         .service
         .list_workspace_files("unclassified", "", 0, false)
         .unwrap_err()
-        .contains("沒有本機目錄"));
+        .contains("has no local folder"));
     assert!(fixture
         .service
         .read_workspace_file("unclassified", "file.txt")
         .unwrap_err()
-        .contains("沒有本機目錄"));
+        .contains("has no local folder"));
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
@@ -178,9 +178,9 @@ mod supported {
     fn rejects_binary_control_non_utf8_oversize_directory_and_missing_file() {
         let fixture = Fixture::new();
         for (name, bytes, expected) in [
-            ("binary.bin", b"text\0binary".as_slice(), "二進位"),
-            ("escape.txt", b"\x1b[31m".as_slice(), "控制字元"),
-            ("c1.txt", "\u{0085}".as_bytes(), "控制字元"),
+            ("binary.bin", b"text\0binary".as_slice(), "Binary files"),
+            ("escape.txt", b"\x1b[31m".as_slice(), "control characters"),
+            ("c1.txt", "\u{0085}".as_bytes(), "control characters"),
             ("invalid.txt", b"\xff\xfe".as_slice(), "UTF-8"),
         ] {
             fs::write(fixture.root.join(name), bytes).unwrap();
@@ -201,12 +201,12 @@ mod supported {
             .service
             .read_workspace_file(&fixture.project_id, "dir")
             .unwrap_err()
-            .contains("一般檔案"));
+            .contains("regular file"));
         assert!(fixture
             .service
             .read_workspace_file(&fixture.project_id, "missing.txt")
             .unwrap_err()
-            .contains("不存在"));
+            .contains("no longer exists"));
     }
 
     #[test]
@@ -247,7 +247,7 @@ mod supported {
             .service
             .read_workspace_file(&fixture.project_id, "alias.txt")
             .unwrap_err();
-        assert!(error.contains("多重硬連結不支援"));
+        assert!(error.contains("Multiple hard links are not supported"));
         assert!(!error.contains("synthetic outside inode content"));
         assert_eq!(fs::read(&outside).unwrap(), original);
         assert_eq!(fs::read(fixture.root.join("alias.txt")).unwrap(), original);
@@ -385,12 +385,12 @@ fn unsupported_platform_fails_closed_before_filesystem_access() {
         .service
         .list_workspace_files(&fixture.project_id, "", 0, false)
         .unwrap_err()
-        .contains("尚未支援安全檔案預覽"));
+        .contains("Safe file preview is not supported"));
     assert!(fixture
         .service
         .read_workspace_file(&fixture.project_id, "file.txt")
         .unwrap_err()
-        .contains("尚未支援安全檔案預覽"));
+        .contains("Safe file preview is not supported"));
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
@@ -704,7 +704,7 @@ mod bounded_reads {
                     .service
                     .read_workspace_file_chunk(&fixture.project_id, name, &info.version, offset, 1,)
                     .unwrap_err()
-                    .contains("讀取位置"));
+                    .contains("read position"));
             }
             let eof = fixture
                 .service
@@ -723,7 +723,7 @@ mod bounded_reads {
                     .service
                     .read_workspace_file_chunk(&fixture.project_id, name, version, 0, 1)
                     .unwrap_err()
-                    .contains("已變更"));
+                    .contains("changed"));
             }
         }
     }
@@ -815,7 +815,7 @@ mod bounded_reads {
                         CHUNK_BYTES,
                     )
                     .unwrap_err()
-                    .contains("已變更"),
+                    .contains("changed"),
                 "{change}"
             );
             let changed = fixture
@@ -919,7 +919,7 @@ mod bounded_reads {
             .service
             .inspect_workspace_file(&fixture.project_id, "file.txt")
             .unwrap_err()
-            .contains("多重硬連結"));
+            .contains("Multiple hard links"));
         assert!(fixture
             .service
             .read_workspace_file_chunk(
@@ -930,7 +930,7 @@ mod bounded_reads {
                 CHUNK_BYTES
             )
             .unwrap_err()
-            .contains("多重硬連結"));
+            .contains("Multiple hard links"));
         assert_eq!(fs::read(&path).unwrap(), b"synthetic private bytes");
     }
 

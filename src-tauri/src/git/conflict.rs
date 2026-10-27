@@ -12,6 +12,7 @@ use super::{
     runner::{path_arg, Access, GitError, GitRunner, Invocation},
     status::{self, Operation},
 };
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fs, io::Write, time::Duration};
@@ -80,7 +81,7 @@ fn work_bytes(repo: &RepoInfo, path: &RepoPath) -> Result<Option<Vec<u8>>, Strin
     let file = repo.root_path.join(path_arg(path.as_bytes())?);
     match fs::symlink_metadata(&file) {
         Ok(meta) if meta.is_file() => fs::read(&file).map(Some).map_err(|e| e.to_string()),
-        Ok(_) => Err(format!("{} 不是一般檔案", path.display())),
+        Ok(_) => Err(tr!("{{v1}} is not a regular file", v1 = path.display())),
         Err(_) => Ok(None),
     }
 }
@@ -112,7 +113,7 @@ fn check_token(
 ) -> Result<(), String> {
     if token(runner, repo, path)? != expected {
         return Err(
-            "檔案或衝突狀態已在開啟後變更（可能是 Agent 或其他編輯器），未寫入；請重新載入".into(),
+            tr!("The file or conflict state changed after opening (perhaps an agent or another editor), so nothing was written; reload"),
         );
     }
     Ok(())
@@ -161,18 +162,21 @@ pub fn labels(
         .ok()
         .filter(|o| o.success())
         .map(|o| o.stdout_text().trim().to_owned());
-    let base = ("共同祖先（base）".to_owned(), "兩邊分歧前的版本".to_owned());
+    let base = (
+        tr!("Common ancestor (base)"),
+        tr!("The version before the two sides diverged"),
+    );
     match operation {
         Some(Operation::Merge) => [
             base,
             (
-                format!(
-                    "目前 branch（{}）",
-                    current.unwrap_or_else(|| "HEAD".into())
+                tr!(
+                    "Current branch ({{v1}})",
+                    v1 = current.unwrap_or_else(|| "HEAD".into())
                 ),
                 head,
             ),
-            ("要合併進來的版本".into(), short(runner, repo, "MERGE_HEAD")),
+            (tr!("Incoming version"), short(runner, repo, "MERGE_HEAD")),
         ],
         Some(Operation::Rebase) => {
             let replaying = read_text(repo, "rebase-merge/stopped-sha")
@@ -185,37 +189,44 @@ pub fn labels(
             [
                 base,
                 (
-                    "Rebase 目標（已重放的內容）".into(),
-                    format!("{head}（onto {}）", &onto[..onto.len().min(7)]),
+                    tr!("Rebase target (already replayed)"),
+                    tr!(
+                        "{{head}} (onto {{v1}})",
+                        head = head,
+                        v1 = &onto[..onto.len().min(7)]
+                    ),
                 ),
-                ("正在重放的你的 commit".into(), replaying),
+                (tr!("Your commit being replayed"), replaying),
             ]
         }
         Some(Operation::CherryPick) => [
             base,
-            ("目前 HEAD".into(), head),
+            (tr!("Current HEAD"), head),
             (
-                "要 cherry-pick 的 commit".into(),
+                tr!("Commit being cherry-picked"),
                 short(runner, repo, "CHERRY_PICK_HEAD"),
             ),
         ],
         Some(Operation::Revert) => [
             base,
-            ("目前 HEAD".into(), head),
+            (tr!("Current HEAD"), head),
             (
-                "反向套用的 commit".into(),
+                tr!("Commit being reverted"),
                 short(runner, repo, "REVERT_HEAD"),
             ),
         ],
         Some(Operation::Am) => [
             base,
-            ("目前 HEAD".into(), head),
-            ("正在套用的 patch".into(), String::new()),
+            (tr!("Current HEAD"), head),
+            (tr!("Patch being applied"), String::new()),
         ],
         _ => [
             base,
-            ("目前 HEAD（或更新後的內容）".into(), head),
-            ("套用中的變更（例如 stash）".into(), String::new()),
+            (tr!("Current HEAD (or updated content)"), head),
+            (
+                tr!("Changes being applied (such as a stash)"),
+                String::new(),
+            ),
         ],
     }
 }
@@ -285,7 +296,7 @@ pub fn conflict_file(
         path: path.clone(),
         operation,
         result: Side {
-            label: "結果（工作目錄檔案）".into(),
+            label: tr!("Result (working tree file)"),
             detail: String::new(),
             present: work.is_some(),
             oid: None,
@@ -305,23 +316,23 @@ pub fn conflict_file(
 /// Writes through a sibling temp file and rename, keeping permissions.
 fn write_atomic(repo: &RepoInfo, path: &RepoPath, bytes: &[u8]) -> Result<(), String> {
     let target = repo.root_path.join(path_arg(path.as_bytes())?);
-    let parent = target.parent().ok_or("路徑無效")?;
+    let parent = target.parent().ok_or(tr!("Invalid path"))?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let mut temporary =
-        tempfile::NamedTempFile::new_in(parent).map_err(|e| format!("無法建立暫存檔：{e}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| tr!("Cannot create a temporary file: {{e}}", e = e))?;
     temporary
         .write_all(bytes)
-        .map_err(|e| format!("無法寫入：{e}"))?;
+        .map_err(|e| tr!("Cannot write: {{e}}", e = e))?;
     temporary
         .as_file()
         .sync_all()
-        .map_err(|e| format!("無法寫入：{e}"))?;
+        .map_err(|e| tr!("Cannot write: {{e}}", e = e))?;
     if let Ok(meta) = fs::metadata(&target) {
         let _ = fs::set_permissions(temporary.path(), meta.permissions());
     }
     temporary
         .persist(&target)
-        .map_err(|e| format!("無法儲存檔案：{}", e.error))?;
+        .map_err(|e| tr!("Cannot save the file: {{v1}}", v1 = e.error))?;
     Ok(())
 }
 
@@ -334,7 +345,7 @@ pub fn save(
 ) -> Result<String, String> {
     check_token(runner, repo, path, expected)?;
     if content.len() > MAX_TEXT_BYTES * 2 {
-        return Err("內容過大".into());
+        return Err(tr!("The content is too large"));
     }
     write_atomic(repo, path, content.as_bytes())?;
     token(runner, repo, path)
@@ -363,14 +374,14 @@ pub fn mark_resolved(
     let work = work_bytes(repo, path)?;
     if let Some(text) = work.as_deref().and_then(as_text) {
         if has_markers(&text) && !allow_markers {
-            return Err("檔案仍含衝突標記；請先處理，或明確確認要保留標記".into());
+            return Err(tr!("The file still has conflict markers; resolve them first, or confirm that you want to keep them"));
         }
     }
     let mut invocation = Invocation::new(&repo.root_path, Access::Write, ["add", "-A", "--"]);
     invocation = invocation.arg(path_arg(path.as_bytes())?);
     runner.ok(invocation)?;
     Ok(Outcome {
-        message: format!("已將 {} 標記為已解決", path.display()),
+        message: tr!("Marked {{v1}} as resolved", v1 = path.display()),
         recovery: None,
         conflicts: false,
     })
@@ -416,18 +427,26 @@ pub fn resolve_with(
             )
             .arg(&arg))?;
             Ok(Outcome {
-                message: format!("已刪除 {} 並標記為已解決", path.display()),
+                message: tr!(
+                    "Deleted {{v1}} and marked it as resolved",
+                    v1 = path.display()
+                ),
                 recovery: None,
                 conflicts: false,
             })
         }
         (Choice::KeepWorkTree, _) => {
             if work_bytes(repo, path)?.is_none() {
-                return Err("工作目錄沒有此檔案；請改選其他版本或刪除".into());
+                return Err(tr!(
+                    "The working tree does not have this file; choose another version or delete it"
+                ));
             }
             runner.ok(Invocation::new(&repo.root_path, Access::Write, ["add", "--"]).arg(&arg))?;
             Ok(Outcome {
-                message: format!("已保留工作目錄的 {}", path.display()),
+                message: tr!(
+                    "Kept the working tree version of {{v1}}",
+                    v1 = path.display()
+                ),
                 recovery: None,
                 conflicts: false,
             })
@@ -438,7 +457,10 @@ pub fn resolve_with(
             if let Some(new_path) = new_path {
                 new_path.validate()?;
                 if work_bytes(repo, new_path)?.is_some() {
-                    return Err(format!("{} 已存在，未覆蓋", new_path.display()));
+                    return Err(tr!(
+                        "{{v1}} already exists and was not overwritten",
+                        v1 = new_path.display()
+                    ));
                 }
             }
             write_atomic(repo, target, &bytes)?;
@@ -466,12 +488,15 @@ pub fn resolve_with(
                     .arg(path_arg(target.as_bytes())?),
             )?;
             Ok(Outcome {
-                message: format!("已採用版本並標記 {} 為已解決", target.display()),
+                message: tr!(
+                    "Used the chosen version and marked {{v1}} as resolved",
+                    v1 = target.display()
+                ),
                 recovery: None,
                 conflicts: false,
             })
         }
-        _ => Err("此衝突沒有所選的版本".into()),
+        _ => Err(tr!("This conflict does not have the chosen version")),
     }
 }
 
@@ -490,17 +515,22 @@ pub fn merge(
     expected_head: &str,
 ) -> Result<Outcome, String> {
     if let Some(operation) = status::operation(repo) {
-        return Err(format!("有進行中的 {operation:?} 操作"));
+        return Err(tr!(
+            "A {{operation}} operation is in progress",
+            operation = format!("{operation:?}")
+        ));
     }
     if super::remote::head(runner, repo)?.as_deref() != Some(expected_head) {
-        return Err("HEAD 已在確認後變更，未合併".into());
+        return Err(tr!(
+            "HEAD changed after you confirmed, so nothing was merged"
+        ));
     }
     if status::status(runner, repo)?
         .entries
         .iter()
         .any(|e| !e.untracked)
     {
-        return Err("工作目錄有未提交的變更；請先 commit 或 stash，確保 abort 可完整還原".into());
+        return Err(tr!("The working tree has uncommitted changes; commit or stash them first so an abort can restore everything"));
     }
     let target = resolve_commit(runner, repo, rev)?;
     let mut args = vec!["merge".to_owned(), "--no-edit".into()];
@@ -517,17 +547,14 @@ pub fn merge(
         .map_err(String::from)?;
     if output.success() {
         return Ok(Outcome {
-            message: format!("已合併 {}", display_rev(rev)),
+            message: tr!("Merged {{v1}}", v1 = display_rev(rev)),
             recovery: None,
             conflicts: false,
         });
     }
     if status::operation(repo) == Some(Operation::Merge) {
         return Ok(Outcome {
-            message: format!(
-                "合併 {} 產生衝突；請在 Git 面板逐一解決後 continue，或 abort",
-                display_rev(rev)
-            ),
+            message: tr!("Merging {{v1}} caused conflicts; resolve them one by one in the Git panel, then continue, or abort", v1 = display_rev(rev)),
             recovery: None,
             conflicts: true,
         });
@@ -548,13 +575,13 @@ fn operation_args(operation: Operation, action: &str) -> Vec<String> {
 }
 
 pub fn continue_operation(runner: &GitRunner, repo: &RepoInfo) -> Result<Outcome, String> {
-    let operation = status::operation(repo).ok_or("沒有進行中的操作")?;
+    let operation = status::operation(repo).ok_or(tr!("No operation is in progress"))?;
     if operation == Operation::Bisect {
-        return Err("Bisect 不支援 continue".into());
+        return Err(tr!("Bisect does not support continue"));
     }
     let state = status::status(runner, repo)?;
     if state.entries.iter().any(|e| e.conflict.is_some()) {
-        return Err("仍有未解決的衝突檔案".into());
+        return Err(tr!("There are still unresolved conflicted files"));
     }
     let args = if operation == Operation::Merge {
         // Uses MERGE_MSG; hooks and signing run as usual.
@@ -571,7 +598,7 @@ pub fn continue_operation(runner: &GitRunner, repo: &RepoInfo) -> Result<Outcome
         .map_err(String::from)?;
     if output.success() {
         return Ok(Outcome {
-            message: "已完成並繼續".into(),
+            message: tr!("Done; continuing"),
             recovery: None,
             conflicts: false,
         });
@@ -583,7 +610,7 @@ pub fn continue_operation(runner: &GitRunner, repo: &RepoInfo) -> Result<Outcome
             .any(|e| e.conflict.is_some())
     {
         return Ok(Outcome {
-            message: "下一個 commit 也有衝突，請繼續解決".into(),
+            message: tr!("The next commit has conflicts too; keep resolving"),
             recovery: None,
             conflicts: true,
         });
@@ -596,7 +623,7 @@ pub fn abort_operation(
     runner: &GitRunner,
     repo: &RepoInfo,
 ) -> Result<Outcome, String> {
-    let operation = status::operation(repo).ok_or("沒有進行中的操作")?;
+    let operation = status::operation(repo).ok_or(tr!("No operation is in progress"))?;
     let action = if operation == Operation::Bisect {
         "reset"
     } else {
@@ -610,7 +637,10 @@ pub fn abort_operation(
         .filter(|e| !e.untracked && !e.submodule)
         .map(|e| e.path)
         .collect();
-    let label = format!("中止 {operation:?} 前");
+    let label = tr!(
+        "Before aborting {{operation}}",
+        operation = format!("{operation:?}")
+    );
     let mut point = match store.create(runner, repo, &label, Capture::Tracked) {
         Ok(point) => point,
         Err(_) => store.create(runner, repo, &label, Capture::WorkFiles(&changed))?,
@@ -630,7 +660,10 @@ pub fn abort_operation(
     }
     store.mark_after(runner, repo, &mut point)?;
     Ok(Outcome {
-        message: format!("已中止 {operation:?}，回到操作前狀態"),
+        message: tr!(
+            "Aborted {{operation}} and returned to the earlier state",
+            operation = format!("{operation:?}")
+        ),
         recovery: Some(point),
         conflicts: false,
     })

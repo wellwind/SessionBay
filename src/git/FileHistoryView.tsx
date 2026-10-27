@@ -5,6 +5,7 @@ import { gitApi } from './git-api';
 import type { FileRevision, RepoPath } from './types';
 import { formatTime } from './types';
 import { RefChips } from './RefChips';
+import { t } from '../i18n';
 
 /** Commits touching one file, following renames; each opens its diff. */
 export function FileHistoryView({ projectId, repoId, repoName, path, onOpenDiff, onBlame }: {
@@ -26,21 +27,21 @@ export function FileHistoryView({ projectId, repoId, repoName, path, onOpenDiff,
   }, [projectId, repoId, path]);
   useEffect(() => { void load(0); }, [load]);
   return <div className="git-file-history">
-    <div className="git-doc-toolbar"><span className="git-doc-title"><strong>歷史 {path.path}</strong><span className="git-muted"> · {repoName}（追蹤重新命名）</span></span></div>
+    <div className="git-doc-toolbar"><span className="git-doc-title"><strong>{t('History {{file}}', { file: path.path })}</strong><span className="git-muted"> · {t('{{repo}} (follows renames)', { repo: repoName })}</span></span></div>
     {error && <p className="git-error" role="alert">{error}</p>}
-    <ul className="git-revision-list" aria-label={`${path.path} 的歷史`}>
+    <ul className="git-revision-list" aria-label={t('History of {{path}}', { path: path.path })}>
       {revisions.map(revision => <li key={revision.commit.oid} className="git-change">
-        <button className="git-change-open" onClick={() => onOpenDiff(revision)} aria-label={`${revision.commit.subject}，${revision.path.path}`}>
+        <button className="git-change-open" onClick={() => onOpenDiff(revision)} aria-label={t('{{subject}}, {{path}}', { subject: revision.commit.subject, path: revision.path.path })}>
           <code>{revision.commit.oid.slice(0, 7)}</code>
           <span className="git-change-name"><RefChips refs={revision.commit.refs} />{revision.commit.subject}</span>
           <span className="git-change-dir">{revision.path.path !== path.path ? `${revision.path.path} · ` : ''}{revision.commit.author} · {formatTime(revision.commit.authoredAt)}</span>
         </button>
-        <span className="git-change-actions"><button aria-label={`在 ${revision.commit.oid.slice(0, 7)} blame`} title="在此版本 blame"
+        <span className="git-change-actions"><button aria-label={t('Blame at {{commit}}', { commit: revision.commit.oid.slice(0, 7) })} title={t('Blame at this revision')}
           onClick={() => onBlame(revision.path, revision.commit.oid)}><ScrollText size={14} /></button></span>
       </li>)}
     </ul>
-    {loading && <p className="git-muted git-pad" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 讀取歷史…</p>}
-    {!loading && !revisions.length && !error && <p className="git-muted git-pad">此檔案沒有已提交的歷史。</p>}
-    {hasMore && !loading && <button className="git-load-more" onClick={() => void load(revisions.length)}>載入更多</button>}
+    {loading && <p className="git-muted git-pad" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Loading history…')}</p>}
+    {!loading && !revisions.length && !error && <p className="git-muted git-pad">{t('This file has no committed history.')}</p>}
+    {hasMore && !loading && <button className="git-load-more" onClick={() => void load(revisions.length)}>{t('Load more')}</button>}
   </div>;
 }

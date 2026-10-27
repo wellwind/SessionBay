@@ -396,7 +396,7 @@ fn removal_inspection_marks_database_shared_without_exposing_virtual_file_keys()
         .relative_path
         .starts_with("opencode.db"));
     assert_eq!(inspection.indexed_artifacts[0].indexed_bytes, None);
-    assert!(inspection.blockers[0].contains("禁止刪除整個資料庫"));
+    assert!(inspection.blockers[0].contains("deleting the whole database is not allowed"));
     assert_eq!(
         h.db()
             .query_row("SELECT count(*) FROM session", [], |r| r.get::<_, i64>(0))
@@ -887,7 +887,7 @@ fn opencode_session_exports_to_trash_deletes_via_cli_and_imports_back() {
     assert!(blocked
         .blockers
         .iter()
-        .any(|b| b.contains("OpenCode 執行檔")));
+        .any(|b| b.contains("OpenCode executable")));
     let plan = store
         .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
         .unwrap();
@@ -971,7 +971,7 @@ fn opencode_never_deletes_when_the_export_is_wrong() {
             Some(&cli),
         )
         .unwrap_err();
-    assert!(error.contains("與預期不同"));
+    assert!(error.contains("not the expected one"));
     assert!(cli.0.calls.borrow().is_empty());
     assert_eq!(
         h.db()

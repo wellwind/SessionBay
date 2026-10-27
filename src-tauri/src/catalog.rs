@@ -4,6 +4,7 @@ use crate::adapters::{self, ParsedState, MAX_LINE_BYTES, PARSER_VERSION};
 use crate::antigravity_metadata::{self, MetadataIndex};
 use crate::models::*;
 use crate::providers::{self, ParserId};
+use crate::tr;
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
@@ -118,7 +119,7 @@ fn project_name(path: Option<&str>) -> String {
             .filter(|s| !s.is_empty())
             .unwrap_or(path)
             .to_owned(),
-        None => "未分類".into(),
+        None => tr!("Unclassified"),
     }
 }
 
@@ -447,8 +448,10 @@ impl Catalog {
             .optional()
             .map_err(error)?;
         let path = path
-            .ok_or("找不到專案，無法預覽檔案")?
-            .ok_or("此專案沒有本機目錄；暫存終端無法預覽檔案")?;
+            .ok_or(tr!("Project not found, so the file cannot be previewed"))?
+            .ok_or(tr!(
+                "This project has no local folder; temporary terminals cannot preview files"
+            ))?;
         Ok(PathBuf::from(path))
     }
 
@@ -641,7 +644,9 @@ impl Catalog {
             .map_err(error)?
             .ok_or("Session not found. Refresh the history index.")?;
         if session.trash_identity.as_deref() != Some(expected_identity) {
-            return Err("這筆 Session 的來源已變更。請重新整理歷史並再次確認。".into());
+            return Err(tr!(
+                "The source of this session changed. Refresh the history and check again."
+            ));
         }
         let root: String = tx
             .query_row(
@@ -686,7 +691,7 @@ impl Catalog {
         };
         if !matched || !same_root || !storage_available {
             return Ok(Some(
-                "原始來源目前無法確認。請重新連接原來源並更新索引後再還原。".into(),
+                tr!("The original source cannot be confirmed right now. Reconnect it and update the index before restoring."),
             ));
         }
         Ok(None)
@@ -749,7 +754,7 @@ impl Catalog {
             )
             .optional()
             .map_err(error)?
-            .ok_or("回收筒項目已變更，請重新整理。")?;
+            .ok_or(tr!("The recycle bin item changed; refresh."))?;
         let session: Session = serde_json::from_str(&snapshot).map_err(error)?;
         let source: Option<(String, bool)> = tx
             .query_row(
@@ -760,14 +765,16 @@ impl Catalog {
             .optional()
             .map_err(error)?;
         let Some((configured_root, true)) = source else {
-            return Err("原始來源已移除、停用或變更，請重新連接並更新索引。".into());
+            return Err(tr!("The original source was removed, disabled or changed; reconnect it and update the index."));
         };
         let root_path = Path::new(&root);
         if fs::canonicalize(&configured_root).ok().as_deref() != Some(root_path)
             || !inspection_path_is_plain(root_path)
             || !inspection_path_is_plain(Path::new(&configured_root))
         {
-            return Err("來源路徑已變更或包含連結，無法可靠檢查。".into());
+            return Err(tr!(
+                "The source path changed or contains a link, so it cannot be checked reliably."
+            ));
         }
         let current = tx
             .query_row(
@@ -784,7 +791,7 @@ impl Catalog {
                 && session.trash_identity.is_some()
                 && current.trash_identity == session.trash_identity
         }) {
-            return Err("索引中的 Session 來源已變更，請重新整理。".into());
+            return Err(tr!("The session source in the index changed; refresh."));
         }
         let mut statement = tx.prepare(
             "SELECT path,identity,size,modified FROM files WHERE session_id=?1 AND source_id=?2 ORDER BY path LIMIT 201"
@@ -802,13 +809,17 @@ impl Catalog {
             .collect::<Result<Vec<_>, _>>()
             .map_err(error)?;
         if files.len() > 200 {
-            return Err("來源項目過多，無法提供完整的索引檢查。".into());
+            return Err(tr!(
+                "The source has too many items for a complete index check."
+            ));
         }
         let mut artifacts = Vec::new();
         // Shared stores use virtual file keys, not deletable transcript paths.
         if session.kind == AgentKind::OpenCode {
             artifacts.push(RemovalArtifact {
-                relative_path: "opencode.db（含 WAL／journal 等共享狀態）".into(),
+                relative_path: tr!(
+                    "opencode.db (including shared state such as the WAL / journal)"
+                ),
                 status: "sharedStore".into(),
                 indexed_bytes: None,
             });
@@ -828,7 +839,9 @@ impl Catalog {
                         !p.as_os_str().is_empty()
                             && p.components().all(|c| matches!(c, Component::Normal(_)))
                     })
-                    .ok_or("索引包含來源範圍外的路徑，已停止檢查。")?;
+                    .ok_or(tr!(
+                        "The index has a path outside the source, so the check stopped."
+                    ))?;
                 let matches = inspection_path_is_plain(path)
                     && fs::symlink_metadata(path).is_ok_and(|metadata| {
                         metadata.is_file()
@@ -851,17 +864,19 @@ impl Catalog {
         }
         if session.kind == AgentKind::Antigravity {
             artifacts.push(RemovalArtifact {
-                relative_path: "conversation_summaries.db（共享 metadata）".into(),
+                relative_path: tr!("conversation_summaries.db (shared metadata)"),
                 status: "sharedStore".into(),
                 indexed_bytes: None,
             });
         }
         let mut blockers = crate::removal::blockers(session.kind);
         if artifacts.is_empty() {
-            blockers.push("目前沒有可確認的索引來源檔案。".into());
+            blockers.push(tr!("There are no indexed source files to confirm."));
         }
         if artifacts.iter().any(|a| a.status == "changedOrUnavailable") {
-            blockers.push("有檔案已變更、遺失或包含連結；請重新掃描後再次檢查。".into());
+            blockers.push(tr!(
+                "Some files changed, are missing or contain links; rescan and check again."
+            ));
         }
         Ok(RemovalInspection {
             trash_id: trash_id.into(),
@@ -897,7 +912,7 @@ impl Catalog {
             .optional()
             .map_err(error)?;
         let Some((owner, snapshot, root)) = row.filter(|r| r.0 == session_id) else {
-            return Err("回收筒項目已變更，請重新整理。".into());
+            return Err(tr!("The recycle bin item changed; refresh."));
         };
         let session: Session = serde_json::from_str(&snapshot).map_err(error)?;
         tx.execute(
@@ -938,7 +953,7 @@ impl Catalog {
             )
             .optional()
             .map_err(error)?
-            .ok_or("回收筒項目已變更，請重新整理。")?;
+            .ok_or(tr!("The recycle bin item changed; refresh."))?;
         serde_json::from_str(&snapshot).map_err(error)
     }
 

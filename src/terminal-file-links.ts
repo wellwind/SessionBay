@@ -1,4 +1,5 @@
 import type { ILinkProvider, Terminal } from '@xterm/xterm';
+import { t } from './i18n';
 
 export interface TerminalFileTarget { path: string; line?: number; column?: number }
 export interface TerminalFileOpen { text: string; autoResolve: boolean; confirmAbsolute?: boolean }
@@ -18,25 +19,25 @@ function unwrap(value: string): string {
   return text;
 }
 export function parseTerminalFileTarget(value: string): TerminalFileTarget {
-  if (!value || value.length > LIMIT || hasControl(value)) throw new Error('請輸入單一檔案路徑，最多 4,096 字元。');
+  if (!value || value.length > LIMIT || hasControl(value)) throw new Error(t('Enter a single file path of up to 4,096 characters.'));
   let text = unwrap(value);
   const quoted = /^(["'`])([^\r\n]+)\1((?::\d+){0,2})$/.exec(text);
   if (quoted) text = quoted[2] + quoted[3];
   if (/["`$;|&<>]/.test(text) || /^[a-z]:(?![\\/])/i.test(text))
-    throw new Error('只接受檔案路徑，不開啟命令或磁碟相對路徑。');
+    throw new Error(t('Only file paths are accepted; commands and drive-relative paths are not opened.'));
   const position = /:(\d+)(?::(\d+))?$/.exec(text);
   let line: number | undefined, column: number | undefined;
   if (position) {
     line = Number(position[1]); column = position[2] === undefined ? undefined : Number(position[2]);
     if (![line, column ?? 1].every(value => Number.isSafeInteger(value) && value > 0 && value <= MAX_POSITION))
-      throw new Error('行與欄必須是 1 到 2,147,483,647 的整數。');
+      throw new Error(t('Line and column must be whole numbers from 1 to 2,147,483,647.'));
     text = text.slice(0, position.index);
   }
   if (/^[a-z][a-z\d+.-]*:/i.test(text) && !/^[a-z]:[\\/]/i.test(text))
-    throw new Error('不開啟網址或任意協定。');
+    throw new Error(t('URLs and other protocols are not opened.'));
   if (!text || text.includes(':') && !/^[a-z]:[\\/][^:]+$/i.test(text) || text.startsWith('~') ||
     /^(?:\\|\/\/)/.test(text) || text.split(/[\\/]/).includes('..'))
-    throw new Error('不支援網址、上層目錄、家目錄縮寫、UNC 或裝置路徑。');
+    throw new Error(t('URLs, parent folders, home-directory shorthand, UNC and device paths are not supported.'));
   return { path: text, ...(line === undefined ? {} : { line }), ...(column === undefined ? {} : { column }) };
 }
 export interface TerminalFileMatch { start: number; end: number; text: string }
@@ -76,7 +77,7 @@ export function fileLinkModifier(event: Pick<MouseEvent, 'metaKey' | 'ctrlKey' |
 }
 export function embeddedLinkLabel(target: string): string {
   const label = Array.from(target.slice(0, LIMIT)).map(char => hasControl(char) ? '�' : char).join('');
-  return target.length > LIMIT ? label.slice(0, LIMIT - 24) + '…（目標過長，已截斷）' : label;
+  return target.length > LIMIT ? label.slice(0, LIMIT - 24) + t('… (target too long, truncated)') : label;
 }
 export function terminalFileLinkProvider(terminal: Terminal, context: () => string, open: (request: TerminalFileOpen) => void,
   tooltip: (text: string) => void, active: () => boolean): ILinkProvider {
@@ -117,7 +118,7 @@ export function terminalFileLinkProvider(terminal: Terminal, context: () => stri
         const uncertainBoundary = !quoted && (target.line === undefined && text.trim() !== match.text || literal !== match.text);
         open({ text: match.text, autoResolve: true, ...(uncertainBoundary ? { confirmAbsolute: true } : {}) });
       },
-      hover: () => tooltip(`${/Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl'}+點選開啟專案檔案：${match.text}`),
+      hover: () => tooltip(t('{{key}}+click to open project file: {{file}}', { key: /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl', file: match.text })),
       leave: () => tooltip(''),
     })));
   } };

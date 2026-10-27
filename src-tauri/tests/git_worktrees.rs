@@ -98,23 +98,24 @@ fn refuses_unsafe_or_ambiguous_additions() {
     .unwrap();
     let error = |value: Value| f.request(&f.root, value).unwrap_err();
     assert!(
-        error(json!({ "op": "worktreeAdd", "branch": "topic", "create": true })).contains("已存在")
+        error(json!({ "op": "worktreeAdd", "branch": "topic", "create": true }))
+            .contains("already exists")
     );
-    assert!(error(json!({ "op": "worktreeAdd", "branch": "topic", "create": false, "path": f.base.join("x").to_str().unwrap() })).contains("使用中"));
+    assert!(error(json!({ "op": "worktreeAdd", "branch": "topic", "create": false, "path": f.base.join("x").to_str().unwrap() })).contains("already used by another worktree"));
     assert!(
         error(json!({ "op": "worktreeAdd", "branch": "missing", "create": false }))
-            .contains("找不到")
+            .contains("not found")
     );
     assert!(
         error(json!({ "op": "worktreeAdd", "branch": "bad..name", "create": true }))
-            .contains("Branch")
+            .contains("Invalid branch name")
     );
     fs::create_dir_all(f.base.join("taken")).unwrap();
-    assert!(error(json!({ "op": "worktreeAdd", "branch": "other", "create": true, "path": f.base.join("taken").to_str().unwrap() })).contains("已存在"));
+    assert!(error(json!({ "op": "worktreeAdd", "branch": "other", "create": true, "path": f.base.join("taken").to_str().unwrap() })).contains("already exists"));
     assert!(error(
         json!({ "op": "worktreeAdd", "branch": "other", "create": true, "path": "relative/dir" })
     )
-    .contains("絕對路徑"));
+    .contains("must be absolute"));
     assert!(
         !git(&f.root, &["branch", "--list", "other"]).contains("other"),
         "a refused add must not leave a branch"
@@ -140,7 +141,7 @@ fn removal_keeps_branches_and_never_discards_changes() {
         )
     };
 
-    assert!(remove(false).unwrap_err().contains("未提交"));
+    assert!(remove(false).unwrap_err().contains("uncommitted"));
     assert_eq!(
         fs::read(path.join("notes.txt")).unwrap(),
         b"untracked\n",
@@ -155,7 +156,7 @@ fn removal_keeps_branches_and_never_discards_changes() {
         "the branch is kept"
     );
     let stash = git(&f.root, &["stash", "list"]);
-    assert!(stash.contains("移除 worktree work"), "{stash}");
+    assert!(stash.contains("removing worktree work"), "{stash}");
     // The stash holds both the edit and the untracked file.
     let files = git(
         &f.root,
@@ -189,14 +190,14 @@ fn main_and_current_checkouts_cannot_be_removed_and_missing_ones_prune() {
             json!({ "op": "worktreeRemove", "path": f.root.to_str().unwrap() })
         )
         .unwrap_err()
-        .contains("主要"));
+        .contains("main worktree"));
     assert!(f
         .request(
             &path,
             json!({ "op": "worktreeRemove", "path": path.to_str().unwrap() })
         )
         .unwrap_err()
-        .contains("目前"));
+        .contains("current worktree"));
 
     // A checkout deleted outside Session Bay becomes prunable, then disappears.
     fs::remove_dir_all(&path).unwrap();

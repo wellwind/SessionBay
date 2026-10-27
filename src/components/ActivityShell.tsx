@@ -3,6 +3,7 @@ import type { ButtonHTMLAttributes, KeyboardEvent, ReactNode, RefObject } from '
 import type { LucideIcon } from 'lucide-react';
 import { MoreHorizontal } from 'lucide-react';
 import './activity-shell.css';
+import { t } from '../i18n';
 
 export interface ActivityContribution {
   /** Stable identity; also scopes the retained panel DOM. */
@@ -153,7 +154,7 @@ export function ActivityShell({ contributions, activeId, onActiveChange, scopeKe
         hidden={selected !== entry.id || entry.available === false} aria-label={entry.label}>
         {entry.renderSidebar()}
       </div>)}
-      <div role="separator" aria-label="調整功能面板寬度" aria-orientation="vertical" aria-controls={panelId}
+      <div role="separator" aria-label={t('Resize tool panel')} aria-orientation="vertical" aria-controls={panelId}
         aria-valuemin={minimumWidth} aria-valuemax={maximumWidth} aria-valuenow={panelWidth}
         tabIndex={selected ? 0 : -1} className="activity-panel-resize"
         onPointerDown={event => {
@@ -174,7 +175,7 @@ export function ActivityShell({ contributions, activeId, onActiveChange, scopeKe
             : panelWidth + (event.key === 'ArrowLeft' ? 16 : -16));
         }} />
     </div>
-    <nav ref={rail} className="workspace-activity-bar" aria-label="工作區功能"
+    <nav ref={rail} className="workspace-activity-bar" aria-label={t('Workspace tools')}
       onKeyDown={event => { if (!(event.target as Element).closest('[role="menu"]')) moveFocus(event, ':scope > button'); }}>
       {visible.map(entry => {
         const Icon = entry.icon;
@@ -186,10 +187,10 @@ export function ActivityShell({ contributions, activeId, onActiveChange, scopeKe
           {entry.badge !== undefined && <span className="activity-badge" aria-label={`${entry.label}：${entry.badge}`}>{entry.badge}</span>}
         </ActivityRailButton>;
       })}
-      {hasOverflow && <ActivityRailButton buttonRef={moreButton} className="workspace-activity" label="更多功能"
+      {hasOverflow && <ActivityRailButton buttonRef={moreButton} className="workspace-activity" label={t('More tools')}
         aria-haspopup="menu" aria-expanded={menuOpen} aria-pressed={overflow.some(entry => entry.id === selected)}
         onClick={() => setMenuOpen(value => !value)}><MoreHorizontal size={21} aria-hidden="true" /></ActivityRailButton>}
-      {menuOpen && hasOverflow && <div className="activity-overflow-menu" role="menu" aria-label="更多工作區功能"
+      {menuOpen && hasOverflow && <div className="activity-overflow-menu" role="menu" aria-label={t('More workspace tools')}
         onKeyDown={event => {
           if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setMenuOpen(false); moreButton.current?.focus(); }
           else moveFocus(event, 'button');

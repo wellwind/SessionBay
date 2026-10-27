@@ -11,6 +11,7 @@ pub mod remote_url;
 pub mod review;
 
 use super::runner::GitRunner;
+use crate::tr;
 use http::{Auth, Client, HostError, HostErrorKind};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -137,7 +138,7 @@ pub fn endpoints(provider: Provider, web_url: &str) -> Result<(String, String, S
         .unwrap_or(authority)
         .to_lowercase();
     if authority.is_empty() || authority.contains(char::is_whitespace) {
-        return Err("主機網址無效".into());
+        return Err(tr!("Invalid host URL"));
     }
     let web = format!(
         "{}://{authority}{}",
@@ -284,8 +285,9 @@ impl Hosting {
             &temporary,
             serde_json::to_vec_pretty(hosts).map_err(|e| e.to_string())?,
         )
-        .map_err(|e| format!("無法儲存主機設定：{e}"))?;
-        fs::rename(&temporary, &self.file).map_err(|e| format!("無法儲存主機設定：{e}"))
+        .map_err(|e| tr!("Cannot save host settings: {{error}}", error = e))?;
+        fs::rename(&temporary, &self.file)
+            .map_err(|e| tr!("Cannot save host settings: {{error}}", error = e))
     }
 
     pub fn connection(&self, id: &str) -> Result<Connection, String> {
@@ -293,7 +295,7 @@ impl Hosting {
             .connections
             .into_iter()
             .find(|c| c.id == id)
-            .ok_or_else(|| "找不到主機連線".into())
+            .ok_or_else(|| tr!("Host connection not found"))
     }
 
     /// The token for a connection, from the session or its secure source.
@@ -306,7 +308,7 @@ impl Hosting {
         if let Some(token) = self
             .session
             .lock()
-            .map_err(|_| "鎖定失敗")?
+            .map_err(|_| tr!("Could not take the lock"))?
             .get(&connection.id)
         {
             return Ok(token.clone());
@@ -318,9 +320,9 @@ impl Hosting {
             }
         };
         found.ok_or_else(|| {
-            format!(
-                "找不到 {}@{} 的登入資訊；請重新設定帳號",
-                connection.account, connection.host
+            tr!(
+                "No login found for {{account}}; set up the account again",
+                account = format!("{}@{}", connection.account, connection.host)
             )
         })
     }
@@ -334,7 +336,10 @@ impl Hosting {
         match request {
             HostRequest::Connections => {
                 let hosts = self.load();
-                let session = self.session.lock().map_err(|_| "鎖定失敗")?;
+                let session = self
+                    .session
+                    .lock()
+                    .map_err(|_| tr!("Could not take the lock"))?;
                 let list: Vec<serde_json::Value> = hosts
                     .connections
                     .iter()
@@ -360,7 +365,10 @@ impl Hosting {
                 source,
                 persist,
             } => {
-                let _guard = self.state.lock().map_err(|_| "鎖定失敗")?;
+                let _guard = self
+                    .state
+                    .lock()
+                    .map_err(|_| tr!("Could not take the lock"))?;
                 let (host, web, api) = endpoints(provider, &web_url)?;
                 let account_hint = account
                     .map(|a| a.trim().to_owned())
@@ -369,27 +377,31 @@ impl Hosting {
                     TokenSource::Entered => token
                         .map(|t| t.trim().to_owned())
                         .filter(|t| !t.is_empty())
-                        .ok_or("請輸入 token")?,
+                        .ok_or(tr!("Enter a token"))?,
                     TokenSource::GitCredential => {
-                        let account = account_hint
-                            .as_deref()
-                            .ok_or("使用既有 Git 憑證需要填寫帳號名稱")?;
+                        let account = account_hint.as_deref().ok_or(tr!(
+                            "Using an existing Git credential requires an account name"
+                        ))?;
                         credentials::fill(runner, cwd, &host, account)?.ok_or_else(|| {
-                            format!("Git credential helper 沒有 {account}@{host} 的憑證")
+                            tr!(
+                                "The Git credential helper has no credential for {{account}}",
+                                account = format!("{account}@{host}")
+                            )
                         })?
                     }
                     TokenSource::GhCli => credentials::gh_token(&host)
-                        .ok_or("GitHub CLI 沒有此主機的登入（gh auth login）")?,
+                        .ok_or(tr!("GitHub CLI has no login for this host (gh auth login)"))?,
                 };
                 let identity = identify(&self.client, provider, &api, &token)?;
                 if identity.account.is_empty() {
-                    return Err("主機沒有回報帳號名稱".into());
+                    return Err(tr!("The host did not report an account name"));
                 }
                 if let Some(hint) = &account_hint {
                     if !hint.eq_ignore_ascii_case(&identity.account) {
-                        return Err(format!(
-                            "Token 屬於 {}，不是 {hint}；未儲存",
-                            identity.account
+                        return Err(tr!(
+                            "The token belongs to {{owner}}, not {{expected}}; nothing was saved",
+                            owner = identity.account,
+                            expected = hint
                         ));
                     }
                 }
@@ -399,7 +411,10 @@ impl Hosting {
                     .iter()
                     .any(|c| c.host == host && c.account.eq_ignore_ascii_case(&identity.account))
                 {
-                    return Err(format!("{}@{host} 已經連線", identity.account));
+                    return Err(tr!(
+                        "{{account}} is already connected",
+                        account = format!("{}@{host}", identity.account)
+                    ));
                 }
                 let id = uuid::Uuid::new_v4().simple().to_string();
                 let mut warnings = Vec::new();
@@ -408,7 +423,7 @@ impl Hosting {
                     let saved = if persist {
                         credentials::approve(runner, cwd, &host, &identity.account, &token)
                     } else {
-                        Err("依選擇只在本次執行期間保留 token".into())
+                        Err(tr!("As chosen, the token is kept for this run only"))
                     };
                     match saved {
                         Ok(()) => stored_by_app = true,
@@ -416,7 +431,7 @@ impl Hosting {
                             warnings.push(message);
                             self.session
                                 .lock()
-                                .map_err(|_| "鎖定失敗")?
+                                .map_err(|_| tr!("Could not take the lock"))?
                                 .insert(id.clone(), token.clone());
                         }
                     }
@@ -449,12 +464,16 @@ impl Hosting {
                     &token,
                 )?;
                 if !identity.account.eq_ignore_ascii_case(&connection.account) {
-                    return Err(format!(
-                        "目前的 token 屬於 {}，不是 {}",
-                        identity.account, connection.account
+                    return Err(tr!(
+                        "The current token belongs to {{owner}}, not {{expected}}",
+                        owner = identity.account,
+                        expected = connection.account
                     ));
                 }
-                let _guard = self.state.lock().map_err(|_| "鎖定失敗")?;
+                let _guard = self
+                    .state
+                    .lock()
+                    .map_err(|_| tr!("Could not take the lock"))?;
                 let mut hosts = self.load();
                 if let Some(saved) = hosts.connections.iter_mut().find(|c| c.id == id) {
                     saved.server_version = identity.server_version.clone();
@@ -466,21 +485,27 @@ impl Hosting {
                 serde_json::to_value(&identity).map_err(|e| e.to_string())
             }
             HostRequest::RemoveConnection { id, forget } => {
-                let _guard = self.state.lock().map_err(|_| "鎖定失敗")?;
+                let _guard = self
+                    .state
+                    .lock()
+                    .map_err(|_| tr!("Could not take the lock"))?;
                 let mut hosts = self.load();
                 let connection = hosts
                     .connections
                     .iter()
                     .find(|c| c.id == id)
                     .cloned()
-                    .ok_or("找不到主機連線")?;
+                    .ok_or(tr!("Host connection not found"))?;
                 if forget && connection.stored_by_app {
                     credentials::reject(runner, cwd, &connection.host, &connection.account)?;
                 }
                 hosts.connections.retain(|c| c.id != id);
                 hosts.mappings.retain(|m| m.connection_id != id);
                 self.save(&hosts)?;
-                self.session.lock().map_err(|_| "鎖定失敗")?.remove(&id);
+                self.session
+                    .lock()
+                    .map_err(|_| tr!("Could not take the lock"))?
+                    .remove(&id);
                 self.cache.forget(&id);
                 Ok(serde_json::Value::Null)
             }
@@ -503,7 +528,7 @@ impl Hosting {
                 .iter()
                 .any(|c| lower.starts_with(&format!("{}/", c.web_url.to_ascii_lowercase())));
         if !allowed || url.chars().any(|c| c.is_control() || c == ' ') {
-            return Err("只能開啟已設定主機的網址".into());
+            return Err(tr!("Only URLs of configured hosts can be opened"));
         }
         #[cfg(target_os = "macos")]
         let mut command = std::process::Command::new("open");
@@ -519,7 +544,7 @@ impl Hosting {
             .arg(url)
             .spawn()
             .map(|_| ())
-            .map_err(|e| format!("無法開啟瀏覽器：{e}"))
+            .map_err(|e| tr!("Cannot open the browser: {{error}}", error = e))
     }
 
     pub fn mappings_for(&self, repo_id: &str) -> Vec<Mapping> {
@@ -537,26 +562,31 @@ impl Hosting {
         connection_id: Option<&str>,
         project: Option<&str>,
     ) -> Result<(), String> {
-        let _guard = self.state.lock().map_err(|_| "鎖定失敗")?;
+        let _guard = self
+            .state
+            .lock()
+            .map_err(|_| tr!("Could not take the lock"))?;
         let mut hosts = self.load();
         hosts
             .mappings
             .retain(|m| !(m.repo_id == repo_id && m.remote == remote));
         if let Some(connection_id) = connection_id {
             if !hosts.connections.iter().any(|c| c.id == connection_id) {
-                return Err("找不到主機連線".into());
+                return Err(tr!("Host connection not found"));
             }
             let project = project
                 .map(str::trim)
                 .filter(|p| !p.is_empty())
-                .ok_or("請填寫 project 路徑")?;
+                .ok_or(tr!("Enter the project path"))?;
             if project.split('/').count() < 2
                 || project
                     .split('/')
                     .any(|p| p.is_empty() || p == "." || p == "..")
                 || project.contains(char::is_whitespace)
             {
-                return Err("Project 路徑格式應為 owner/repo 或 group/subgroup/project".into());
+                return Err(tr!(
+                    "The project path must look like owner/repo or group/subgroup/project"
+                ));
             }
             hosts.mappings.push(Mapping {
                 repo_id: repo_id.to_owned(),

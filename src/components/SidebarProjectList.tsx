@@ -5,6 +5,7 @@ import './workspace-organization.css';
 import { ProjectRuntimeTabs } from './ProjectRuntimeTabs';
 import { projectRuntimeSummary } from '../project-runtime';
 import type { Project, Workspace } from '../types';
+import { t } from '../i18n';
 
 export function SidebarProjectList({ projects, selectedId, label, reorderable, onSelect, onReorder, empty, workspace, activeTabId, onFocus }: {
   projects: Project[]; selectedId: string | null | undefined; label: string; reorderable: boolean;
@@ -18,11 +19,11 @@ export function SidebarProjectList({ projects, selectedId, label, reorderable, o
   const move = (id: string, target: string, after: boolean) => {
     if (!reorderable || id === target || !projects.some(p => p.id === id) || !projects.some(p => p.id === target)) return;
     onReorder(id, target, after);
-    setAnnouncement(`已移動「${projects.find(p => p.id === id)!.name}」的專案順序。`);
+    setAnnouncement(t('Moved "{{name}}" in the project order.', { name: projects.find(p => p.id === id)!.name }));
   };
   const reorder = useAnimatedReorder(projects, 'y', '.project-list', move);
   return <nav className="project-list" aria-label={label}>
-    {reorderable && <span className="organization-sr-only" id={helpId}>拖曳排序；聚焦排序把手後按 Alt 加上／下方向鍵移動，拖曳時按 Escape 取消。</span>}
+    {reorderable && <span className="organization-sr-only" id={helpId}>{t('Drag to reorder. Focus the handle and press Alt with the up or down arrow to move; press Escape while dragging to cancel.')}</span>}
     <span className="organization-sr-only" role="status">{announcement}</span>
     {projects.map((project, index) => {
       const tabs = workspace?.tabs.filter(tab => tab.projectId === project.id) ?? [];
@@ -32,15 +33,15 @@ export function SidebarProjectList({ projects, selectedId, label, reorderable, o
         style={reorder.style(project.id)} ref={element => reorder.ref(project.id, element)}><div
         className={`project-row ${selectedId === project.id ? 'active' : ''}`}
         ref={element => reorder.targetRef(project.id, element)}>
-      <button className="project-main" aria-current={selectedId === project.id ? 'true' : undefined} onClick={() => onSelect(project)} title={project.path ?? '未分類'}>
-        <Folder size={17} /><span><strong>{project.name}</strong><small>{project.workspaceOnly ? `僅工作區 · ${project.path || '目錄待確認'}` : project.path || '工作目錄未知'}</small><span className="project-runtime-summary" aria-hidden={!tabs.length}>{tabs.length && workspace ? projectRuntimeSummary(tabs, workspace.panes) : ''}</span></span>
+      <button className="project-main" aria-current={selectedId === project.id ? 'true' : undefined} onClick={() => onSelect(project)} title={project.path ?? t('Unclassified')}>
+        <Folder size={17} /><span><strong>{project.name}</strong><small>{project.workspaceOnly ? t('Workspace only · {{path}}', { path: project.path || t('Folder to be confirmed') }) : project.path || t('Unknown working directory')}</small><span className="project-runtime-summary" aria-hidden={!tabs.length}>{tabs.length && workspace ? projectRuntimeSummary(tabs, workspace.panes) : ''}</span></span>
         <span className="project-count">{project.sessionCount}</span>{!project.exists && <AlertTriangle className="warning-icon" size={13} />}
       </button>
-      {!!tabs.length && <button className="project-runtime-toggle" aria-label={`${expanded ? '收合' : '展開'} ${project.name} 的分頁`}
+      {!!tabs.length && <button className="project-runtime-toggle" aria-label={expanded ? t('Collapse tabs of {{name}}', { name: project.name }) : t('Expand tabs of {{name}}', { name: project.name })}
         aria-expanded={expanded} aria-controls={contentId} onClick={() => setCollapsed(previous => {
           const next = new Set(previous); if (expanded) next.add(project.id); else next.delete(project.id); return next;
         })}>{expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</button>}
-      {reorderable && <button className="project-drag" aria-label={`排序 ${project.name}`} title="拖曳排序；Alt＋上／下方向鍵移動"
+      {reorderable && <button className="project-drag" aria-label={t('Reorder {{name}}', { name: project.name })} title={t('Drag to reorder; Alt+Up/Down to move')}
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-describedby={helpId}
         {...reorder.handlers(project.id)}
         onKeyDown={event => {

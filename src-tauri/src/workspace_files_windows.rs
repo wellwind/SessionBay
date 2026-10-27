@@ -2,6 +2,7 @@
 //! reopen a validated path; a rename cannot redirect subsequent child opens.
 use super::*;
 use crate::models::{WorkspaceEntry, WorkspaceEntryKind};
+use crate::tr;
 use std::{
     fs::{File, OpenOptions},
     io::{self, Read},
@@ -33,9 +34,9 @@ const DRIVE_FIXED: u32 = 3;
 
 pub(super) fn fs_error(error: io::Error) -> String {
     match error.kind() {
-        io::ErrorKind::NotFound => "檔案或目錄已不存在，請重新整理".into(),
-        io::ErrorKind::PermissionDenied => "沒有權限讀取此檔案或目錄".into(),
-        _ => format!("無法安全讀取：不允許符號連結或非一般檔案／目錄（{error}）"),
+        io::ErrorKind::NotFound => tr!("The file or folder no longer exists; refresh"),
+        io::ErrorKind::PermissionDenied => tr!("No permission to read this file or folder"),
+        _ => tr!("Cannot read safely: symlinks and non-regular files or folders are not allowed ({{error}})", error = error),
     }
 }
 
@@ -45,7 +46,9 @@ fn inspect(file: &File) -> Result<WorkspaceEntryKind, String> {
     if unsafe { GetFileType(file.as_raw_handle()) } != FILE_TYPE_DISK
         || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
     {
-        return Err("只能預覽一般檔案，不支援重新解析點或特殊檔案".into());
+        return Err(tr!(
+            "Only regular files can be previewed, not reparse points or special files"
+        ));
     }
     if metadata.is_dir() {
         return Ok(WorkspaceEntryKind::Directory);
@@ -66,20 +69,20 @@ fn inspect(file: &File) -> Result<WorkspaceEntryKind, String> {
     // SAFETY: the successful call initialized info.
     let info = unsafe { info.assume_init() };
     if !metadata.is_file() || info.DeletePending {
-        return Err("只能預覽一般檔案".into());
+        return Err(tr!("Only regular files can be previewed"));
     }
     if info.NumberOfLinks != 1 {
-        return Err("多重硬連結不支援：無法預覽與其他路徑共用的檔案".into());
+        return Err(tr!("Multiple hard links are not supported: files shared with other paths cannot be previewed"));
     }
     Ok(WorkspaceEntryKind::File)
 }
 
 fn open_at(parent: &File, name: &str, directory: bool) -> Result<File, String> {
     if !valid_name(name) {
-        return Err("不支援的檔案名稱".into());
+        return Err(tr!("Unsupported file name"));
     }
     let mut wide: Vec<u16> = name.encode_utf16().collect();
-    let length = u16::try_from(wide.len() * 2).map_err(|_| "檔案名稱過長")?;
+    let length = u16::try_from(wide.len() * 2).map_err(|_| tr!("The file name is too long"))?;
     let unicode = UNICODE_STRING {
         Length: length,
         MaximumLength: length,
@@ -125,15 +128,17 @@ fn open_at(parent: &File, name: &str, directory: bool) -> Result<File, String> {
     let file = unsafe { File::from_raw_handle(handle) };
     let kind = inspect(&file)?;
     if directory && kind != WorkspaceEntryKind::Directory {
-        return Err("請選擇目錄".into());
+        return Err(tr!("Choose a folder"));
     }
     Ok(file)
 }
 
 fn open_root(root: &Path) -> Result<File, String> {
-    let text = root.to_str().ok_or("專案目錄不是有效的 UTF-8 本機路徑")?;
+    let text = root
+        .to_str()
+        .ok_or(tr!("The project folder is not a valid UTF-8 local path"))?;
     if !root.is_absolute() || text.split(['/', '\\']).any(|p| matches!(p, "." | "..")) {
-        return Err("專案必須有絕對本機目錄".into());
+        return Err(tr!("The project needs an absolute local folder"));
     }
     let mut components = root.components();
     let drive = match components.next() {
@@ -141,18 +146,18 @@ fn open_root(root: &Path) -> Result<File, String> {
             Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) if drive.is_ascii_alphabetic() => {
                 drive
             }
-            _ => return Err("無法預覽遠端或未知路徑".into()),
+            _ => return Err(tr!("Remote or unknown paths cannot be previewed")),
         },
-        _ => return Err("專案必須有絕對本機目錄".into()),
+        _ => return Err(tr!("The project needs an absolute local folder")),
     };
     if components.next() != Some(Component::RootDir) {
-        return Err("專案必須有絕對本機目錄".into());
+        return Err(tr!("The project needs an absolute local folder"));
     }
     let drive_path = format!("{}:\\", char::from(drive));
     let wide: Vec<u16> = drive_path.encode_utf16().chain(Some(0)).collect();
     // SAFETY: NUL-terminated drive root. Reject network mappings before opening.
     if unsafe { GetDriveTypeW(wide.as_ptr()) } != DRIVE_FIXED {
-        return Err("只能預覽本機固定磁碟上的專案".into());
+        return Err(tr!("Only projects on a fixed local disk can be previewed"));
     }
     let mut directory = OpenOptions::new()
         .read(true)
@@ -161,14 +166,18 @@ fn open_root(root: &Path) -> Result<File, String> {
         .open(drive_path)
         .map_err(fs_error)?;
     if inspect(&directory)? != WorkspaceEntryKind::Directory {
-        return Err("請選擇目錄".into());
+        return Err(tr!("Choose a folder"));
     }
     validate_volume_root(&directory)?;
     for component in components {
         let Component::Normal(name) = component else {
-            return Err("不支援的專案路徑".into());
+            return Err(tr!("Unsupported project path"));
         };
-        directory = open_at(&directory, name.to_str().ok_or("專案路徑不是 UTF-8")?, true)?;
+        directory = open_at(
+            &directory,
+            name.to_str().ok_or(tr!("The project path is not UTF-8"))?,
+            true,
+        )?;
     }
     Ok(directory)
 }
@@ -188,15 +197,15 @@ fn validate_volume_root(directory: &File) -> Result<(), String> {
         )
     } as usize;
     if length == 0 || length >= final_path.len() {
-        return Err("無法驗證本機磁碟根目錄".into());
+        return Err(tr!("Cannot verify the local disk root"));
     }
-    let final_path =
-        String::from_utf16(&final_path[..length]).map_err(|_| "磁碟根目錄不是 Unicode")?;
+    let final_path = String::from_utf16(&final_path[..length])
+        .map_err(|_| tr!("The disk root is not Unicode"))?;
     if !final_path.starts_with(r"\\?\Volume{")
         || !final_path.ends_with("}\\")
         || final_path[4..final_path.len() - 1].contains('\\')
     {
-        return Err("不支援映射至子目錄的磁碟別名".into());
+        return Err(tr!("Drive aliases mapped to subfolders are not supported"));
     }
     Ok(())
 }
@@ -217,11 +226,13 @@ pub(super) fn read(
 }
 
 fn open_file_from(directory: File, parts: &[&str]) -> Result<File, String> {
-    let (name, parents) = parts.split_last().ok_or("請選擇一般文字檔案")?;
+    let (name, parents) = parts
+        .split_last()
+        .ok_or(tr!("Choose a regular text file"))?;
     let directory = descend(directory, parents)?;
     let file = open_at(&directory, name, false)?;
     if inspect(&file)? != WorkspaceEntryKind::File {
-        return Err("只能預覽一般檔案".into());
+        return Err(tr!("Only regular files can be previewed"));
     }
     Ok(file)
 }
@@ -232,7 +243,7 @@ pub(super) fn open_file(root: &Path, parts: &[&str]) -> Result<File, String> {
 
 pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
     if inspect(file)? != WorkspaceEntryKind::File {
-        return Err("只能預覽一般檔案".into());
+        return Err(tr!("Only regular files can be previewed"));
     }
     let mut identity = MaybeUninit::<FILE_ID_INFO>::uninit();
     let mut basic = MaybeUninit::<FILE_BASIC_INFO>::uninit();
@@ -276,7 +287,9 @@ pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
 fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFilePreview, String> {
     let mut file = open_file_from(directory, parts)?;
     if file.metadata().map_err(fs_error)?.len() > MAX_FILE_BYTES as u64 {
-        return Err("檔案過大：文字預覽上限為 256 KiB".into());
+        return Err(tr!(
+            "The file is too large: the text preview limit is 256 KiB"
+        ));
     }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file)
@@ -284,16 +297,18 @@ fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFil
         .read_to_end(&mut bytes)
         .map_err(fs_error)?;
     if bytes.len() > MAX_FILE_BYTES {
-        return Err("檔案過大：文字預覽上限為 256 KiB".into());
+        return Err(tr!(
+            "The file is too large: the text preview limit is 256 KiB"
+        ));
     }
     inspect(&file)?;
     let size_bytes = bytes.len();
-    let text = String::from_utf8(bytes).map_err(|_| "只能預覽 UTF-8 文字")?;
+    let text = String::from_utf8(bytes).map_err(|_| tr!("Only UTF-8 text can be previewed"))?;
     if text
         .chars()
         .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
     {
-        return Err("不支援二進位或含控制字元的檔案，只能預覽 UTF-8 文字".into());
+        return Err(tr!("Binary files and files with control characters are not supported; only UTF-8 text can be previewed"));
     }
     Ok(WorkspaceFilePreview {
         path: path.to_owned(),
@@ -382,7 +397,7 @@ fn enumerate(
             let header = offset_of!(FILE_ID_BOTH_DIR_INFO, FileName);
             let capacity = buffer.len() * 8;
             if position + size_of::<FILE_ID_BOTH_DIR_INFO>() > capacity {
-                return Err("目錄資料無效".into());
+                return Err(tr!("Invalid folder data"));
             }
             // SAFETY: bounds checked above; read_unaligned also handles offsets
             // defensively without relying on filesystem-provided alignment.
@@ -397,7 +412,7 @@ fn enumerate(
             };
             let length = info.FileNameLength as usize;
             if !length.is_multiple_of(2) || position + header + length > capacity {
-                return Err("目錄檔名資料無效".into());
+                return Err(tr!("Invalid folder file name data"));
             }
             // SAFETY: checked bounds and even byte length; copy each UTF-16 unit
             // with unaligned reads instead of creating a potentially unaligned slice.
@@ -412,7 +427,8 @@ fn enumerate(
                     )
                 })
                 .collect();
-            let name = String::from_utf16(&units).map_err(|_| "目錄含有無效 Unicode 檔名")?;
+            let name = String::from_utf16(&units)
+                .map_err(|_| tr!("The folder has file names with invalid Unicode"))?;
             if !matches!(name.as_str(), "." | "..") && !visit(name)? {
                 return Ok(false);
             }
@@ -421,7 +437,7 @@ fn enumerate(
                 break;
             }
             if next < header + length || next > capacity - position {
-                return Err("目錄資料無效".into());
+                return Err(tr!("Invalid folder data"));
             }
             position += next;
         }
@@ -507,7 +523,7 @@ pub(super) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, St
 
 fn check_directory_budget(seen: usize, name_bytes: usize) -> Result<(), String> {
     if seen > MAX_DIRECTORY_ENTRIES || name_bytes > MAX_DIRECTORY_NAME_BYTES {
-        return Err("目錄過大：最多可預覽 100,000 個項目及 16 MiB 的檔名".into());
+        return Err(tr!("The folder is too large: up to 100,000 items and 16 MiB of file names can be previewed"));
     }
     Ok(())
 }

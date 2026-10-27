@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import { displayNameError } from '../display-name';
 import { errorMessage } from '../api';
 import { Dialog } from './Dialog';
+import { t } from '../i18n';
 
 export function RenameDialog({ title, name, description, onSave, onClose }: {
   title: string;
@@ -29,16 +30,16 @@ export function RenameDialog({ title, name, description, onSave, onClose }: {
       }).finally(() => { pending.current = false; setBusy(false); });
     }}>
       {description && <p className="dialog-description">{description}</p>}
-      <label className="field-label" htmlFor={id}>顯示名稱
+      <label className="field-label" htmlFor={id}>{t('Display name')}
         <input id={id} value={draft} disabled={busy} aria-invalid={!!validation || !!error}
           aria-describedby={`${id}-help ${id}-error`} onFocus={(event) => event.currentTarget.select()}
           onChange={(event) => { setDraft(event.target.value); setError(''); }} />
       </label>
-      <p className="small-muted" id={`${id}-help`}>最多 200 個字元。</p>
+      <p className="small-muted" id={`${id}-help`}>{t('Up to 200 characters.')}</p>
       <p id={`${id}-error`} role={validation || error ? 'alert' : undefined} className="inline-warning">{validation || error}</p>
       <div className="dialog-actions">
-        <button type="button" className="secondary" disabled={busy} onClick={close}>取消</button>
-        <button type="submit" className="primary" disabled={busy || !!validation}>{busy ? '儲存中…' : '儲存名稱'}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={close}>{t('Cancel')}</button>
+        <button type="submit" className="primary" disabled={busy || !!validation}>{busy ? t('Saving…') : t('Save name')}</button>
       </div>
     </form>
   </Dialog>;

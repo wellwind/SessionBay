@@ -32,6 +32,6 @@ export default defineConfig({
   ],
   grepInvert: new RegExp(knownWebKitDifferences.map(title => title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')),
   outputDir: './test-results/webkit', workers: 1, timeout: 30_000,
-  use: { browserName: 'webkit', headless: true, screenshot: 'only-on-failure', viewport: { width: 1200, height: 850 }, baseURL: 'http://127.0.0.1:1447' },
+  use: { locale: 'zh-TW', browserName: 'webkit', headless: true, screenshot: 'only-on-failure', viewport: { width: 1200, height: 850 }, baseURL: 'http://127.0.0.1:1447' },
   webServer: { command: 'npm run dev:web -- --port 1447', url: 'http://127.0.0.1:1447', reuseExistingServer: false },
 });

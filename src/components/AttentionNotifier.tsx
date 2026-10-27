@@ -4,8 +4,9 @@ import { agentNames } from '../agents';
 import type { AttentionKind } from '../runtime-activity';
 import type { Project, Workspace } from '../types';
 import { useRuntimeActivity } from './RuntimeActivity';
+import { t } from '../i18n';
 
-const MESSAGES: Record<AttentionKind, string> = { waiting: '正在等待你的輸入或確認', done: '已完成', failed: '回報失敗' };
+const MESSAGES: Record<AttentionKind, string> = { waiting: t('is waiting for your input or confirmation'), done: t('has finished'), failed: t('reported a failure') };
 // Collapse bursts (e.g. several panes finishing together) without dropping distinct panes.
 const PANE_COOLDOWN_MS = 5_000;
 

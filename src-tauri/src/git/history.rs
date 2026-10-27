@@ -5,6 +5,7 @@ use super::{
     path::RepoPath,
     runner::{path_arg, Access, GitError, GitRunner, Invocation},
 };
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, ffi::OsString, time::Duration};
 
@@ -148,7 +149,7 @@ fn parse_commit(record: &[u8]) -> Option<LogCommit> {
 
 fn checked_text(value: &str, what: &str) -> Result<(), GitError> {
     if value.len() > 512 || value.contains(['\0', '\n']) {
-        return Err(GitError::failed(format!("{what}無效")));
+        return Err(GitError::failed(tr!("Invalid {{what}}", what = what)));
     }
     Ok(())
 }
@@ -171,12 +172,12 @@ pub fn log(
         format!("--max-count={}", limit + 1).into(),
     ];
     if let Some(text) = filter.text.as_deref().filter(|t| !t.is_empty()) {
-        checked_text(text, "搜尋文字")?;
+        checked_text(text, &tr!("search text"))?;
         args.extend(["--regexp-ignore-case".into(), "--fixed-strings".into()]);
         args.push(format!("--grep={text}").into());
     }
     if let Some(author) = filter.author.as_deref().filter(|t| !t.is_empty()) {
-        checked_text(author, "作者")?;
+        checked_text(author, &tr!("author"))?;
         if filter.text.as_deref().is_none_or(str::is_empty) {
             args.extend(["--regexp-ignore-case".into(), "--fixed-strings".into()]);
         }
@@ -276,7 +277,7 @@ pub fn commit_detail(
         .map(|f| String::from_utf8_lossy(f).into_owned())
         .collect();
     if fields.len() < 9 {
-        return Err(GitError::failed("無法解析 commit"));
+        return Err(GitError::failed(tr!("Cannot parse the commit")));
     }
     Ok(CommitDetail {
         parents: commit_parents(runner, repo, &oid)?,
