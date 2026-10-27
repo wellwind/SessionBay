@@ -1,0 +1,72 @@
+name: Release
+# Builds the macOS Apple Silicon bundle and creates a draft prerelease.
+# A maintainer installs the draft's .dmg, smoke-tests it, then publishes it.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build (for example v0.1.0)
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  macos:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check that the tag matches the app version
+        run: |
+          version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          test "v$version" = "$TAG" || { echo "Tag $TAG does not match app version $version"; exit 1; }
+      - name: Rust toolchain
+        run: rustup show
+      - run: npm ci
+      - name: Build the app bundle and disk image
+        run: npm run tauri -- build --bundles app,dmg
+      - name: Smoke-test the bundle
+        run: bash scripts/ci-macos-smoke.sh
+      - name: Collect artifacts and checksums
+        run: |
+          mkdir -p release
+          cp src-tauri/target/release/bundle/dmg/*.dmg release/
+          cd release
+          for file in *.dmg; do shasum -a 256 "$file" > "$file.sha256"; done
+          ls -l
+      - name: Extract release notes
+        run: |
+          version="${TAG#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release/notes.md
+          test -s release/notes.md || { echo "CHANGELOG.md has no section for $version"; exit 1; }
+          cat >> release/notes.md <<'NOTES'
+
+          ### Install
+
+          Download the `.dmg` below (macOS 12 or later, Apple Silicon). This preview is not notarized by Apple yet; the first time you open it, use **System Settings → Privacy & Security → Open Anyway**. See the [install guide](https://fullstackladder.dev/SessionBay/guide/install/).
+          NOTES
+      - name: Create a draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" release/*.dmg release/*.sha256 \
+            --draft --prerelease --verify-tag \
+            --title "Session Bay ${TAG#v} (preview)" \
+            --notes-file release/notes.md
