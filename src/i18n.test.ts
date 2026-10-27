@@ -28,8 +28,10 @@ describe('i18n catalogs', () => {
     expect(Object.keys(uiSources).length).toBeGreaterThan(50);
     for (const source of Object.values(uiSources)) for (const key of keys(source)) if (!(key in catalog)) missing.add(key);
     // i18n.rs itself only holds example keys in its docs and tests.
+    let rustKeyCount = 0;
     for (const [path, source] of Object.entries(rustSources)) if (!path.endsWith('/i18n.rs'))
-      for (const key of rustKeys(source)) if (!(key in catalog)) missing.add(key);
+      for (const key of rustKeys(source)) { rustKeyCount++; if (!(key in catalog)) missing.add(key); }
+    expect(rustKeyCount).toBeGreaterThan(300);
     expect([...missing]).toEqual([]);
   });
 
