@@ -87,7 +87,7 @@
 }
 .settings-layout {
   display: grid;
-  grid-template-columns: 192px minmax(0, 1fr);
+  grid-template-columns: 208px minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
@@ -111,10 +111,13 @@
   text-align: left;
   font: inherit;
   font-size: 12px;
-  white-space: nowrap;
+  line-height: 1.35;
 }
+.settings-nav > button > svg { flex-shrink: 0; }
+/* Longer translations wrap instead of pushing the chevron out of the button. */
 .settings-nav > button > span:first-of-type {
   flex: 1;
+  min-width: 0;
 }
 .settings-nav > button:hover {
   background: var(--settings-surface);

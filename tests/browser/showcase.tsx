@@ -168,6 +168,19 @@ const bootstrap: Bootstrap = {
   index: { running: false, processed: 1284, total: 1284, cancelled: false, errors: [], sources: [] },
 };
 
+const fileText = (path: string) => new TextEncoder().encode(path.endsWith('rateLimit.ts') ? [
+  "import { buckets } from './buckets';",
+  '',
+  'export function rateLimit({ capacity = 60, refillPerSecond = 1 } = {}) {',
+  '  return async (req, res, next) => {',
+  '    const bucket = await buckets.take(req.apiKey, { capacity, refillPerSecond });',
+  '    if (!bucket.ok) return tooManyRequests(res, bucket.retryAfter);',
+  '    next();',
+  '  };',
+  '}',
+  '',
+].join('\n') : `# ${path}\n\nSynthetic showcase file.\n`);
+
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
@@ -190,7 +203,40 @@ mockIPC((command, payload = {}) => {
       messages: transcript.map(([role, text], index) => ({ role, text, timestamp: ago(20 - index * 2), line: index + 1 })),
       hasMore: false, beforeLine: null, stale: false, warning: null,
     };
-    case 'list_trashed_sessions': return { items: [], total: 0 };
+    case 'list_trashed_sessions': return { catalogRevision: 'showcase', total: 1, items: [{
+      id: 'trash-1', session: { ...sessions[4], id: 's-trashed', title: L('Try a different logging library', '試用另一套 logging 函式庫') },
+      sourceRoot: '/Users/you/.codex', deletedAt: ago(60 * 3), unavailableReason: null }] };
+    case 'detect_history_sources': return { kind: args.kind, supported: true, message: null, candidates: [
+      { kind: args.kind, root: settings.sources.find(s => s.kind === args.kind)?.root ?? '/Users/you/.agent', status: 'found', configured: true, configuredSourceIds: [String(args.kind)] }] };
+    case 'preview_launch': {
+      const request = args.request as { kind: string; cwd?: string };
+      return { executable: request.kind === 'shell' ? '/bin/zsh' : `/opt/homebrew/bin/${request.kind}`, args: request.kind === 'shell' ? ['-l'] : [], cwd: request.cwd || `${home}/harbor-api` };
+    }
+    case 'list_workspace_files': return { nextOffset: null, entries: args.path ? [
+      { name: 'rateLimit.ts', path: 'src/http/rateLimit.ts', kind: 'file' },
+      { name: 'middleware.ts', path: 'src/http/middleware.ts', kind: 'file' },
+    ] : [
+      { name: 'src', path: 'src', kind: 'directory' }, { name: 'config', path: 'config', kind: 'directory' },
+      ...['README.md', 'package.json', 'tsconfig.json'].map(name => ({ name, path: name, kind: 'file' })),
+    ] };
+    case 'search_workspace_files': return { paths: ['src/http/rateLimit.ts', 'README.md'], truncated: false };
+    case 'inspect_workspace_file': {
+      const bytes = fileText(String(args.path));
+      return { path: args.path, sizeBytes: bytes.length, version: `showcase:${args.path}`, kind: 'text' };
+    }
+    case 'read_workspace_file_chunk': {
+      const bytes = fileText(String(args.path));
+      const offset = Number(args.offset), end = Math.min(bytes.length, offset + Number(args.maxBytes));
+      return { bytes: Array.from(bytes.subarray(offset, end)), eof: end === bytes.length };
+    }
+    case 'git_request': case 'git_hosting': {
+      // Optional real Git over a synthetic repo (examples/git_bridge.rs), as in the Git browser specs.
+      const bridge = params.get('git');
+      if (!bridge) throw new Error('Git is not part of this showcase view');
+      return fetch(`${bridge}/${command === 'git_request' ? 'git' : 'hosting'}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(args.request) })
+        .then(response => response.json() as Promise<{ ok?: unknown; error?: string }>)
+        .then(result => { if (result.error !== undefined) throw result.error; return result.ok; });
+    }
     case 'list_os_trashed_sessions': return [];
     case 'attach_runtime': {
       const target = runtimes.find(r => r.id === args.runtimeId)!;

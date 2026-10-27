@@ -42,7 +42,7 @@ export function ProjectDialog({ onSaved, onClose }: {
         </div>
         <p className="dialog-description">{mode === 'create'
           ? t('Creates a new folder in the parent folder you choose and adds it to your projects. Existing folders are never overwritten.')
-          : t('Adds only the folder you choose to your projects. History found automatically stays browsable in "All sessions".')}</p>
+          : t('Adds only the folder you choose to your projects. History found automatically stays browsable in "All directories".')}</p>
         <DirectoryPathField key={mode} label={mode === 'create' ? t('Parent folder path') : t('Folder path')}
           required disabled={busy || !!saved.current} autoFocus value={path}
           placeholder={t('/Users/you/projects or /home/you/projects')} onChange={setPath} />

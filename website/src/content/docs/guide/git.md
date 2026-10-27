@@ -7,6 +7,8 @@ sidebar:
 
 Open a project and choose **Git** in the tool bar on the right. Session Bay finds every Git repository inside the project and runs your installed `git` for every action.
 
+![Changes, a diff and the commit box in the Git panel](../../../assets/screenshots/en/git.png)
+
 ## Changes and commits
 
 - Click a changed file to see its diff side by side or inline.

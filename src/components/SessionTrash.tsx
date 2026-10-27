@@ -53,7 +53,7 @@ export function SessionTrash({ onClose, onChanged, refreshToken }: {
     {inspectionTarget ? <OsTrashReview key={inspectionTarget.id} entry={inspectionTarget}
       onClose={() => setInspectionTarget(null)} onMoved={moved} /> : <>
     <p>{t('These conversations are hidden from Session Bay history and search, and you can restore them one by one. The original agent history is kept and running work is not affected. To really delete the files, use "Move to system trash…" on an entry.')}</p>
-    <p className="muted">{t('Rescanning or rebuilding the index does not empty the recycle bin. To really delete, move each session\'s agent files to the system trash.')}</p>
+    <p className="muted session-trash-note">{t('Rescanning or rebuilding the index does not empty the recycle bin. To really delete, move each session\'s agent files to the system trash.')}</p>
     {error && <p className="inline-error" role="alert">{error}</p>}
     {loading && <p role="status">{t('Loading recycle bin…')}</p>}
     {!loading && !error && !page.error && !page.total && <p>{t('The recycle bin is empty.')}</p>}

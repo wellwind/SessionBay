@@ -7,6 +7,8 @@ sidebar:
 
 打開專案，在右側工具列選 **Git**。Session Bay 會找出專案內的每個 Git repository，所有操作都使用你電腦上安裝的 `git`。
 
+![Git 面板中的變更清單、diff 與 commit 區塊](../../../../assets/screenshots/zh-tw/git.png)
+
 ## 變更與 commit
 
 - 點選變更的檔案，可以並排或行內檢視 diff。

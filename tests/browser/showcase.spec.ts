@@ -6,8 +6,10 @@ import { mkdirSync } from 'node:fs';
 const zh = () => test.info().project.name === 'zh-tw';
 const L = (en: string, zhText: string) => (zh() ? zhText : en);
 
-async function open(page: Page) {
-  await page.goto('/tests/browser/showcase.html');
+const bridge = 'http://127.0.0.1:1472';
+
+async function open(page: Page, git = false) {
+  await page.goto(`/tests/browser/showcase.html${git ? `?git=${encodeURIComponent(bridge)}` : ''}`);
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
 }
 
@@ -51,4 +53,15 @@ test('settings', async ({ page }) => {
   await page.getByRole('button', { name: L('Settings and sources', '設定與資料來源') }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await shot(page, 'settings');
+});
+
+test('git workbench', async ({ page, request }) => {
+  await request.post(`${bridge}/reset`);
+  await open(page, true);
+  await page.getByRole('button', { name: L('Open workspace harbor-api Rate limiting', '開啟工作區 harbor-api 速率限制') }).click();
+  await page.locator('.workspace-activity-bar').getByRole('button', { name: 'Git', exact: true }).click();
+  const panel = page.locator('#activity-git-panel');
+  await panel.getByRole('button', { name: new RegExp(`^f\\.txt${L(', Modified', '，已修改')}`) }).click();
+  await expect(page.locator('.git-document').getByText('BETA').first()).toBeVisible();
+  await shot(page, 'git');
 });

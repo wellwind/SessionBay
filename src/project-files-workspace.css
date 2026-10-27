@@ -23,7 +23,8 @@
 .activity-history-browser .history-agent-filter { max-width: 100%; }
 .activity-history-browser .filter-bar > * { max-width: 100%; }
 .activity-history-browser .empty-state { padding: 20px 12px; }
-.activity-history-controls { flex: 0 1 auto; min-height: 0; max-height: 50%; overflow: auto; }
+/* Expanded filters need more than half of a short panel; the list keeps the rest. */
+.activity-history-controls { flex: 0 1 auto; min-height: 0; max-height: 70%; overflow: auto; }
 .activity-history-browser .search-field input { min-width: 0; }
 /* Left project navigation remains independent of right-hand tools. */
 .sidebar .navigation-tabs { display: flex; margin-bottom: 12px; gap: 0; border-radius: 0; padding: 0; }

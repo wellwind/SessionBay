@@ -1476,7 +1476,7 @@ export default function App() {
                 }
               }}>
               {page === 'projects' ? <Folder size={16} aria-hidden="true" /> : <Compass size={16} aria-hidden="true" />}
-              {page === 'projects' ? t('Projects') : t('All directories')}
+              {page === 'projects' ? t('Projects') : t('All directories (tab)')}
               <span>{page === 'projects' ? projectCount : directoryCount}</span>
             </button>)}
           </div>
@@ -2307,7 +2307,7 @@ export default function App() {
             options={[
               ...commands.filter(command => command.id !== 'command-palette').map(command => ({
                 id: `command-${command.id}`, label: command.label, search: command.label,
-                detail: <kbd>{command.shortcut}</kbd>, disabled: command.disabled,
+                detail: command.shortcut ? <kbd>{command.shortcut}</kbd> : undefined, disabled: command.disabled,
                 run: () => { if (!command.id.startsWith('theme-')) closePalette(); command.run(); },
               })),
               ...projects.filter(project => project.curated)
