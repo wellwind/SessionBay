@@ -12,6 +12,8 @@
 
 </div>
 
+![Session Bay 顯示多個 Agent 的 Session 與對話預覽](website/src/assets/screenshots/zh-tw/history.png)
+
 ## 為什麼需要
 
 週一用 Claude Code、週三用 Codex、週五用 OpenCode，做的都是同一個專案。一週後想找回某段對話，卻已經忘了當時用的是哪個 Agent。

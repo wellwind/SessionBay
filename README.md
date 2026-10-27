@@ -12,6 +12,8 @@ A local-first desktop workbench that brings the history of all your AI coding ag
 
 </div>
 
+![Session Bay showing sessions from several agents with a conversation preview](website/src/assets/screenshots/en/history.png)
+
 ## Why
 
 You used Claude Code on Monday, Codex on Wednesday and OpenCode on Friday — all on the same project. A week later you need that one conversation again, and you no longer remember which agent had it.

@@ -1,0 +1,58 @@
+---
+title: Session Bay
+description: 本機優先的 AI Coding Agent 工作台。Claude Code、Codex、OpenCode、Grok Build、Antigravity CLI 的歷史集中在一處，內建真正的終端機與 Git 工作台。
+template: splash
+hero:
+  tagline: 找回開發脈絡，接著把事情做完。各家 AI Coding Agent 的本機歷史集中在一處、依專案整理，還內建真正的終端機與 Git 工作台。
+  image:
+    file: ../../../assets/logo.svg
+  actions:
+    - text: 下載 macOS 版
+      link: https://github.com/wellwind/SessionBay/releases/latest
+      icon: external
+      variant: primary
+    - text: 閱讀教學
+      link: /SessionBay/zh-tw/guide/getting-started/
+      icon: right-arrow
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import history from '../../../assets/screenshots/zh-tw/history.png';
+import terminals from '../../../assets/screenshots/zh-tw/terminals.png';
+import overview from '../../../assets/screenshots/zh-tw/overview.png';
+
+<Image src={history} alt="Session Bay 顯示專案中來自多個 Agent 的 Session 與對話預覽" class="screenshot" />
+
+## 那段對話是用哪個 Agent 做的？
+
+週一用 Claude Code、週三用 Codex、週五用 OpenCode，做的都是同一個專案。一週後想找回某段對話，卻記不得是哪一個。Session Bay 會索引每個支援 Agent 的本機歷史並依專案分組，一鍵就能在正確目錄接續任何 Session。
+
+<CardGrid>
+  <Card title="所有 Agent 一份歷史" icon="magnifier">
+    支援 Claude Code、Codex CLI、OpenCode、Grok Build 與 Antigravity CLI。提供全文搜尋（支援中文）與篩選，接續前可以先唯讀預覽。
+  </Card>
+  <Card title="真正的終端機" icon="seti:shell">
+    分頁與分割面板都是真的 PTY。關掉視窗 Agent 也會繼續跑，回來時自動重新附接。
+  </Card>
+  <Card title="Agent 需要你時會通知" icon="warning">
+    Agent 等你輸入、完成或失敗時，會顯示狀態標記並跳出系統通知，點一下就切到那個面板。
+  </Card>
+  <Card title="Git 工作台" icon="github">
+    部分暫存、歷史圖、blame、分支、worktree、三方衝突解決，以及 GitHub／GitLab 的 PR。
+  </Card>
+  <Card title="本機、私密" icon="approve-check">
+    沒有帳號、沒有伺服器，也不蒐集使用資料。Agent 歷史一律唯讀，除非你明確把 Session 移到系統垃圾桶。
+  </Card>
+  <Card title="免費開源" icon="open-book">
+    MIT 授權，介面支援 English 與繁體中文。
+  </Card>
+</CardGrid>
+
+## 同時和多個 Agent 一起工作
+
+<Image src={terminals} alt="分割終端中並排執行 Agent 與開發伺服器" class="screenshot" />
+
+<Image src={overview} alt="全部工作區總覽，標示出正在等待權限的 Agent" class="screenshot" />
+
+第一個預覽版支援 **Apple Silicon 的 macOS**。可以[開始安裝](/SessionBay/zh-tw/guide/install/)，或[從原始碼建置](https://github.com/wellwind/SessionBay/blob/main/README.zh-TW.md#從原始碼建置)。

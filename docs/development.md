@@ -66,6 +66,7 @@ Bundles are written to `src-tauri/target/release/bundle/` and are unsigned.
 | --- | --- | --- |
 | `light-checks.yml` | every branch push | Ubuntu: frontend checks, Rust fmt/tests/clippy without the desktop feature. Pushes that only change Markdown docs are skipped. |
 | `ci.yml` | manual | Desktop acceptance on Linux, macOS (ARM64 and Intel) and Windows: full tests, unsigned bundles and a GUI smoke test |
+| `pages.yml` | push to `main` touching `website/` | Builds and deploys the website to GitHub Pages |
 | `release.yml` | `v*` tag or manual | Builds the macOS Apple Silicon `.dmg` and creates a draft GitHub release |
 
 ## Releasing
@@ -74,6 +75,22 @@ Bundles are written to `src-tauri/target/release/bundle/` and are unsigned.
 2. Merge to `main`, then tag: `git tag v0.1.0 && git push origin v0.1.0`.
 3. `release.yml` builds the bundles and creates a **draft** release with SHA-256 checksums.
 4. Install the downloaded `.dmg` on a clean account, smoke-test it, then publish the draft.
+
+## Website
+
+The website and user guide live in `website/` (Astro Starlight, English at the root and Traditional Chinese under `zh-tw/`).
+
+```bash
+cd website && npm ci && npm run dev   # http://localhost:4321/SessionBay/
+```
+
+Screenshots come from a synthetic fixture (`tests/browser/showcase.tsx`) rendered in English and Traditional Chinese. Regenerate them after UI changes:
+
+```bash
+npm run screenshots   # writes website/src/assets/screenshots/{en,zh-tw}/
+```
+
+`pages.yml` deploys the site to GitHub Pages when `website/` changes on `main`.
 
 ## macOS icon
 
