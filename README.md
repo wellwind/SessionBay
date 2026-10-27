@@ -16,9 +16,9 @@ A local-first desktop workbench that brings the history of all your AI coding ag
 
 ## Why
 
-You used Claude Code on Monday, Codex on Wednesday and OpenCode on Friday — all on the same project. A week later you need that one conversation again, and you no longer remember which agent had it.
+One project rarely uses just one agent. Claude Code writes the code, Codex generates the assets, and when your quota runs out you switch to OpenCode with a free model. The context of that project ends up scattered across several agents, each keeping its own history in its own folder.
 
-Session Bay indexes the local history of every supported agent, groups it by working directory, and lets you search, preview and resume a session in the right folder with one click.
+Session Bay indexes the local history of every supported agent, brings it together by project, and lets you search, preview and resume any session in the right folder with one click.
 
 ## Features
 
