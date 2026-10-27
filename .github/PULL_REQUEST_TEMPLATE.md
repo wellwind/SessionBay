@@ -7,5 +7,5 @@
 ## Checklist
 
 - [ ] Tests use synthetic data only
-- [ ] New UI text is added to both `en` and `zh-TW` locales
+- [ ] New UI text uses `t()` / `tr!()` and has a `zh-TW` translation
 - [ ] Screenshots attached for UI changes
