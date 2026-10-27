@@ -246,9 +246,9 @@ impl Mover for SystemTrash {
     }
     fn restore(&self, item: &MovedItem, moved_at: i64) -> Result<(), String> {
         if Path::new(&item.original).exists() {
-            return Err(
-                tr!("An item with the same name already exists at the original location.").into(),
-            );
+            return Err(tr!(
+                "An item with the same name already exists at the original location."
+            ));
         }
         let found =
             find_listed(item, moved_at)?.ok_or(tr!("This item is no longer in the trash."))?;
@@ -275,8 +275,7 @@ pub fn restore_by_rename(trashed: &Path, original: &Path) -> Result<(), String> 
             "An item with the same name already exists at the original location."
         ));
     }
-    fs::symlink_metadata(trashed)
-        .map_err(|_| tr!("This item is no longer in the trash.").to_owned())?;
+    fs::symlink_metadata(trashed).map_err(|_| tr!("This item is no longer in the trash."))?;
     if let Some(parent) = original.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }

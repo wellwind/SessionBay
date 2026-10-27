@@ -375,7 +375,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
             & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
             != 0
         {
-            return Err(tr!("The image staging location cannot be a link.").into());
+            return Err(tr!("The image staging location cannot be a link."));
         }
         windows_security::verify_file(&file).map_err(|e| e.to_string())?;
     }

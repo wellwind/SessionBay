@@ -230,7 +230,9 @@ pub(crate) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, St
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = root;
-        Err(tr!("Safe recursive file name search is not supported on this platform yet").into())
+        Err(tr!(
+            "Safe recursive file name search is not supported on this platform yet"
+        ))
     }
 }
 
@@ -718,7 +720,7 @@ mod platform {
         }
         let size_bytes = bytes.len();
         let text = String::from_utf8(bytes).map_err(|_| {
-            tr!("This file encoding is not supported: only UTF-8 text can be previewed").to_owned()
+            tr!("This file encoding is not supported: only UTF-8 text can be previewed")
         })?;
         if text
             .chars()

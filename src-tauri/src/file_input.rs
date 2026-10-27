@@ -187,7 +187,7 @@ impl FileStaging {
                 .directory
                 .join(format!("upload-{}", Uuid::new_v4().simple()));
             if directory.symlink_metadata().is_ok() {
-                return Err(tr!("The staging folder name conflicted; try again.").into());
+                return Err(tr!("The staging folder name conflicted; try again."));
             }
             directory
         };
@@ -436,7 +436,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
             & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
             != 0
         {
-            return Err(tr!("The file staging location cannot be a link.").into());
+            return Err(tr!("The file staging location cannot be a link."));
         }
         windows_security::verify_file(&file).map_err(|e| e.to_string())?;
     }
@@ -505,7 +505,7 @@ fn verify_pending_path(p: &Pending) -> Result<(), String> {
         }
         // SAFETY: the successful call initialized the structure.
         if unsafe { info.assume_init() }.nNumberOfLinks != 1 {
-            return Err(tr!("A staged file cannot have other hard links.").into());
+            return Err(tr!("A staged file cannot have other hard links."));
         }
     }
     Ok(())

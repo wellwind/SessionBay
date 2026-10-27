@@ -322,7 +322,7 @@ impl Settings {
                 .len()
                 != p.env.len()
             {
-                return Err(tr!("Windows environment variable names are case-insensitive and cannot be set twice").into());
+                return Err(tr!("Windows environment variable names are case-insensitive and cannot be set twice"));
             }
         }
         if !profiles.contains(&self.default_profile_id) {
@@ -344,8 +344,7 @@ impl Settings {
             if !crate::windows_fs::valid_filesystem_path(Path::new(&s.root)) {
                 return Err(tr!(
                     "Source roots must be full file system paths, not device names or data streams"
-                )
-                .into());
+                ));
             }
             let root = fs::canonicalize(&s.root).unwrap_or_else(|_| PathBuf::from(&s.root));
             if !roots.insert((format!("{:?}", s.kind), root)) {
