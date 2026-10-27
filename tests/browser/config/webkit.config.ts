@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { output, root, testDir } from './root';
 
 // Layout specs re-run on Playwright WebKit, the engine family behind WKWebView
 // (macOS) and WebKitGTK (Linux). Not identical to those webviews; native smoke
@@ -25,13 +26,13 @@ const knownWebKitDifferences = [
 ];
 
 export default defineConfig({
-  testDir: './tests/browser',
+  testDir,
   testMatch: [
     'terminal-layout.spec.ts', 'tab-geometry.spec.ts', 'viewport-layout.spec.ts',
     'sidebar.spec.ts', 'workspace-tabs.spec.ts', 'workspace-focus-mode.spec.ts', 'workspace-overview.spec.ts', 'pane-menu.spec.ts',
   ],
   grepInvert: new RegExp(knownWebKitDifferences.map(title => title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')),
-  outputDir: './test-results/webkit', workers: 1, timeout: 30_000,
+  outputDir: output('test-results/webkit'), workers: 1, timeout: 30_000,
   use: { locale: 'zh-TW', browserName: 'webkit', headless: true, screenshot: 'only-on-failure', viewport: { width: 1200, height: 850 }, baseURL: 'http://127.0.0.1:1447' },
-  webServer: { command: 'npm run dev:web -- --port 1447', url: 'http://127.0.0.1:1447', reuseExistingServer: false },
+  webServer: { cwd: root, command: 'npm run dev:web -- --port 1447', url: 'http://127.0.0.1:1447', reuseExistingServer: false },
 });

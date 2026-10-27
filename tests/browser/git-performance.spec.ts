@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
 // Frontend timings and JS heap for the large synthetic repository. Opt-in:
-// SESSIONBAY_GIT_BRIDGE_LARGE=1 npx playwright test --config playwright.git.config.ts --project=chromium git-performance
+// SESSIONBAY_GIT_BRIDGE_LARGE=1 npx playwright test --config tests/browser/config/git.config.ts --project=chromium git-performance
 const bridge = 'http://127.0.0.1:1441';
 test.skip(process.env.SESSIONBAY_GIT_BRIDGE_LARGE !== '1', 'large repository measurement is opt-in');
 
