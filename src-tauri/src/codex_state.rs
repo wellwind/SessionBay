@@ -3,7 +3,6 @@
 //!
 //! The native remote TUI still owns thread creation, prompts, approvals and turns.
 //! This helper never starts/resumes a thread or subscribes to its item stream.
-//! See docs/codex-state-observer.md for protocol and compatibility boundaries.
 use crate::{agent_activity::Observation, provider_hooks::StateReport, runtime::LaunchSpec};
 use serde::{Deserialize, Serialize};
 use std::path::Path;

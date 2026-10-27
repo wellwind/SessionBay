@@ -1,6 +1,6 @@
 // Bundled (OFL-1.1) fonts so WKWebView, WebView2 and WebKitGTK measure the same
 // glyphs; system fonts stay as fallbacks. The @font-face rules are imported in
-// main.tsx and served from 'self'. See docs/ui-design-system.md.
+// main.tsx and served from 'self'.
 
 export const MONO_FONT =
   "'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans TC Variable', monospace";

@@ -1,14 +1,13 @@
-# OpenCode 合成 fixtures
+# OpenCode synthetic fixtures
 
-本目錄不是實際 CLI 擷取資料。測試以 schema.sql 在臨時目錄產生 SQLite／WAL，對話文字、ID、目錄、時間全為人工合成。未執行 OpenCode、登入、讀取 auth.json 或使用任何真實對話。
+These are not CLI captures. Tests build SQLite databases (and WAL files) from `schema.sql` in a temporary directory. All text, IDs, paths and timestamps are synthetic. OpenCode was never run against real data or logins to produce them.
 
-依據 2026-10-16 查閱的官方 release v1.19.2，固定 commit：7901b7d325c34852caa84fc2c325f3a08dd7a473。
+The schema follows OpenCode release v1.19.2 (commit `7901b7d325c34852caa84fc2c325f3a08dd7a473`). Only the columns the reader uses are kept:
 
-- [SQLite table definitions](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session/sql.ts)：session、message、part、session_message；schema.sql 只保留 reader 會使用的欄位，另含 time_created/time_updated 以符合儲存時間結構。其他官方欄位、外鍵與業務索引刻意省略，不宣稱可由 CLI 開啟這些 fixtures。
-- [v1 user/assistant/text types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/v1/session.ts)：message.data 不含 id/sessionID；part.data 不含 id/sessionID/messageID。只使用 role、summary、text、synthetic、ignored 等 reader 所需欄位。
-- [v2 event types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/session-message.ts)：session_message.type 在欄位中，data 不含 type/id；user.text、assistant.content 的 text/reasoning/tool，以及 compaction.summary。
+- [SQLite tables](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session/sql.ts): `session`, `message`, `part`, `session_message`.
+- [v1 message types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/v1/session.ts) and [v2 event types](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/schema/src/session-message.ts).
 
-測試刻意產生缺欄位、未知版本、截斷 JSON、損毀 SQLite／WAL、重複序號、revert、compaction 等失敗情境。這些異常是負面測試，不代表官方有效資料格式。
+Two kinds of fixture behave differently from the rest:
 
-- [cli-1.19.x-v1-only.sql](cli-1.19.x-v1-only.sql) 例外：DDL 取自 2026-10-19 真實 CLI 1.19.3／1.19.2 寫入的 opencode.db（只正規化空白，並以最小 project 表滿足外鍵），row JSON 保留真實鍵結構，ID、路徑、提問、回覆、工具輸出與 hash 全為合成。session_message 刻意留空，對應穩定版 CLI 只寫 v1 的實際行為。
-- [v2 reset migration](https://github.com/anomalyco/opencode/blob/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/database/migration/20260622170816_reset_v2_session_state.ts) 會清除 v2 state，但不清除 legacy message/part。測試模擬 v2 全刪後仍有 v1 rows，確認 reader 不復原權威性不明（v1 明顯舊於 session.time_updated）的文字。v1-only 測試會移除 session_message table；這是 reader 的保守支援邊界，不宣稱所有官方版本都以此區分 projection。
+- **Negative tests** deliberately create broken data: missing fields, unknown versions, truncated JSON, corrupt SQLite or WAL files, duplicate sequence numbers, reverts and compaction. None of these are valid OpenCode data.
+- **[cli-1.19.x-v1-only.sql](cli-1.19.x-v1-only.sql)** keeps the DDL and the shape of the JSON keys from a database written by the real CLI 1.19.2/1.19.3. Every value in it is synthetic. `session_message` is empty because the stable CLI only writes v1 rows.

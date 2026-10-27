@@ -2,6 +2,8 @@
 name = "sessionbay"
 version = "0.1.0"
 description = "Local-first coding agent session workbench"
+license = "MIT"
+repository = "https://github.com/wellwind/SessionBay"
 edition = "2021"
 default-run = "sessionbay"
 rust-version = "1.99"
