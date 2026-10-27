@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { themePalettes, terminalOptions } from '../themes';
 import type { Appearance } from '../themes';
 import './command-theme-picker.css';
+import { t } from '../i18n';
 
 export type ThemeTarget = 'ui' | 'terminal';
 export type ThemePatch = Partial<Pick<Appearance, 'theme' | 'themePalette' | 'terminalTheme'>>;
@@ -18,7 +19,7 @@ export function CommandThemePicker({ target, value, saving, error, onPreview, on
   const options = useMemo(() => target === 'terminal'
     ? terminalOptions(value.terminalTheme).map(option => ({ id: option.value, label: option.label, patch: { terminalTheme: option.value } as ThemePatch }))
     : (['dark', 'light', 'system'] as const).flatMap(theme => themePalettes.map(palette => ({
-      id: `${palette.id}-${theme}`, label: `${palette.label} · ${theme === 'dark' ? '深色 Dark' : theme === 'light' ? '淺色 Light' : '跟隨系統 System'}`,
+      id: `${palette.id}-${theme}`, label: `${palette.label} · ${theme === 'dark' ? t('Dark mode') : theme === 'light' ? t('Light mode') : t('Follow system')}`,
       patch: { theme, themePalette: palette.id } as ThemePatch,
     }))), [target, value.terminalTheme]);
   const filtered = options.filter(option => option.label.toLowerCase().includes(query.trim().toLowerCase()));
@@ -41,9 +42,9 @@ export function CommandThemePicker({ target, value, saving, error, onPreview, on
       select(filtered[(index + (event.key === 'ArrowDown' ? 1 : -1) + filtered.length) % filtered.length]);
     }
   }}>
-    <button type="button" onClick={onBack}>返回命令</button>
-    <p id={`${listId}-help`}>↑／↓ 即時預覽；Enter 儲存；Escape 或返回取消預覽。儲存後才會保留。</p>
-    <input autoFocus role="combobox" aria-label="搜尋主題" aria-expanded="true" aria-controls={listId}
+    <button type="button" onClick={onBack}>{t('Back to commands')}</button>
+    <p id={`${listId}-help`}>{t('↑ / ↓ to preview; Enter to save; Escape or Back to cancel the preview. Only saved choices are kept.')}</p>
+    <input autoFocus role="combobox" aria-label={t('Search themes')} aria-expanded="true" aria-controls={listId}
       aria-autocomplete="list" aria-activedescendant={selected ? `${listId}-${selected.id}` : undefined}
       aria-describedby={`${listId}-help`} value={query} disabled={saving}
       onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
@@ -56,17 +57,17 @@ export function CommandThemePicker({ target, value, saving, error, onPreview, on
         setQuery(event.target.value);
         select(options.find(option => option.label.toLowerCase().includes(event.target.value.trim().toLowerCase())));
       }} />
-    <div role="listbox" aria-label={target === 'ui' ? '介面主題' : 'Terminal 主題'} id={listId} className="palette-results">
+    <div role="listbox" aria-label={target === 'ui' ? t('Interface theme') : t('Terminal theme')} id={listId} className="palette-results">
       {filtered.map(option => <button type="button" role="option" key={option.id} id={`${listId}-${option.id}`}
         aria-selected={option.id === selected?.id} disabled={saving} tabIndex={-1}
         onMouseEnter={() => select(option)} onFocus={() => select(option)}
         onClick={() => { if (!saving) { setSelectedId(option.id); onCommit(option.patch); } }}>
-        <span>{option.label}</span>{option.id === savedId && <small>已儲存</small>}
+        <span>{option.label}</span>{option.id === savedId && <small>{t('Saved')}</small>}
       </button>)}
-      {!filtered.length && <p role="status">沒有符合的主題</p>}
+      {!filtered.length && <p role="status">{t('No matching themes')}</p>}
     </div>
-    <p role="status">{saving ? '正在儲存；已送出的變更會在儲存完成後保留。' : '預覽不會寫入設定。'}</p>
+    <p role="status">{saving ? t('Saving; submitted changes are kept once saving finishes.') : t('Previews do not change your settings.')}</p>
     {error && <p role="alert">{error}</p>}
-    <button type="button" disabled={saving || !selected} onClick={() => selected && onCommit(selected.patch)}>儲存選取主題</button>
+    <button type="button" disabled={saving || !selected} onClick={() => selected && onCommit(selected.patch)}>{t('Save selected theme')}</button>
   </div>;
 }

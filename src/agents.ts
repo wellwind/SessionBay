@@ -1,5 +1,6 @@
 import type { AgentKind, AgentOptions, Installation, Settings } from './types';
 import manifest from './agent-manifest.json';
+import { t } from './i18n';
 
 export type HistoryAgentKind = AgentKind;
 
@@ -72,13 +73,13 @@ export function installationState(installation?: Installation, changed = false):
   text: string;
   className: 'success' | 'neutral' | 'warning';
 } {
-  if (changed) return { text: '設定尚未套用', className: 'neutral' };
-  if (!installation) return { text: '尚未偵測', className: 'neutral' };
+  if (changed) return { text: t('Settings not applied yet'), className: 'neutral' };
+  if (!installation) return { text: t('Not detected yet'), className: 'neutral' };
   if (installation.status === 'versionCheckFailed')
-    return { text: '已找到執行檔 · 版本檢查失敗', className: 'warning' };
+    return { text: t('Executable found · version check failed'), className: 'warning' };
   if (installation.status === 'missing' || !installation.available)
-    return { text: '未偵測到', className: 'neutral' };
-  return { text: installation.version ? '可啟動' : '已找到執行檔', className: 'success' };
+    return { text: t('Not found'), className: 'neutral' };
+  return { text: installation.version ? t('Ready') : t('Executable found'), className: 'success' };
 }
 
 /** Provider preference is independent of executable discovery and source-level toggles. */

@@ -26,9 +26,10 @@ import type {
   TrashPage,
   OsTrashPlan, OsTrashResult, OsTrashedSession,
 } from './types';
+import { t } from './i18n';
 export const isDesktop = () => isTauri();
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  if (!isDesktop()) throw new Error('桌面執行環境未連線。請以 Session Bay 桌面應用程式開啟。');
+  if (!isDesktop()) throw new Error(t('The desktop runtime is not connected. Open this in the Session Bay desktop app.'));
   return invoke<T>(command, args);
 }
 // Explicit pane-close waits for its outstanding launch before querying the broker.
@@ -46,7 +47,7 @@ export const api = {
   retainImage: (runtimeId: string, id: string) => call<void>('retain_image_input', { runtimeId, id }),
   discardImage: (runtimeId: string, id: string) => call<void>('discard_image_input', { runtimeId, id }),
   setWorkspaceZoom: async (percent: number): Promise<void> => {
-    if (!isDesktop()) throw new Error('工作台縮放需要桌面執行環境。');
+    if (!isDesktop()) throw new Error(t('Workbench zoom requires the desktop runtime.'));
     await getCurrentWebview().setZoom(percent / 100);
   },
   bootstrap: () => call<Bootstrap>('bootstrap'),

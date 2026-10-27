@@ -29,6 +29,7 @@ import { ThemeControls, TerminalPreview } from './ThemeControls';
 import { appearanceOf, validThemeId } from '../themes';
 import type { Appearance } from '../themes';
 import './settings.css';
+import { t } from '../i18n';
 
 export interface SettingsPanelProps {
   settings: Settings;
@@ -51,27 +52,27 @@ type Section = 'sources' | 'profiles' | 'appearance' | 'shortcuts';
 type ValidationErrors = Record<string, string>;
 type JsonFields = Record<string, { args: string; env: string }>;
 const shortcutNames: Record<string, string> = {
-  'project-quick-open': '快速開啟專案分頁、Sessions 與檔案',
-  'toggle-project-sessions': '顯示／隱藏專案 Sessions',
-  'toggle-project-files': '顯示／隱藏專案 Files',
-  'toggle-project-git': '顯示／隱藏專案 Git',
-  'new-terminal': '開啟終端機',
-  'new-agent': '開始 Agent 工作',
-  'search-sessions': '搜尋 Session',
-  'split-right': '左右分割',
-  'split-down': '上下分割',
-  'next-pane': '切換下一個面板',
-  'maximize-pane': '最大化／還原面板',
-  'close-pane': '關閉面板',
-  'command-palette': '命令面板',
-  'toggle-sidebar': '顯示／隱藏側邊欄',
-  'toggle-focus-mode': '進入／退出專注模式（Zen Mode）',
+  'project-quick-open': t('Quick open project tabs, sessions and files'),
+  'toggle-project-sessions': t('Show / hide project sessions'),
+  'toggle-project-files': t('Show / hide project files'),
+  'toggle-project-git': t('Show / hide project Git'),
+  'new-terminal': t('Open a terminal'),
+  'new-agent': t('Start agent work'),
+  'search-sessions': t('Search sessions'),
+  'split-right': t('Split left and right'),
+  'split-down': t('Split top and bottom'),
+  'next-pane': t('Next pane'),
+  'maximize-pane': t('Maximize / restore pane'),
+  'close-pane': t('Close pane'),
+  'command-palette': t('Command palette'),
+  'toggle-sidebar': t('Show / hide the sidebar'),
+  'toggle-focus-mode': t('Enter / exit focus mode (Zen Mode)'),
 };
 const sections = [
-  { id: 'sources' as const, label: '來源與工具', icon: Folder },
+  { id: 'sources' as const, label: t('Sources and tools'), icon: Folder },
   { id: 'profiles' as const, label: 'Shell Profiles', icon: Terminal },
-  { id: 'appearance' as const, label: '外觀與預設值', icon: Palette },
-  { id: 'shortcuts' as const, label: '鍵盤快捷鍵', icon: Keyboard },
+  { id: 'appearance' as const, label: t('Appearance and defaults'), icon: Palette },
+  { id: 'shortcuts' as const, label: t('Keyboard shortcuts'), icon: Keyboard },
 ];
 
 function cloneSettings(settings: Settings): Settings {
@@ -130,18 +131,18 @@ export function parseProfileArgs(text: string): { value?: string[]; error?: stri
       )
     ) {
       return {
-        error: '請輸入字串陣列，例如 ["-l"]；最多 64 個參數，每項最多 8192 bytes，不能包含空字元。',
+        error: t('Enter a string array such as ["-l"]: up to 64 arguments of up to 8192 bytes each, with no null characters.'),
       };
     }
     return { value: value as string[] };
   } catch {
-    return { error: '參數必須是有效的 JSON 字串陣列。' };
+    return { error: t('Arguments must be a valid JSON string array.') };
   }
 }
 
 export function parseAgentArgs(text: string): { value?: string[]; error?: string } {
   const parsed = parseProfileArgs(text);
-  if (parsed.value?.some((arg) => arg.length === 0)) return { error: 'Agent 參數不可包含空字串。' };
+  if (parsed.value?.some((arg) => arg.length === 0)) return { error: t('Agent arguments cannot contain empty strings.') };
   return parsed;
 }
 
@@ -154,7 +155,7 @@ export function parseProfileEnv(text: string): { value?: Record<string, string>;
       Array.isArray(value) ||
       Object.keys(value).length > 64
     ) {
-      return { error: '環境變數須為最多 64 項的 JSON 物件，例如 {"LANG":"zh_TW.UTF-8"}。' };
+      return { error: t('Environment variables must be a JSON object with up to 64 entries, such as {"LANG":"en_US.UTF-8"}.') };
     }
     for (const [key, item] of Object.entries(value)) {
       if (
@@ -166,57 +167,57 @@ export function parseProfileEnv(text: string): { value?: Record<string, string>;
       ) {
         return {
           error:
-            '變數名稱只能使用英數字與底線，最多 128 bytes；值須為不含空字元的字串，最多 8192 bytes。',
+            t('Variable names may only use letters, digits and underscores (up to 128 bytes); values must be strings without null characters (up to 8192 bytes).'),
         };
       }
     }
     return { value: value as Record<string, string> };
   } catch {
-    return { error: '環境變數必須是有效的 JSON 物件。' };
+    return { error: t('Environment variables must be a valid JSON object.') };
   }
 }
 
 /** Client-side checks complement, but do not replace, backend validation. */
 export function validateSettings(settings: Settings): ValidationErrors {
   const errors: ValidationErrors = {};
-  if (settings.version !== 1) errors.version = '不支援的設定版本。';
+  if (settings.version !== 1) errors.version = t('Unsupported settings version.');
   if (!['dark', 'light', 'system'].includes(settings.theme))
-    errors.theme = '請選擇有效的介面主題。';
+    errors.theme = t('Choose a valid interface theme.');
   if (!validThemeId(settings.themePalette ?? 'bay'))
-    errors.themePalette = '請選擇有效的介面色系。';
+    errors.themePalette = t('Choose a valid interface palette.');
   if (!validThemeId(settings.terminalTheme))
-    errors.terminalTheme = '請選擇有效的終端色票。';
+    errors.terminalTheme = t('Choose valid terminal colors.');
   if (!validText(settings.fontFamily, 256))
-    errors.fontFamily = '請填寫有效的字型名稱，最多 256 bytes。';
+    errors.fontFamily = t('Enter a valid font name of up to 256 bytes.');
   if (!Number.isInteger(settings.fontSize) || settings.fontSize < 9 || settings.fontSize > 32)
-    errors.fontSize = '字型大小請填寫 9 到 32 的整數。';
+    errors.fontSize = t('Font size must be a whole number from 9 to 32.');
   if (!Number.isInteger(settings.appZoom ?? 100) || (settings.appZoom ?? 100) < 50 || (settings.appZoom ?? 100) > 200)
-    errors.appZoom = '工作台縮放請填寫 50 到 200 的整數百分比。';
+    errors.appZoom = t('Enter a workbench zoom as a whole percentage from 50 to 200.');
   if (!agentKinds.includes(settings.defaultAgent))
-    errors.defaultAgent = '請選擇預設 Agent。';
+    errors.defaultAgent = t('Choose a default agent.');
   if (!settings.profiles.length || settings.profiles.length > 32)
-    errors.profiles = '請保留 1 到 32 個 Shell Profiles。';
-  if (settings.sources.length > 32) errors.sources = '最多可以加入 32 個資料來源。';
+    errors.profiles = t('Keep 1 to 32 shell profiles.');
+  if (settings.sources.length > 32) errors.sources = t('You can add up to 32 sources.');
   if (!settings.profiles.some((profile) => profile.id === settings.defaultProfileId))
-    errors.defaultProfileId = '請選擇有效的預設 Shell Profile。';
+    errors.defaultProfileId = t('Choose a valid default shell profile.');
   if (settings.agentEnabled && Object.values(settings.agentEnabled).some((enabled) => typeof enabled !== 'boolean'))
-    errors.agentEnabled = 'Agent 啟用設定必須為開關值。';
+    errors.agentEnabled = t('Agent enable settings must be on/off values.');
   const profileIds = new Set<string>();
   settings.profiles.forEach((profile, i) => {
     if (!validText(profile.id, 128) || profileIds.has(profile.id))
-      errors[`profiles.${i}.id`] = 'Profile 識別碼必須唯一。';
+      errors[`profiles.${i}.id`] = t('Profile IDs must be unique.');
     profileIds.add(profile.id);
     if (!validText(profile.name, 128))
-      errors[`profiles.${i}.name`] = '請填寫 Profile 名稱，最多 128 bytes。';
+      errors[`profiles.${i}.name`] = t('Enter a profile name of up to 128 bytes.');
     if (!validText(profile.executable, 4096))
-      errors[`profiles.${i}.executable`] = '請填寫 Shell 執行檔路徑或名稱。';
+      errors[`profiles.${i}.executable`] = t('Enter the shell executable path or name.');
     if (
       profile.args.length > 64 ||
       profile.args.some(
         (arg) => typeof arg !== 'string' || containsNull(arg) || byteLength(arg) > 8192,
       )
     )
-      errors[`profiles.${i}.args`] = '參數須為不含空字元的字串。';
+      errors[`profiles.${i}.args`] = t('Arguments must be strings without null characters.');
     if (
       Object.keys(profile.env).length > 64 ||
       Object.entries(profile.env).some(
@@ -228,45 +229,45 @@ export function validateSettings(settings: Settings): ValidationErrors {
           byteLength(value) > 8192,
       )
     )
-      errors[`profiles.${i}.env`] = '請檢查環境變數名稱與值。';
+      errors[`profiles.${i}.env`] = t('Check the environment variable names and values.');
   });
   const sourceIds = new Set<string>();
   const sourceRoots = new Set<string>();
   settings.sources.forEach((source, i) => {
     if (!validText(source.id, 128) || sourceIds.has(source.id))
-      errors[`sources.${i}.id`] = '資料來源識別碼必須唯一。';
+      errors[`sources.${i}.id`] = t('Source IDs must be unique.');
     sourceIds.add(source.id);
     if (!(historyAgentKinds as readonly string[]).includes(source.kind))
-      errors[`sources.${i}.kind`] = '請選擇支援的 Agent 類型。';
+      errors[`sources.${i}.kind`] = t('Choose a supported agent type.');
     if (!validText(source.root, 4096) || !isAbsoluteFilesystemPath(source.root))
-      errors[`sources.${i}.root`] = '請填寫此平台的完整資料夾路徑，例如 C:\\Users\\you\\.codex 或 /Users/you/.codex。';
+      errors[`sources.${i}.root`] = t('Enter the full folder path for this platform, such as C:\\\\Users\\\\you\\\\.codex or /Users/you/.codex.');
     const rootKey = `${source.kind}:${source.root.trim().replace(/[\\/]+$/, '')}`;
-    if (sourceRoots.has(rootKey)) errors[`sources.${i}.root`] = '此 Agent 的相同資料目錄已經加入。';
+    if (sourceRoots.has(rootKey)) errors[`sources.${i}.root`] = t('This data folder is already added for this agent.');
     sourceRoots.add(rootKey);
   });
   agentKinds.forEach((kind) => {
     if (!validText(settings.executables[kind], 4096))
-      errors[`executables.${kind}`] = `請填寫執行檔路徑，或填入 ${kind} 由 PATH 偵測。`;
+      errors[`executables.${kind}`] = t('Enter the executable path, or {{kind}} to find it on PATH.', { kind });
   });
   for (const kind of agentKinds) {
     const options = settings.agentOptions?.[kind];
     if (!options) continue; // Older settings are normalized before editing/saving.
     const parsed = parseAgentArgs(JSON.stringify(options.extraArgs));
     if (parsed.error) errors[`agentOptions.${kind}`] = parsed.error;
-    if (typeof options.bypassPermissions !== 'boolean') errors[`agentOptions.${kind}`] = '請確認工具權限設定。';
+    if (typeof options.bypassPermissions !== 'boolean') errors[`agentOptions.${kind}`] = t('Check the tool permission settings.');
     if (!options.bypassPermissions && options.extraArgs.some((arg) =>
       /^(--auto|--yolo|--always-approve|--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--allow-dangerously-skip-permissions)(=|$)/.test(arg)))
-      errors[`agentOptions.${kind}`] = '高風險參數需要先明確勾選下方的略過權限確認選項。';
+      errors[`agentOptions.${kind}`] = t('High-risk arguments require checking the skip-permission option below first.');
   }
   const bindings = new Map<string, string[]>();
-  if (Object.keys(settings.shortcuts).length > 32) errors.shortcuts = '最多可設定 32 個快捷鍵。';
+  if (Object.keys(settings.shortcuts).length > 32) errors.shortcuts = t('You can set up to 32 shortcuts.');
   for (const [action, binding] of Object.entries({ ...shortcutDefaults, ...settings.shortcuts })) {
     if (!validText(action, 64) || byteLength(binding) > 64 || containsNull(binding)) {
-      errors[`shortcuts.${action}`] = '快捷鍵名稱與組合最多 64 bytes，且不能包含空字元。';
+      errors[`shortcuts.${action}`] = t('Shortcut names and combinations can be at most 64 bytes, with no null characters.');
       continue;
     }
     if (!binding.trim()) continue;
-    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = '這個組合保留給工作區分頁切換、全工作台縮放或 Terminal Shift+Enter，請選擇其他快捷鍵。';
+    if (reservedWorkspaceShortcut(binding)) errors[`shortcuts.${action}`] = t('This combination is reserved for workspace tab switching, workbench zoom or terminal Shift+Enter; choose another shortcut.');
     const parts = binding
       .trim()
       .split('+')
@@ -288,7 +289,7 @@ export function validateSettings(settings: Settings): ValidationErrors {
       !parts.slice(0, -1).every((part) => modifiers.includes(part.toLowerCase())) ||
       modifiers.includes(parts.at(-1)!.toLowerCase())
     ) {
-      errors[`shortcuts.${action}`] = '請使用修飾鍵與按鍵，例如 Mod+Shift+T。';
+      errors[`shortcuts.${action}`] = t('Use modifier keys plus a key, such as Mod+Shift+T.');
     }
     const canonical = normalizeShortcut(binding);
     bindings.set(canonical, [...(bindings.get(canonical) ?? []), action]);
@@ -296,10 +297,10 @@ export function validateSettings(settings: Settings): ValidationErrors {
   for (const actions of bindings.values()) {
     if (actions.length < 2) continue;
     actions.forEach((action) => {
-      errors[`shortcuts.${action}`] = `與「${actions
+      errors[`shortcuts.${action}`] = t('Conflicts with "{{actions}}".', { actions: actions
         .filter((other) => other !== action)
         .map((other) => shortcutNames[other] ?? other)
-        .join('、')}」衝突。`;
+        .join(t(', ')) });
     });
   }
   return errors;
@@ -477,7 +478,7 @@ export function SettingsPanel({
     void run(async () => {
       await onSave({
         ...prepared.settings,
-        // Any explicit save completes onboarding, including from the gear after 「稍後設定」.
+        // Any explicit save completes onboarding, including from the gear after "Set up later".
         onboardingComplete: true,
       });
       onClose();
@@ -527,30 +528,30 @@ export function SettingsPanel({
   };
   const sourceStatus = (sourceId: string, enabled: boolean, changed: boolean) => {
     if (changed)
-      return { text: '尚未套用', className: 'neutral', detail: '儲存後會使用新的資料來源設定。' };
+      return { text: t('Not applied yet'), className: 'neutral', detail: t('The new source settings are used after you save.') };
     if (!enabled)
-      return { text: '已停用', className: 'neutral', detail: '此來源不會納入下一次掃描。' };
+      return { text: t('Disabled'), className: 'neutral', detail: t('This source is skipped in the next scan.') };
     const health = index.sources.find((source) => source.sourceId === sourceId);
     if (index.running)
-      return { text: '索引中', className: 'neutral', detail: '正在掃描已啟用的來源，完成後更新讀取結果。' };
+      return { text: t('Indexing'), className: 'neutral', detail: t('Scanning enabled sources; results update when it finishes.') };
     if (!health)
-      return { text: '尚未掃描', className: 'neutral', detail: '尚未確認是否有歷史資料，請先掃描。' };
+      return { text: t('Not scanned yet'), className: 'neutral', detail: t('It is not known yet whether there is history; scan first.') };
     const state = health.status.toLowerCase();
     if (state === 'empty')
-      return { text: '尚無歷史', className: 'neutral', detail: health.message || '掃描完成，目前沒有支援的歷史紀錄。' };
+      return { text: t('No history yet'), className: 'neutral', detail: health.message || t('Scan finished; no supported history found.') };
     if (state === 'missing')
-      return { text: '找不到來源目錄', className: 'warning', detail: health.message || '請確認歷史資料目錄的完整路徑。' };
+      return { text: t('Source folder not found'), className: 'warning', detail: health.message || t('Check the full path of the history folder.') };
     if (['error', 'failed', 'invalid', 'unavailable'].includes(state))
-      return { text: '來源讀取錯誤', className: 'warning', detail: health.message || '請檢查路徑與讀取權限後重新掃描。' };
+      return { text: t('Source read error'), className: 'warning', detail: health.message || t('Check the path and read permissions, then scan again.') };
     if (['ok', 'ready', 'healthy', 'scanned', 'complete'].includes(state))
-      return { text: `可讀取 · ${health.files} 個檔案`, className: 'success', detail: health.message };
+      return { text: t('Readable · {{count}} files', { count: health.files }), className: 'success', detail: health.message };
     if (state === 'partial')
-      return { text: `部分可讀取 · ${health.files} 個檔案`, className: 'warning', detail: health.message || '部分歷史未能完整讀取，請查看掃描提醒。' };
+      return { text: t('Partly readable · {{count}} files', { count: health.files }), className: 'warning', detail: health.message || t('Some history could not be read completely; see the scan warnings.') };
     if (state === 'cancelled')
-      return { text: '掃描已取消', className: 'neutral', detail: health.message || '結果可能不完整，請重新掃描。' };
+      return { text: t('Scan cancelled'), className: 'neutral', detail: health.message || t('Results may be incomplete; scan again.') };
     if (state === 'disabled' || state === 'paused')
-      return { text: '等待重新掃描', className: 'neutral', detail: '已啟用來源，但尚未取得新的掃描結果。' };
-    return { text: '來源狀態待確認', className: 'neutral', detail: health.message || `尚未確認的掃描狀態：${health.status}` };
+      return { text: t('Waiting for a rescan'), className: 'neutral', detail: t('The source is enabled, but there are no new scan results yet.') };
+    return { text: t('Source status unconfirmed'), className: 'neutral', detail: health.message || t('Unconfirmed scan status: {{status}}', { status: health.status }) };
   };
 
   return (
@@ -582,22 +583,22 @@ export function SettingsPanel({
             <span className="settings-eyebrow">
               {onboarding ? 'WELCOME TO SESSION BAY' : 'MAKE IT YOURS'}
             </span>
-            <h2 id="settings-title">{onboarding ? '讓工作，回到同一個地方。' : '工作台設定'}</h2>
-            {onboarding && <p id="settings-description">連接本機 Agent 歷史，設定你習慣的工作環境。</p>}
+            <h2 id="settings-title">{onboarding ? t('Bring your work back to one place.') : t('Workbench settings')}</h2>
+            {onboarding && <p id="settings-description">{t('Connect your local agent history and set up the environment you like.')}</p>}
           </div>
           <button
             type="button"
             className="settings-icon-button settings-close"
             onClick={close}
             disabled={locked}
-            aria-label={onboarding ? '稍後設定' : '關閉設定'}
+            aria-label={onboarding ? t('Set up later') : t('Close settings')}
           >
             <X size={19} />
           </button>
         </header>
         <form onSubmit={save} className="settings-form" noValidate inert={Boolean(confirmation)}>
           <div className="settings-layout">
-            <nav className="settings-nav" aria-label="設定分類">
+            <nav className="settings-nav" aria-label={t('Settings sections')}>
               {sections.map(({ id, label, icon: Icon }) => (
                 <button
                   type="button"
@@ -609,7 +610,7 @@ export function SettingsPanel({
                   <Icon size={17} aria-hidden="true" />
                   <span>{label}</span>
                   {Object.keys(errors).some((key) => sectionForError(key) === id) && (
-                    <span className="settings-error-dot" aria-label="有欄位需要修正" />
+                    <span className="settings-error-dot" aria-label={t('Some fields need fixing')} />
                   )}
                   {section === id && <ChevronRight size={14} aria-hidden="true" />}
                 </button>
@@ -620,21 +621,21 @@ export function SettingsPanel({
                 {section === 'sources' && (
                   <>
                     <div className="settings-agent-picker">
-                      <label className="settings-field"><span>搜尋 Agent</span>
-                        <SearchableSelect aria-label="搜尋 Agent" value={selectedAgent} disabled={locked}
+                      <label className="settings-field"><span>{t('Search agents')}</span>
+                        <SearchableSelect aria-label={t('Search agents')} value={selectedAgent} disabled={locked}
                           query={agentSearch} onQueryChange={setAgentSearch} onChange={(value) => setSelectedAgent(value as AgentKind)}
                           options={agentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} />,
-                            description: `${isAgentEnabled(draft, kind) ? '已啟用' : '已停用'} · ${installationState(installations.find((item) => item.kind === kind), draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind])).text}`,
+                            description: `${isAgentEnabled(draft, kind) ? t('Enabled') : t('Disabled')} · ${installationState(installations.find((item) => item.kind === kind), draft.executables[kind] !== (settings.executables[kind] ?? executableDefaults[kind])).text}`,
                           }))} />
                       </label>
                     </div>
-                    <div className="settings-section-heading"><div><h3>啟用與安裝狀態</h3><p>設定只會在儲存後套用。</p></div></div>
+                    <div className="settings-section-heading"><div><h3>{t('Enabled and install status')}</h3><p>{t('Settings apply only after you save.')}</p></div></div>
                     <div className="settings-agent-enabled">
                       <label className="settings-toggle-label">
-                        <input className="checkbox" type="checkbox" aria-label={`啟用 ${agentNames[selectedAgent]}`}
+                        <input className="checkbox" type="checkbox" aria-label={t('Enable {{agent}}', { agent: agentNames[selectedAgent] })}
                           checked={isAgentEnabled(draft, selectedAgent)}
                           onChange={(event) => update('agentEnabled', { ...draft.agentEnabled, [selectedAgent]: event.target.checked })} />
-                        <strong>啟用 {agentNames[selectedAgent]}</strong>
+                        <strong>{t('Enable {{agent}}', { agent: agentNames[selectedAgent] })}</strong>
                       </label>
                       {[selectedAgent].map((kind) => {
                         const installation = installations.find((item) => item.kind === kind);
@@ -647,19 +648,19 @@ export function SettingsPanel({
                                 {binary.className === 'success' && <Check size={12} />}{binary.text}
                               </span>
                             </div>
-                            <p className="settings-help">登入狀態：未驗證；沿用 CLI 自身登入。</p>
+                            <p className="settings-help">{t('Login status: not verified; the CLI\'s own login is used.')}</p>
                             <p className="settings-version">
                               {installation?.available
-                                ? installation.version || '已找到執行檔'
-                                : agentCapabilities[kind].history.supported ? '仍可瀏覽已存在的歷史紀錄' : '支援啟動／指定對話 ID 恢復，尚不索引歷史'}
+                                ? installation.version || t('Executable found')
+                                : agentCapabilities[kind].history.supported ? t('Existing history can still be browsed') : t('Supports launching and resuming by conversation ID; history is not indexed yet')}
                             </p>
                         </div>;
                       })}
-                      {!isAgentEnabled(draft, selectedAgent) && <p className="settings-subtle-warning">此 Agent 已停用，仍可調整設定；重新啟用後恢復使用。</p>}
+                      {!isAgentEnabled(draft, selectedAgent) && <p className="settings-subtle-warning">{t('This agent is disabled. You can still change its settings; it works again once re-enabled.')}</p>}
                     </div>
                     <div className="settings-section-heading" id="settings-agent-tools">
                       <div>
-                        <h3>啟動設定</h3>
+                        <h3>{t('Launch settings')}</h3>
                       </div>
                       <button
                         type="button"
@@ -668,22 +669,22 @@ export function SettingsPanel({
                         disabled={dirty}
                       >
                         <RefreshCw size={14} />
-                        重新偵測
+                        {t('Detect again')}
                       </button>
                     </div>
                     <div className="settings-installations">
                       {[selectedAgent].map((kind) => {
                         const installation = installations.find((item) => item.kind === kind);
                         const parsedArgs = parseAgentArgs(agentJson[kind]);
-                        const argumentSummary = parsedArgs.error ? '參數待修正' : parsedArgs.value?.length ? '已有自訂參數' : '使用安全預設';
+                        const argumentSummary = parsedArgs.error ? t('Arguments need fixing') : parsedArgs.value?.length ? t('Custom arguments set') : t('Using safe defaults');
                         return (
                           <div className="settings-installation" key={kind}>
                             <label className="settings-field">
-                              <span>執行檔路徑</span>
+                              <span>{t('Executable path')}</span>
                               <input
-                                aria-label={`${agentNames[kind]} 執行檔路徑`}
+                                aria-label={t('{{agent}} executable path', { agent: agentNames[kind] })}
                                 value={draft.executables[kind]}
-                                placeholder={`${executableDefaults[kind]} 或完整執行檔路徑`}
+                                placeholder={t('{{default}} or the full executable path', { default: executableDefaults[kind] })}
                                 onChange={(event) =>
                                   update('executables', {
                                     ...draft.executables,
@@ -701,45 +702,45 @@ export function SettingsPanel({
                             </label>
                             {installation?.executable && (
                               <p className="settings-detected-path" title={installation.executable}>
-                                <span className="settings-detected-label">目前：</span><span className="settings-detected-value">{installation.executable}</span>
+                                <span className="settings-detected-label">{t('Current: ')}</span><span className="settings-detected-value">{installation.executable}</span>
                               </p>
                             )}
                             {installation?.error && (
                               <p className="settings-subtle-warning">{installation.error}</p>
                             )}
-                            {!agentCapabilities[kind].history.supported && <p className="settings-help">支援啟動／指定對話 ID 恢復，尚不索引歷史。</p>}
+                            {!agentCapabilities[kind].history.supported && <p className="settings-help">{t('Supports launching and resuming by conversation ID; history is not indexed yet.')}</p>}
                             {(kind === 'codex' || kind === 'claude' || kind === 'opencode' || kind === 'grok' || kind === 'antigravity') && <>
                               <label className="settings-field">
                                 <span><input className="checkbox" type="checkbox"
-                                  aria-label={`${agentNames[kind]} 真實活動 hooks`}
+                                  aria-label={t('{{agent}} activity hooks', { agent: agentNames[kind] })}
                                   checked={isAgentHooksEnabled(draft, kind)}
-                                  onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> 啟用真實活動 hooks</span>
+                                  onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> {t('Enable activity hooks')}</span>
                               </label>
                             </>}
                             <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>
-                              <summary aria-label={`${agentNames[kind]} 參數與權限設定`}>
-                                <span>參數與權限</span><span>{draft.agentOptions[kind].bypassPermissions ? '高風險模式已開啟' : argumentSummary}</span>
+                              <summary aria-label={t('{{agent}} arguments and permissions', { agent: agentNames[kind] })}>
+                                <span>{t('Arguments and permissions')}</span><span>{draft.agentOptions[kind].bypassPermissions ? t('High-risk mode is on') : argumentSummary}</span>
                               </summary>
                               <div className="settings-agent-advanced-body">
                             <label className="settings-field">
-                              <span>自訂啟動參數 <small>JSON 字串陣列</small></span>
-                              <textarea rows={3} aria-label={`${agentNames[kind]} 自訂啟動參數`}
+                              <span>{t('Custom launch arguments')} <small>{t('JSON string array')}</small></span>
+                              <textarea rows={3} aria-label={t('{{agent}} custom launch arguments', { agent: agentNames[kind] })}
                                 value={agentJson[kind]} spellCheck={false}
                                 onChange={(event) => setAgentJson((current) => ({ ...current, [kind]: event.target.value }))}
                                 aria-invalid={Boolean(errors[`agentOptions.${kind}`])} />
                               <FieldError id={`settings-${kind}-args-error`} message={errors[`agentOptions.${kind}`]} />
                             </label>
-                            <p className="settings-help">例如 ["--model", "模型名稱"]。每項為一個參數，不需 Shell 引號；不接受覆寫工作目錄／來源／Session 的參數。儲存為本機明文，勿填密碼或金鑰。</p>
+                            <p className="settings-help">{t('For example ["--model", "model-name"]. Each item is one argument with no shell quoting; arguments that override the working directory, source or session are not accepted. Stored locally in plain text, so never enter passwords or keys.')}</p>
                             <label className="settings-risk-toggle">
                               <input className="checkbox" type="checkbox" checked={draft.agentOptions[kind].bypassPermissions}
-                                aria-label={`${agentNames[kind]} 略過權限確認`}
+                                aria-label={t('{{agent}} skip permission prompts', { agent: agentNames[kind] })}
                                 onChange={(event) => update('agentOptions', { ...draft.agentOptions,
                                   [kind]: { ...draft.agentOptions[kind], bypassPermissions: event.target.checked } })} />
-                              <span>我了解風險，為 {agentNames[kind]} 略過工具權限確認</span>
+                              <span>{t('I understand the risk; skip tool permission prompts for {{agent}}', { agent: agentNames[kind] })}</span>
                             </label>
-                            <p className="settings-subtle-warning">啟用預設加入 {bypassFlags[kind]}；自訂權限選項以啟動預覽為準。Agent 可能不再詢問就執行命令、讀寫或刪除檔案。{kind === 'codex'
-                              ? 'Codex 此模式也會停用 sandbox。'
-                              : '這不代表停用 sandbox，隔離仍依原工具設定。'}僅在可信目錄使用；儲存後套用後續新啟動與恢復，現有程序不變。</p>
+                            <p className="settings-subtle-warning">{t('Adds {{flag}} by default; the launch preview shows custom permission options. The agent may run commands and read, write or delete files without asking.', { flag: bypassFlags[kind] })}{kind === 'codex'
+                              ? t('In this mode Codex also disables its sandbox.')
+                              : t('This does not disable the sandbox; isolation still follows the tool\'s own settings.')}{t('Use it only in trusted folders. After saving, it applies to new launches and resumes; running processes are unchanged.')}</p>
                               </div>
                             </details>
                           </div>
@@ -747,12 +748,12 @@ export function SettingsPanel({
                       })}
                     </div>
                     {dirty && (
-                      <p className="settings-help">變更設定後，請先儲存，再重新偵測或掃描。</p>
+                      <p className="settings-help">{t('After changing settings, save first, then detect or scan again.')}</p>
                     )}
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
-                        <h3>歷史資料來源 <span className="settings-count">{draft.sources.filter((source) => source.kind === selectedAgent).length}</span></h3>
-                        <p>管理目前 Agent 的資料目錄；歷史讀取不以 CLI 安裝為前提。</p>
+                        <h3>{t('History sources')} <span className="settings-count">{draft.sources.filter((source) => source.kind === selectedAgent).length}</span></h3>
+                        <p>{t('Manage this agent\'s data folders; reading history does not require the CLI to be installed.')}</p>
                       </div>
                     </div>
                     <FieldError id="sources-error" message={errors.sources} />
@@ -761,74 +762,74 @@ export function SettingsPanel({
                         const capability = agentCapabilities[kind];
                         const sources = draft.sources.map((source, i) => ({ source, i })).filter(({ source }) => source.kind === kind);
                         return (
-                          <section className="settings-history-provider" key={kind} aria-label={`${capability.name} 歷史來源`}>
+                          <section className="settings-history-provider" key={kind} aria-label={t('{{agent}} history sources', { agent: capability.name })}>
                             <div className="settings-history-provider-top">
                               <AgentIcon kind={kind} />
                               <h4>{capability.name}</h4>
                             </div>
-                            {kind !== 'codex' && <p className="settings-help">{capability.history.description}</p>}
+                            {kind !== 'codex' && <p className="settings-help">{t(capability.history.description)}</p>}
                             <button type="button" className="settings-button secondary compact"
                               disabled={!capability.history.supported || !onDetectHistorySources}
-                              aria-label={`偵測 ${capability.name} 歷史來源`}
+                              aria-label={t('Detect {{agent}} history sources', { agent: capability.name })}
                               onClick={() => void run(async () => {
                                 const result = await onDetectHistorySources!(kind);
                                 setSourceDiscoveries((previous) => ({ ...previous, [kind]: result }));
-                              })}><Search size={14} />偵測歷史來源</button>
+                              })}><Search size={14} />{t('Detect history sources')}</button>
                             {sourceDiscoveries[kind] && <div className="settings-source-discovery" aria-live="polite">
-                              <p className="settings-help">只檢查官方已知位置，不會啟動 Agent。找到目錄不代表已有歷史；加入後仍需儲存與掃描。</p>
+                              <p className="settings-help">{t('Only checks officially known locations and never starts the agent. A found folder does not mean there is history; save and scan after adding it.')}</p>
                               {sourceDiscoveries[kind]!.message && <p className="settings-help">{sourceDiscoveries[kind]!.message}</p>}
                               {sourceDiscoveries[kind]!.candidates.map((candidate) => {
                                 const configured = (candidate.configuredSourceIds ?? []).some((id) => {
                                   const saved = settings.sources.find((source) => source.id === id);
                                   return saved && draft.sources.some((source) => source.id === id && source.kind === kind && source.root === saved.root);
                                 }) || draft.sources.some((source) => source.kind === kind && source.root.trim().replace(/\/+$/, '') === candidate.root.replace(/\/+$/, ''));
-                                const status = { found: '找到可讀目錄', missing: '目錄不存在', permissionDenied: '無權限讀取', checkFailed: '檢查失敗' }[candidate.status];
+                                const status = { found: t('Readable folder found'), missing: t('Folder does not exist'), permissionDenied: t('No permission to read'), checkFailed: t('Check failed') }[candidate.status];
                                 return <div className="settings-source-candidate" key={candidate.root}>
                                   <span className={`settings-status ${candidate.status === 'found' ? 'neutral' : 'warning'}`}>{status}</span>
                                   <code>{candidate.root}</code>
                                   {candidate.message && <p className="settings-help">{candidate.message}</p>}
                                   {candidate.status === 'found' && <button type="button" className="settings-button secondary compact"
                                     disabled={configured || draft.sources.length >= 32}
-                                    aria-label={`加入 ${capability.name} 偵測來源 ${candidate.root}`}
-                                    onClick={() => addSource(kind as HistoryAgentKind, candidate.root)}><Plus size={14} />{configured ? '已加入設定' : '加入此來源'}</button>}
+                                    aria-label={t('Add detected {{agent}} source {{root}}', { agent: capability.name, root: candidate.root })}
+                                    onClick={() => addSource(kind as HistoryAgentKind, candidate.root)}><Plus size={14} />{configured ? t('Already added') : t('Add this source')}</button>}
                                 </div>;
                               })}
                             </div>}
                             {!capability.history.supported ? <>
-                              <span className="settings-status neutral">歷史尚不支援</span>
-                              <p className="settings-help">{capability.resume.description}</p>
+                              <span className="settings-status neutral">{t('History not supported yet')}</span>
+                              <p className="settings-help">{t(capability.resume.description)}</p>
                             </> : <>
                               {!sources.length && <div className="settings-history-unconfigured">
-                                <span className="settings-status neutral">尚未設定來源</span>
-                                <p className="settings-help">請指定已有歷史的完整資料目錄。尚未掃描，無法判斷是否有對話。</p>
+                                <span className="settings-status neutral">{t('No source set up')}</span>
+                                <p className="settings-help">{t('Specify the full data folder that has history. Until it is scanned, it is unknown whether there are conversations.')}</p>
                               </div>}
                               <div className="settings-source-list">
                                 {sources.map(({ source, i }) => {
                                   const saved = settings.sources.find((item) => item.id === source.id);
-                                  const status = !isAgentEnabled(draft, kind) ? { className: 'neutral', text: 'Agent 已停用 · 暫停掃描', detail: '此來源的個別開關與已索引歷史保留。' } : sourceStatus(source.id, source.enabled, !saved || saved.root !== source.root || saved.kind !== source.kind || saved.enabled !== source.enabled);
+                                  const status = !isAgentEnabled(draft, kind) ? { className: 'neutral', text: t('Agent disabled · scanning paused'), detail: t('This source\'s own switch and indexed history are kept.') } : sourceStatus(source.id, source.enabled, !saved || saved.root !== source.root || saved.kind !== source.kind || saved.enabled !== source.enabled);
                                   return (
                                     <div className={`settings-source${source.enabled ? '' : ' is-disabled'}`} key={source.id}>
                                       <div className="settings-source-top">
                                         <label className="settings-toggle-label">
-                                          <input className="checkbox" type="checkbox" checked={source.enabled} aria-label={`啟用資料來源 ${i + 1}`}
+                                          <input className="checkbox" type="checkbox" checked={source.enabled} aria-label={t('Enable source {{number}}', { number: i + 1 })}
                                             onChange={(event) => update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, enabled: event.target.checked } : item))} />
-                                          <span>來源 {String(i + 1).padStart(2, '0')}</span>
+                                          <span>{t('Source {{number}}', { number: String(i + 1).padStart(2, '0') })}</span>
                                         </label>
                                         <span className={`settings-status ${status.className}`}>{status.text}</span>
-                                        <button type="button" className="settings-icon-button danger" aria-label={`移除資料來源 ${i + 1}`}
+                                        <button type="button" className="settings-icon-button danger" aria-label={t('Remove source {{number}}', { number: i + 1 })}
                                           onClick={() => update('sources', draft.sources.filter((item) => item.id !== source.id))}>
                                           <Trash2 size={15} />
                                         </button>
                                       </div>
                                       <div className="settings-source-fields">
                                         <label className="settings-field">
-                                          <span>Agent 類型</span>
-                                          <Select aria-label="Agent 類型" value={source.kind} disabled={locked}
+                                          <span>{t('Agent type')}</span>
+                                          <Select aria-label={t('Agent type')} value={source.kind} disabled={locked}
                                             onChange={(value) => { update('sources', draft.sources.map((item) => item.id === source.id ? { ...item, kind: value as AgentKind } : item)); setSelectedAgent(value as AgentKind); setAgentSearch(''); }}
                                             options={historyAgentKinds.map((option) => ({ value: option, label: agentNames[option], icon: <AgentIcon kind={option} /> }))} />
                                         </label>
                                         <DirectoryPathField key={`${source.id}:${source.kind}`} className="settings-field"
-                                          label={`${capability.history.sourceEnv || capability.name} 資料目錄`}
+                                          label={t('{{name}} data folder', { name: capability.history.sourceEnv || capability.name })}
                                           id={`source-root-${source.id}`} value={source.root} disabled={locked}
                                           placeholder={capability.history.rootPlaceholder!}
                                           onChange={(root) => setDraft((current) => ({ ...current,
@@ -845,7 +846,7 @@ export function SettingsPanel({
                               </div>
                               <button type="button" className="settings-button secondary compact settings-provider-add"
                                 disabled={draft.sources.length >= 32} onClick={() => addSource(kind as HistoryAgentKind)}>
-                                <Plus size={14} />{sources.length ? `新增 ${capability.name} 歷史來源` : `設定 ${capability.name} 歷史來源`}
+                                <Plus size={14} />{sources.length ? t('Add {{agent}} history source', { agent: capability.name }) : t('Set up {{agent}} history source', { agent: capability.name })}
                               </button>
                             </>}
                           </section>
@@ -856,20 +857,20 @@ export function SettingsPanel({
                       <div className="settings-index-box">
                         <div className="settings-section-heading">
                           <div>
-                            <h3>本機搜尋索引</h3>
+                            <h3>{t('Local search index')}</h3>
                             <p aria-live="polite">
                               {index.running
-                                ? `掃描中 · 已處理 ${index.processed} / ${index.total} 個檔案`
+                                ? t('Scanning · {{processed}} / {{total}} files processed', { processed: index.processed, total: index.total })
                                 : index.cancelled
-                                  ? '上次掃描已取消，可隨時重新掃描。'
-                                  : `已處理 ${index.processed} 個檔案`}
+                                  ? t('The last scan was cancelled; you can scan again any time.')
+                                  : t('{{count}} files processed', { count: index.processed })}
                             </p>
                           </div>
                           {index.running && (
                             <LoaderCircle
                               size={17}
                               className="settings-spinning"
-                              aria-label="掃描進行中"
+                              aria-label={t('Scan in progress')}
                             />
                           )}
                         </div>
@@ -877,7 +878,7 @@ export function SettingsPanel({
                           <progress
                             max={Math.max(index.total, 1)}
                             value={index.processed}
-                            aria-label="索引掃描進度"
+                            aria-label={t('Index scan progress')}
                           />
                         )}
                         <div className="settings-index-actions">
@@ -887,7 +888,7 @@ export function SettingsPanel({
                               className="settings-button secondary"
                               onClick={() => void run(onCancelScan)}
                             >
-                              取消掃描
+                              {t('Cancel scan')}
                             </button>
                           ) : (
                             <>
@@ -898,7 +899,7 @@ export function SettingsPanel({
                                 onClick={() => void run(() => onScan(false))}
                               >
                                 <RefreshCw size={14} />
-                                重新掃描
+                                {t('Rescan')}
                               </button>
                               <button
                                 type="button"
@@ -906,21 +907,21 @@ export function SettingsPanel({
                                 disabled={dirty}
                                 onClick={() => void run(() => onScan(true))}
                               >
-                                重建索引
+                                {t('Rebuild index')}
                               </button>
                               <button
                                 type="button"
                                 className="settings-button danger-text"
                                 onClick={() => setConfirmation('clear')}
                               >
-                                清除索引
+                                {t('Clear index')}
                               </button>
                             </>
                           )}
                         </div>
                         {index.errors.length > 0 && (
                           <details className="settings-index-errors">
-                            <summary>查看 {index.errors.length} 個掃描提醒</summary>
+                            <summary>{t('View {{count}} scan warnings', { count: index.errors.length })}</summary>
                             <ul>
                               {index.errors.map((error, i) => (
                                 <li key={i}>{error}</li>
@@ -937,7 +938,7 @@ export function SettingsPanel({
                   <>
                     <div className="settings-section-heading">
                       <div>
-                        <h3>你的 Shell Profiles</h3>
+                        <h3>{t('Your shell profiles')}</h3>
                       </div>
                       <button
                         type="button"
@@ -946,7 +947,7 @@ export function SettingsPanel({
                         onClick={() => {
                           const profile: ShellProfile = {
                             id: newId('profile'),
-                            name: '新的 Profile',
+                            name: t('New profile'),
                             executable: '',
                             args: [],
                             env: {},
@@ -959,39 +960,39 @@ export function SettingsPanel({
                         }}
                       >
                         <Plus size={14} />
-                        新增 Profile
+                        {t('Add profile')}
                       </button>
                     </div>
                     <div className="settings-shell-discovery">
                       <div className="settings-section-heading">
-                        <div><h4>可用的 Shell</h4><p>偵測只讀取本機執行檔資訊；選擇加入後才建立新的 Profile。</p></div>
+                        <div><h4>{t('Available shells')}</h4><p>{t('Detection only reads local executable info; a profile is created only when you add it.')}</p></div>
                         <button type="button" className="settings-button secondary compact" disabled={!onDetectShells}
                           onClick={() => void run(async () => {
                             setShellCandidates(null);
                             setShellCandidates(await onDetectShells!());
                           })}>
-                          <RefreshCw size={14} />重新偵測 Shell
+                          <RefreshCw size={14} />{t('Detect shells again')}
                         </button>
                       </div>
-                      {shellCandidates !== null && <div role="region" aria-label="偵測到的 Shell" className="settings-shell-candidates">
-                        {shellCandidates.length === 0 && <p className="settings-help">沒有新的 Shell 可加入。已設定的 Shell 會自動排除；你仍可手動新增完整執行檔路徑。</p>}
+                      {shellCandidates !== null && <div role="region" aria-label={t('Detected shells')} className="settings-shell-candidates">
+                        {shellCandidates.length === 0 && <p className="settings-help">{t('No new shells to add. Shells already set up are excluded; you can still add a full executable path manually.')}</p>}
                         {shellCandidates.map((candidate) => {
                           const added = draft.profiles.some((profile) => profile.executable === candidate.executable);
                           return <div className="settings-shell-candidate" key={candidate.executable}>
                             <div><strong>{candidate.name}</strong><p>{candidate.executable}</p></div>
                             <button type="button" className="settings-button secondary compact" disabled={added || draft.profiles.length >= 32}
-                              aria-label={added ? `${candidate.name} 已有 Profile` : `加入 ${candidate.name} Profile`}
+                              aria-label={added ? t('{{name}} already has a profile', { name: candidate.name }) : t('Add {{name}} profile', { name: candidate.name })}
                               onClick={() => {
                                 const profile: ShellProfile = { id: newId('profile'), name: candidate.name, executable: candidate.executable, args: [], env: {} };
                                 update('profiles', [...draft.profiles, profile]);
                                 setJsonFields((current) => ({ ...current, [profile.id]: { args: '[]', env: '{}' } }));
                               }}>
-                              {added ? '已有 Profile' : '加入 Profile'}
+                              {added ? t('Has a profile') : t('Add as profile')}
                             </button>
                           </div>;
                         })}
                       </div>}
-                      <p className="settings-help">不會取代既有 Profile 的名稱、參數、環境變數或預設選擇。新增的參數與環境變數預設為空，可自行編輯。</p>
+                      <p className="settings-help">{t('Existing profile names, arguments, environment variables and the default choice are never replaced. New arguments and environment variables start empty for you to edit.')}</p>
                     </div>
                     <FieldError id="profiles-error" message={errors.profiles} />
                     <div className="settings-profile-list">
@@ -999,19 +1000,19 @@ export function SettingsPanel({
                         <div className="settings-profile" key={profile.id}>
                           <div className="settings-profile-title">
                             <Terminal size={17} aria-hidden="true" />
-                            <strong>{profile.name || '未命名 Profile'}</strong>
+                            <strong>{profile.name || t('Untitled profile')}</strong>
                             {draft.defaultProfileId === profile.id && (
-                              <span className="settings-status success">預設</span>
+                              <span className="settings-status success">{t('Default')}</span>
                             )}
                             <button
                               type="button"
                               className="settings-icon-button danger"
-                              aria-label={`移除 ${profile.name || '未命名 Profile'}`}
+                              aria-label={t('Remove {{name}}', { name: profile.name || t('Untitled profile') })}
                               disabled={draft.profiles.length === 1}
                               title={
                                 draft.profiles.length === 1
-                                  ? '至少需要保留一個 Profile'
-                                  : '移除 Profile'
+                                  ? t('At least one profile is required')
+                                  : t('Remove profile')
                               }
                               onClick={() => {
                                 const profiles = draft.profiles.filter(
@@ -1037,7 +1038,7 @@ export function SettingsPanel({
                           </div>
                           <div className="settings-two-columns">
                             <label className="settings-field">
-                              <span>名稱</span>
+                              <span>{t('Name')}</span>
                               <input
                                 value={profile.name}
                                 onChange={(event) =>
@@ -1052,7 +1053,7 @@ export function SettingsPanel({
                               />
                             </label>
                             <label className="settings-field">
-                              <span>Shell 執行檔</span>
+                              <span>{t('Shell executable')}</span>
                               <input
                                 value={profile.executable}
                                 onChange={(event) =>
@@ -1071,7 +1072,7 @@ export function SettingsPanel({
                           </div>
                           <label className="settings-field">
                             <span>
-                              啟動參數 <small>JSON 字串陣列</small>
+                              {t('Launch arguments')} <small>{t('JSON string array')}</small>
                             </span>
                             <textarea
                               rows={3}
@@ -1097,7 +1098,7 @@ export function SettingsPanel({
                           </label>
                           <label className="settings-field">
                             <span>
-                              環境變數 <small>JSON 物件</small>
+                              {t('Environment variables')} <small>{t('JSON object')}</small>
                             </span>
                             <textarea
                               rows={4}
@@ -1128,18 +1129,18 @@ export function SettingsPanel({
                   <>
                     <div className="settings-section-heading">
                       <div>
-                        <h3>外觀</h3>
+                        <h3>{t('Appearance')}</h3>
                       </div>
                     </div>
                     <div className="settings-field settings-section-space">
-                      <label id="app-zoom-label" htmlFor="app-zoom">工作台縮放 <small>%</small></label>
+                      <label id="app-zoom-label" htmlFor="app-zoom">{t('Workbench zoom')} <small>%</small></label>
                       <input id="app-zoom" type="number" min={50} max={200} step={10} aria-labelledby="app-zoom-label"
                         value={Number.isFinite(draft.appZoom ?? 100) ? (draft.appZoom ?? 100) : ''}
                         onChange={(event) => update('appZoom', event.target.value === '' ? Number.NaN : Number(event.target.value))}
                         aria-invalid={Boolean(errors.appZoom)} aria-describedby="app-zoom-error app-zoom-help" />
                       <FieldError id="app-zoom-error" message={errors.appZoom} />
                       <p className="settings-help" id="app-zoom-help">{workspaceZoomShortcutHelp}</p>
-                      <button className="secondary" type="button" onClick={() => update('appZoom', 100)}>還原工作台縮放 100%</button>
+                      <button className="secondary" type="button" onClick={() => update('appZoom', 100)}>{t('Reset workbench zoom to 100%')}</button>
                     </div>
                     <ThemeControls value={appearanceOf(draft)} disabled={locked}
                       onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))} />
@@ -1148,7 +1149,7 @@ export function SettingsPanel({
                     <div className="settings-two-columns settings-section-space">
                       <label className="settings-field">
                         <span>
-                          終端字型大小 <small>px</small>
+                          {t('Terminal font size')} <small>px</small>
                         </span>
                         <input
                           type="number"
@@ -1169,7 +1170,7 @@ export function SettingsPanel({
                       </label>
                     </div>
                     <label className="settings-field">
-                      <span>終端字型</span>
+                      <span>{t('Terminal font')}</span>
                       <input
                         value={draft.fontFamily}
                         onChange={(event) => update('fontFamily', event.target.value)}
@@ -1180,41 +1181,41 @@ export function SettingsPanel({
                       />
                       <FieldError id="font-family-error" message={errors.fontFamily} />
                       <span className="settings-help">
-                        使用這台電腦已安裝的字型，可用逗號指定備用字型。
+                        {t('Uses fonts installed on this computer; separate fallback fonts with commas.')}
                       </span>
                     </label>
                     <TerminalPreview value={appearanceOf(draft)} />
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
-                        <h3>開始新工作時</h3>
+                        <h3>{t('When starting new work')}</h3>
                       </div>
                     </div>
                     <div className="settings-two-columns">
                       <label className="settings-field">
-                        <span>預設 Agent</span>
-                        <Select aria-label="預設 Agent" value={draft.defaultAgent} disabled={locked}
+                        <span>{t('Default agent')}</span>
+                        <Select aria-label={t('Default agent')} value={draft.defaultAgent} disabled={locked}
                           onChange={(value) => update('defaultAgent', value as AgentKind)}
-                          options={agentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} />, description: isAgentEnabled(draft, kind) ? undefined : '已停用，啟動時改用其他已啟用 Agent' }))} />
+                          options={agentKinds.map((kind) => ({ value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} />, description: isAgentEnabled(draft, kind) ? undefined : t('Disabled; another enabled agent is used instead') }))} />
                         <FieldError id="default-agent-error" message={errors.defaultAgent} />
                       </label>
                       <label className="settings-field">
-                        <span>預設 Shell Profile</span>
-                        <Select aria-label="預設 Shell Profile" value={draft.defaultProfileId} disabled={locked}
+                        <span>{t('Default shell profile')}</span>
+                        <Select aria-label={t('Default shell profile')} value={draft.defaultProfileId} disabled={locked}
                           onChange={(value) => update('defaultProfileId', value)}
-                          options={draft.profiles.map((profile) => ({ value: profile.id, label: profile.name || '未命名 Profile', icon: <Terminal size={14} />, description: profile.executable }))} />
+                          options={draft.profiles.map((profile) => ({ value: profile.id, label: profile.name || t('Untitled profile'), icon: <Terminal size={14} />, description: profile.executable }))} />
                         <FieldError id="default-profile-error" message={errors.defaultProfileId} />
                       </label>
                     </div>
                     <div className="settings-section-heading settings-section-space">
                       <div>
-                        <h3>系統通知</h3>
+                        <h3>{t('System notifications')}</h3>
                       </div>
                     </div>
                     <label className="settings-check">
                       <input type="checkbox" className="checkbox" checked={draft.systemNotifications !== false} disabled={locked}
                         onChange={(event) => update('systemNotifications', event.currentTarget.checked)} />
-                      <span>Agent 需要注意時發送系統通知</span>
-                      <small>只在該工作不在畫面上或視窗不在前景時，於等待輸入／權限、完成或失敗時通知。</small>
+                      <span>{t('Send a system notification when an agent needs attention')}</span>
+                      <small>{t('Only notifies when the work is not on screen or the window is in the background: when it waits for input or permission, finishes or fails.')}</small>
                     </label>
                   </>
                 )}
@@ -1223,23 +1224,22 @@ export function SettingsPanel({
                   <>
                     <div className="settings-section-heading">
                       <div>
-                        <h3>鍵盤快捷鍵</h3>
-                        <p>使用 Mod 表示 macOS 的 ⌘，或 Linux 的 Ctrl。</p>
+                        <h3>{t('Keyboard shortcuts')}</h3>
+                        <p>{t('Mod means ⌘ on macOS and Ctrl on Linux.')}</p>
                       </div>
                     </div>
                     <div className="settings-shortcut-notice">
                       <Keyboard size={17} />
                       <p>
-                        例如
-                        Mod+Shift+T。留空可停用快捷鍵。衝突會顯示在下方；請避開終端程式與作業系統常用組合。
+                        {t('For example Mod+Shift+T. Leave it empty to disable a shortcut. Conflicts show below; avoid combinations used by terminal programs and the OS.')}
                       </p>
                     </div>
-                    <p className="settings-help">{workspaceTabShortcutHelp} 這些應用保留組合不會傳送至終端；組字期間或對話框內不攔截。舊版「下一個面板」預設改為 Mod+Alt+ArrowDown。</p>
+                    <p className="settings-help">{workspaceTabShortcutHelp} {t('These reserved combinations are not sent to the terminal, and are not captured while composing text or inside dialogs. The old "Next pane" default is now Mod+Alt+ArrowDown.')}</p>
                     {!Object.keys(draft.shortcuts).length && (
                       <div className="settings-empty">
                         <Keyboard size={24} />
-                        <strong>目前使用應用程式預設快捷鍵</strong>
-                        <p>尚無可自訂的快捷鍵設定。</p>
+                        <strong>{t('Using the app\'s default shortcuts')}</strong>
+                        <p>{t('No custom shortcuts yet.')}</p>
                       </div>
                     )}
                     <FieldError id="shortcuts-error" message={errors.shortcuts} />
@@ -1286,13 +1286,13 @@ export function SettingsPanel({
               ) : showErrors && Object.keys(prepared.errors).length ? (
                 <span className="settings-field-error">
                   <CircleAlert size={15} />
-                  請修正標示的欄位後再儲存。
+                  {t('Fix the marked fields before saving.')}
                 </span>
               ) : (
                 <span>
                   {onboarding
-                    ? '之後隨時可以回到設定調整。'
-                    : '有尚未儲存的變更'}
+                    ? t('You can come back to Settings any time.')
+                    : t('You have unsaved changes')}
                 </span>
               )}
             </div>}
@@ -1302,7 +1302,7 @@ export function SettingsPanel({
               onClick={close}
               disabled={locked}
             >
-              {onboarding ? '稍後設定' : '取消'}
+              {onboarding ? t('Set up later') : t('Cancel')}
             </button>
             <button type="submit" className="settings-button primary" disabled={locked}>
               {locked ? (
@@ -1312,7 +1312,7 @@ export function SettingsPanel({
               ) : (
                 <Check size={16} />
               )}
-              {locked ? '處理中…' : onboarding ? '儲存並開始掃描' : '儲存設定'}
+              {locked ? t('Working…') : onboarding ? t('Save and start scanning') : t('Save settings')}
             </button>
           </footer>
         </form>
@@ -1329,12 +1329,12 @@ export function SettingsPanel({
                 <CircleAlert size={24} />
               </div>
               <h3 id="settings-confirm-title">
-                {confirmation === 'clear' ? '清除本機搜尋索引？' : '捨棄尚未儲存的變更？'}
+                {confirmation === 'clear' ? t('Clear the local search index?') : t('Discard unsaved changes?')}
               </h3>
               <p id="settings-confirm-description">
                 {confirmation === 'clear'
-                  ? '只會刪除 Session Bay 建立的衍生索引。原始 Agent 對話、來源檔案、專案與設定都不會被修改；資源回收筒也會保留；之後可以重新掃描建立索引。'
-                  : '剛才編輯的設定將不會保留。你可以返回繼續編輯。'}
+                  ? t('Only the index that Session Bay built is deleted. Original agent conversations, source files, projects and settings are not modified, and the recycle bin is kept. You can rescan to rebuild the index.')
+                  : t('The settings you just edited will not be kept. You can go back and keep editing.')}
               </p>
               <div className="settings-confirm-actions">
                 <button
@@ -1342,7 +1342,7 @@ export function SettingsPanel({
                   className="settings-button secondary"
                   onClick={() => setConfirmation(null)}
                 >
-                  返回
+                  {t('Back')}
                 </button>
                 <button
                   type="button"
@@ -1360,7 +1360,7 @@ export function SettingsPanel({
                     }
                   }}
                 >
-                  {confirmation === 'clear' ? '確定清除索引' : '捨棄變更'}
+                  {confirmation === 'clear' ? t('Yes, clear index') : t('Discard changes')}
                 </button>
               </div>
             </div>

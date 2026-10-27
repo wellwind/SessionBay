@@ -1,5 +1,6 @@
 import { Component, Fragment } from 'react';
 import type { ReactNode } from 'react';
+import { t } from '../i18n';
 
 /** A broken file preview must not unmount the workspace, terminal, or file tabs. */
 export class FilePreviewBoundary extends Component<{ path: string; children: ReactNode }, { failed: boolean; retry: number }> {
@@ -11,8 +12,8 @@ export class FilePreviewBoundary extends Component<{ path: string; children: Rea
 
   render() {
     if (this.state.failed) return <div className="explorer-empty" role="alert">
-      <p>無法顯示檔案預覽：{this.props.path}</p>
-      <button onClick={() => this.setState(state => ({ failed: false, retry: state.retry + 1 }))}>重試</button>
+      <p>{t('Cannot preview file: {{path}}', { path: this.props.path })}</p>
+      <button onClick={() => this.setState(state => ({ failed: false, retry: state.retry + 1 }))}>{t('Retry')}</button>
     </div>;
     return <Fragment key={this.state.retry}>{this.props.children}</Fragment>;
   }

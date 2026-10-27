@@ -56,6 +56,7 @@ import { useResolvedColorMode } from '../use-ui-theme';
 
 import { RenameDialog } from './RenameDialog';
 import { hasBlockingDialog } from '../dialog-focus';
+import { t } from '../i18n';
 export function TerminalPane({
   pane,
   projectAvailable = true,
@@ -214,8 +215,8 @@ export function TerminalPane({
       // hostile schemes. Activation only reveals its real target; never navigate.
       linkHandler: {
         allowNonHttpProtocols: true,
-        activate: (event, target) => { if (fileLinkModifier(event)) setNotice(`終端嵌入連結未開啟。真實目標：${embeddedLinkLabel(target)}`); },
-        hover: (_event, target) => { if (host.current) host.current.title = `嵌入連結（不會開啟）：${embeddedLinkLabel(target)}`; },
+        activate: (event, target) => { if (fileLinkModifier(event)) setNotice(t('The embedded terminal link was not opened. Actual target: {{target}}', { target: embeddedLinkLabel(target) })); },
+        hover: (_event, target) => { if (host.current) host.current.title = t('Embedded link (not opened): {{target}}', { target: embeddedLinkLabel(target) }); },
         leave: () => { if (host.current) host.current.title = ''; },
       },
       fontSize: settings.fontSize,
@@ -246,7 +247,7 @@ export function TerminalPane({
     const pasteFiles = (event: ClipboardEvent) => {
       if (event.target !== terminal.textarea || !event.clipboardData) return;
       if (hasDirectory(event.clipboardData.items)) {
-        event.preventDefault(); event.stopImmediatePropagation(); setNotice('不支援資料夾，尚未插入；請選擇個別檔案。'); return;
+        event.preventDefault(); event.stopImmediatePropagation(); setNotice(t('Folders are not supported and nothing was inserted; choose individual files.')); return;
       }
       const files = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file').map((item) => item.getAsFile()).filter((file): file is File => !!file);
       if (!files.length) return; // Leave ordinary text and native CLI shortcuts unchanged.
@@ -264,7 +265,7 @@ export function TerminalPane({
       if (!event.dataTransfer?.types.includes('Files')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (event.dataTransfer.items && hasDirectory(event.dataTransfer.items)) { setNotice('不支援資料夾，尚未插入；請選擇個別檔案。'); return; }
+      if (event.dataTransfer.items && hasDirectory(event.dataTransfer.items)) { setNotice(t('Folders are not supported and nothing was inserted; choose individual files.')); return; }
       fileDrop.current(Array.from(event.dataTransfer.files));
     };
     element.addEventListener('paste', pasteFiles, true);
@@ -287,7 +288,7 @@ export function TerminalPane({
     const links = terminal.registerLinkProvider(terminalFileLinkProvider(terminal,
       () => JSON.stringify([latest.current.pane.id, latest.current.pane.runtimeId, latest.current.pane.startToken, attachment.current?.lease]),
       request => {
-        if (!latest.current.projectAvailable) { setNotice('此終端沒有可用的專案目錄，無法開啟輸出中的檔案。'); return; }
+        if (!latest.current.projectAvailable) { setNotice(t('This terminal has no usable project folder, so files in its output cannot be opened.')); return; }
         latest.current.onOpenFileLink?.(request);
       },
       text => { element.title = text; },
@@ -307,7 +308,7 @@ export function TerminalPane({
       // Printable typing remains in the same prompt; do not buffer or replay input.
       if (actionPending.current && !filePasting.current && fileInputChangesPrompt(data)) {
         actionGeneration.current += 1;
-        if (fileStaging.current) setNotice('檔案準備已取消：已送出或中斷目前輸入，尚未插入的檔案不會加入下一則訊息。');
+        if (fileStaging.current) setNotice(t('File preparation was cancelled: the current input was sent or interrupted, so files not yet inserted will not be added to the next message.'));
       }
       if (runtime.current) inputQueue.current?.enqueue(runtime.current, data);
     });
@@ -473,7 +474,7 @@ export function TerminalPane({
           if (event.type === 'snapshot') {
             terminal.reset();
             terminal.resize(Math.min(320, Math.max(2, event.cols)), Math.min(120, Math.max(1, event.rows)));
-            if (event.truncated) setNotice('已恢復目前終端畫面；較早輸出超過保留上限，無法完整回放。');
+            if (event.truncated) setNotice(t('The current terminal screen was restored; earlier output exceeded the retention limit and cannot be fully replayed.'));
           }
           terminal.write(new Uint8Array(event.data), () => {
             active.lastAcknowledged = Math.max(active.lastAcknowledged, event.sequence);
@@ -594,9 +595,9 @@ export function TerminalPane({
     try {
       const text = term.current?.getSelection();
       if (text) await navigator.clipboard.writeText(text);
-      else setNotice('請先選取要複製的終端文字。');
+      else setNotice(t('Select the terminal text to copy first.'));
     } catch {
-      setNotice('無法存取剪貼簿，請使用系統複製快捷鍵。');
+      setNotice(t('Cannot access the clipboard; use the system copy shortcut.'));
     }
   };
   const captureActionTarget = (requireFocus = true) => {
@@ -619,21 +620,21 @@ export function TerminalPane({
     if (mounted.current) setConfirming(false);
   };
   const insertLocalFiles = async (files: File[], target: NonNullable<ReturnType<typeof captureActionTarget>>) => {
-    if (!target.terminal.modes.bracketedPasteMode) throw new Error('Agent 尚未啟用安全貼上模式，未插入檔案。');
+    if (!target.terminal.modes.bracketedPasteMode) throw new Error(t('The agent has not enabled safe paste mode, so no files were inserted.'));
     fileStaging.current = true;
-    setNotice('正在準備檔案，尚未送出；可繼續輸入文字，按 Enter 或中斷輸入會取消尚未插入的檔案。');
+    setNotice(t('Preparing files; nothing is sent yet. You can keep typing; pressing Enter or interrupting cancels files not yet inserted.'));
     try {
       const renamed: string[] = [];
       const count = await insertFiles({ files, kind: target.kind, runtimeId: target.runtimeId, api,
         isCurrent: () => targetIsCurrent(target) && target.terminal.modes.bracketedPasteMode, onRenamed: (originalName, name) => { renamed.push(`${displayFileName(originalName)} → ${displayFileName(name)}`); }, paste: (text, markAttempted) => {
-          if (!targetIsCurrent(target) || !target.terminal.modes.bracketedPasteMode) throw new Error('檔案輸入目標或安全貼上模式已變更。');
+          if (!targetIsCurrent(target) || !target.terminal.modes.bracketedPasteMode) throw new Error(t('The file input target or safe paste mode changed.'));
           const queue = inputQueue.current;
-          if (!queue || queue.pending + new TextEncoder().encode(text).length + 12 > queue.limit) throw new Error('終端輸入佇列已滿，檔案路徑尚未全部插入。');
+          if (!queue || queue.pending + new TextEncoder().encode(text).length + 12 > queue.limit) throw new Error(t('The terminal input queue is full; not all file paths were inserted.'));
           filePasting.current = true;
           try { markAttempted(); target.terminal.paste(text); } finally { filePasting.current = false; }
         } });
       if (targetIsCurrent(target)) {
-        setNotice(`已加入 ${count} 個檔案路徑，未送出。${fileInputGuidance(fileProvider(target.kind)!, files.map((file) => file.name))}${renamed.length ? `檔名已清理（原名 → 存入名；長名稱會縮短顯示）：${renamed.join('；')}。` : ''}`);
+        setNotice(t('Added {{count}} file paths, not sent yet. ', { count }) + fileInputGuidance(fileProvider(target.kind)!, files.map((file) => file.name)) + (renamed.length ? t('File names were cleaned up (original → stored; long names are shortened): {{names}}.', { names: renamed.join(t('; ')) }) : ''));
         target.terminal.focus();
       }
     } finally { fileStaging.current = false; }
@@ -641,12 +642,12 @@ export function TerminalPane({
   fileInput.current = (files) => {
     if (!fileProvider(latest.current.pane.kind)) { setNotice(fileUnsupportedReason(latest.current.pane.kind)); return; }
     const target = captureActionTarget();
-    if (!target) { setNotice('請先聚焦已連線的 Agent 面板，再拖入或貼上檔案。'); return; }
-    if (actionPending.current) { setNotice('檔案或貼上操作仍在處理中，請稍候。'); return; }
+    if (!target) { setNotice(t('Focus a connected agent pane before dropping or pasting files.')); return; }
+    if (actionPending.current) { setNotice(t('A file or paste action is still in progress; please wait.')); return; }
     actionPending.current = true;
     setConfirming(true);
     void insertLocalFiles(files, target).catch((error) => {
-      if (mounted.current) setNotice(`${errorMessage(error)}${error instanceof FileInputError && error.mayHaveInserted ? ' 請檢查原 Agent 輸入區，避免重複加入。' : ''}`);
+      if (mounted.current) setNotice(`${errorMessage(error)}${error instanceof FileInputError && error.mayHaveInserted ? t(' Check the agent\'s input area to avoid adding things twice.') : ''}`);
     }).finally(finishAction);
   };
   canDropFiles.current = () => !!fileProvider(latest.current.pane.kind) && !!captureActionTarget(false) &&
@@ -663,7 +664,7 @@ export function TerminalPane({
       selected.kind !== dropped.kind || selected.terminal !== dropped.terminal ||
       selected.attachment !== dropped.attachment || selected.lease !== dropped.lease ||
       selected.startToken !== dropped.startToken || selected.launchToken !== dropped.launchToken) {
-      setNotice('拖放目標尚未聚焦或連線已變更，未插入檔案；請聚焦此面板後重試。');
+      setNotice(t('The drop target is not focused or the connection changed, so no files were inserted. Focus this pane and try again.'));
       return;
     }
     selected.terminal.focus();
@@ -687,11 +688,11 @@ export function TerminalPane({
           const mime = item.types.find((type) => !type.startsWith('text/'));
           if (mime) {
             if (!fileProvider(target.kind)) throw new Error(fileUnsupportedReason(target.kind));
-            if (files.length >= fileLimits.count) throw new Error('一次最多加入 4 個檔案。');
+            if (files.length >= fileLimits.count) throw new Error(t('You can add up to 4 files at a time.'));
             const blob = await item.getType(mime);
             if (!targetIsCurrent(target)) return;
             fileBytes += blob.size;
-            if (blob.size > fileLimits.perFile || fileBytes > fileLimits.total) throw new Error('每個檔案最多 10 MiB，合計最多 20 MiB。');
+            if (blob.size > fileLimits.perFile || fileBytes > fileLimits.total) throw new Error(t('Each file can be at most 10 MiB, and 20 MiB in total.'));
             files.push(new File([blob], clipboardFileName(mime), { type: mime }));
           }
           if (!clipboardHasFiles && item.types.includes('text/plain')) {
@@ -710,12 +711,12 @@ export function TerminalPane({
         text = await navigator.clipboard.readText();
       }
       if (!targetIsCurrent(target)) return;
-      if (/[\r\n]/.test(text) && !await confirmAction('貼上的內容含多行，可能立即執行指令。確定貼上？')) return;
+      if (/[\r\n]/.test(text) && !await confirmAction(t('The pasted text has multiple lines and may run commands immediately. Paste anyway?'))) return;
       if (!targetIsCurrent(target)) return;
       target.terminal.paste(text);
       target.terminal.focus();
     } catch (error) {
-      if (mounted.current) setNotice(`${errorMessage(error)}${error instanceof FileInputError && error.mayHaveInserted ? ' 請檢查原 Agent 輸入區，避免重複加入。' : ''}`);
+      if (mounted.current) setNotice(`${errorMessage(error)}${error instanceof FileInputError && error.mayHaveInserted ? t(' Check the agent\'s input area to avoid adding things twice.') : ''}`);
     } finally {
       finishAction();
     }
@@ -726,7 +727,7 @@ export function TerminalPane({
     actionPending.current = true;
     setConfirming(true);
     try {
-      if (!await confirmAction(`結束「${latest.current.pane.title}」的受管程序？最後畫面將保留。`)) return;
+      if (!await confirmAction(t('End the managed process of "{{title}}"? The last screen is kept.', { title: latest.current.pane.title }))) return;
       if (!targetIsCurrent(target)) return;
       await api.stop(target.runtimeId);
     } catch (error) {
@@ -736,7 +737,7 @@ export function TerminalPane({
     }
   };
   const paneMetadata = (<div className="pane-meta">
-        <span title={pane.cwd}>{pane.cwd || '未指定目錄'}</span>
+        <span title={pane.cwd}>{pane.cwd || t('No folder specified')}</span>
         <PaneRuntimeStatus pane={pane} connecting={connecting} />
       </div>);
   const paneFooter = (pane.state !== 'placeholder' && (
@@ -745,23 +746,23 @@ export function TerminalPane({
             {pane.sessionId
               ? `Session ${pane.sessionId.slice(-12)}`
               : pane.kind === 'shell'
-                ? '普通 Shell · 不自動關聯 Agent'
-                : '新的 Agent 工作'}
+                ? t('Plain shell · not linked to an agent')
+                : t('New agent work')}
           </span>
           {pane.state === 'disconnected' ? (
-            <button disabled={connecting} onClick={() => setReconnect((value) => value + 1)}>重新連線</button>
+            <button disabled={connecting} onClick={() => setReconnect((value) => value + 1)}>{t('Reconnect')}</button>
           ) : live ? (
             <button
               disabled={pane.state === 'starting' || !connected || confirming}
               onClick={() => void stop()}
             >
               <Square size={11} />
-              停止
+              {t('Stop')}
             </button>
           ) : (
             <button onClick={onStart}>
               <Play size={12} />
-              重新啟動
+              {t('Restart')}
             </button>
           )}
         </div>
@@ -770,7 +771,7 @@ export function TerminalPane({
     <section ref={paneElement}
       className={`terminal-pane ${focused ? 'focused' : ''}${minimalChrome ? ' minimal-chrome' : ''}${identity ? ' mixed-pane' : ''}`}
       style={identity ? { ['--pane-project' as string]: identity.color } : undefined}
-      aria-label={identity ? `${identity.name} · ${pane.title} 終端面板` : `${pane.title} 終端面板`}
+      aria-label={identity ? t('{{project}} · {{title}} terminal pane', { project: identity.name, title: pane.title }) : t('{{title}} terminal pane', { title: pane.title })}
       onWheelCapture={cancelFollow}
       onKeyDownCapture={event => {
         if (event.shiftKey && ['PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) cancelFollow();
@@ -793,39 +794,39 @@ export function TerminalPane({
           </span> : <TerminalSquare size={14} />}
           <strong title={pane.title}>{pane.title}</strong>
           {/* Reserve the badge slot so pointerdown focus cannot move toolbar actions before click. */}
-          <span className="focus-label" style={{ visibility: focused ? undefined : 'hidden' }} aria-hidden={!focused}>焦點</span>
+          <span className="focus-label" style={{ visibility: focused ? undefined : 'hidden' }} aria-hidden={!focused}>{t('Focus')}</span>
           <span className={`runtime-dot ${pane.state}`} />
           {minimalChrome && <PaneRuntimeStatus pane={pane} connecting={connecting} />}
           {isAgentPane(pane) && pane.state !== 'running' && <span className={`agent-lifecycle ${pane.state}`} title={agentLifecycleText(pane.state)}>{agentLifecycleText(pane.state)}</span>}
         </div>
-        <ResponsiveControls label={`面板選項 ${pane.title}`} narrowWidth={600} forceCompact={minimalChrome} closeOnAction>
+        <ResponsiveControls label={t('Pane options {{title}}', { title: pane.title })} narrowWidth={600} forceCompact={minimalChrome} closeOnAction>
         <div className="pane-actions">
-          {onMoveHome && identity && <button className="icon-button" title={`移回 ${identity.name}`} aria-label={`移回 ${identity.name}：${pane.title}`}
+          {onMoveHome && identity && <button className="icon-button" title={t('Move back to {{project}}', { project: identity.name })} aria-label={t('Move back to {{project}}: {{title}}', { project: identity.name, title: pane.title })}
             onClick={onMoveHome}><Undo2 size={14} /></button>}
-          <button className="icon-button" title="重新命名面板" aria-label={`重新命名面板 ${pane.title}`} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
+          <button className="icon-button" title={t('Rename pane')} aria-label={t('Rename pane {{title}}', { title: pane.title })} onClick={(event) => { event.currentTarget.focus(); setRenameOpen(true); }}><Pencil size={14} /></button>
           <button
             className="icon-button"
-            title="搜尋終端文字"
-            aria-label="搜尋終端文字"
+            title={t('Search terminal text')}
+            aria-label={t('Search terminal text')}
             onClick={() => { cancelFollow(); setSearchOpen(!searchOpen); }}
           >
             <Search size={14} />
           </button>
           <button
             className="icon-button"
-            title="複製選取文字"
-            aria-label="複製選取文字"
+            title={t('Copy selected text')}
+            aria-label={t('Copy selected text')}
             onClick={() => void copy()}
           >
             <Copy size={14} />
           </button>
-          <button className="icon-button" title="開啟選取的檔案路徑，或輸入路徑" aria-label="開啟終端檔案路徑"
+          <button className="icon-button" title={t('Open the selected file path, or type a path')} aria-label={t('Open terminal file path')}
             disabled={!onOpenFileLink || !pane.runtimeId || !projectAvailable}
             onClick={() => { if (!hasBlockingDialog()) onOpenFileLink?.({ text: term.current?.getSelection() ?? '', autoResolve: false }); }}><FileText size={14} /></button>
           <button
             className="icon-button"
-            title="貼上"
-            aria-label="貼上"
+            title={t('Paste')}
+            aria-label={t('Paste')}
             disabled={!live || !connected || confirming}
             onClick={() => void paste()}
           >
@@ -833,24 +834,24 @@ export function TerminalPane({
           </button>
           <button
             className="icon-button"
-            title="左右分割"
-            aria-label="左右分割"
+            title={t('Split left and right')}
+            aria-label={t('Split left and right')}
             onClick={() => onSplit('horizontal')}
           >
             <SplitSquareHorizontal size={14} />
           </button>
           <button
             className="icon-button"
-            title="上下分割"
-            aria-label="上下分割"
+            title={t('Split top and bottom')}
+            aria-label={t('Split top and bottom')}
             onClick={() => onSplit('vertical')}
           >
             <SplitSquareVertical size={14} />
           </button>
           <button
             className="icon-button"
-            title={maximized ? '還原面板' : '最大化面板'}
-            aria-label={maximized ? '還原面板' : '最大化面板'}
+            title={maximized ? t('Restore pane') : t('Maximize pane')}
+            aria-label={maximized ? t('Restore pane') : t('Maximize pane')}
             onClick={() => {
               // A restored narrow toolbar must not reopen solely to retain this action's focus.
               term.current?.focus();
@@ -859,7 +860,7 @@ export function TerminalPane({
           >
             {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
-          <button className="icon-button" title="關閉面板" aria-label="關閉面板" onClick={onClose}>
+          <button className="icon-button" title={t('Close pane')} aria-label={t('Close pane')} onClick={onClose}>
             <X size={14} />
           </button>
         </div>
@@ -867,8 +868,8 @@ export function TerminalPane({
         </ResponsiveControls>
       </div>
       {!minimalChrome && paneMetadata}
-      {renameOpen && <RenameDialog title="重新命名面板" name={pane.title}
-        description="只修改面板顯示名稱，保留執行中的程序、終端輸出與工作目錄。"
+      {renameOpen && <RenameDialog title={t('Rename pane')} name={pane.title}
+        description={t('Only changes the pane\'s display name; the running process, terminal output and working directory are kept.')}
         onClose={() => setRenameOpen(false)} onSave={(title) => onPatch(pane.id, { title })} />}
       {searchOpen && (
         <form
@@ -880,7 +881,7 @@ export function TerminalPane({
         >
           <Search size={14} />
           <input
-            aria-label="終端搜尋"
+            aria-label={t('Terminal search')}
             autoFocus
             value={needle}
             onChange={(event) => {
@@ -890,10 +891,10 @@ export function TerminalPane({
             }}
           />
           <button type="button" onClick={() => { cancelFollow(); search.current?.findPrevious(needle); }}>
-            上一個
+            {t('Previous')}
           </button>
-          <button type="submit">下一個</button>
-          <button type="button" aria-label="關閉終端搜尋" onClick={() => { setSearchOpen(false); term.current?.focus(); }}>
+          <button type="submit">{t('Next')}</button>
+          <button type="button" aria-label={t('Close terminal search')} onClick={() => { setSearchOpen(false); term.current?.focus(); }}>
             <X size={14} />
           </button>
         </form>
@@ -901,7 +902,7 @@ export function TerminalPane({
       {(pane.error || notice) && (
         <div className="pane-error" role="alert">
           {pane.error || notice}
-          <button onClick={() => setNotice('')} aria-label="關閉通知">
+          <button onClick={() => setNotice('')} aria-label={t('Close notice')}>
             <X size={12} />
           </button>
         </div>
@@ -911,15 +912,15 @@ export function TerminalPane({
         {pane.state === 'placeholder' && (
           <div className="terminal-placeholder">
             <TerminalSquare size={30} />
-            <h3>工作區已就位</h3>
-            <p>上次布局已還原。選擇接續後才會啟動程序。</p>
+            <h3>{t('Workspace ready')}</h3>
+            <p>{t('Your last layout was restored. Processes start only when you choose to continue.')}</p>
             <button className="primary" onClick={onStart}>
               <Play size={15} />
               {pane.kind === 'shell'
-                ? '重新開啟 Shell'
+                ? t('Reopen shell')
                 : pane.sessionId
-                  ? '接續 Session'
-                  : '開始 Agent 工作'}
+                  ? t('Resume session')
+                  : t('Start agent work')}
             </button>
           </div>
         )}

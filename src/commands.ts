@@ -1,3 +1,4 @@
+import { t } from './i18n';
 export interface Command {
   id: string;
   label: string;
@@ -56,7 +57,7 @@ export function reservedWorkspaceShortcut(shortcut: string, mac = isMac()): bool
   if (mac) fixed.push('Meta+W', 'Meta+Shift+[', 'Meta+Shift+]', 'Meta+Alt+ArrowLeft', 'Meta+Alt+ArrowRight');
   return fixed.some((binding) => normalizedShortcut(binding, mac) === normalizedShortcut(shortcut, mac));
 }
-export const workspaceTabShortcutHelp = '工作區分頁：macOS ⌘W 關閉目前分頁（保留視窗）；⌘1–8／⌘9（最後）、⌘⇧[／⌘⇧]；Linux Ctrl+1–8／Ctrl+9。兩平台 Ctrl+Tab／Ctrl+Shift+Tab；macOS 亦可 ⌘⌥←／⌘⌥→。僅切換目前目錄或臨時 Terminal 的工作分頁，不切換導覽頁面。';
+export const workspaceTabShortcutHelp = t('Workspace tabs: on macOS, ⌘W closes the current tab (the window stays open); ⌘1–8 / ⌘9 (last), ⌘⇧[ / ⌘⇧]; on Linux, Ctrl+1–8 / Ctrl+9. Both platforms: Ctrl+Tab / Ctrl+Shift+Tab; on macOS also ⌘⌥← / ⌘⌥→. Only switches work tabs in the current directory or temporary terminal, not navigation pages.');
 const keyAlias = (value: string) =>
   ({
     esc: 'escape',

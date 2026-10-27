@@ -1,6 +1,7 @@
 import type { ITheme } from '@xterm/xterm';
 import type { Settings } from './types';
 import { codeTerminalTheme, codeUiTokens } from './code-themes';
+import { t } from './i18n';
 
 const legacyTerminalThemes: Record<string, ITheme> = {
   bay: {
@@ -60,16 +61,16 @@ export interface ThemePalette {
 
 // One catalog drives Settings, the quick switcher, CSS tokens and xterm palettes.
 export const themePalettes: ThemePalette[] = [
-  { id: 'bay', label: 'Bay · 港灣', dark: { background: '#10171c', surface: '#1d2b33', accent: '#7dd9b4' }, light: { background: '#f3f6f7', surface: '#e5eef1', accent: '#0c7058' } },
-  { id: 'graphite', label: 'Graphite · 石墨', dark: { background: '#18191b', surface: '#2c2e32', accent: '#c2cad8' }, light: { background: '#f6f6f7', surface: '#e9eaed', accent: '#495565' } },
-  { id: 'ocean', label: 'Ocean · 海洋', dark: { background: '#0d1929', surface: '#1c3047', accent: '#91c8fa' }, light: { background: '#f3f7fc', surface: '#e3edf8', accent: '#205b9c' } },
-  { id: 'forest', label: 'Forest · 森林', dark: { background: '#111d18', surface: '#23352b', accent: '#a2d4a0' }, light: { background: '#f4f8f2', surface: '#e5efdf', accent: '#346330' } },
-  { id: 'amber', label: 'Amber · 琥珀', dark: { background: '#211b11', surface: '#372c1d', accent: '#edc07c' }, light: { background: '#fcf8ed', surface: '#f3ead3', accent: '#795617' } },
-  { id: 'rose', label: 'Rose · 玫瑰', dark: { background: '#21171c', surface: '#382730', accent: '#efa6bc' }, light: { background: '#fcf4f6', surface: '#f4e3e9', accent: '#963855' } },
-  { id: 'plum', label: 'Plum · 紫李', dark: { background: '#1d1729', surface: '#30263f', accent: '#c7aff1' }, light: { background: '#f8f4fc', surface: '#ece3f5', accent: '#71429d' } },
-  { id: 'slate', label: 'Slate · 青岩', dark: { background: '#111e21', surface: '#233339', accent: '#85cdd5' }, light: { background: '#f2f8f8', surface: '#e0eeee', accent: '#23626c' } },
-  { id: 'coffee', label: 'Coffee · 咖啡', dark: { background: '#211914', surface: '#362b23', accent: '#d9b49a' }, light: { background: '#faf6f1', surface: '#eee5db', accent: '#795238' } },
-  { id: 'sand', label: 'Sand · 沙丘', dark: { background: '#1e1d16', surface: '#333126', accent: '#d3cd95' }, light: { background: '#f9f8f0', surface: '#eeecdc', accent: '#626027' } },
+  { id: 'bay', label: t('Bay palette'), dark: { background: '#10171c', surface: '#1d2b33', accent: '#7dd9b4' }, light: { background: '#f3f6f7', surface: '#e5eef1', accent: '#0c7058' } },
+  { id: 'graphite', label: t('Graphite palette'), dark: { background: '#18191b', surface: '#2c2e32', accent: '#c2cad8' }, light: { background: '#f6f6f7', surface: '#e9eaed', accent: '#495565' } },
+  { id: 'ocean', label: t('Ocean palette'), dark: { background: '#0d1929', surface: '#1c3047', accent: '#91c8fa' }, light: { background: '#f3f7fc', surface: '#e3edf8', accent: '#205b9c' } },
+  { id: 'forest', label: t('Forest palette'), dark: { background: '#111d18', surface: '#23352b', accent: '#a2d4a0' }, light: { background: '#f4f8f2', surface: '#e5efdf', accent: '#346330' } },
+  { id: 'amber', label: t('Amber palette'), dark: { background: '#211b11', surface: '#372c1d', accent: '#edc07c' }, light: { background: '#fcf8ed', surface: '#f3ead3', accent: '#795617' } },
+  { id: 'rose', label: t('Rose palette'), dark: { background: '#21171c', surface: '#382730', accent: '#efa6bc' }, light: { background: '#fcf4f6', surface: '#f4e3e9', accent: '#963855' } },
+  { id: 'plum', label: t('Plum palette'), dark: { background: '#1d1729', surface: '#30263f', accent: '#c7aff1' }, light: { background: '#f8f4fc', surface: '#ece3f5', accent: '#71429d' } },
+  { id: 'slate', label: t('Slate palette'), dark: { background: '#111e21', surface: '#233339', accent: '#85cdd5' }, light: { background: '#f2f8f8', surface: '#e0eeee', accent: '#23626c' } },
+  { id: 'coffee', label: t('Coffee palette'), dark: { background: '#211914', surface: '#362b23', accent: '#d9b49a' }, light: { background: '#faf6f1', surface: '#eee5db', accent: '#795238' } },
+  { id: 'sand', label: t('Sand palette'), dark: { background: '#1e1d16', surface: '#333126', accent: '#d3cd95' }, light: { background: '#f9f8f0', surface: '#eeecdc', accent: '#626027' } },
   { id: 'code-modern', label: 'Code Modern', dark: { background: '#1f1f1f', surface: '#202020', accent: '#4daafc' }, light: { background: '#ffffff', surface: '#f8f8f8', accent: '#005fb8' } },
   { id: 'code-2026', label: 'Code 2026', dark: { background: '#121314', surface: '#202122', accent: '#48a0c7' }, light: { background: '#ffffff', surface: '#fafafd', accent: '#0069cc' } },
 ];
@@ -133,7 +134,7 @@ const lightAnsi = {
 };
 export const terminalPresets = (['dark', 'light'] as const).flatMap((mode) => themePalettes.map((palette) => ({
   id: `${palette.id}-${mode}`,
-  label: `${mode === 'dark' ? '深色' : '淺色'} · ${palette.label}`,
+  label: `${mode === 'dark' ? t('Dark') : t('Light')} · ${palette.label}`,
   mode,
   colors: {
     ...(mode === 'dark' ? darkAnsi : lightAnsi),
@@ -168,14 +169,14 @@ export function effectiveTerminalTheme(appearance: Pick<Appearance, 'terminalThe
 }
 export function paletteOptions(id = 'bay') {
   const options = themePalettes.map((palette) => ({ value: palette.id, label: palette.label }));
-  return options.some((option) => option.value === id) ? options : [{ value: id, label: `${id} · 未知色系（暫用 Bay）` }, ...options];
+  return options.some((option) => option.value === id) ? options : [{ value: id, label: t('{{id}} · unknown palette (using Bay)', { id }) }, ...options];
 }
 export function terminalOptions(id: string) {
   const options = [
     ...terminalPresets.map((preset) => ({ value: preset.id, label: preset.label })),
-    { value: 'bay', label: 'Bay · 原有色票' }, { value: 'classic', label: 'Classic · 原有色票' },
+    { value: 'bay', label: t('Bay · original colors') }, { value: 'classic', label: t('Classic · original colors') },
   ];
-  return options.some((option) => option.value === id) ? options : [{ value: id, label: `${id} · 未知色票（暫用 Bay）` }, ...options];
+  return options.some((option) => option.value === id) ? options : [{ value: id, label: t('{{id}} · unknown colors (using Bay)', { id }) }, ...options];
 }
 export function validThemeId(id: string) { return /^[a-z0-9][a-z0-9-]{0,63}$/.test(id); }
 export function appearanceOf(settings: Settings): Appearance {

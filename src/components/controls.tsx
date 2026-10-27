@@ -3,6 +3,7 @@ import type { AriaAttributes, CSSProperties, HTMLAttributes, KeyboardEvent, Reac
 import { createPortal } from 'react-dom';
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import './controls.css';
+import { locale, t } from '../i18n';
 
 export interface SelectOption {
   value: string;
@@ -157,7 +158,7 @@ export function Select({ value, onChange, options, id, disabled = false, classNa
       aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
       disabled={disabled} onKeyDown={key} onClick={() => open ? close() : begin()}>
       {selected >= 0 && options[selected].icon && <span className="select-icon" aria-hidden="true">{options[selected].icon}</span>}
-      <span className="select-value">{selected >= 0 ? options[selected].label : '請選擇'}</span>
+      <span className="select-value">{selected >= 0 ? options[selected].label : t('Select…')}</span>
       <ChevronDown size={15} className={open ? 'select-chevron is-open' : 'select-chevron'} aria-hidden="true" />
     </button>
     {open && <FloatingPanel anchor={trigger} panel={panel} id={listId} role="listbox"
@@ -226,7 +227,7 @@ export function SearchableSelect({ value, onChange, options, disabled = false, q
       <input {...aria} ref={input} role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
         aria-expanded={open} aria-controls={open ? `${id}-list` : undefined}
         aria-activedescendant={open && activeIndex >= 0 ? `${id}-${activeIndex}` : undefined}
-        disabled={disabled} value={open ? query : selected?.label ?? ''} placeholder="搜尋工具名稱…"
+        disabled={disabled} value={open ? query : selected?.label ?? ''} placeholder={t('Search tools…')}
         onFocus={begin} onClick={() => { if (!open) begin(); }} onBlur={close}
         onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }}
         onChange={(event) => { onQueryChange(event.target.value); setActive(0); setOpen(true); }}
@@ -244,7 +245,7 @@ export function SearchableSelect({ value, onChange, options, disabled = false, q
     </div>
     {!open && <p className="settings-help searchable-select-status">{selected?.description}</p>}
     {open && <FloatingPanel anchor={root} panel={panel} className="select-options searchable-select-options">
-      <div role="listbox" id={`${id}-list`} aria-label="選擇要設定的 Agent">
+      <div role="listbox" id={`${id}-list`} aria-label={t('Choose an agent to configure')}>
         {filtered.map((option, index) => <div role="option" id={`${id}-${index}`} key={option.value} data-value={option.value}
           aria-selected={option.value === value} aria-disabled={option.disabled || undefined}
           data-option-index={index} data-active={activeIndex === index || undefined} className="select-option"
@@ -255,7 +256,7 @@ export function SearchableSelect({ value, onChange, options, disabled = false, q
           {value === option.value && <Check size={15} aria-hidden="true" />}
         </div>)}
       </div>
-      {!filtered.length && <p role="status" className="settings-help">沒有符合的 Agent。請試試其他名稱。</p>}
+      {!filtered.length && <p role="status" className="settings-help">{t('No matching agents. Try another name.')}</p>}
     </FloatingPanel>}
   </div>;
 }
@@ -295,7 +296,7 @@ function dateLocale(): string {
       if (supported.length) return supported[0];
     } catch { /* Try the next browser preference, then the app's language. */ }
   }
-  return 'zh-TW';
+  return locale();
 }
 function localeWeekStart(locale: string): number {
   const information = new Intl.Locale(locale) as Intl.Locale & { weekInfo?: { firstDay: number }; getWeekInfo?: () => { firstDay: number } };
@@ -409,13 +410,13 @@ export function DatePicker({ value, onChange, id, disabled = false, resetKey, 'a
           if (event.key === 'Enter') { event.preventDefault(); acceptDraft(); }
           if (event.key === 'ArrowDown' || event.key === 'F4') { event.preventDefault(); show(); }
         }} />
-      <button ref={trigger} type="button" disabled={disabled} aria-label={`${label || '日期'}，開啟日曆`}
+      <button ref={trigger} type="button" disabled={disabled} aria-label={t('{{label}}, open calendar', { label: label || t('Date') })}
         aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? popupId : undefined}
         onClick={() => open ? close() : show()}><CalendarDays size={16} aria-hidden="true" /></button>
     </div>
-    {invalid && <span id={`${inputId}-error`} className="control-error" role="alert">請輸入有效日期（YYYY-MM-DD）。</span>}
+    {invalid && <span id={`${inputId}-error`} className="control-error" role="alert">{t('Enter a valid date (YYYY-MM-DD).')}</span>}
     {open && <FloatingPanel anchor={root} panel={panel} width={304} id={popupId} role="dialog"
-      aria-label={label ? `選擇${label}` : '選擇日期'} aria-modal="true" className="date-popover" onKeyDown={(event) => {
+      aria-label={label ? t('Choose {{label}}', { label }) : t('Choose date')} aria-modal="true" className="date-popover" onKeyDown={(event) => {
         if (event.key !== 'Tab') return;
         event.stopPropagation();
         const focusable = Array.from(panel.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled):not([tabindex="-1"])') ?? []);
@@ -425,9 +426,9 @@ export function DatePicker({ value, onChange, id, disabled = false, resetKey, 'a
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
       }}>
       <div className="calendar-heading">
-        <button type="button" aria-label="上一個月" onClick={() => moveFocus(addMonths(focused, -1))}><ChevronLeft size={17} /></button>
+        <button type="button" aria-label={t('Previous month')} onClick={() => moveFocus(addMonths(focused, -1))}><ChevronLeft size={17} /></button>
         <span id={`${popupId}-month`} aria-live="polite">{monthFormat.format(month)}</span>
-        <button type="button" aria-label="下一個月" onClick={() => moveFocus(addMonths(focused, 1))}><ChevronRight size={17} /></button>
+        <button type="button" aria-label={t('Next month')} onClick={() => moveFocus(addMonths(focused, 1))}><ChevronRight size={17} /></button>
       </div>
       <div className="calendar-grid" role="grid" aria-labelledby={`${popupId}-month`} onKeyDown={calendarKey}>
         <div role="row" className="calendar-week">
@@ -447,8 +448,8 @@ export function DatePicker({ value, onChange, id, disabled = false, resetKey, 'a
         </div>)}
       </div>
       <div className="calendar-footer">
-        <button type="button" onClick={() => { if (value) emit(''); setDraft(null); setInvalid(false); close(true); }}>清除日期</button>
-        <button type="button" onClick={() => choose(new Date())}>今天</button>
+        <button type="button" onClick={() => { if (value) emit(''); setDraft(null); setInvalid(false); close(true); }}>{t('Clear date')}</button>
+        <button type="button" onClick={() => choose(new Date())}>{t('Today')}</button>
       </div>
     </FloatingPanel>}
   </div>;

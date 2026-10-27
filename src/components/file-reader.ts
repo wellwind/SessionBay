@@ -1,5 +1,6 @@
 import { api } from '../api';
 import type { WorkspaceFileInfo } from '../types';
+import { t } from '../i18n';
 
 export const NORMAL_FILE_BYTES = 20 * 1024 * 1024;
 export const FULL_FILE_BYTES = 64 * 1024 * 1024;
@@ -56,16 +57,16 @@ function incompleteTail(bytes: Uint8Array): number {
 export async function readWorkspaceText(project: string, info: WorkspaceFileInfo, signal: AbortSignal,
   progress: (bytes: number) => void, rangeStart?: number): Promise<ReadText> {
   check(signal);
-  if (!Number.isSafeInteger(info.sizeBytes) || info.sizeBytes < 0) throw new Error('檔案大小無法安全表示');
-  if (info.kind !== 'text') throw new Error('此檔案不是支援的 UTF-8 文字');
-  if (typeof info.version !== 'string' || !info.version) throw new Error('檔案版本無效，請重新整理');
+  if (!Number.isSafeInteger(info.sizeBytes) || info.sizeBytes < 0) throw new Error(t('The file size cannot be represented safely'));
+  if (info.kind !== 'text') throw new Error(t('This file is not supported UTF-8 text'));
+  if (typeof info.version !== 'string' || !info.version) throw new Error(t('Invalid file version. Refresh and try again'));
   const partial = rangeStart !== undefined;
   if (!partial && info.sizeBytes > FULL_FILE_BYTES) throw new RangeRequired();
   const key = keyFor(project, info);
   const retained = !partial && cache.get(key);
   if (retained) { cache.delete(key); cache.set(key, retained); return retained.value; }
   let offset = rangeStart ?? 0;
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset > info.sizeBytes) throw new Error('無效閱讀位置');
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > info.sizeBytes) throw new Error(t('Invalid read position'));
   const limit = offset + Math.min(info.sizeBytes - offset, partial ? RANGE_BYTES : FULL_FILE_BYTES);
   let start = offset;
   let end = offset;
@@ -84,7 +85,7 @@ export async function readWorkspaceText(project: string, info: WorkspaceFileInfo
     if (!result.bytes.length || result.bytes.length > length
       || result.bytes.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)
       || result.eof !== (offset + result.bytes.length === info.sizeBytes))
-      throw new Error('檔案讀取不完整，請重新整理');
+      throw new Error(t('The file was not read completely. Refresh and try again'));
     let bytes = Uint8Array.from(result.bytes);
     offset += bytes.length;
     // A previous-range jump can land inside a UTF-8 sequence. Skip at most its
@@ -112,7 +113,7 @@ export async function readWorkspaceText(project: string, info: WorkspaceFileInfo
     for (let index = 0; index < text.length; index++) {
       const code = text.charCodeAt(index);
       if ((code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127)
-        throw new Error('檔案包含非文字控制字元');
+        throw new Error(t('The file contains non-text control characters'));
       if (code === 13 || code === 10) {
         if (code === 13 || !previousCR) {
           if (lines === MAX_LINES) {

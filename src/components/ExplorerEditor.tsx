@@ -5,6 +5,7 @@ import type { editor } from 'monaco-editor';
 import { MONO_FONT } from '../fonts';
 import { fileLanguage, monacoLanguage } from './explorer-model';
 import { previewTheme, previewThemeName } from './monaco-theme';
+import { t } from '../i18n';
 
 export interface ScrollPosition { top: number; left: number; viewState?: editor.ICodeEditorViewState | null }
 let nextModel = 0;
@@ -33,7 +34,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
     widget.setPosition(target); widget.revealPositionInCenter(target);
     revealed.current = true; lastReveal.current = request.nonce;
     setCopyStatus('');
-    setNavigationStatus(`已定位第 ${target.lineNumber} 行、第 ${target.column} 欄${target.lineNumber !== request.line || target.column !== (request.column ?? 1) ? '（超出範圍，已限制）' : ''}。`);
+    setNavigationStatus(t('Moved to line {{line}}, column {{column}}{{clamped}}.', { line: target.lineNumber, column: target.column, clamped: target.lineNumber !== request.line || target.column !== (request.column ?? 1) ? t(' (out of range, clamped)') : '' }));
     latest.current.onRevealHandled?.(request.nonce);
   }, []);
   const find = () => runEditor.current(widget => widget.getAction('actions.find')?.run());
@@ -99,7 +100,7 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
         widget = monaco.editor.create(host, {
           theme: previewThemeName,
           model, readOnly: true, domReadOnly: true, automaticLayout: true,
-          ariaLabel: `程式碼：${path}`, fontFamily: MONO_FONT, fontSize: 13, lineHeight: 20,
+          ariaLabel: t('Code: {{path}}', { path }), fontFamily: MONO_FONT, fontSize: 13, lineHeight: 20,
           minimap: { enabled: false }, scrollBeyondLastLine: false,
           folding: !lightweight, showFoldingControls: 'mouseover',
           renderValidationDecorations: 'off', links: false,
@@ -167,17 +168,17 @@ export function ExplorerEditor({ path, text, sizeBytes, position, onScroll, sear
   useEffect(() => { if (revealRequest) runEditor.current(reveal); }, [revealRequest, reveal]);
   return <div className="explorer-editor">
     <div className="explorer-document-bar"><span title={path}>{path.split('/').join(' › ')}</span>
-      <button aria-label={partial ? '複製目前區段' : '複製檔案全文'} title={partial ? '複製區段' : '複製全文'} onClick={async () => {
-        try { await navigator.clipboard.writeText(text); setCopyStatus(partial ? '已複製目前區段' : '已複製全文'); }
-        catch { setCopyStatus('剪貼簿不可用，請選取文字後複製'); }
+      <button aria-label={partial ? t('Copy current section') : t('Copy whole file')} title={partial ? t('Copy section') : t('Copy all')} onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopyStatus(partial ? t('Copied current section') : t('Copied whole file')); }
+        catch { setCopyStatus(t('Clipboard unavailable; select the text and copy it')); }
       }}><Copy size={14} /></button>
-      <button aria-label="檔案內搜尋" title="檔案內搜尋（Ctrl/Cmd+F）" disabled={status !== 'ready'} onClick={find}><Search size={14} /></button>
+      <button aria-label={t('Find in file')} title={t('Find in file (Ctrl/Cmd+F)')} disabled={status !== 'ready'} onClick={find}><Search size={14} /></button>
     </div>
-    <div className="explorer-monaco-host" aria-label={`唯讀內容：${path}`} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) runEditor.current(widget => widget.focus()); }}>
+    <div className="explorer-monaco-host" aria-label={t('Read-only content: {{path}}', { path })} tabIndex={0} onFocus={event => { if (event.target === event.currentTarget) runEditor.current(widget => widget.focus()); }}>
       <div ref={container} className="explorer-monaco" />
-      {status === 'loading' && <p className="explorer-editor-message" role="status">載入編輯器中…</p>}
-      {status === 'error' && <div className="explorer-editor-message" role="alert">無法載入編輯器。<button onClick={() => setRetry(value => value + 1)}>重試</button></div>}
+      {status === 'loading' && <p className="explorer-editor-message" role="status">{t('Loading editor…')}</p>}
+      {status === 'error' && <div className="explorer-editor-message" role="alert">{t('Could not load the editor.')}<button onClick={() => setRetry(value => value + 1)}>{t('Retry')}</button></div>}
     </div>
-    <div className="explorer-status"><span>唯讀 · {lightweight ? '純文字（效能模式）' : fileLanguage(path)}</span><span>{(lineCount ?? text.split('\n').length).toLocaleString()} 行 · {sizeBytes.toLocaleString()} bytes</span><span role="status">{copyStatus || navigationStatus}</span></div>
+    <div className="explorer-status"><span>{t('Read-only · {{language}}', { language: lightweight ? t('Plain text (performance mode)') : fileLanguage(path) })}</span><span>{t('{{lines}} lines · {{bytes}} bytes', { lines: (lineCount ?? text.split('\n').length).toLocaleString(), bytes: sizeBytes.toLocaleString() })}</span><span role="status">{copyStatus || navigationStatus}</span></div>
   </div>;
 }

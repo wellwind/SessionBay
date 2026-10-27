@@ -4,16 +4,17 @@ import { tabRuntimeSummary } from '../project-runtime';
 import type { Workspace, WorkspaceTab } from '../types';
 import { paneIds } from '../workspace';
 import './project-runtime.css';
+import { t } from '../i18n';
 
 export function ProjectRuntimeTabs({ tabs, panes, activeId, onFocus, id, projectName }: {
   tabs: WorkspaceTab[]; panes: Workspace['panes']; activeId?: string;
   onFocus: (paneId: string) => void; id?: string; projectName: string;
 }) {
   const descriptionId = useId();
-  return <ul className="project-runtime-tabs" id={id} aria-label="已開啟的分頁">
+  return <ul className="project-runtime-tabs" id={id} aria-label={t('Open tabs')}>
     {tabs.map((tab, index) => <li key={tab.id}>
       <button className={activeId === tab.id ? 'active' : ''} aria-current={activeId === tab.id ? 'page' : undefined}
-        aria-label={`開啟工作區 ${projectName} ${tab.name}`} aria-describedby={`${descriptionId}-${index}`}
+        aria-label={t('Open workspace {{project}} {{tab}}', { project: projectName, tab: tab.name })} aria-describedby={`${descriptionId}-${index}`}
         title={tab.name}
         onClick={() => {
           const ids = paneIds(tab.layout).filter(paneId => !!panes[paneId]);
@@ -22,9 +23,9 @@ export function ProjectRuntimeTabs({ tabs, panes, activeId, onFocus, id, project
         }}>
         <span className="project-runtime-name"><strong>{tab.name}</strong><small>{tabRuntimeSummary(tab, panes)}</small></span>
         <RuntimeActivityIndicator id={`${descriptionId}-${index}`} tab={tab} panes={panes} />
-        <span className="project-runtime-pane-count" aria-label={`${paneIds(tab.layout).length} 個面板`}>{paneIds(tab.layout).length}</span>
+        <span className="project-runtime-pane-count" aria-label={t('{{count}} panes', { count: paneIds(tab.layout).length })}>{paneIds(tab.layout).length}</span>
       </button>
     </li>)}
-    {!tabs.length && <li className="sidebar-empty">沒有已開啟的分頁</li>}
+    {!tabs.length && <li className="sidebar-empty">{t('No open tabs')}</li>}
   </ul>;
 }

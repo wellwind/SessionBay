@@ -11,6 +11,7 @@ import { ProjectFileTabs } from './ProjectFileTabs';
 import { emptyFileTabs, fileTabsReducer } from './explorer-model';
 import './explorer.css';
 import './project-files.css';
+import { t } from '../i18n';
 
 export interface WorkspaceFilesProps {
   openRequest?: { path: string; nonce: number; reference?: FileReference };
@@ -120,27 +121,27 @@ function Explorer({ openRequest, onTabsChange, sidebarSide = 'left', projectId, 
   const copyPath = async () => {
     if (!menu) return;
     const target = menu.target;
-    try { await navigator.clipboard.writeText(menu.path); setNotice('已複製專案相對路徑。'); setMenu(undefined); target.focus(); }
-    catch { setNotice('無法存取剪貼簿，請選取下方路徑後複製。'); }
+    try { await navigator.clipboard.writeText(menu.path); setNotice(t('Copied the project-relative path.')); setMenu(undefined); target.focus(); }
+    catch { setNotice(t('Cannot access the clipboard; select the path below and copy it.')); }
   };
   return <>
-    {sidebarHost && createPortal(<aside ref={sidebar} hidden={!visible || !sidebarVisible} className="project-files-sidebar explorer" data-side={sidebarSide} aria-label="專案檔案" onKeyDown={event => { keys(event); if (event.key === 'Escape' && !menu) { event.preventDefault(); event.stopPropagation(); onHideSidebar(); } }}>
-      <div className="project-files-heading"><strong>檔案</strong><span />
-        <button aria-label="重新整理檔案" title="重新讀取目錄與檔案" onClick={refresh}><RefreshCw size={15} /></button>
-        <button aria-label="收合目錄樹" onClick={onHideSidebar}>{sidebarSide === 'right' ? <PanelRightClose size={15} /> : <PanelLeftClose size={15} />}</button></div>
+    {sidebarHost && createPortal(<aside ref={sidebar} hidden={!visible || !sidebarVisible} className="project-files-sidebar explorer" data-side={sidebarSide} aria-label={t('Project files')} onKeyDown={event => { keys(event); if (event.key === 'Escape' && !menu) { event.preventDefault(); event.stopPropagation(); onHideSidebar(); } }}>
+      <div className="project-files-heading"><strong>{t('Files')}</strong><span />
+        <button aria-label={t('Refresh files')} title={t('Reload folders and files')} onClick={refresh}><RefreshCw size={15} /></button>
+        <button aria-label={t('Collapse file tree')} onClick={onHideSidebar}>{sidebarSide === 'right' ? <PanelRightClose size={15} /> : <PanelLeftClose size={15} />}</button></div>
       <div className="explorer-tree-pane"><ExplorerTree key={`${projectId}:${revision}`} projectId={projectId} showHidden selected={state.active} onOpen={open}
         onMenu={(path, target, x, y) => setMenu({ path, target, x: Math.min(x, window.innerWidth - 240), y: Math.min(y, window.innerHeight - 110) })} /></div>
       {notice && <p className="explorer-notice" role="status">{notice}</p>}
-      {menu && <div ref={menuRef} role="menu" aria-label="檔案操作" className="explorer-context" style={{ left: Math.max(0, menu.x), top: Math.max(0, menu.y) }} onKeyDown={event => {
+      {menu && <div ref={menuRef} role="menu" aria-label={t('File actions')} className="explorer-context" style={{ left: Math.max(0, menu.x), top: Math.max(0, menu.y) }} onKeyDown={event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); menu.target.focus(); setMenu(undefined); }
-      }}><button role="menuitem" onClick={() => void copyPath()}><Copy size={14} />複製相對路徑</button><input readOnly aria-label="專案相對路徑" value={menu.path} onFocus={event => event.currentTarget.select()} /></div>}
+      }}><button role="menuitem" onClick={() => void copyPath()}><Copy size={14} />{t('Copy relative path')}</button><input readOnly aria-label={t('Project-relative path')} value={menu.path} onFocus={event => event.currentTarget.select()} /></div>}
     </aside>, sidebarHost)}
     {tabsHost && createPortal(<div ref={tabRoot} className="project-file-tabs-group" hidden={!visible} onKeyDown={keys}>
       <ProjectFileTabs state={state} active={active} dispatch={action => { if (action.type === 'open') open(action.path, action.pinned); else dispatch(action); }} close={closeFile} />
     </div>, tabsHost)}
-    {documentHost && createPortal(<section ref={documentRoot} hidden={!visible || !active} className="project-files-document explorer" data-file-explorer={visible && active ? '' : undefined} aria-label="工作區檔案預覽" onKeyDown={keys}>
+    {documentHost && createPortal(<section ref={documentRoot} hidden={!visible || !active} className="project-files-document explorer" data-file-explorer={visible && active ? '' : undefined} aria-label={t('Workspace file preview')} onKeyDown={keys}>
       {state.notice && <p role="status">{state.notice}</p>}
-      {!state.active ? <div className="explorer-empty"><FileIcon path="readme.txt" /><strong>開啟檔案閱讀</strong></div>
+      {!state.active ? <div className="explorer-empty"><FileIcon path="readme.txt" /><strong>{t('Open a file to read it')}</strong></div>
         : visible && active && <FileDocument key={`${state.active}:${revision}`} projectId={projectId} path={state.active} searchRequest={searchRequest}
           reference={reference?.path === state.active && reference.nonce !== handledReference.current ? reference
             : openRequest?.path === state.active && openRequest.reference?.nonce !== handledReference.current ? openRequest.reference : undefined}

@@ -6,6 +6,7 @@ import { gitApi } from './git-api';
 import type { CommitPreview, RepoInfo, RepoStatus } from './types';
 import { operationLabel, pathKey } from './types';
 import { ChangeBadge } from './GitChanges';
+import { t } from '../i18n';
 
 const letter = { A: 'added', M: 'modified', D: 'deleted', R: 'renamed', C: 'copied', T: 'typeChanged' } as const;
 
@@ -33,38 +34,38 @@ export function CommitBox({ projectId, repo, status, onDone }: {
     try {
       const result = await gitApi.commit(projectId, repo.id, message, preview.token);
       setPreview(null); setMessage('');
-      onDone(`已建立 commit ${result.oid.slice(0, 7)}：${result.summary}`);
+      onDone(t('Created commit {{commit}}: {{summary}}', { commit: result.oid.slice(0, 7), summary: result.summary }));
     } catch (failure) {
       setError(errorMessage(failure));
       onDone('');
     } finally { setRunning(false); }
   };
-  const disabledReason = conflicts ? '仍有未解決的衝突' : !staged && !merging ? '沒有已暫存的變更' : !message.trim() ? '請輸入 commit 訊息' : '';
+  const disabledReason = conflicts ? t('There are still unresolved conflicts') : !staged && !merging ? t('No staged changes') : !message.trim() ? t('Enter a commit message') : '';
   return <div className="git-form">
-    <label className="git-field">Commit 訊息
-      <textarea rows={3} value={message} placeholder="第一行是摘要；空一行後寫說明" onChange={event => setMessage(event.target.value)}
+    <label className="git-field">{t('Commit message')}
+      <textarea rows={3} value={message} placeholder={t('The first line is the summary; add details after a blank line')} onChange={event => setMessage(event.target.value)}
         onKeyDown={event => {
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing && !disabledReason) { event.preventDefault(); void open(); }
         }} />
     </label>
     <div className="git-row">
-      <span className="git-muted">{staged} 個已暫存檔案{merging ? '（合併中）' : ''}</span>
-      <button className="primary" disabled={!!disabledReason || loading} title={disabledReason || '檢視將提交的內容（Ctrl/⌘+Enter）'} onClick={() => void open()}>
-        {loading ? '讀取中…' : '檢視並 Commit'}</button>
+      <span className="git-muted">{t('{{count}} staged files', { count: staged })}{merging ? t(' (merging)') : ''}</span>
+      <button className="primary" disabled={!!disabledReason || loading} title={disabledReason || t('Review what will be committed (Ctrl/⌘+Enter)')} onClick={() => void open()}>
+        {loading ? t('Loading…') : t('Review and commit')}</button>
     </div>
     {error && !preview && <p className="git-error" role="alert">{error}</p>}
-    {preview && <Dialog title="確認建立 commit" wide onClose={() => { if (!running) setPreview(null); }}>
+    {preview && <Dialog title={t('Confirm commit')} wide onClose={() => { if (!running) setPreview(null); }}>
       <dl className="git-facts">
         <dt>Repository</dt><dd title={repo.root}>{repo.name} <span className="git-muted">{repo.root}</span></dd>
-        <dt>Branch</dt><dd>{preview.branch ?? <span className="git-warning">detached HEAD（commit 不在任何 branch 上）</span>}
-          {!preview.head && <span className="git-muted">（第一個 commit）</span>}</dd>
-        {preview.operation && <><dt>狀態</dt><dd className="git-warning">{operationLabel[preview.operation]}</dd></>}
-        {preview.author && <><dt>作者</dt><dd>{preview.author}</dd></>}
-        <dt>訊息</dt><dd><pre className="git-message">{message}</pre></dd>
-        <dt>Hooks</dt><dd>{preview.hooks.length ? `會執行：${preview.hooks.join('、')}` : '沒有偵測到 commit hooks'}</dd>
-        <dt>簽章</dt><dd>{preview.signing ? `依 Git 設定簽章（${preview.signing}）` : '未設定 commit 簽章'}</dd>
+        <dt>Branch</dt><dd>{preview.branch ?? <span className="git-warning">{t('detached HEAD (the commit is not on any branch)')}</span>}
+          {!preview.head && <span className="git-muted">{t(' (first commit)')}</span>}</dd>
+        {preview.operation && <><dt>{t('State')}</dt><dd className="git-warning">{operationLabel[preview.operation]}</dd></>}
+        {preview.author && <><dt>{t('Author')}</dt><dd>{preview.author}</dd></>}
+        <dt>{t('Message')}</dt><dd><pre className="git-message">{message}</pre></dd>
+        <dt>Hooks</dt><dd>{preview.hooks.length ? t('Will run: {{hooks}}', { hooks: preview.hooks.join(t(', ')) }) : t('No commit hooks detected')}</dd>
+        <dt>{t('Signing')}</dt><dd>{preview.signing ? t('Signed per your Git config ({{method}})', { method: preview.signing }) : t('Commit signing is not configured')}</dd>
       </dl>
-      <p className="git-muted">只提交 index 中的內容（{preview.files.length}{preview.truncated ? '+' : ''} 個檔案）；未暫存的變更不會加入。</p>
+      <p className="git-muted">{t('Only the index is committed ({{count}} files); unstaged changes are not included.', { count: `${preview.files.length}${preview.truncated ? '+' : ''}` })}</p>
       <ul className="git-file-list git-preview-files">{preview.files.map(file => <li key={pathKey(file.path)} className="git-change">
         <span className="git-change-open"><ChangeBadge change={letter[file.status as keyof typeof letter] ?? 'modified'} />
           <span className="git-change-name">{file.path.path}</span>{file.oldPath && <span className="git-change-dir">← {file.oldPath.path}</span>}</span>
@@ -72,11 +73,11 @@ export function CommitBox({ projectId, repo, status, onDone }: {
       {error && <p className="git-error" role="alert">{error}</p>}
       <div className="dialog-actions">
         {running ? <>
-          <span className="git-muted"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 正在執行 commit 與 hooks…</span>
-          <button onClick={() => void gitApi.cancelOperation(projectId, repo.id)}>停止</button>
+          <span className="git-muted"><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Running the commit and hooks…')}</span>
+          <button onClick={() => void gitApi.cancelOperation(projectId, repo.id)}>{t('Stop')}</button>
         </> : <>
-          <button onClick={() => setPreview(null)}>取消</button>
-          <button data-dialog-confirm className="primary" onClick={() => void commit()}>建立 commit</button>
+          <button onClick={() => setPreview(null)}>{t('Cancel')}</button>
+          <button data-dialog-confirm className="primary" onClick={() => void commit()}>{t('Create commit')}</button>
         </>}
       </div>
     </Dialog>}

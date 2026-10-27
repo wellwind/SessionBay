@@ -5,6 +5,7 @@ import { tabRuntimeSummary } from '../project-runtime';
 import { paneIds } from '../workspace';
 import type { Workspace, WorkspaceTab } from '../types';
 import './project-runtime.css';
+import { t } from '../i18n';
 const Context = createContext<RuntimeActivityStore | null>(null);
 export const useRuntimeActivity = () => useContext(Context);
 export function RuntimeActivityProvider({ children }: { children: ReactNode }) {
@@ -42,7 +43,7 @@ export function RuntimeActivityIndicator({ tab, panes, id }: { tab: WorkspaceTab
   const disconnected = states.includes('disconnected');
   const ended = states.length > 0 && states.every(state => state === 'exited');
   const recent = bits[0] === '1', unread = bits[1] === '1', connecting = bits[2] === '1';
-  const label = [tabRuntimeSummary(tab, panes), recent ? '有新輸出' : '', unread ? '未讀輸出' : '', connecting ? '正在連線' : '', observation ? `Agent 最近回報：${observation}` : ''].filter(Boolean).join(' · ');
+  const label = [tabRuntimeSummary(tab, panes), recent ? t('New output') : '', unread ? t('Unread output') : '', connecting ? t('Connecting') : '', observation ? t('Agent last reported: {{observation}}', { observation }) : ''].filter(Boolean).join(' · ');
   const Icon = attention ? OctagonAlert : ended ? CheckCircle2 : connecting ? LoaderCircle : disconnected ? Unplug : permission ? Hand : input ? MessageCircle : busy ? LoaderCircle : idle ? CheckCircle2 : observation ? Activity : null;
   // Keep lifecycle descriptions available without inventing an unknown activity icon.
   if (!Icon && !unread) return <span id={id} className="organization-sr-only">{label}</span>;

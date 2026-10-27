@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /** Mirrors `src-tauri/src/git`; paths keep raw bytes when not UTF-8. */
 export interface RepoPath { path: string; raw?: string }
 
@@ -30,17 +31,17 @@ export interface RepoStatus {
 
 export const pathKey = (path: RepoPath) => path.raw ? `raw:${path.raw}` : path.path;
 export const operationLabel: Record<Operation, string> = {
-  merge: '合併進行中', rebase: 'Rebase 進行中', am: '套用 patch 進行中', cherryPick: 'Cherry-pick 進行中',
-  revert: 'Revert 進行中', bisect: 'Bisect 進行中',
+  merge: t('Merge in progress'), rebase: t('Rebase in progress'), am: t('Applying patches in progress'), cherryPick: t('Cherry-pick in progress'),
+  revert: t('Revert in progress'), bisect: t('Bisect in progress'),
 };
 export const changeLabel: Record<Change, { letter: string; text: string }> = {
-  modified: { letter: 'M', text: '已修改' }, typeChanged: { letter: 'T', text: '類型變更' },
-  added: { letter: 'A', text: '新增' }, deleted: { letter: 'D', text: '刪除' },
-  renamed: { letter: 'R', text: '重新命名' }, copied: { letter: 'C', text: '複製' },
+  modified: { letter: 'M', text: t('Modified') }, typeChanged: { letter: 'T', text: t('Type changed') },
+  added: { letter: 'A', text: t('Added') }, deleted: { letter: 'D', text: t('Deleted') },
+  renamed: { letter: 'R', text: t('Renamed') }, copied: { letter: 'C', text: t('Copied') },
 };
 export const conflictLabel: Record<ConflictKind, string> = {
-  bothDeleted: '雙方刪除', addedByUs: '我方新增', deletedByThem: '對方刪除', addedByThem: '對方新增',
-  deletedByUs: '我方刪除', bothAdded: '雙方新增', bothModified: '雙方修改',
+  bothDeleted: t('Deleted by both'), addedByUs: t('Added by us'), deletedByThem: t('Deleted by them'), addedByThem: t('Added by them'),
+  deletedByUs: t('Deleted by us'), bothAdded: t('Added by both'), bothModified: t('Modified by both'),
 };
 export const branchLabel = (branch: BranchState) =>
   branch.head ?? (branch.oid ? `detached @ ${branch.oid.slice(0, 7)}` : 'detached HEAD');
@@ -67,11 +68,11 @@ export interface ChangedFile { status: string; path: RepoPath; oldPath: RepoPath
 
 export const sourceLabel = (source: DiffSource) => {
   switch (source.kind) {
-    case 'unstaged': return '工作目錄 ↔ index（未暫存）';
-    case 'staged': return 'index ↔ HEAD（已暫存）';
-    case 'workingTree': return '工作目錄 ↔ HEAD（全部未提交）';
+    case 'unstaged': return t('Working tree ↔ index (unstaged)');
+    case 'staged': return t('index ↔ HEAD (staged)');
+    case 'workingTree': return t('Working tree ↔ HEAD (all uncommitted)');
     case 'commit': return `${source.commit.slice(0, 7)} ↔ ${source.parent ? `parent ${source.parent}` : 'parent'}`;
-    case 'compare': return `${source.base} ${source.mergeBase ? '...' : '..'} ${source.head}${source.mergeBase ? '（自 merge-base）' : '（直接比較）'}`;
+    case 'compare': return `${source.base} ${source.mergeBase ? '...' : '..'} ${source.head}${source.mergeBase ? t(' (from merge-base)') : t(' (direct)')}`;
   }
 };
 export const sourceKey = (source: DiffSource) => JSON.stringify(source);
@@ -99,7 +100,7 @@ export interface PushPlan {
 }
 export interface PushResult { output: string; confirmed: boolean; pushed: string }
 export const pullStrategyLabel: Record<PullStrategy, string> = {
-  merge: 'Merge（建立合併 commit）', rebase: 'Rebase（把本機 commit 接到遠端之後）', fastForwardOnly: '只允許 fast-forward',
+  merge: t('Merge (create a merge commit)'), rebase: t('Rebase (replay local commits on top of the remote)'), fastForwardOnly: t('Fast-forward only'),
 };
 
 export type RefKind = 'head' | 'branch' | 'remote' | 'tag' | 'other';
@@ -129,16 +130,16 @@ export interface Outcome { message: string; recovery: RecoveryPoint | null; conf
 export interface RemoteTag { name: string; oid: string }
 export type ResetMode = 'soft' | 'mixed' | 'hard';
 export const resetModeLabel: Record<ResetMode, { title: string; detail: string }> = {
-  soft: { title: 'Soft', detail: '只移動 branch；index 與工作目錄保持不變，被移除的 commit 內容會留在已暫存區。' },
-  mixed: { title: 'Mixed', detail: '移動 branch 並重設 index；工作目錄檔案保持不變，變更變成未暫存。' },
-  hard: { title: 'Hard', detail: '移動 branch，並讓 index 與 tracked 工作檔完全回到目標；未提交的 tracked 變更會被覆蓋（untracked 檔案不受影響）。' },
+  soft: { title: 'Soft', detail: t('Moves only the branch. The index and working tree stay the same, and the removed commits stay staged.') },
+  mixed: { title: 'Mixed', detail: t('Moves the branch and resets the index. Working tree files stay the same, and the changes become unstaged.') },
+  hard: { title: 'Hard', detail: t('Moves the branch and resets the index and tracked files to the target. Uncommitted tracked changes are overwritten (untracked files are not affected).') },
 };
 export function coverageText(coverage: Coverage): string[] {
   const items: string[] = [];
-  if (coverage.head) items.push('HEAD 與目前 branch 位置');
-  if (coverage.index) items.push('index（已暫存內容）');
-  if (coverage.trackedFiles) items.push('tracked 工作檔的未提交變更');
-  if (coverage.untrackedFiles) items.push(`${coverage.untrackedFiles} 個 untracked 檔案的位元組備份`);
+  if (coverage.head) items.push(t('HEAD and the current branch position'));
+  if (coverage.index) items.push(t('index (staged content)'));
+  if (coverage.trackedFiles) items.push(t('uncommitted changes to tracked files'));
+  if (coverage.untrackedFiles) items.push(t('byte backups of {{count}} untracked files', { count: coverage.untrackedFiles }));
   for (const ref of coverage.refs) items.push(`ref ${ref}`);
   return items;
 }
@@ -168,7 +169,7 @@ export interface PullComment { id: string; author: string; body: string; created
 export interface LinePosition { path: string; oldPath: string | null; side: 'new' | 'old'; line: number }
 export type ReviewEvent = 'approve' | 'requestChanges' | 'comment' | 'unapprove';
 export const ciLabel: Record<CiState, string> = {
-  pending: '等待中', running: '執行中', success: '通過', failure: '失敗', cancelled: '已取消', unknown: '狀態未知',
+  pending: t('Pending'), running: t('Running'), success: t('Passed'), failure: t('Failed'), cancelled: t('Cancelled'), unknown: t('Status unknown'),
 };
 
 /** Managed view of a worktree: adds main/dirty to the refs listing. */

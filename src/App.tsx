@@ -118,6 +118,7 @@ import { projectColor, projectColorSlots, projectInitials } from './project-iden
 import { WorkspaceFiles } from './components/WorkspaceFiles';
 import './project-files-workspace.css';
 import { markWelcomeSeen, shouldShowWelcome } from './welcome';
+import { t } from './i18n';
 interface Launcher {
   resumeId?: string;
   kind: 'shell' | AgentKind;
@@ -226,7 +227,7 @@ export default function App() {
     sidebarRef.current = next;
     setSidebar(next);
     try { saveSidebarPreferences(next); }
-    catch { setToast('側欄偏好無法儲存；本次變更仍有效，重新開啟後可能還原。'); }
+    catch { setToast(t('Sidebar preferences could not be saved; the change applies for now but may revert after reopening.')); }
   };
   useEffect(() => {
     if (!boot) return;
@@ -237,7 +238,7 @@ export default function App() {
     sidebarRef.current = next;
     setSidebar(next);
     try { saveSidebarPreferences(next); }
-    catch { setToast('專案順序無法儲存；重新開啟後可能還原。'); }
+    catch { setToast(t('The project order could not be saved and may revert after reopening.')); }
   }, [boot, projects]);
   const [projectSearch, setProjectSearch] = useState('');
   const [refreshToken, setRefreshToken] = useState(0);
@@ -360,7 +361,7 @@ export default function App() {
     : current;
   const projectSlots = useMemo(() => projectColorSlots(visibleProjects.map((p) => p.id)), [visibleProjects]);
   const projectBadge = useCallback((projectId: string | null) => {
-    const name = projectId === null ? '臨時 Terminal' : visibleProjects.find((p) => p.id === projectId)?.name ?? '僅工作區專案';
+    const name = projectId === null ? t('Temporary terminal') : visibleProjects.find((p) => p.id === projectId)?.name ?? t('Workspace-only project');
     return { initials: projectInitials(name), name, color: projectColor(projectId, projectSlots) };
   }, [visibleProjects, projectSlots]);
   const manuallyClosedActivities = useRef(new Set<string>());
@@ -588,7 +589,7 @@ export default function App() {
       const welcome = shouldShowWelcome(data.settings.onboardingComplete);
       setWelcomeOpen(welcome);
       setSettingsOpen(welcome);
-      if (data.warnings.length) notify(data.warnings.join('；'));
+      if (data.warnings.length) notify(data.warnings.join(t('; ')));
       if (data.settings.onboardingComplete && !data.index.running)
         void api.scan(false).then(setIndex).catch(notify);
     } catch (error) {
@@ -669,7 +670,7 @@ export default function App() {
     }
   }, []);
   const reloadWindow = useCallback(async () => {
-    if (closingApp.current) throw new Error('視窗正在儲存或關閉，請稍後再試。');
+    if (closingApp.current) throw new Error(t('The window is saving or closing; try again shortly.'));
     cancelHookSkip();
     closingApp.current = true;
     try {
@@ -678,7 +679,7 @@ export default function App() {
     } catch (error) {
       closingApp.current = false;
       setWorkspace((current) => ({ ...current }));
-      throw new Error(`重新載入已取消，工作區儲存失敗：${errorMessage(error)}`);
+      throw new Error(t('Reload cancelled because the workspace could not be saved: {{error}}', { error: errorMessage(error) }));
     }
   }, [persistCurrentWorkspace, cancelHookSkip]);
   useEffect(() => {
@@ -814,7 +815,7 @@ export default function App() {
     resumeId?: string,
   ) => {
     if (Object.keys(stateRef.current.workspace.panes).length >= 128) {
-      notify('已達 128 個面板上限。請先關閉不需要的面板。');
+      notify(t('You have reached the limit of 128 panes. Close panes you no longer need first.'));
       return false;
     }
     const id = uid();
@@ -826,7 +827,7 @@ export default function App() {
         session?.title ||
         (kind === 'shell'
           ? settings?.profiles.find((p) => p.id === profileId)?.name || 'Terminal'
-          : `${agentName(kind)} 工作`),
+          : t('{{agent}} work', { agent: agentName(kind) })),
       projectId,
       cwd,
       homeDirectory: projectId === null && kind === 'shell' && cwd === '',
@@ -928,9 +929,9 @@ export default function App() {
             // target, stealing focus, or stopping a successfully started Agent.
             const records = (await api.runtimes()).filter((record) => record.id === info.id && record.paneId === info.paneId);
             if (!mounted.current || closingApp.current) return;
-            if (!records.length) throw new Error('背景程序清單尚未包含剛啟動的 Agent');
+            if (!records.length) throw new Error(t('The background process list does not include the agent that was just started yet'));
             setWorkspace((w) => reconcileRuntimes(w, records));
-            notify('Agent 已在背景啟動並保留於原專案，可從工作分頁開啟。');
+            notify(t('The agent started in the background and stays in its project; open it from the work tabs.'));
             return;
           }
           insert({ ...pane, startToken: undefined, id: info.paneId, runtimeId: info.id, cwd: info.cwd,
@@ -942,7 +943,7 @@ export default function App() {
             const message = errorMessage(error);
             const notStarted = '[SESSIONBAY_LAUNCH_NOT_STARTED] ';
             if (!confirmedLaunch && message.startsWith(notStarted)) notify(message.slice(notStarted.length));
-            else notify(`${confirmedLaunch ? 'Agent 已在背景啟動，但無法恢復工作分頁' : '無法確認 Agent 啟動結果'}：${message}。請重新整理工作台或重開 Session Bay 查看背景程序，避免重複啟動。`);
+            else notify(t('{{status}}: {{error}}. Refresh the workbench or reopen Session Bay to check background processes before starting it again.', { status: confirmedLaunch ? t('The agent started in the background, but its work tab could not be restored') : t('Could not confirm whether the agent started'), error: message }));
           }
         } finally {
           // A confirmed intent remains cancellable while backend admission is pending.
@@ -981,7 +982,7 @@ export default function App() {
       return;
     }
     if (!project) {
-      notify('找不到 Session 所屬專案，請先重新整理索引。');
+      notify(t('Cannot find the project of this session; refresh the index first.'));
       return;
     }
     if (needsLocation) {
@@ -1006,7 +1007,7 @@ export default function App() {
     if (!settings) return;
     if (kind !== 'shell' && !isAgentEnabled(settings, kind)) {
       const fallback = preferredEnabledAgent(settings);
-      if (!fallback) { notify('所有 Agent 都已停用，請先在設定 → 來源與工具啟用 Agent。'); return; }
+      if (!fallback) { notify(t('All agents are disabled. Enable one in Settings → Sources and tools first.')); return; }
       kind = fallback;
     }
     if (!current) {
@@ -1049,7 +1050,7 @@ export default function App() {
             const current = stateRef.current.workspace.panes[id];
             const records = managed.filter((record) => record.paneId === id);
             if (current.runtimeId && records.length && !records.some((record) => record.id === current.runtimeId))
-              throw new Error('此面板的程序已變更，請重新連線後再關閉。');
+              throw new Error(t('The process of this pane changed; reconnect before closing it.'));
           }
           const owned = managed.filter((record) => {
             if (!eligibleIds.has(record.paneId)) return false;
@@ -1060,11 +1061,11 @@ export default function App() {
               (captured.state === 'placeholder' && (captured.startToken ?? 0) > 0);
             if (!launching) {
               if (['running', 'disconnected'].includes(captured.state))
-                throw new Error('無法確認此面板的程序，請重新連線後再關閉。');
+                throw new Error(t('Cannot confirm the process of this pane; reconnect before closing it.'));
               return false; // Never adopt an unrelated broker record.
             }
             if (managed.filter((item) => item.paneId === record.paneId).length !== 1 ||
-              record.kind !== captured.kind) throw new Error('無法確認此面板的程序，請重新連線後再關閉。');
+              record.kind !== captured.kind) throw new Error(t('Cannot confirm the process of this pane; reconnect before closing it.'));
             return true;
           });
           const targets = new Set(owned
@@ -1090,8 +1091,8 @@ export default function App() {
     };
     if (live.length)
       setConfirmation({
-        title: `關閉 ${panes.length} 個面板？`,
-        text: `將結束受管程序：${live.map((p) => p.title).join('、')}，並移除面板。其他分頁的程序不受影響。`,
+        title: t('Close {{count}} panes?', { count: panes.length }),
+        text: t('This ends the managed processes {{names}} and removes the panes. Processes in other tabs are not affected.', { names: live.map((p) => p.title).join(t(', ')) }),
         action, onCancel: onFinish,
       });
     else void action().catch(notify);
@@ -1157,19 +1158,19 @@ export default function App() {
     }
   };
   const commands: Command[] = [
-    { id: 'toggle-workspace-overview', label: workspaceOverview ? '離開全部工作區總覽' : '開啟全部工作區總覽', disabled: !boot,
+    { id: 'toggle-workspace-overview', label: workspaceOverview ? t('Leave the all-workspaces overview') : t('Open the all-workspaces overview'), disabled: !boot,
       run: () => workspaceOverview ? closeWorkspaceOverview() : openWorkspaceOverview() },
-    { id: 'project-quick-open', label: '快速開啟專案分頁、Sessions 與檔案', disabled: !current,
+    { id: 'project-quick-open', label: t('Quick open project tabs, sessions and files'), disabled: !current,
       run: () => setQuickOpen(true) },
-    { id: 'toggle-project-sessions', label: '顯示／隱藏專案 Sessions', disabled: !current,
+    { id: 'toggle-project-sessions', label: t('Show / hide project sessions'), disabled: !current,
       run: () => setActiveActivity(activeActivity === 'sessions' ? null : 'sessions') },
-    { id: 'toggle-project-files', label: '顯示／隱藏專案 Files', disabled: !filesAvailable,
+    { id: 'toggle-project-files', label: t('Show / hide project files'), disabled: !filesAvailable,
       run: () => setActiveActivity(activeActivity === 'files' ? null : 'files') },
-    { id: 'toggle-project-git', label: '顯示／隱藏專案 Git', disabled: !filesAvailable,
+    { id: 'toggle-project-git', label: t('Show / hide project Git'), disabled: !filesAvailable,
       run: () => setActiveActivity(activeActivity === 'git' ? null : 'git') },
     {
       id: 'command-palette',
-      label: '開啟命令面板',
+      label: t('Open command palette'),
       disabled: settingsOpen || quickThemeOpen || themeSaving,
       run: () => {
         paletteOpener.current = document.activeElement as HTMLElement | null;
@@ -1179,25 +1180,25 @@ export default function App() {
     },
     {
       id: 'new-terminal',
-      label: '開啟 Terminal',
+      label: t('Open terminal'),
       run: () => openLauncher('shell'),
       disabled: !settings,
     },
     {
       id: 'temporary-terminal',
-      label: '開啟臨時 Terminal（家目錄）',
+      label: t('Open temporary terminal (home folder)'),
       run: () => openTemporaryTerminal(),
       disabled: !settings,
     },
     {
       id: 'new-agent',
-      label: '開始 Agent 工作',
+      label: t('Start agent work'),
       run: () => openLauncher(settings?.defaultAgent ?? 'codex'),
       disabled: !settings,
     },
     {
       id: 'search-sessions',
-      label: current ? '搜尋此目錄的工作階段' : '搜尋所有工作階段',
+      label: current ? t('Search sessions in this folder') : t('Search all sessions'),
       run: () => {
         if (!current) {
           setSelectedId(undefined);
@@ -1211,7 +1212,7 @@ export default function App() {
     },
     {
       id: 'split-right',
-      label: '左右分割面板',
+      label: t('Split pane left and right'),
       run: () => {
         if (focusPane) openLauncher('shell', { paneId: focusPane.id, axis: 'horizontal' });
       },
@@ -1219,7 +1220,7 @@ export default function App() {
     },
     {
       id: 'split-down',
-      label: '上下分割面板',
+      label: t('Split pane top and bottom'),
       run: () => {
         if (focusPane) openLauncher('shell', { paneId: focusPane.id, axis: 'vertical' });
       },
@@ -1227,7 +1228,7 @@ export default function App() {
     },
     {
       id: 'next-pane',
-      label: '切換至下一個面板',
+      label: t('Switch to the next pane'),
       run: () => {
         if (activeTab) {
           const ids = paneIds(activeTab.layout);
@@ -1238,7 +1239,7 @@ export default function App() {
     },
     {
       id: 'maximize-pane',
-      label: maximizedId ? '還原面板大小' : '暫時最大化面板',
+      label: maximizedId ? t('Restore pane size') : t('Temporarily maximize pane'),
       run: () => {
         if (focusPane) setMaximizedId(maximizedId === focusPane.id ? null : focusPane.id);
       },
@@ -1246,23 +1247,23 @@ export default function App() {
     },
     {
       id: 'close-pane',
-      label: '關閉目前面板',
+      label: t('Close current pane'),
       run: () => {
         if (focusPane) removePanes([focusPane.id]);
       },
       disabled: !focusPane,
     },
-    { id: 'reload-window', label: '重新載入視窗（Reload Window）',
+    { id: 'reload-window', label: t('Reload window'),
       run: () => { void reloadWindow().catch(notify); } },
     ...(['ui', 'terminal'] as const).map(target => ({
       id: `theme-${target}`,
-      label: target === 'ui' ? '切換介面主題' : '切換 Terminal theme',
+      label: target === 'ui' ? t('Switch interface theme') : t('Switch terminal theme'),
       disabled: !settings || settingsOpen || quickThemeOpen || themeSaving,
       run: () => { if (!palette) paletteOpener.current = document.activeElement as HTMLElement | null; paletteGeneration.current++; setThemeSaveError(''); setPalette(true); setPaletteTheme(target); },
     })),
-    { id: 'toggle-focus-mode', label: focusMode ? '退出專注模式（Zen Mode）' : '進入專注模式（Zen Mode）',
+    { id: 'toggle-focus-mode', label: focusMode ? t('Exit focus mode (Zen Mode)') : t('Enter focus mode (Zen Mode)'),
       disabled: !focusMode && !focusAvailable, run: toggleFocusMode },
-    { id: 'toggle-sidebar', label: '顯示／隱藏側欄', run: () => {
+    { id: 'toggle-sidebar', label: t('Show / hide sidebar'), run: () => {
       if (focusMode) {
         setFocusControlsOpen(value => !value);
         if (focusControlsOpen) restoreWorkspaceFocus();
@@ -1339,7 +1340,7 @@ export default function App() {
     setThemeSaveError('');
     try { await persistAppearance(patch); }
     catch (error) {
-      const message = `外觀變更未能保存；保留上次儲存設定：${errorMessage(error)}`;
+      const message = t('The appearance change could not be saved; keeping the last saved settings: {{error}}', { error: errorMessage(error) });
       setThemeSaveError(message);
       if (!quickThemeOpenRef.current) notify(message);
     } finally {
@@ -1360,11 +1361,11 @@ export default function App() {
         if (saved) closePalette();
         else {
           setCommandThemePreview(null);
-          setThemeSaveError('主題尚未儲存，已還原目前儲存的外觀；請重試。');
+          setThemeSaveError(t('The theme was not saved and the saved appearance was restored; please try again.'));
         }
       }
     } catch (error) {
-      const message = `主題未能儲存，已還原目前儲存的外觀；可重試：${errorMessage(error)}`;
+      const message = t('The theme could not be saved and the saved appearance was restored; you can try again: {{error}}', { error: errorMessage(error) });
       if (generation === paletteGeneration.current) {
         setCommandThemePreview(null);
         setThemeSaveError(message);
@@ -1411,7 +1412,7 @@ export default function App() {
   const curateSession = (session: Session) => {
     const project = projects.find((p) => p.id === session.projectId);
     if (project) void saveMembership(project, true);
-    else notify('找不到工作目錄，請先重新整理索引。');
+    else notify(t('Cannot find the working directory; refresh the index first.'));
   };
   const projectOrder = reconcileProjectOrder(sidebar.projectOrder, projects);
   const orderIndex = new Map(projectOrder.map((id, index) => [id, index]));
@@ -1441,16 +1442,16 @@ export default function App() {
     setView(projectViews.current[project.id] ?? (workspace.tabs.some(tab => tab.projectId === project.id) ? 'workspace' : 'history'));
     setMaximizedId(null);
   };
-  const navigationName = navigation === 'projects' ? '專案' : '所有目錄';
-  const pageTitle = workspaceOverview ? '全部工作區' : temporaryWorkspace ? '臨時 Terminal'
-    : current?.name ?? (allSessionsSearch ? '搜尋所有工作階段' : navigationName);
+  const navigationName = navigation === 'projects' ? t('Projects') : t('All directories');
+  const pageTitle = workspaceOverview ? t('All workspaces') : temporaryWorkspace ? t('Temporary terminal')
+    : current?.name ?? (allSessionsSearch ? t('Search all sessions') : navigationName);
   const projectCount = projects.filter((project) => project.curated).length;
   const directoryCount = projects.filter((project) => project.sessionCount > 0).length;
   const activeCount = Object.values(workspace.panes).filter(
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
   const activities: ActivityContribution[] = [
-    { id: 'sessions', label: '歷史 Sessions', icon: History, shortcut: conflicts.has('toggle-project-sessions') ? '' : effectiveShortcuts['toggle-project-sessions'],
+    { id: 'sessions', label: t('History sessions'), icon: History, shortcut: conflicts.has('toggle-project-sessions') ? '' : effectiveShortcuts['toggle-project-sessions'],
       renderSidebar: () => <div className="activity-sessions-panel" ref={setHistorySidebarHost} /> },
     { id: 'files', label: 'Files', icon: Files, shortcut: conflicts.has('toggle-project-files') ? '' : effectiveShortcuts['toggle-project-files'], buttonRef: filesToggle,
       available: filesAvailable,
@@ -1461,7 +1462,7 @@ export default function App() {
   ];
   const projectNavigation = <ProjectNavigation hidden={!sidebarOpen || compactWorkspace}
     preferredWidth={sidebar.width} onWidthChange={width => updateSidebar({ width })}>
-        <div className="navigation-tabs" role="tablist" aria-label="導覽頁面">
+        <div className="navigation-tabs" role="tablist" aria-label={t('Navigation pages')}>
             {(['projects', 'directories'] as const).map((page) => <button key={page} type="button"
               id={`navigation-${page}`} role="tab" aria-selected={navigation === page}
               tabIndex={navigation === page ? 0 : -1} aria-controls="navigation-content"
@@ -1475,16 +1476,16 @@ export default function App() {
                 }
               }}>
               {page === 'projects' ? <Folder size={16} aria-hidden="true" /> : <Compass size={16} aria-hidden="true" />}
-              {page === 'projects' ? '專案' : '所有目錄'}
+              {page === 'projects' ? t('Projects') : t('All directories')}
               <span>{page === 'projects' ? projectCount : directoryCount}</span>
             </button>)}
           </div>
 
             <div className="sidebar-heading">
-              <span>工作總覽</span>
+              <span>{t('Work overview')}</span>
               <button
                 className="icon-button"
-                aria-label="隱藏側欄"
+                aria-label={t('Hide sidebar')}
                 onClick={event => {
                   const owner = event.currentTarget;
                   setSidebarOpen(false);
@@ -1502,12 +1503,12 @@ export default function App() {
               onClick={() => selectNavigation(navigation)}
             >
               <Compass size={17} />
-              {navigation === 'projects' ? '專案總覽' : '目錄總覽'}<span>{navigation === 'projects' ? projectCount : directoryCount}</span>
+              {navigation === 'projects' ? t('Project overview') : t('Directories overview')}<span>{navigation === 'projects' ? projectCount : directoryCount}</span>
             </button>
             <button className={`sidebar-global ${workspaceOverview ? 'active' : ''}`} disabled={!boot}
               aria-pressed={workspaceOverview} onClick={openWorkspaceOverview}
-              title={effectiveShortcuts['toggle-workspace-overview'] ? `全部工作區（${effectiveShortcuts['toggle-workspace-overview']}）` : '全部工作區'}>
-              <LayoutGrid size={17} />全部工作區<span>{Object.keys(workspace.panes).length}</span>
+              title={effectiveShortcuts['toggle-workspace-overview'] ? t('All workspaces ({{shortcut}})', { shortcut: effectiveShortcuts['toggle-workspace-overview'] }) : t('All workspaces')}>
+              <LayoutGrid size={17} />{t('All workspaces')}<span>{Object.keys(workspace.panes).length}</span>
             </button>
             <div className="sidebar-section">
               <button className="sidebar-section-toggle" aria-expanded={!listCollapsed} aria-controls="sidebar-project-content"
@@ -1516,8 +1517,8 @@ export default function App() {
               </button>
               <button
                 className="icon-button"
-                title="加入專案"
-                aria-label="加入專案"
+                title={t('Add project')}
+                aria-label={t('Add project')}
                 disabled={!boot}
                 onClick={() => setProjectDialog({})}
               >
@@ -1528,8 +1529,8 @@ export default function App() {
             <div className="project-search search-field">
               <Search size={13} />
               <input
-                aria-label={navigation === 'projects' ? '搜尋專案' : '搜尋所有目錄'}
-                placeholder={navigation === 'projects' ? '尋找專案…' : '尋找目錄…'}
+                aria-label={navigation === 'projects' ? t('Search projects') : t('Search all directories')}
+                placeholder={navigation === 'projects' ? t('Find a project…') : t('Find a directory…')}
                 value={projectSearch}
                 onChange={(event) => setProjectSearch(event.target.value)}
               />
@@ -1538,9 +1539,9 @@ export default function App() {
               workspace={workspace} activeTabId={view === 'workspace' ? activeTabId : undefined} onFocus={focus}
               reorderable={navigation === 'projects'} onSelect={selectProject}
               onReorder={(id, target, after) => updateSidebar({ projectOrder: reorderProject(reconcileProjectOrder(sidebarRef.current.projectOrder, projects), id, target, after) })}
-              empty={projectSearch ? `沒有符合的${navigationName}` : navigation === 'projects'
-                ? '尚未加入專案。可從所有目錄挑選，或加入／建立專案。'
-                : '尚未找到包含工作階段的目錄。請確認資料來源並更新索引。'} />
+              empty={projectSearch ? (navigation === 'projects' ? t('No matching projects') : t('No matching entries in all directories')) : navigation === 'projects'
+                ? t('No projects yet. Pick from all directories, or add / create a project.')
+                : t('No directories with sessions found yet. Check your sources and update the index.')} />
             </div>
             <button
               className="add-project"
@@ -1548,21 +1549,21 @@ export default function App() {
               onClick={() => setProjectDialog({})}
             >
               <FolderPlus size={16} />
-              加入／建立專案
+              {t('Add / create project')}
             </button>
             {workspace.tabs.some(tab => !sortedProjects.some(project => project.id === tab.projectId)) && (
-              <section className="open-workspaces" aria-label="開啟中的工作區">
+              <section className="open-workspaces" aria-label={t('Open workspaces')}>
                 <div className="sidebar-section"><button className="sidebar-section-toggle" aria-expanded={!sidebar.workspacesCollapsed} aria-controls="sidebar-open-workspaces"
                   onClick={() => updateSidebar({ workspacesCollapsed: !sidebar.workspacesCollapsed })}>
-                  {sidebar.workspacesCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>開啟中的工作區</span></button><span>{workspace.tabs.filter(tab => !sortedProjects.some(project => project.id === tab.projectId)).length}</span></div>
+                  {sidebar.workspacesCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}<span>{t('Open workspaces')}</span></button><span>{workspace.tabs.filter(tab => !sortedProjects.some(project => project.id === tab.projectId)).length}</span></div>
                 <nav id="sidebar-open-workspaces" hidden={sidebar.workspacesCollapsed}>
                   {workspace.tabs.filter(tab => !sortedProjects.some(project => project.id === tab.projectId)).map((tab) => {
                     const project = visibleProjects.find((p) => p.id === tab.projectId);
                     return <button key={tab.id} className={view === 'workspace' && activeTabId === tab.id ? 'active' : ''}
-                      aria-label={`開啟工作區 ${tab.projectId === null ? '臨時 Terminal' : project?.name || '工作目錄'} ${tab.name}`}
-                      title={tab.projectId === null ? '不屬於任何專案' : project?.launchPath || project?.path || '目錄待確認'} onClick={() => focus(tab.focusedPaneId)}>
-                      <RuntimeActivityIndicator tab={tab} panes={workspace.panes} /><span><strong>{tab.projectId === null ? '臨時 Terminal' : project?.name || '工作目錄'}</strong>
-                        <small>{tab.name}{project?.workspaceOnly ? ' · 僅工作區' : ''}</small><small>{tabRuntimeSummary(tab, workspace.panes)}</small></span>
+                      aria-label={t('Open workspace {{project}} {{tab}}', { project: tab.projectId === null ? t('Temporary terminal') : project?.name || t('Working directory'), tab: tab.name })}
+                      title={tab.projectId === null ? t('Not part of any project') : project?.launchPath || project?.path || t('Folder to be confirmed')} onClick={() => focus(tab.focusedPaneId)}>
+                      <RuntimeActivityIndicator tab={tab} panes={workspace.panes} /><span><strong>{tab.projectId === null ? t('Temporary terminal') : project?.name || t('Working directory')}</strong>
+                        <small>{tab.name}{project?.workspaceOnly ? t(' · workspace only') : ''}</small><small>{tabRuntimeSummary(tab, workspace.panes)}</small></span>
                     </button>;
                   })}
                 </nav>
@@ -1571,7 +1572,7 @@ export default function App() {
           </ProjectNavigation>;
   return (
     <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} workspace={workspace} projects={projects} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
-      <a className="skip-link" href="#main-workspace">跳至主要工作區</a>
+      <a className="skip-link" href="#main-workspace">{t('Skip to main workspace')}</a>
       <header className="app-topbar">
         <div className="brand">
           <div className="brand-mark">
@@ -1581,27 +1582,27 @@ export default function App() {
             Session Bay<span className="brand-tag">WORKSPACE</span>
           </span>
         </div>
-        <button className="global-search" aria-label="搜尋專案或執行命令" onClick={() => runCommand('command-palette')}>
+        <button className="global-search" aria-label={t('Search projects or run a command')} onClick={() => runCommand('command-palette')}>
           <Search size={15} />
-          <span>搜尋專案或執行命令</span>
+          <span>{t('Search projects or run a command')}</span>
           <kbd>⌘ / Ctrl ⇧ P</kbd>
         </button>
         <div className="topbar-actions">
           {focusMode && !focusAvailable && <FocusModeButton active onClick={toggleFocusMode} />}
           <button className="secondary temporary-terminal-button" disabled={!boot || !desktop}
-            title="在家目錄開啟臨時 Terminal，不建立專案" aria-label="開啟臨時 Terminal"
+            title={t('Open a temporary terminal in your home folder without creating a project')} aria-label={t('Open temporary terminal')}
             onClick={() => openTemporaryTerminal()}>
-            <TerminalSquare size={16} aria-hidden="true" /><span>臨時 Terminal</span>
+            <TerminalSquare size={16} aria-hidden="true" /><span>{t('Temporary terminal')}</span>
           </button>
-          <button className="icon-button theme-quick-trigger" aria-label="快速切換主題" title="快速切換主題"
+          <button className="icon-button theme-quick-trigger" aria-label={t('Quick theme switch')} title={t('Quick theme switch')}
             disabled={!settings || settingsOpen || themeSaving || palette}
             onClick={() => { setThemeSaveError(''); setQuickThemeOpen(true); }}>
             <Palette size={19} />
           </button>
           <button
             className="icon-button"
-            aria-label="設定與資料來源"
-            title="設定與資料來源"
+            aria-label={t('Settings and sources')}
+            title={t('Settings and sources')}
             disabled={!boot || themeSaving || palette || quickThemeOpen}
             onClick={() => setSettingsOpen(true)}
           >
@@ -1613,13 +1614,13 @@ export default function App() {
         {projectNavigation}
         <main className="main-content" id="main-workspace" tabIndex={-1}>
           <div className="project-header">
-            <ResponsiveControls label="專案資訊與操作" summary={pageTitle}>
+            <ResponsiveControls label={t('Project info and actions')} summary={pageTitle}>
             <div className="project-heading">
-              <nav className="breadcrumb" aria-label="目前位置">
+              <nav className="breadcrumb" aria-label={t('Current location')}>
                 {!sidebarOpen && (
                   <button
                     className="icon-button" ref={projectsToggle}
-                    aria-label="顯示側欄"
+                    aria-label={t('Show sidebar')}
                     onClick={() => setSidebarOpen(true)}
                   >
                     <Layers3 size={16} />
@@ -1628,15 +1629,15 @@ export default function App() {
                 <span>Session Bay</span>
                 <ChevronRight size={12} />
                 {current || allSessionsSearch || temporaryWorkspace || workspaceOverview ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
-                {workspaceOverview && <><ChevronRight size={12} /><span aria-current="page">全部工作區</span></>}
-                {temporaryWorkspace && <><ChevronRight size={12} /><span aria-current="page">臨時 Terminal</span></>}
+                {workspaceOverview && <><ChevronRight size={12} /><span aria-current="page">{t('All workspaces')}</span></>}
+                {temporaryWorkspace && <><ChevronRight size={12} /><span aria-current="page">{t('Temporary terminal')}</span></>}
                 {current && <><ChevronRight size={12} /><span aria-current="page" title={current.name}>{current.name}</span></>}
-                {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">搜尋所有工作階段</span></>}
+                {allSessionsSearch && !current && <><ChevronRight size={12} /><span aria-current="page">{t('Search all sessions')}</span></>}
               </nav>
               <div className="project-title-row">
                 {current && !current.workspaceOnly && <button className="icon-button project-membership" disabled={projectBusy}
-                  aria-label={current.curated ? '移出專案' : '加入專案'} aria-pressed={current.curated}
-                  title={current.curated ? '移出專案清單；不刪除對話、檔案或關閉程序' : '將這個工作目錄加入專案清單'}
+                  aria-label={current.curated ? t('Remove from projects') : t('Add project')} aria-pressed={current.curated}
+                  title={current.curated ? t('Remove from the project list; conversations, files and processes are untouched') : t('Add this working directory to the project list')}
                   onClick={() => void saveMembership(current, !current.curated)}>
                   <Star size={17} fill={current.curated ? 'currentColor' : 'none'} aria-hidden="true" />
                 </button>}
@@ -1644,16 +1645,16 @@ export default function App() {
                   {pageTitle}
                 </h1>
                 {current && !current.workspaceOnly && <button className="icon-button project-rename" disabled={projectBusy}
-                  title="重新命名專案" aria-label="重新命名專案"
+                  title={t('Rename project')} aria-label={t('Rename project')}
                   onClick={event => { event.currentTarget.focus(); setRenameTarget({ kind: 'project', id: current.id, name: current.name }); }}>
                   <Pencil size={16} />
                 </button>}
               </div>
               {current && <div className="project-path">
                 <span title={current.path ?? ''}>
-                  {current.launchPath || current.path || '未分類 · 未記錄工作目錄'}
+                  {current.launchPath || current.path || t('Unclassified · no working directory recorded')}
                 </span>
-                {current.launchPath && <span title={current.path ?? ''}>· 已重新定位</span>}
+                {current.launchPath && <span title={current.path ?? ''}>{t('· relocated')}</span>}
                 <button
                   onClick={() =>
                     setPathDialog({
@@ -1662,31 +1663,31 @@ export default function App() {
                     })
                   }
                 >
-                  重新定位
+                  {t('Relocate')}
                 </button>
               </div>}
             </div>
             <div className="header-buttons">
               {overviewReturn && !workspaceOverview && <button className="secondary" onClick={openWorkspaceOverview}>
-                <LayoutGrid size={15} />返回全部工作區
+                <LayoutGrid size={15} />{t('Back to all workspaces')}
               </button>}
-              <button className="icon-button" title="資源回收筒" aria-label="資源回收筒" disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
+              <button className="icon-button" title={t('Recycle bin')} aria-label={t('Recycle bin')} disabled={!boot} onClick={() => setTrashOpen(true)}><Trash2 size={17} /></button>
               {navigation === 'directories' && !current && !temporaryWorkspace && <button className="secondary" disabled={!boot}
                 onClick={() => { setAllSessionsSearch((value) => !value); setView('history');  }}>
                 {allSessionsSearch ? <Folder size={15} /> : <Search size={15} />}
-                {allSessionsSearch ? '返回目錄總覽' : '搜尋所有工作階段'}
+                {allSessionsSearch ? t('Back to directories overview') : t('Search all sessions')}
               </button>}
               {temporaryWorkspace ? <button className="primary" onClick={() => openTemporaryTerminal()}>
-                <Plus size={16} />新增臨時 Terminal
+                <Plus size={16} />{t('New temporary terminal')}
               </button> : current ? <>
                 <button className="secondary" onClick={() => runCommand('new-terminal')}>
                   <TerminalSquare size={16} />Terminal
                 </button>
                 <button className="primary" onClick={() => runCommand('new-agent')}>
-                  <Plus size={16} />新增工作
+                  <Plus size={16} />{t('New work')}
                 </button>
               </> : <button className="primary" disabled={!boot} onClick={() => setProjectDialog({})}>
-                <FolderPlus size={16} />加入／建立專案
+                <FolderPlus size={16} />{t('Add / create project')}
               </button>}
             </div>
             </ResponsiveControls>
@@ -1697,50 +1698,50 @@ export default function App() {
                 <Anchor size={35} />
               </div>
               <span className="eyebrow">SESSION BAY DESKTOP</span>
-              <h2>你的本機工作台，等待啟航</h2>
-              <p>目前是網頁預覽。專案、對話歷史與 Terminal 需要 macOS 或 Linux 桌面執行環境。</p>
+              <h2>{t('Your local workbench, ready to set sail')}</h2>
+              <p>{t('This is a web preview. Projects, conversation history and terminals need the macOS or Linux desktop runtime.')}</p>
               <div className="runtime-note">
                 <AlertTriangle size={17} />
                 <div>
-                  <strong>桌面執行環境未連線</strong>
-                  <span>請從桌面應用程式啟動；此預覽沒有模擬資料或程序。</span>
+                  <strong>{t('Desktop runtime not connected')}</strong>
+                  <span>{t('Start it from the desktop app; this preview has no simulated data or processes.')}</span>
                 </div>
               </div>
               <div className="runtime-features">
                 <span>
                   <History size={16} />
-                  找回跨 Agent 歷史
+                  {t('Find history across agents')}
                 </span>
                 <span>
                   <Layers3 size={16} />
-                  分割工作區
+                  {t('Split workspaces')}
                 </span>
                 <span>
                   <TerminalSquare size={16} />
-                  真正的本機 PTY
+                  {t('Real local PTYs')}
                 </span>
               </div>
             </div>
           ) : bootError ? (
             <div className="empty-state">
               <AlertTriangle size={30} />
-              <h2>無法開啟本機工作台</h2>
+              <h2>{t('Cannot open the local workbench')}</h2>
               <p role="alert">{bootError}</p>
               <button className="primary" onClick={() => void initialize()}>
-                重新嘗試
+                {t('Try again')}
               </button>
             </div>
           ) : !boot ? (
             <div className="empty-state">
               <LoaderCircle className="spin" size={30} />
-              <p>正在讀取本機工作台…</p>
+              <p>{t('Loading the local workbench…')}</p>
             </div>
           ) : (
             <>
               {current && !current.exists && (
                 <div className="project-warning">
                   <AlertTriangle size={15} />
-                  工作目錄不存在。歷史仍可閱讀，啟動前請重新定位。
+                  {t('The working directory does not exist. You can still read the history; relocate it before starting work.')}
                   <button
                     onClick={() =>
                       setPathDialog({
@@ -1749,7 +1750,7 @@ export default function App() {
                       })
                     }
                   >
-                    選擇新位置
+                    {t('Choose new location')}
                   </button>
                 </div>
               )}
@@ -1770,7 +1771,7 @@ export default function App() {
                 {(current || temporaryWorkspace) && (
                   <button
                     className="icon-button"
-                    aria-label="新增工作區分頁"
+                    aria-label={t('New workspace tab')}
                     onClick={() => openLauncher('shell')}
                   >
                     <Plus size={16} />
@@ -1781,8 +1782,8 @@ export default function App() {
                   const badge = projectBadge(focusedMixedPane.projectId);
                   // Re-keyed per project so the chip flashes and is announced whenever tools switch.
                   return <span key={badge.name} className="tool-context" role="status" aria-live="polite"
-                    title={`Sessions／Files／Git 目前跟隨「${badge.name}」`}>
-                    工具：<span className="project-initials" style={{ ['--pane-project' as string]: badge.color }}>{badge.initials}</span>{badge.name}
+                    title={t('Sessions / Files / Git currently follow "{{name}}"', { name: badge.name })}>
+                    {t('Tools: ')}<span className="project-initials" style={{ ['--pane-project' as string]: badge.color }}>{badge.initials}</span>{badge.name}
                   </span>;
                 })()}
                 {focusAvailable && <FocusModeButton buttonRef={focusToggle} active={focusMode} onClick={toggleFocusMode} />}
@@ -1792,9 +1793,9 @@ export default function App() {
                 <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
                 <div className="project-file-document-host" ref={setGitDocumentHost} hidden={view !== 'git'} />
                 {temporaryWorkspace && !activeTab && <div className="empty-state">
-                  <TerminalSquare size={30} aria-hidden="true" /><h2>目前沒有臨時 Terminal</h2>
-                  <p>隨時從家目錄開啟新的命令列，不需要建立專案。</p>
-                  <button className="primary" onClick={() => openTemporaryTerminal()}>開啟新的臨時 Terminal</button>
+                  <TerminalSquare size={30} aria-hidden="true" /><h2>{t('No temporary terminal right now')}</h2>
+                  <p>{t('Open a new command line in your home folder any time, without creating a project.')}</p>
+                  <button className="primary" onClick={() => openTemporaryTerminal()}>{t('Open a new temporary terminal')}</button>
                 </div>}
                 {workspaceOverview && <WorkspaceOverview workspace={workspace} projects={visibleProjects} visible
                   onOpen={(paneId) => { beforeOverview.current = null; setOverviewReturn(true); focus(paneId); }}
@@ -1817,7 +1818,7 @@ export default function App() {
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
                     openRequest={historyOpenRequest}
                     sidebarHost={toolProject ? historySidebarHost : undefined}
-                    scopeLabel={toolProject?.name ?? '所有 Sessions'}
+                    scopeLabel={toolProject?.name ?? t('All sessions')}
                     onSelectSession={() => { if (!current) setAllSessionsSearch(true); setView('history'); }}
                     projectId={lastHistoryProject.current ?? undefined}
                     disabled={!historyEnabled}
@@ -1881,7 +1882,7 @@ export default function App() {
                       } else {
                         void api.runtimes().then((records) => {
                           if (!records.some((record) => record.id === info.id && record.paneId === info.paneId))
-                            throw new Error('此受管程序已不在背景程序清單中，請重新整理後再試。');
+                            throw new Error(t('This managed process is no longer in the background process list; refresh and try again.'));
                           let recovered = reconcileRuntimes(closePane(stateRef.current.workspace, newId), records);
                           const tab = recovered.tabs.find((item) => paneIds(item.layout).includes(info.paneId));
                           if (tab) recovered = selectWorkspaceTab(recovered, tab);
@@ -1944,11 +1945,11 @@ export default function App() {
             <>
               <LoaderCircle className="spin" size={12} />
               <span role="status" aria-live="polite">
-                正在更新索引 {index.processed} / {index.total}
+                {t('Updating index {{processed}} / {{total}}', { processed: index.processed, total: index.total })}
               </span>
               <button
-                title="取消索引"
-                aria-label="取消索引"
+                title={t('Cancel indexing')}
+                aria-label={t('Cancel indexing')}
                 onClick={() => void api.cancelScan().catch(notify)}
               >
                 <Square size={10} />
@@ -1959,16 +1960,16 @@ export default function App() {
               <span className={`tiny-dot ${index.errors.length ? 'warn' : ''}`} />
               <span role="status" aria-live="polite" title={index.errors.join("\n") || undefined}>
                 {!desktop
-                  ? '網頁預覽 · 桌面功能未連線'
+                  ? t('Web preview · desktop features not connected')
                   : index.cancelled
-                    ? '索引已取消'
+                    ? t('Indexing cancelled')
                     : index.errors.length
-                      ? `${index.errors.length} 個來源問題`
-                      : '本機索引就緒'}
+                      ? t('{{count}} source problems', { count: index.errors.length })
+                      : t('Local index ready')}
               </span>
               <button
-                title="更新索引"
-                aria-label="更新索引"
+                title={t('Update index')}
+                aria-label={t('Update index')}
                 disabled={!boot}
                 onClick={() => void scan(false).catch(notify)}
               >
@@ -1978,15 +1979,15 @@ export default function App() {
           )}
         </div>
         <div>
-          <span>{activeCount} 個執行中程序</span>
-          {visibleSettings && <span role="status" aria-live="polite" title={`調整介面與 Terminal 顯示大小。${workspaceZoomShortcutHelp}`}>縮放 {appliedZoom ?? 100}%{zoomError ? ' · 縮放套用失敗' : appliedZoom !== zoomPercent ? ' · 套用中' : ''}{themeSaving ? ' · 儲存中' : ''}</span>}
+          <span>{t('{{count}} running processes', { count: activeCount })}</span>
+          {visibleSettings && <span role="status" aria-live="polite" title={t('Adjusts the size of the interface and terminals. ') + workspaceZoomShortcutHelp}>{t('Zoom {{percent}}%', { percent: appliedZoom ?? 100 })}{zoomError ? t(' · zoom failed') : appliedZoom !== zoomPercent ? t(' · applying') : ''}{themeSaving ? t(' · saving') : ''}</span>}
           <span className="status-separator">│</span>
           <span>
             {focusPane && view === 'workspace'
               ? `${focusPane.title} · ${focusPane.cwd}`
               : current
-                ? `最近活動 ${dateLabel(current.updatedAt)}`
-                : '本機 Agent 工作台'}
+                ? t('Last activity {{time}}', { time: dateLabel(current.updatedAt) })
+                : t('Local agent workbench')}
           </span>
         </div>
       </footer>
@@ -1994,18 +1995,18 @@ export default function App() {
         <div className="toast" role="alert">
           <AlertTriangle size={17} />
           <span>{toast}</span>
-          <button aria-label="關閉通知" onClick={() => setToast('')}>
+          <button aria-label={t('Close notice')} onClick={() => setToast('')}>
             <X size={15} />
           </button>
         </div>
       )}
       {quickThemeOpen && visibleSettings && (
-        <Dialog title="快速切換主題" onClose={() => setQuickThemeOpen(false)}>
+        <Dialog title={t('Quick theme switch')} onClose={() => setQuickThemeOpen(false)}>
           <div className="theme-quick-content">
             <ThemeControls value={appearanceOf(visibleSettings)} disabled={themeSaving}
               onChange={(patch) => void quickSaveTheme(patch)} />
             <TerminalPreview value={appearanceOf(visibleSettings)} />
-            {(themeSaving || themeSaveError) && <div className="theme-quick-status" role="status">{themeSaving ? '正在儲存主題…' : '目前顯示上次儲存的主題'}</div>}
+            {(themeSaving || themeSaveError) && <div className="theme-quick-status" role="status">{themeSaving ? t('Saving theme…') : t('Showing the last saved theme')}</div>}
             {themeSaveError && <p className="theme-quick-error" role="alert">{themeSaveError}</p>}
           </div>
         </Dialog>
@@ -2047,7 +2048,7 @@ export default function App() {
       }} />}
       {pathDialog && (
         <Dialog
-          title={pathDialog.project ? '重新定位專案目錄' : '加入專案'}
+          title={pathDialog.project ? t('Relocate project folder') : t('Add project')}
           onClose={() => !busy && setPathDialog(null)}
         >
           <form
@@ -2075,15 +2076,15 @@ export default function App() {
           >
             <p className="dialog-description">
               {pathDialog.project
-                ? '只變更新程序的啟動位置。原始紀錄與工作目錄不會被修改。'
-                : '輸入本機目錄的完整路徑。沒有歷史紀錄，也能開啟 Agent 或 Terminal。'}
+                ? t('Only changes where new processes start. The original records and working directory are not modified.')
+                : t('Enter the full path of a local folder. You can open an agent or terminal even without history.')}
             </p>
             {pathDialog.project?.path && (
-              <p className="original-path">原始路徑：{pathDialog.project.path}</p>
+              <p className="original-path">{t('Original path: {{path}}', { path: pathDialog.project.path })}</p>
             )}
-            <DirectoryPathField key={pathDialog.project?.id ?? 'new'} label="目錄路徑"
+            <DirectoryPathField key={pathDialog.project?.id ?? 'new'} label={t('Folder path')}
               autoFocus required disabled={busy}
-              placeholder="/Users/you/projects/my-app 或 /home/you/projects/my-app"
+              placeholder={t('/Users/you/projects/my-app or /home/you/projects/my-app')}
               value={pathDialog.path}
               onChange={(path) => setPathDialog((current) => current ? { ...current, path } : null)} />
             <div className="dialog-actions">
@@ -2093,10 +2094,10 @@ export default function App() {
                 disabled={busy}
                 onClick={() => setPathDialog(null)}
               >
-                取消
+                {t('Cancel')}
               </button>
               <button className="primary" disabled={busy || !pathDialog.path.trim()}>
-                {busy ? '儲存中…' : pathDialog.project ? '儲存新位置' : '加入專案'}
+                {busy ? t('Saving…') : pathDialog.project ? t('Save new location') : t('Add project')}
                 <ArrowRight size={14} />
               </button>
             </div>
@@ -2105,7 +2106,7 @@ export default function App() {
       )}
       {launcher && settings && (
         <Dialog
-          title={launcher.split ? '分割並新增面板' : '開始新的工作'}
+          title={launcher.split ? t('Split and add a pane') : t('Start a new task')}
           onClose={() => setLauncher(null)}
         >
           <form
@@ -2127,19 +2128,19 @@ export default function App() {
               }
             }}
           >
-            <div className="launch-kind-switch" role="group" aria-label="工作類型">
+            <div className="launch-kind-switch" role="group" aria-label={t('Work type')}>
               <button type="button" aria-pressed={!launcher.existing && launcher.kind === 'shell'}
                 onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined, existing: false })}>
-                <TerminalSquare size={19} />Shell<span>命令列工作</span>
+                <TerminalSquare size={19} />Shell<span>{t('Command-line work')}</span>
               </button>
               <button type="button" aria-pressed={!launcher.existing && launcher.kind !== 'shell'}
                 disabled={!preferredEnabledAgent(settings)}
                 onClick={() => setLauncher({ ...launcher, kind: preferredEnabledAgent(settings) ?? settings.defaultAgent, resumeId: undefined, existing: false })}>
-                <CommandIcon size={19} />Agent<span>AI 協作</span>
+                <CommandIcon size={19} />Agent<span>{t('AI pairing')}</span>
               </button>
               {launcher.split && <button type="button" aria-pressed={!!launcher.existing}
                 onClick={() => setLauncher({ ...launcher, existing: true })}>
-                <Layers3 size={19} />既有工作<span>任何專案</span>
+                <Layers3 size={19} />{t('Existing work')}<span>{t('Any project')}</span>
               </button>}
             </div>
             {launcher.existing && launcher.split && <SplitExistingPicker workspace={workspace} targetPaneId={launcher.split.paneId}
@@ -2165,21 +2166,21 @@ export default function App() {
                   const installation = boot?.installations.find((item) => item.kind === kind);
                   return { value: kind, label: agentName(kind), icon: <AgentIcon kind={kind} />,
                     disabled: !isAgentEnabled(settings, kind) || installation?.available === false,
-                    description: !isAgentEnabled(settings, kind) ? '已停用，請至設定啟用' : installationState(installation).text };
+                    description: !isAgentEnabled(settings, kind) ? t('Disabled; enable it in Settings') : installationState(installation).text };
                 })} />
-              {!isAgentEnabled(settings, launcher.kind) && <span className="inline-warning">此 Agent 已停用，請先在設定中啟用。</span>}
+              {!isAgentEnabled(settings, launcher.kind) && <span className="inline-warning">{t('This agent is disabled; enable it in Settings first.')}</span>}
               {boot?.installations.find((item) => item.kind === launcher.kind)?.available === false &&
-                <span className="inline-warning">未偵測到這個 Agent，請先在設定中指定執行檔並重新偵測。</span>}
+                <span className="inline-warning">{t('This agent was not found; set its executable in Settings and detect again.')}</span>}
             </label>}
-            <DirectoryPathField key={`${current?.id}:${launcher.kind}`} label="工作目錄"
+            <DirectoryPathField key={`${current?.id}:${launcher.kind}`} label={t('Working directory')}
               required value={launcher.cwd}
               onChange={(cwd) => setLauncher((current) => current ? { ...current, cwd } : null)} />
             {launcher.kind !== 'shell' && agentCapabilities[launcher.kind].resume.manualId && (
-              <label className="field-label">接續對話 ID（選填）
-                <input value={launcher.resumeId || ''} placeholder="留空開始新對話；填入原工具的對話 ID"
+              <label className="field-label">{t('Conversation ID to resume (optional)')}
+                <input value={launcher.resumeId || ''} placeholder={t('Leave empty for a new conversation, or enter the tool\'s conversation ID')}
                   onChange={(event) => setLauncher({ ...launcher, resumeId: event.target.value })} />
-                <span className="small-muted">{agentCapabilities[launcher.kind].resume.description}
-                  {!agentCapabilities[launcher.kind].history.supported && ' 尚不支援自動索引／預覽其歷史。'}</span>
+                <span className="small-muted">{t(agentCapabilities[launcher.kind].resume.description)}
+                  {!agentCapabilities[launcher.kind].history.supported && t(' Automatic indexing and preview of its history are not supported yet.')}</span>
               </label>
             )}
             {launcher.kind === 'shell' && (
@@ -2191,23 +2192,23 @@ export default function App() {
                     label: profile.name, description: profile.executable }))} />
               </label>
             )}
-            <div className="launch-preview" aria-label="啟動參數預覽" aria-live="polite">
-              <strong>實際啟動預覽</strong>
-              {previewPending ? <p>正在檢查執行檔與目錄…</p> : previewError ? <p role="alert">{previewError}</p> : launchPreview && <>
+            <div className="launch-preview" aria-label={t('Launch arguments preview')} aria-live="polite">
+              <strong>{t('Actual launch preview')}</strong>
+              {previewPending ? <p>{t('Checking the executable and folder…')}</p> : previewError ? <p role="alert">{previewError}</p> : launchPreview && <>
                 <pre>{JSON.stringify([launchPreview.executable, ...launchPreview.args], null, 2)}</pre>
-                <p>工作目錄：{launchPreview.cwd}</p>
+                <p>{t('Working directory: {{path}}', { path: launchPreview.cwd })}</p>
               </>}
             </div>
             {launcher.kind !== 'shell' && settings.agentOptions?.[launcher.kind]?.bypassPermissions &&
-              <p className="inline-warning">已啟用高風險權限模式。預設 {bypassFlags[launcher.kind]}；實際參數以上方預覽為準。Agent 可能不詢問就讀寫或刪除檔案。</p>}
-            {freshLaunchPending && <p className="small-muted" role="status">上一個 Agent 仍在啟動，請稍候再建立新的 Agent 工作。</p>}
+              <p className="inline-warning">{t('High-risk permission mode is on. Default {{flag}}; the preview above shows the actual arguments. The agent may read, write or delete files without asking.', { flag: bypassFlags[launcher.kind] })}</p>}
+            {freshLaunchPending && <p className="small-muted" role="status">{t('The previous agent is still starting; wait a moment before starting new agent work.')}</p>}
             </>}
             <div className="dialog-actions">
               <button type="button" className="secondary" onClick={() => setLauncher(null)}>
-                取消
+                {t('Cancel')}
               </button>
               {!launcher.existing && <button className="primary" disabled={!launcher.cwd.trim() || previewPending || !launchPreview || !!previewError || (launcher.kind !== 'shell' && ((!launcher.resumeId?.trim() && freshLaunchPending) || !isAgentEnabled(settings, launcher.kind) || boot?.installations.find((item) => item.kind === launcher.kind)?.available === false))}>
-                開始工作
+                {t('Start work')}
                 <ArrowRight size={14} />
               </button>}
             </div>
@@ -2215,15 +2216,15 @@ export default function App() {
         </Dialog>
       )}
       {renameTarget && <RenameDialog key={`${renameTarget.kind}:${renameTarget.id}`}
-        title={renameTarget.kind === 'tab' ? '重新命名分頁' : '重新命名專案'} name={renameTarget.name}
-        description={renameTarget.kind === 'tab' ? undefined : '只修改顯示名稱，實際資料夾、路徑與對話歷史維持原樣。'}
+        title={renameTarget.kind === 'tab' ? t('Rename tab') : t('Rename project')} name={renameTarget.name}
+        description={renameTarget.kind === 'tab' ? undefined : t('Only changes the display name; the folder, path and conversation history stay the same.')}
         onClose={() => setRenameTarget(null)} onSave={async (name) => {
           if (renameTarget.kind === 'tab') {
-            if (!stateRef.current.workspace.tabs.some((tab) => tab.id === renameTarget.id)) throw new Error('此分頁已關閉，請重新選擇。');
+            if (!stateRef.current.workspace.tabs.some((tab) => tab.id === renameTarget.id)) throw new Error(t('This tab was closed; choose again.'));
             setWorkspace((w) => renameWorkspaceTab(w, renameTarget.id, name));
             return;
           }
-          if (projectMutation.current) throw new Error('專案正在更新，請稍後再試。');
+          if (projectMutation.current) throw new Error(t('The project is updating; try again shortly.'));
           projectMutation.current = true;
           setProjectBusy(true);
           try {
@@ -2233,12 +2234,12 @@ export default function App() {
           } finally { projectMutation.current = false; setProjectBusy(false); }
         }} />}
       {hookSkip && (
-        <Dialog title="本次不啟用活動回報" onClose={() => finishHookSkip(false)}>
+        <Dialog title={t('Skip activity reporting this time')} onClose={() => finishHookSkip(false)}>
           <p className="dialog-description">{hookSkip.message}</p>
-          <p className="dialog-description">僅略過本次活動 hooks，啟動參數與權限保持原樣。既有工作及 hooks 設定不變。</p>
+          <p className="dialog-description">{t('Only skips the activity hooks this time; launch arguments and permissions stay the same. Existing work and hook settings are unchanged.')}</p>
           <div className="dialog-actions">
-            <button className="secondary" onClick={() => finishHookSkip(false)}>取消</button>
-            <button className="primary" onClick={() => finishHookSkip(true)}>本次不啟用活動回報，繼續啟動</button>
+            <button className="secondary" onClick={() => finishHookSkip(false)}>{t('Cancel')}</button>
+            <button className="primary" onClick={() => finishHookSkip(true)}>{t('Skip activity reporting and start')}</button>
           </div>
         </Dialog>
       )}
@@ -2247,7 +2248,7 @@ export default function App() {
           <p className="dialog-description">{confirmation.text}</p>
           <div className="dialog-actions">
             <button className="secondary" disabled={busy} onClick={() => { confirmation.onCancel?.(); setConfirmation(null); }}>
-              取消
+              {t('Cancel')}
             </button>
             <button
               className="danger"
@@ -2264,7 +2265,7 @@ export default function App() {
                   .finally(() => { confirmationLock.current = false; setBusy(false); });
               }}
             >
-              {busy ? '處理中…' : '結束並關閉'}
+              {busy ? t('Working…') : t('End and close')}
             </button>
           </div>
         </Dialog>
@@ -2279,18 +2280,18 @@ export default function App() {
             reference: { line: target.line, column: target.column, version: file.version, nonce } });
           setView('files');
         }} />}
-      {quickOpen && current && <Dialog title={`快速開啟 · ${current.name}`} onClose={() => setQuickOpen(false)}>
+      {quickOpen && current && <Dialog title={t('Quick open · {{name}}', { name: current.name })} onClose={() => setQuickOpen(false)}>
         <ProjectQuickSwitcher projectId={current.id}
           openedSessionIds={workspace.tabs.filter(tab => tab.projectId === current.id).flatMap(tab => paneIds(tab.layout).flatMap(id => [workspace.panes[id]?.sessionId ?? '', workspace.panes[id]?.resumeId ? `${workspace.panes[id].kind}:${workspace.panes[id].resumeId}` : ''].filter(Boolean)))}
           opened={[
             ...workspace.tabs.filter(tab => tab.projectId === current.id).map(tab => ({
               id: `runtime:${tab.id}`, label: <>{workspace.panes[tab.focusedPaneId]?.kind && workspace.panes[tab.focusedPaneId].kind !== 'shell' ? <AgentIcon kind={workspace.panes[tab.focusedPaneId].kind as AgentKind} /> : <TerminalSquare size={15} aria-hidden="true" />}{tab.name}</>,
               search: `${tab.name} ${paneIds(tab.layout).map(id => workspace.panes[id]?.title ?? '').join(' ')}`,
-              detail: <small>已開啟 · {paneIds(tab.layout).some(id => workspace.panes[id]?.kind !== 'shell') ? 'Agent' : 'Terminal'}</small>,
+              detail: <small>{t('Open · {{kind}}', { kind: paneIds(tab.layout).some(id => workspace.panes[id]?.kind !== 'shell') ? 'Agent' : 'Terminal' })}</small>,
               run: () => { setQuickOpen(false); focus(tab.focusedPaneId); setQuickRuntimeFocus({ paneId: tab.focusedPaneId, nonce: ++quickRequestNonce.current }); },
             })),
             ...(filePaths[current.id] ?? []).map(path => ({
-              id: `file:${path}`, label: <><FileIcon path={path} />{path}</>, search: path, detail: <small>已開啟 · 檔案</small>,
+              id: `file:${path}`, label: <><FileIcon path={path} />{path}</>, search: path, detail: <small>{t('Open · file')}</small>,
               run: () => { setQuickOpen(false); setFileOpenRequest({ projectId: current.id, path, nonce: ++quickRequestNonce.current }); },
             })),
           ]}
@@ -2298,7 +2299,7 @@ export default function App() {
           onOpenSession={session => { setQuickOpen(false); setHistoryOpenRequest({ session, nonce: ++quickRequestNonce.current }); setView('history'); showSessions(); }} />
       </Dialog>}
       {palette && (
-        <Dialog title="命令面板" onClose={closePalette}>
+        <Dialog title={t('Command palette')} onClose={closePalette}>
           {paletteTheme && settings ? <CommandThemePicker key={paletteTheme} target={paletteTheme}
             value={appearanceOf(settings)} saving={themeSaving} error={themeSaveError}
             onPreview={setCommandThemePreview} onCommit={patch => void commitCommandTheme(patch)}
@@ -2313,7 +2314,7 @@ export default function App() {
                 .filter(project => `${project.name} ${project.path}`.toLowerCase().includes(paletteQuery.toLowerCase()))
                 .slice(0, 20).map(project => ({
                   id: `project-${project.id}`, label: <><Folder size={14} />{project.name}</>,
-                  search: `${project.name} ${project.path}`, detail: <small>{project.path || '未分類'}</small>,
+                  search: `${project.name} ${project.path}`, detail: <small>{project.path || t('Unclassified')}</small>,
                   run: () => { selectProject(project); closePalette(); },
                 })),
             ]} />}

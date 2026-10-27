@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from './api';
+import { t } from './i18n';
 
 export const SESSION_BATCH = 40;
 interface Page<T> { items: T[]; total: number; catalogRevision: string }
@@ -45,7 +46,7 @@ export function useSessionFeed<T extends { id: string }>(key: string, revision: 
         while (true) {
           const result = await fetchRef.current(previous.offset, SESSION_BATCH);
           if (generation.current !== token || activeIdentity.current !== identity) return;
-          if (!result.catalogRevision) throw new Error('無法確認索引版本，請重試載入。');
+          if (!result.catalogRevision) throw new Error(t('Could not confirm the index version. Try loading again.'));
           if (previous.offset && previous.catalogRevision !== result.catalogRevision) {
             // Never apply a different snapshot's rows, count or terminal state.
             // Keep the visible geometry until the replacement range is complete.
@@ -53,7 +54,7 @@ export function useSessionFeed<T extends { id: string }>(key: string, revision: 
             staged = empty<T>();
             previous = staged;
             publish({ ...current.current, done: false, loading: true });
-            if (++resets >= 3) throw new Error('索引持續變更，請稍後重試載入。');
+            if (++resets >= 3) throw new Error(t('The index keeps changing. Try loading again later.'));
             continue;
           }
           const unique = new Map(previous.items.map(item => [item.id, item]));

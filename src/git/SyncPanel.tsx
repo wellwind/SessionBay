@@ -5,6 +5,7 @@ import { errorMessage } from '../api';
 import { gitApi } from './git-api';
 import type { PullStrategy, PushPlan, Refs, RepoInfo, RepoStatus } from './types';
 import { pullStrategyLabel } from './types';
+import { t } from '../i18n';
 
 export function defaultPullStrategy(configured: string | null): PullStrategy {
   if (configured === 'false') return 'merge';
@@ -61,86 +62,86 @@ export function SyncPanel({ projectId, repo, status, refs, onDone }: {
   const cancel = () => void gitApi.cancelOperation(projectId, repo.id);
   return <div className="git-form">
     <div className="git-row git-sync-summary">
-      {status.branch.upstream ? <span>upstream <strong>{status.branch.upstream}</strong></span> : <span className="git-muted">尚未設定 upstream</span>}
-      <span aria-label={`領先 ${status.branch.ahead}`}><ArrowUp size={12} aria-hidden="true" />{status.branch.ahead}</span>
-      <span aria-label={`落後 ${status.branch.behind}`}><ArrowDown size={12} aria-hidden="true" />{status.branch.behind}</span>
-      {status.branch.ahead > 0 && status.branch.behind > 0 && <span className="git-warning">已分叉</span>}
+      {status.branch.upstream ? <span>upstream <strong>{status.branch.upstream}</strong></span> : <span className="git-muted">{t('No upstream set')}</span>}
+      <span aria-label={t('Ahead {{count}}', { count: status.branch.ahead })}><ArrowUp size={12} aria-hidden="true" />{status.branch.ahead}</span>
+      <span aria-label={t('Behind {{count}}', { count: status.branch.behind })}><ArrowDown size={12} aria-hidden="true" />{status.branch.behind}</span>
+      {status.branch.ahead > 0 && status.branch.behind > 0 && <span className="git-warning">{t('Diverged')}</span>}
     </div>
-    {noRemote && <p className="git-muted">此 repository 沒有 remote。</p>}
+    {noRemote && <p className="git-muted">{t('This repository has no remotes.')}</p>}
     {!noRemote && <>
       <div className="git-row">
-        <select aria-label="Fetch 來源" value={fetchRemote} onChange={event => setFetchRemote(event.target.value)}>
-          <option value="">全部 remote</option>
+        <select aria-label={t('Fetch source')} value={fetchRemote} onChange={event => setFetchRemote(event.target.value)}>
+          <option value="">{t('All remotes')}</option>
           {plan?.remotes.map(name => <option key={name} value={name}>{name}</option>)}
         </select>
         <label className="git-check"><input type="checkbox" checked={prune} onChange={event => setPrune(event.target.checked)} />prune</label>
         <button disabled={!!running} onClick={() => void run('fetch', async () => {
           await gitApi.fetch(projectId, repo.id, fetchRemote || null, prune);
-          return `已 fetch ${fetchRemote || '全部 remote'}。`;
+          return t('Fetched {{remote}}.', { remote: fetchRemote || t('All remotes') });
         })}><CloudDownload size={14} aria-hidden="true" />Fetch</button>
       </div>
       <div className="git-row">
-        <button disabled={!!running || detached || !status.branch.upstream} title={!status.branch.upstream ? '目前 branch 沒有 upstream' : undefined}
+        <button disabled={!!running || detached || !status.branch.upstream} title={!status.branch.upstream ? t('The current branch has no upstream') : undefined}
           onClick={() => setPending({ kind: 'pull' })}><ArrowDown size={14} aria-hidden="true" />Pull…</button>
-        <button disabled={!!running || detached || status.branch.unborn} title={detached ? 'detached HEAD 無法推送 branch' : status.branch.unborn ? '請先建立第一個 commit' : undefined}
+        <button disabled={!!running || detached || status.branch.unborn} title={detached ? t('Cannot push a branch from a detached HEAD') : status.branch.unborn ? t('Create the first commit first') : undefined}
           onClick={openPush}><ArrowUp size={14} aria-hidden="true" />Push…</button>
       </div>
     </>}
-    {running && !pending && <p className="git-muted" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 正在 {running}…
-      <button onClick={cancel}>停止</button></p>}
+    {running && !pending && <p className="git-muted" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Running {{action}}…', { action: running })}
+      <button onClick={cancel}>{t('Stop')}</button></p>}
     {error && !pending && <p className="git-error" role="alert">{error}</p>}
 
-    {pending?.kind === 'pull' && plan && <Dialog title="Pull 遠端變更" onClose={() => { if (!running) setPending(null); }}>
+    {pending?.kind === 'pull' && plan && <Dialog title={t('Pull remote changes')} onClose={() => { if (!running) setPending(null); }}>
       <dl className="git-facts">
         <dt>Repository</dt><dd>{repo.name}</dd>
-        <dt>來源</dt><dd>{plan.upstreamRemote}/{plan.upstreamBranch} → {plan.branch}</dd>
+        <dt>{t('Source')}</dt><dd>{plan.upstreamRemote}/{plan.upstreamBranch} → {plan.branch}</dd>
       </dl>
-      <fieldset className="git-radio-row"><legend>整合方式</legend>
+      <fieldset className="git-radio-row"><legend>{t('Integration')}</legend>
         {(Object.keys(pullStrategyLabel) as PullStrategy[]).map(value => <label key={value}>
           <input type="radio" name="pull-strategy" checked={strategy === value} onChange={() => setStrategy(value)} />{pullStrategyLabel[value]}</label>)}
       </fieldset>
-      {plan.pullRebaseConfigured && <p className="git-muted">Git 設定 pull.rebase = {plan.pullRebaseConfigured}；此處仍以你選擇的方式明確執行。</p>}
+      {plan.pullRebaseConfigured && <p className="git-muted">{t('Your Git config sets pull.rebase = {{value}}; the method you choose here is still used explicitly.', { value: String(plan.pullRebaseConfigured) })}</p>}
       {error && <p className="git-error" role="alert">{error}</p>}
       <div className="dialog-actions">
-        {running ? <><span className="git-muted"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 正在 pull…</span><button onClick={cancel}>停止</button></>
+        {running ? <><span className="git-muted"><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Pulling…')}</span><button onClick={cancel}>{t('Stop')}</button></>
           : <><button onClick={() => setPending(null)}>取消</button>
             <button data-dialog-confirm className="primary" onClick={() => void run('pull', async () => {
               await gitApi.pull(projectId, repo.id, strategy);
-              return `已 pull ${plan.upstreamRemote}/${plan.upstreamBranch}。`;
+              return t('Pulled {{remote}}/{{branch}}.', { remote: plan.upstreamRemote ?? '', branch: plan.upstreamBranch ?? '' });
             })}>Pull</button></>}
       </div>
     </Dialog>}
 
-    {pending?.kind === 'push' && plan?.branch && <Dialog title="推送 branch" onClose={() => { if (!running) setPending(null); }}>
+    {pending?.kind === 'push' && plan?.branch && <Dialog title={t('Push branch')} onClose={() => { if (!running) setPending(null); }}>
       <dl className="git-facts">
         <dt>Repository</dt><dd>{repo.name}</dd>
-        <dt>本機 branch</dt><dd>{plan.branch} <span className="git-muted">{plan.head?.slice(0, 7)}</span></dd>
+        <dt>{t('Local branch')}</dt><dd>{plan.branch} <span className="git-muted">{plan.head?.slice(0, 7)}</span></dd>
       </dl>
       <label className="git-field">Remote
         <select value={remote} onChange={event => setRemote(event.target.value)}>
           {plan.remotes.map(name => <option key={name} value={name}>{name}</option>)}
         </select></label>
-      <label className="git-field">遠端 branch<input value={remoteBranch} onChange={event => setRemoteBranch(event.target.value)} /></label>
+      <label className="git-field">{t('Remote branch')}<input value={remoteBranch} onChange={event => setRemoteBranch(event.target.value)} /></label>
       <label className="git-check"><input type="checkbox" checked={setUpstream} onChange={event => setSetUpstream(event.target.checked)} />
-        設為 upstream（之後 pull／push 的預設目標）</label>
-      <p className="git-muted">目的地：{remote}/{remoteBranch}{remoteHead ? `（目前 ${remoteHead.oid.slice(0, 7)}）` : '（新 branch）'}。
-        不會推送任何 tag{plan.followTagsConfigured ? '（已覆寫 push.followTags）' : ''}；tag 請在 Tags 區明確推送。</p>
-      {plan.hooks.length > 0 && <p className="git-muted">會執行 hook：{plan.hooks.join('、')}</p>}
+        {t('Set as upstream (the default target for later pulls and pushes)')}</label>
+      <p className="git-muted">{t('Destination: {{target}}', { target: `${remote}/${remoteBranch}` })}{remoteHead ? t(' (currently {{commit}})', { commit: remoteHead.oid.slice(0, 7) }) : t(' (new branch)')}{t('.')}
+        {t('No tags are pushed')}{plan.followTagsConfigured ? t(' (push.followTags is overridden)') : ''}{t('; push tags explicitly from the Tags section.')}</p>
+      {plan.hooks.length > 0 && <p className="git-muted">{t('Hooks that will run: {{hooks}}', { hooks: plan.hooks.join(t(', ')) })}</p>}
       {remoteHead && <label className="git-check git-ack"><input type="checkbox" checked={force} onChange={event => setForce(event.target.checked)} />
-        強制推送（force-with-lease）</label>}
-      {force && remoteHead && <p className="git-error">強制推送會讓 {remote}/{remoteBranch} 從 {remoteHead.oid.slice(0, 7)} 改為本機 {plan.head?.slice(0, 7)}，遠端上不在本機的 commit 會從此 branch 消失。
-        只有遠端仍是 {remoteHead.oid.slice(0, 7)} 時才會覆寫（lease）；其他人若已推送新內容，推送會被拒絕。此操作沒有 Session Bay 復原點。</p>}
-      {plan.behind > 0 && <p className="git-warning">本機落後 upstream {plan.behind} 個 commit，遠端可能拒絕推送。</p>}
+        {t('Force push (force-with-lease)')}</label>}
+      {force && remoteHead && <p className="git-error">{t('Force pushing moves {{target}} from {{from}} to your local {{to}}; remote commits that are not local disappear from this branch.', { target: `${remote}/${remoteBranch}`, from: remoteHead.oid.slice(0, 7), to: plan.head?.slice(0, 7) ?? '' })}
+        {t('It only overwrites while the remote is still {{commit}} (lease); if someone else pushed, the push is rejected. Session Bay has no recovery point for this.', { commit: remoteHead.oid.slice(0, 7) })}</p>}
+      {plan.behind > 0 && <p className="git-warning">{t('Your branch is {{count}} commits behind upstream; the remote may reject the push.', { count: plan.behind })}</p>}
       {error && <p className="git-error" role="alert">{error}</p>}
       <div className="dialog-actions">
-        {running ? <><span className="git-muted"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 正在推送…</span><button onClick={cancel}>停止</button></>
+        {running ? <><span className="git-muted"><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Pushing…')}</span><button onClick={cancel}>{t('Stop')}</button></>
           : <><button onClick={() => setPending(null)}>取消</button>
             <button data-dialog-confirm className={force ? 'danger' : 'primary'} disabled={!remote || !remoteBranch.trim()} onClick={() => void run('push', async () => {
               const result = await gitApi.push(projectId, { repoId: repo.id, remote, localBranch: plan.branch!, remoteBranch: remoteBranch.trim(), setUpstream,
                 ...(force && remoteHead ? { forceWithLease: remoteHead.oid } : {}) });
-              return result.confirmed ? `已推送 ${plan.branch} → ${remote}/${remoteBranch}（${result.pushed.slice(0, 7)}）。`
-                : `推送指令已完成，但無法從本機 remote-tracking ref 確認 ${remote}/${remoteBranch}；請 fetch 後確認。`;
-            })}>{force ? '強制推送' : '推送'}</button></>}
+              return result.confirmed ? t('Pushed {{branch}} → {{target}} ({{commit}}).', { branch: plan.branch ?? '', target: `${remote}/${remoteBranch}`, commit: result.pushed.slice(0, 7) })
+                : t('The push finished, but {{target}} could not be confirmed from the local remote-tracking ref; fetch to check.', { target: `${remote}/${remoteBranch}` });
+            })}>{force ? t('Force push') : t('Push')}</button></>}
       </div>
     </Dialog>}
   </div>;

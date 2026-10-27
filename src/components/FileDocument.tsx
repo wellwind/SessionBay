@@ -6,6 +6,7 @@ import { ImageViewer } from './ImageViewer';
 import { parseWorkspaceImage, type ImagePreview } from './image-reader';
 import { FilePreviewBoundary } from './FilePreviewBoundary';
 import { FULL_FILE_BYTES, NORMAL_FILE_BYTES, RangeRequired, readWorkspaceText, type ReadText } from './file-reader';
+import { t } from '../i18n';
 
 interface Props {
   projectId: string; path: string; searchRequest: number;
@@ -40,7 +41,7 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
     if ('info' in state && state.info.version !== reference.version) return;
     if (state.phase === 'image' || state.phase === 'range' || state.phase === 'ready' && (state.value.partial || reference.line === undefined)) {
       if (reference.line !== undefined && (state.phase !== 'ready' || state.value.partial))
-        setNavigationNote(state.phase === 'image' ? '圖片不支援行欄定位。' : '分段閱讀不支援全檔行欄定位，請在目前區段搜尋。');
+        setNavigationNote(state.phase === 'image' ? t('Images do not support line and column positions.') : t('Section reading does not support whole-file line and column positions; search within the current section.'));
       onReferenceHandled?.(reference.nonce);
     }
   }, [reference, state, onReferenceHandled]);
@@ -50,14 +51,14 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
     void (async () => {
       const info = await api.inspectWorkspaceFile(projectId, path);
       controller.signal.throwIfAborted();
-      if (info.path !== path || !Number.isSafeInteger(info.sizeBytes) || info.sizeBytes < 0 || !info.version) throw new Error('無效檔案資訊，請重新整理');
-      if (request.expectedVersion && info.version !== request.expectedVersion) throw new Error('檔案在連結解析後已變更，請重新讀取或重新選擇路徑。');
+      if (info.path !== path || !Number.isSafeInteger(info.sizeBytes) || info.sizeBytes < 0 || !info.version) throw new Error(t('Invalid file information. Refresh and try again'));
+      if (request.expectedVersion && info.version !== request.expectedVersion) throw new Error(t('The file changed after the link was resolved. Reload it or choose the path again.'));
       if (info.kind === 'image') {
         const response = await api.readWorkspaceImage(projectId, path, info.version);
         controller.signal.throwIfAborted();
         setState({ phase: 'image', info, image: parseWorkspaceImage(response) }); return;
       }
-      if (info.kind !== 'text') throw new Error('此檔案不是支援的 UTF-8 文字');
+      if (info.kind !== 'text') throw new Error(t('This file is not supported UTF-8 text'));
       if (request.start === undefined && info.sizeBytes > FULL_FILE_BYTES) { setState({ phase: 'range', info }); return; }
       if (request.start === undefined && info.sizeBytes > NORMAL_FILE_BYTES && !request.confirmed) { setState({ phase: 'confirm', info }); return; }
       try {
@@ -76,20 +77,20 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
     const fresh = state.phase === 'error' || state.phase === 'cancelled';
     if (fresh && reference) {
       onReferenceHandled?.(reference.nonce);
-      if (reference.line !== undefined) setNavigationNote('已重新讀取目前版本，未套用舊連結的行欄。');
+      if (reference.line !== undefined) setNavigationNote(t('Reloaded the current version; the old link\'s line and column were not applied.'));
     }
     setRequest(value => ({ generation: value.generation + 1, expectedVersion: fresh ? undefined : value.expectedVersion, ...options }));
   };
   const cancel = () => { cancellation.current?.abort(); if (reference) onReferenceHandled?.(reference.nonce); setState({ phase: 'cancelled' }); };
-  if (state.phase === 'loading') return <div className="explorer-empty"><p role="status">讀取檔案中…{state.bytes > 0 && ` ${size(state.bytes)}`}</p><button onClick={cancel}>取消讀取</button></div>;
-  if (state.phase === 'cancelled') return <div className="explorer-empty"><p>已取消讀取</p><button onClick={() => retry()}>重新讀取檔案</button></div>;
-  if (state.phase === 'error') return <div className="explorer-empty"><p role="alert">{state.error}</p><button onClick={() => retry()}>重新讀取檔案</button></div>;
+  if (state.phase === 'loading') return <div className="explorer-empty"><p role="status">{t('Reading file…')}{state.bytes > 0 && ` ${size(state.bytes)}`}</p><button onClick={cancel}>{t('Cancel reading')}</button></div>;
+  if (state.phase === 'cancelled') return <div className="explorer-empty"><p>{t('Reading cancelled')}</p><button onClick={() => retry()}>{t('Read the file again')}</button></div>;
+  if (state.phase === 'error') return <div className="explorer-empty"><p role="alert">{state.error}</p><button onClick={() => retry()}>{t('Read the file again')}</button></div>;
   if (state.phase === 'confirm' || state.phase === 'range') return <div className="explorer-empty">
     {navigationNote && <p role="status" className="explorer-notice">{navigationNote}</p>}
-    <strong>{state.phase === 'confirm' ? '開啟大型文字檔' : '分段閱讀大型文字檔'}</strong><p>{size(state.info.sizeBytes)} · {path}</p>
-    <p>{state.phase === 'confirm' ? '以純文字模式閱讀，暫停語法高亮與折疊，降低記憶體使用。' : '每次讀取約 1 MiB。搜尋與複製僅包含目前區段。'}</p>
-    {state.phase === 'confirm' && <button onClick={() => retry({ confirmed: true })}>繼續開啟</button>}
-    <button onClick={() => retry({ start: 0 })}>分段閱讀</button><button onClick={cancel}>取消</button>
+    <strong>{state.phase === 'confirm' ? t('Open large text file') : t('Read large text file in sections')}</strong><p>{size(state.info.sizeBytes)} · {path}</p>
+    <p>{state.phase === 'confirm' ? t('Reads it as plain text without syntax highlighting or folding to save memory.') : t('Reads about 1 MiB at a time. Search and copy only cover the current section.')}</p>
+    {state.phase === 'confirm' && <button onClick={() => retry({ confirmed: true })}>{t('Open anyway')}</button>}
+    <button onClick={() => retry({ start: 0 })}>{t('Read in sections')}</button><button onClick={cancel}>{t('Cancel')}</button>
   </div>;
   if (state.phase === 'image') return <>{navigationNote && <p role="status" className="explorer-notice">{navigationNote}</p>}<FilePreviewBoundary key={`${path}:${state.info.version}`} path={path}>
     <ImageViewer path={path} {...state.image} format={state.image.sourceFormat} sizeBytes={state.info.sizeBytes} />
@@ -97,11 +98,11 @@ export function FileDocument({ projectId, path, searchRequest, position, onScrol
   const { value, info } = state;
   return <div className="file-document-content">
     {navigationNote && <p role="status" className="explorer-notice">{navigationNote}</p>}
-    {value.longestLine > 10000 && value.lightweight && <p className="explorer-notice" role="status">超長行僅繪製前 10,000 字元；選取與複製仍保留目前內容。</p>}
-    {value.partial && <div className="file-range-bar" role="group" aria-label="檔案閱讀區段">
-      <button disabled={pageStarts.current.length <= 1} onClick={() => { pageStarts.current.pop(); retry({ start: pageStarts.current.at(-1) ?? 0 }); }}>上一段</button>
+    {value.longestLine > 10000 && value.lightweight && <p className="explorer-notice" role="status">{t('Very long lines only draw their first 10,000 characters; selecting and copying still keep the full content.')}</p>}
+    {value.partial && <div className="file-range-bar" role="group" aria-label={t('File reading section')}>
+      <button disabled={pageStarts.current.length <= 1} onClick={() => { pageStarts.current.pop(); retry({ start: pageStarts.current.at(-1) ?? 0 }); }}>{t('Previous section')}</button>
       <span>bytes {value.start.toLocaleString()}–{value.end.toLocaleString()} / {info.sizeBytes.toLocaleString()}</span>
-      <button disabled={value.end >= info.sizeBytes} onClick={() => { pageStarts.current.push(value.end); retry({ start: value.end }); }}>下一段</button>
+      <button disabled={value.end >= info.sizeBytes} onClick={() => { pageStarts.current.push(value.end); retry({ start: value.end }); }}>{t('Next section')}</button>
     </div>}
     <FilePreviewBoundary key={`${path}:${info.version}:${value.start}`} path={path}>
       <ExplorerEditor path={path} text={value.text} sizeBytes={info.sizeBytes} searchRequest={searchRequest}

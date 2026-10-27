@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 export interface ImagePreview {
   blob: Blob;
   width: number;
@@ -12,7 +13,7 @@ const PNG = [137, 80, 78, 71, 13, 10, 26, 10];
 
 /** A bounded binary IPC envelope, never a JSON array or base64 copy of the image. */
 export function parseWorkspaceImage(buffer: ArrayBuffer): ImagePreview {
-  const invalid = () => new Error('無效的圖片預覽回應');
+  const invalid = () => new Error(t('Invalid image preview response'));
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 9 || buffer.byteLength > 8 + HEADER_LIMIT + PAYLOAD_LIMIT) throw invalid();
   const bytes = new Uint8Array(buffer);
   if (bytes[0] !== 83 || bytes[1] !== 66 || bytes[2] !== 73 || bytes[3] !== 49) throw invalid();

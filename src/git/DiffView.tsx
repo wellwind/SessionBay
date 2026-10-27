@@ -10,6 +10,7 @@ import type { SyntaxMap } from './diff-syntax';
 import type { Range } from './word-diff';
 import type { DiffSource, FileDiff, LineRef, RepoPath } from './types';
 import { sourceLabel } from './types';
+import { t } from '../i18n';
 
 export interface DiffPreferences { mode: 'inline' | 'split'; ignoreWhitespace: boolean }
 
@@ -59,9 +60,9 @@ function LineText({ cell, syntax, query }: { cell: Cell; syntax: SyntaxMap | nul
   const parts = segments(cell.data.text, cell.ranges, syntax?.get(cellKey(cell)), query);
   return <code className="git-line-text">
     {parts.map((part, index) => part.className ? <span key={index} className={part.className}>{part.text}</span> : <Fragment key={index}>{part.text}</Fragment>)}
-    {cell.data.crlf && <span className="git-eol" title="CRLF 行尾">␍</span>}
-    {cell.data.clipped && <span className="git-eol" title="此行過長，只顯示前段；暫存仍使用完整內容">…</span>}
-    {cell.data.noNewline && <span className="git-eol" title="檔案結尾沒有換行">⏎̸</span>}
+    {cell.data.crlf && <span className="git-eol" title={t('CRLF line ending')}>␍</span>}
+    {cell.data.clipped && <span className="git-eol" title={t('This line is too long, so only its start is shown; staging still uses the full line')}>…</span>}
+    {cell.data.noNewline && <span className="git-eol" title={t('No newline at end of file')}>⏎̸</span>}
   </code>;
 }
 
@@ -114,7 +115,7 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
     // Our own stage/unstage also changes the revision; only others are "external".
     const own = ownChange.current;
     ownChange.current = false;
-    void load(own ? undefined : '檔案或 index 已在外部變更，已重新載入；先前的選取已清除。');
+    void load(own ? undefined : t('The file or index changed outside Session Bay and was reloaded; the previous selection was cleared.'));
   }, [revision, load]);
   useEffect(() => {
     let cancelled = false;
@@ -171,7 +172,7 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
       : gitApi.unstageSelection(projectId, { repoId, path, snapshot: diff.snapshot, selection }));
   };
   const selectedLines = (): LineRef[] => [...selected].map(key => { const [hunk, line] = key.split(':').map(Number); return { hunk, line }; });
-  const wholeFile = () => void run(staging ? '已暫存整個檔案。' : '已取消暫存整個檔案。', () => staging
+  const wholeFile = () => void run(staging ? t('Staged the whole file.') : t('Unstaged the whole file.'), () => staging
     ? gitApi.stagePaths(projectId, repoId, [path])
     : gitApi.unstagePaths(projectId, repoId, oldPath ? [path, oldPath] : [path]));
 
@@ -181,17 +182,16 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
     setBlock(next);
     body.current?.querySelector<HTMLElement>(`[data-row="${blocks[next]}"]`)?.scrollIntoView({ block: 'center' });
   };
-  const verb = staging ? '暫存' : '取消暫存';
 
   const gutter = (cell: Cell | null) => {
     if (!cell) return <span className="git-gutter" />;
     const number = cell.data.kind === 'delete' ? cell.data.oldLine : cell.data.newLine ?? cell.data.oldLine;
     if (!selectable || cell.data.kind === 'context') return <span className="git-gutter"><span className="git-line-no">{number}</span></span>;
     const key = cellKey(cell);
-    const kindText = cell.data.kind === 'add' ? '新增' : '刪除';
+    const added = cell.data.kind === 'add';
     return <span className="git-gutter">
       <button role="checkbox" aria-checked={selected.has(key)} className="git-line-select"
-        aria-label={`選取${kindText}第 ${number} 行`} title={`選取此行以${verb}（Shift 連選）`} onClick={event => toggle(cell, event)}>
+        aria-label={added ? t('Select added line {{line}}', { line: number ?? '' }) : t('Select deleted line {{line}}', { line: number ?? '' })} title={staging ? t('Select this line to stage (Shift to select a range)') : t('Select this line to unstage (Shift to select a range)')} onClick={event => toggle(cell, event)}>
         <span className="git-line-no">{number}</span>
       </button>
     </span>;
@@ -202,8 +202,8 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
   const renderRow = (row: Row, index: number) => {
     if (row.type === 'hunk') return <div key={index} data-row={index} className="git-hunk-header">
       <code>{row.header}</code>
-      {selectable && <button disabled={busy} onClick={() => applySelection({ kind: 'hunks', hunks: [row.hunk] }, `已${verb}此區塊。`)}>
-        {staging ? <Plus size={13} aria-hidden="true" /> : <Minus size={13} aria-hidden="true" />}{verb}此區塊</button>}
+      {selectable && <button disabled={busy} onClick={() => applySelection({ kind: 'hunks', hunks: [row.hunk] }, staging ? t('Staged this hunk.') : t('Unstaged this hunk.'))}>
+        {staging ? <Plus size={13} aria-hidden="true" /> : <Minus size={13} aria-hidden="true" />}{staging ? t('Stage hunk') : t('Unstage hunk')}</button>}
     </div>;
     const current = blocks[block] === index ? ' current' : '';
     if (row.type === 'inline') return <div key={index} data-row={index} className={`${lineClass(row.cell)}${current}`}>
@@ -218,38 +218,38 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
   const matches = query ? rows.filter(row => row.type === 'inline' ? row.cell.data.text.toLowerCase().includes(query.toLowerCase())
     : row.type === 'split' && [row.left, row.right].some(cell => cell?.data.text.toLowerCase().includes(query.toLowerCase()))).length : 0;
 
-  return <div className="git-diff" aria-label={`${path.path} 的差異`}>
+  return <div className="git-diff" aria-label={t('Diff of {{path}}', { path: path.path })}>
     <div className="git-doc-toolbar">
       <span className="git-doc-title" title={`${repoName} · ${oldPath ? `${oldPath.path} → ` : ''}${path.path}`}>
-        <strong>{path.path}</strong>{oldPath && <span className="git-muted">（原 {oldPath.path}）</span>}
+        <strong>{path.path}</strong>{oldPath && <span className="git-muted">{t(' (was {{path}})', { path: oldPath.path })}</span>}
         <span className="git-muted"> · {repoName} · {sourceLabel(source)}</span>
       </span>
-      {onSource && !untracked && <span className="git-segmented" role="group" aria-label="比較來源">
-        {([['unstaged', '未暫存'], ['staged', '已暫存'], ['workingTree', '全部未提交']] as const).map(([kind, label]) =>
+      {onSource && !untracked && <span className="git-segmented" role="group" aria-label={t('Comparison source')}>
+        {([['unstaged', t('Unstaged')], ['staged', t('Staged')], ['workingTree', t('All uncommitted')]] as const).map(([kind, label]) =>
           <button key={kind} aria-pressed={source.kind === kind} onClick={() => onSource({ kind })}>{label}</button>)}
       </span>}
-      <span className="git-segmented" role="group" aria-label="顯示方式">
-        <button aria-pressed={preferences.mode === 'split'} title="並排" aria-label="並排檢視" onClick={() => onPreferences({ ...preferences, mode: 'split' })}><Columns2 size={14} /></button>
-        <button aria-pressed={preferences.mode === 'inline'} title="行內" aria-label="行內檢視" onClick={() => onPreferences({ ...preferences, mode: 'inline' })}><Rows3 size={14} /></button>
+      <span className="git-segmented" role="group" aria-label={t('Layout')}>
+        <button aria-pressed={preferences.mode === 'split'} title={t('Side by side')} aria-label={t('Side-by-side view')} onClick={() => onPreferences({ ...preferences, mode: 'split' })}><Columns2 size={14} /></button>
+        <button aria-pressed={preferences.mode === 'inline'} title={t('Inline')} aria-label={t('Inline view')} onClick={() => onPreferences({ ...preferences, mode: 'inline' })}><Rows3 size={14} /></button>
       </span>
       <label className="git-check"><input type="checkbox" checked={preferences.ignoreWhitespace}
-        onChange={event => onPreferences({ ...preferences, ignoreWhitespace: event.target.checked })} />忽略空白</label>
+        onChange={event => onPreferences({ ...preferences, ignoreWhitespace: event.target.checked })} />{t('Ignore whitespace')}</label>
       <label className="git-search"><Search size={13} aria-hidden="true" />
-        <input type="search" aria-label="搜尋 diff" placeholder="搜尋" value={query} onChange={event => setQuery(event.target.value)} />
-        {query && <span className="git-muted" aria-live="polite">{matches} 行</span>}
+        <input type="search" aria-label={t('Search diff')} placeholder={t('Search')} value={query} onChange={event => setQuery(event.target.value)} />
+        {query && <span className="git-muted" aria-live="polite">{t('{{count}} lines', { count: matches })}</span>}
       </label>
-      <button className="git-icon-button" aria-label="上一個變更" title="上一個變更 (Alt+↑)" disabled={!blocks.length} onClick={() => jump(-1)}><ChevronUp size={15} /></button>
-      <button className="git-icon-button" aria-label="下一個變更" title="下一個變更 (Alt+↓)" disabled={!blocks.length} onClick={() => jump(1)}><ChevronDown size={15} /></button>
+      <button className="git-icon-button" aria-label={t('Previous change')} title={t('Previous change (Alt+↑)')} disabled={!blocks.length} onClick={() => jump(-1)}><ChevronUp size={15} /></button>
+      <button className="git-icon-button" aria-label={t('Next change')} title={t('Next change (Alt+↓)')} disabled={!blocks.length} onClick={() => jump(1)}><ChevronDown size={15} /></button>
       {actions}
     </div>
     {stageable && diff && <div className="git-stage-bar">
       {selectable ? <>
-        <button className="primary" disabled={busy || !selected.size} onClick={() => applySelection({ kind: 'lines', lines: selectedLines() }, `已${verb}所選 ${selected.size} 行。`)}>
-          {verb}所選{selected.size ? ` ${selected.size} 行` : '行'}</button>
-        {selected.size > 0 && <button disabled={busy} onClick={() => { setSelected(new Set()); anchor.current = null; }}>清除選取</button>}
+        <button className="primary" disabled={busy || !selected.size} onClick={() => applySelection({ kind: 'lines', lines: selectedLines() }, staging ? t('Staged {{count}} selected lines.', { count: selected.size }) : t('Unstaged {{count}} selected lines.', { count: selected.size }))}>
+          {staging ? (selected.size ? t('Stage {{count}} selected lines', { count: selected.size }) : t('Stage selected lines')) : (selected.size ? t('Unstage {{count}} selected lines', { count: selected.size }) : t('Unstage selected lines'))}</button>
+        {selected.size > 0 && <button disabled={busy} onClick={() => { setSelected(new Set()); anchor.current = null; }}>{t('Clear selection')}</button>}
       </> : diff.partialBlocked && <span className="git-muted">{diff.partialBlocked}</span>}
-      <button disabled={busy} onClick={wholeFile}>{verb}整個檔案</button>
-      {busy && <LoaderCircle className="spin" size={14} aria-label="處理中" />}
+      <button disabled={busy} onClick={wholeFile}>{staging ? t('Stage whole file') : t('Unstage whole file')}</button>
+      {busy && <LoaderCircle className="spin" size={14} aria-label={t('Working…')} />}
     </div>}
     {notice && <p className={notice.tone === 'success' ? 'git-success' : 'git-error'} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}</p>}
     {error && <p className="git-error" role="alert">{error}</p>}
@@ -257,19 +257,19 @@ export function DiffView({ projectId, repoId, repoName, path, oldPath, source, u
       onKeyDown={event => {
         if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) { event.preventDefault(); jump(event.key === 'ArrowDown' ? 1 : -1); }
       }}>
-      {loading && !diff && <p className="git-muted" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> 讀取差異…</p>}
+      {loading && !diff && <p className="git-muted" role="status"><LoaderCircle className="spin" size={14} aria-hidden="true" /> {t('Loading diff…')}</p>}
       {diff && <>
-        {(diff.oldMode && diff.newMode && diff.oldMode !== diff.newMode) && <p className="git-meta-line">檔案模式 {diff.oldMode} → {diff.newMode}</p>}
-        {diff.newFile && <p className="git-meta-line">新增檔案{diff.newMode ? `（${diff.newMode}）` : ''}</p>}
-        {diff.deletedFile && <p className="git-meta-line">刪除檔案</p>}
-        {diff.binary && <p className="git-meta-line">非文字檔案已變更；Session Bay 不顯示非文字內容差異。</p>}
-        {diff.submodule && <p className="git-meta-line">子模組指標變更。</p>}
-        {diff.tooLarge && <p className="git-notice" role="status">差異超過檢視上限，沒有載入內容。</p>}
-        {diff.truncated && <p className="git-notice" role="status">差異過長，只顯示前段；部分行操作已停用。</p>}
-        {diff.unsupportedEncoding && <p className="git-notice" role="status">檔案含非 UTF-8 內容，以替代字元顯示。</p>}
+        {(diff.oldMode && diff.newMode && diff.oldMode !== diff.newMode) && <p className="git-meta-line">{t('File mode {{from}} → {{to}}', { from: diff.oldMode, to: diff.newMode })}</p>}
+        {diff.newFile && <p className="git-meta-line">{t('New file')}{diff.newMode ? t(' ({{mode}})', { mode: diff.newMode }) : ''}</p>}
+        {diff.deletedFile && <p className="git-meta-line">{t('Deleted file')}</p>}
+        {diff.binary && <p className="git-meta-line">{t('A non-text file changed; Session Bay does not show diffs of non-text content.')}</p>}
+        {diff.submodule && <p className="git-meta-line">{t('Submodule pointer changed.')}</p>}
+        {diff.tooLarge && <p className="git-notice" role="status">{t('The diff exceeds the viewing limit, so its content was not loaded.')}</p>}
+        {diff.truncated && <p className="git-notice" role="status">{t('The diff is too long, so only the start is shown; some line actions are disabled.')}</p>}
+        {diff.unsupportedEncoding && <p className="git-notice" role="status">{t('The file has non-UTF-8 content, shown with replacement characters.')}</p>}
         {!diff.hunks.length && !diff.binary && !diff.tooLarge && !diff.submodule && !(diff.oldMode !== diff.newMode) && !diff.newFile && !diff.deletedFile &&
-          <p className="git-muted" role="status">此比較來源沒有文字變更。</p>}
-        <div className="git-diff-rows" role="group" aria-label="差異內容">{rows.map(renderRow)}</div>
+          <p className="git-muted" role="status">{t('No text changes for this comparison.')}</p>}
+        <div className="git-diff-rows" role="group" aria-label={t('Diff content')}>{rows.map(renderRow)}</div>
       </>}
     </div>
   </div>;

@@ -1,4 +1,5 @@
 import type { Pane } from './types';
+import { t } from './i18n';
 
 export const fileLimits = { perFile: 10 * 1024 * 1024, total: 20 * 1024 * 1024, count: 4, chunk: 64 * 1024 };
 export type FileProvider = 'codex' | 'claude' | 'grok' | 'opencode';
@@ -7,8 +8,8 @@ export function fileProvider(kind: string): FileProvider | null {
 }
 export function fileUnsupportedReason(kind: string): string {
   return kind === 'antigravity'
-    ? 'Antigravity 的檔案路徑輸入尚未驗證，請在原生 CLI 加入檔案。'
-    : '檔案輸入僅支援本機 Codex、Claude Code、Grok Build 與 OpenCode；Shell、SSH／WSL 包裝程式尚未支援。';
+    ? t('File path input is not verified for Antigravity yet; add files in the native CLI instead.')
+    : t('File input only supports local Codex, Claude Code, Grok Build and OpenCode; shells and SSH / WSL wrappers are not supported yet.');
 }
 /** xterm emits an intact bracketed paste as one event; its newlines are prompt text.
  * Split/nested frames and nonstandard key bindings cannot be inferred reliably. */
@@ -28,13 +29,13 @@ export interface FileInputApi {
   discardFile: (runtimeId: string, id: string) => Promise<void>;
 }
 export function validateFiles(files: readonly File[]): void {
-  if (!files.length || files.length > fileLimits.count) throw new Error('請選擇 1 至 4 個檔案。');
+  if (!files.length || files.length > fileLimits.count) throw new Error(t('Choose 1 to 4 files.'));
   let total = 0;
   for (const file of files) {
-    if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > fileLimits.perFile) throw new Error('每個檔案最多 10 MiB（支援空檔案）。');
+    if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > fileLimits.perFile) throw new Error(t('Each file can be at most 10 MiB (empty files are fine).'));
     total += file.size;
   }
-  if (total > fileLimits.total) throw new Error('一次加入的檔案合計不得超過 20 MiB。');
+  if (total > fileLimits.total) throw new Error(t('Files added at once cannot exceed 20 MiB in total.'));
 }
 
 /** Native paste candidates are hints, not validation or a delivery receipt.
@@ -56,25 +57,25 @@ export function filePasteMode(provider: FileProvider, path: string): 'image' | '
 export function fileInputGuidance(provider: FileProvider, names: readonly string[]): string {
   const modes = new Set(names.map((name) => filePasteMode(provider, name)));
   const native = modes.has('image') || modes.has('document');
-  if (native && (modes.has('reference') || modes.has('svg-text'))) return '請確認圖片／PDF 附件標記；其他檔案請要求 Agent 讀取路徑。';
-  if (native) return '請在 Agent 確認附件標記後送出。';
-  return '目前為路徑參照，請補充讀取要求後送出。';
+  if (native && (modes.has('reference') || modes.has('svg-text'))) return t('Check the image / PDF attachment markers; for other files, ask the agent to read the path.');
+  if (native) return t('Send once the agent shows the attachment markers.');
+  return t('These are path references; add a request to read them, then send.');
 }
 
 /** One complete path per paste; no caption or Enter is mixed into native detection. */
 export function filePasteText(provider: FileProvider, path: string): string {
   // eslint-disable-next-line no-control-regex -- Reject terminal control bytes before insertion.
-  if (!path || /[\x00-\x1f\x7f'"`$;|&<>()]/.test(path)) throw new Error('檔案路徑含不安全字元。');
+  if (!path || /[\x00-\x1f\x7f'"`$;|&<>()]/.test(path)) throw new Error(t('The file path contains unsafe characters.'));
   // Reject device/UNC namespaces, including canonical Win32 extended paths except a local drive.
   const local = path.replace(/^\\\\\?\\([A-Za-z]:\\)/, '$1');
   const windows = /^[A-Za-z]:[\\/]/.test(local);
-  if (!windows && !local.startsWith('/')) throw new Error('檔案路徑必須是本機絕對路徑。');
-  if (local.startsWith('//') || local.startsWith('\\')) throw new Error('網路檔案路徑尚未支援。');
-  if (new TextEncoder().encode(local).length > 512) throw new Error('檔案暫存路徑過長。');
+  if (!windows && !local.startsWith('/')) throw new Error(t('The file path must be a local absolute path.'));
+  if (local.startsWith('//') || local.startsWith('\\')) throw new Error(t('Network file paths are not supported yet.'));
+  if (new TextEncoder().encode(local).length > 512) throw new Error(t('The temporary file path is too long.'));
   if (provider === 'claude' || (provider !== 'grok' && filePasteMode(provider, local) === 'reference')) return `"${local}" `;
   const slashPath = windows ? `/${local.replaceAll('\\', '/')}` : local;
   const encoded = slashPath.split('/').map((part, index) => windows && index === 1 ? part : encodeURIComponent(part)).join('/');
-  if (encoded.length > 512) throw new Error('檔案暫存路徑編碼後過長。');
+  if (encoded.length > 512) throw new Error(t('The temporary file path is too long once encoded.'));
   return `file://${encoded} `;
 }
 
@@ -130,7 +131,7 @@ export async function insertFiles(options: {
   let failure: unknown;
   let inserted = 0;
   let pasteAttempted = false;
-  const check = () => { if (!options.isCurrent()) throw new Error('檔案輸入已取消：目標面板、連線或目前輸入已變更。'); };
+  const check = () => { if (!options.isCurrent()) throw new Error(t('File input was cancelled: the target pane, connection or current input changed.')); };
   try {
     // Verify the whole batch before inserting any file. Each read/IPC is bounded and ordered.
     for (const file of options.files) {
@@ -145,7 +146,7 @@ export async function insertFiles(options: {
       }
       const result = await options.api.finishFile(options.runtimeId, pending);
       check();
-      if (result.id !== pending) throw new Error('檔案暫存識別不符。');
+      if (result.id !== pending) throw new Error(t('The temporary file ID does not match.'));
       filePasteText(provider, result.path); // Validate before retaining anything.
       if (result.originalName !== result.name) options.onRenamed?.(result.originalName, result.name);
       staged.push({ ...result, retainAttempted: false });
@@ -167,7 +168,7 @@ export async function insertFiles(options: {
     const unused = [...staged.filter((file) => !file.retainAttempted).map((file) => file.id), ...(pending ? [pending] : [])];
     const cleanup = await Promise.allSettled(unused.map((id) => options.api.discardFile(options.runtimeId, id)));
     if (cleanup.some((result) => result.status === 'rejected')) {
-      failure = new Error('未插入的檔案暫存清理失敗，請重新開啟應用程式後檢查暫存空間。');
+      failure = new Error(t('Could not clean up temporary files that were not inserted. Reopen the app and check the temporary storage.'));
     }
   }
   if (failure) throw new FileInputError(failure instanceof Error ? failure.message : String(failure), inserted > 0 || pasteAttempted);

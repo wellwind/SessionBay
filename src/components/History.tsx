@@ -24,6 +24,7 @@ import type { AgentKind, Project, Session, TranscriptPage, TrashedSession } from
 import { OsTrashReview } from './OsTrashReview';
 import { useSessionFeed } from '../use-session-feed';
 import { VirtualSessionList } from './VirtualSessionList';
+import { locale, t } from '../i18n';
 export const agentName = (kind: AgentKind) => agentNames[kind];
 function mergeWarnings(previous: string | null | undefined, next: string | null): string | null {
   if (!previous) return next;
@@ -32,16 +33,16 @@ function mergeWarnings(previous: string | null | undefined, next: string | null)
   return `${previous}\n${next}`;
 }
 export function dateLabel(value: string | null): string {
-  if (!value) return '尚無活動';
+  if (!value) return t('No activity yet');
   const date = new Date(value);
   return Number.isFinite(date.getTime())
-    ? new Intl.DateTimeFormat('zh-TW', {
+    ? new Intl.DateTimeFormat(locale(), {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
       }).format(date)
-    : '時間未知';
+    : t('Time unknown');
 }
 interface Filters {
   oldestFirst: boolean;
@@ -309,28 +310,28 @@ export function HistoryView({
     filters.children;
   const selectedProject = projects.find((project) => project.id === selected?.projectId);
   const controls = <>
-      {(undoId || (trashError && !trashTarget)) && createPortal(<div className="toast history-undo" aria-label="歷史刪除通知" inert={!!trashTarget}>
+      {(undoId || (trashError && !trashTarget)) && createPortal(<div className="toast history-undo" aria-label={t('History deletion notice')} inert={!!trashTarget}>
         <div className="history-undo-message" role="status" aria-live="polite" aria-atomic="true">
-          {undoId && <><p>已移入資源回收筒：{undoQueue[0].title}</p>
-            {undoQueue.length > 1 && <small>還有 {undoQueue.length - 1} 筆可依序復原。</small>}</>}
+          {undoId && <><p>{t('Moved to the recycle bin: {{title}}', { title: undoQueue[0].title })}</p>
+            {undoQueue.length > 1 && <small>{t('{{count}} more can be undone in order.', { count: undoQueue.length - 1 })}</small>}</>}
           {trashError && !trashTarget && <p role="alert">{trashError}</p>}
         </div>
         <div className="history-undo-actions">
-          {undoId && <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>復原刪除</button>}
-          <button className="icon-button" aria-label="關閉復原提示" disabled={trashBusy} onClick={() => { if (!hasBlockingDialog()) { dismissUndo(); setTrashError(''); } }}><X size={15} /></button>
+          {undoId && <button ref={undoButton} disabled={trashBusy} onClick={() => void undoTrash()}>{t('Undo delete')}</button>}
+          <button className="icon-button" aria-label={t('Close undo notice')} disabled={trashBusy} onClick={() => { if (!hasBlockingDialog()) { dismissUndo(); setTrashError(''); } }}><X size={15} /></button>
         </div>
       </div>, document.body)}
-      {trashTarget && <Dialog title="移入資源回收筒？" onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
-        <p>「{trashTarget.title || trashTarget.externalId}」將從 Session Bay 歷史與搜尋隱藏，之後可從資源回收筒還原。</p>
-        <p>原始 Agent 歷史會保留，執行中的工作會繼續。要連 Agent 的檔案一起刪除，選「移到系統垃圾桶…」，確認檔案清單後才會搬移。</p>
+      {trashTarget && <Dialog title={t('Move to the recycle bin?')} onClose={() => { if (!trashLock.current) setTrashTarget(null); }}>
+        <p>{t('"{{title}}" will be hidden from Session Bay history and search; you can restore it from the recycle bin later.', { title: trashTarget.title || trashTarget.externalId })}</p>
+        <p>{t('The original agent history is kept and running work continues. To delete the agent\'s files too, choose "Move to system trash…"; nothing moves until you confirm the file list.')}</p>
         {trashError && <p className="inline-error" role="alert">{trashError}</p>}
         <div className="dialog-actions">
-          <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>取消</button>
-          <button className="danger" disabled={trashBusy} onClick={() => void moveToTrash(true)}>移到系統垃圾桶…</button>
-          <button data-dialog-confirm className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>確認移入資源回收筒</button>
+          <button disabled={trashBusy} onClick={() => setTrashTarget(null)}>{t('Cancel')}</button>
+          <button className="danger" disabled={trashBusy} onClick={() => void moveToTrash(true)}>{t('Move to system trash…')}</button>
+          <button data-dialog-confirm className="primary" disabled={trashBusy} onClick={() => void moveToTrash()}>{t('Move to recycle bin')}</button>
         </div>
       </Dialog>}
-      {osReview && <Dialog title="移到系統垃圾桶" wide onClose={leaveOsReview}>
+      {osReview && <Dialog title={t('Move to system trash')} wide onClose={leaveOsReview}>
         <OsTrashReview entry={osReview} onClose={leaveOsReview} onMoved={async () => { setOsReview(null); setHistoryRevision((value) => value + 1); await onHistoryChanged?.(); }} />
       </Dialog>}
       <div className="history-controls">
@@ -338,20 +339,20 @@ export function HistoryView({
           <Search size={17} />
           <input
             id="session-search"
-            placeholder="搜尋對話、程式碼或想法…"
-            aria-label="搜尋 Session"
+            placeholder={t('Search conversations, code or ideas…')}
+            aria-label={t('Search sessions')}
             value={filters.query}
             onChange={(event) => change({ query: event.target.value })}
           />
           {filters.query && (
-            <button aria-label="清除搜尋" onClick={() => change({ query: '' })}>
+            <button aria-label={t('Clear search')} onClick={() => change({ query: '' })}>
               <X size={14} />
             </button>
           )}
         </div>
-        <Select aria-label="篩選 Agent" className="history-agent-filter" value={filters.kind}
+        <Select aria-label={t('Filter by agent')} className="history-agent-filter" value={filters.kind}
           onChange={(kind) => change({ kind: kind as '' | AgentKind })}
-          options={[{ value: '', label: '所有 Agent' }, ...historyAgentKinds.map((kind) => ({
+          options={[{ value: '', label: t('All agents') }, ...historyAgentKinds.map((kind) => ({
             value: kind, label: agentNames[kind], icon: <AgentIcon kind={kind} />,
           }))]} />
         <button
@@ -359,12 +360,12 @@ export function HistoryView({
           onClick={() => setMoreFilters(!moreFilters)}
         >
           <Filter size={15} />
-          篩選{filtered && <span className="tiny-dot" />}
+          {t('Filter')}{filtered && <span className="tiny-dot" />}
         </button>
         <button
           className="icon-button"
-          title={previewOpen ? '收合預覽' : '顯示預覽'}
-          aria-label={previewOpen ? '收合預覽' : '顯示預覽'}
+          title={previewOpen ? t('Hide preview') : t('Show preview')}
+          aria-label={previewOpen ? t('Hide preview') : t('Show preview')}
           onClick={() => { setPreviewOpen(!previewOpen); if (!previewOpen) onSelectSession?.(); }}
         >
           <FileText size={17} />
@@ -372,75 +373,75 @@ export function HistoryView({
       </div>
       {moreFilters && (
         <div className="filter-bar">
-          <Select aria-label="Session 排序" value={filters.oldestFirst ? 'oldest' : 'latest'}
+          <Select aria-label={t('Session order')} value={filters.oldestFirst ? 'oldest' : 'latest'}
             onChange={value => change({ oldestFirst: value === 'oldest' })}
-            options={[{ value: 'latest', label: '最新活動優先' }, { value: 'oldest', label: '最早活動優先' }]} />
+            options={[{ value: 'latest', label: t('Most recent first') }, { value: 'oldest', label: t('Oldest first') }]} />
           <label>
-            從
-            <DatePicker key={`${key}-after`} resetKey={dateReset} aria-label="開始日期" value={filters.after}
+            {t('From')}
+            <DatePicker key={`${key}-after`} resetKey={dateReset} aria-label={t('Start date')} value={filters.after}
               onChange={(after) => change({ after })} />
           </label>
           <label>
-            至
-            <DatePicker key={`${key}-before`} resetKey={dateReset} aria-label="結束日期" value={filters.before}
+            {t('To')}
+            <DatePicker key={`${key}-before`} resetKey={dateReset} aria-label={t('End date')} value={filters.before}
               onChange={(before) => change({ before })} />
           </label>
-          <Select aria-label="封存狀態" className="history-archive-filter" value={filters.archived}
+          <Select aria-label={t('Archive status')} className="history-archive-filter" value={filters.archived}
             onChange={(archived) => change({ archived: archived as Filters['archived'] })}
-            options={[{ value: 'active', label: '未封存' }, { value: 'all', label: '包含封存' },
-              { value: 'archived', label: '僅封存' }]} />
+            options={[{ value: 'active', label: t('Not archived') }, { value: 'all', label: t('Include archived') },
+              { value: 'archived', label: t('Archived only') }]} />
           <label className="checkbox-label">
             <input
               type="checkbox" className="checkbox"
               checked={filters.children}
               onChange={(event) => change({ children: event.target.checked })}
             />
-            包含子代理與分支
+            {t('Include subagents and branches')}
           </label>
-          {filtered && <button onClick={() => { change(initialFilters); setDateReset((value) => value + 1); }}>重設篩選</button>}
+          {filtered && <button onClick={() => { change(initialFilters); setDateReset((value) => value + 1); }}>{t('Reset filters')}</button>}
         </div>
       )}
       <div className="history-caption">
-        <span>{loading ? '搜尋中…' : `${page.total} 個 Session`}</span>
+        <span>{loading ? t('Searching…') : t('{{count}} sessions', { count: page.total })}</span>
       </div>
     </>;
   const sessionList = <div className="session-column">
           {error && !page.items.length ? (
             <div className="empty-state">
               <FileText size={32} />
-              <h3>暫時無法讀取歷史</h3>
+              <h3>{t('History cannot be read right now')}</h3>
               <p role="alert">{error}</p>
-              <button onClick={page.retry}>重試載入</button>
+              <button onClick={page.retry}>{t('Retry loading')}</button>
             </div>
           ) : loading && !page.items.length ? (
             <div className="empty-state">
               <LoaderCircle className="spin" size={28} />
-              <p>正在讀取本機索引…</p>
+              <p>{t('Reading the local index…')}</p>
             </div>
           ) : !page.items.length ? (
             <div className="empty-state">
               <div className="empty-icon">
                 <HistoryIcon size={30} />
               </div>
-              <h3>{filtered ? '沒有符合條件的對話' : '把工作接續起來'}</h3>
+              <h3>{filtered ? t('No matching conversations') : t('Pick up where you left off')}</h3>
               <p>
                 {filtered
-                  ? '試試較短關鍵字、放寬日期或顯示封存對話。'
-                  : `這裡會整理 ${historyAgentKinds.map((kind) => agentNames[kind]).join('、')} 的本機歷史。你也可以直接開始新的工作。`}
+                  ? t('Try a shorter keyword, a wider date range or include archived conversations.')
+                  : t('Local history from {{agents}} shows up here. You can also start new work right away.', { agents: historyAgentKinds.map((kind) => agentNames[kind]).join(t(', ')) })}
               </p>
               {filtered ? (
                 <button className="secondary" onClick={() => change(initialFilters)}>
-                  清除篩選
+                  {t('Clear filters')}
                 </button>
               ) : (
                 <button className="primary" disabled={disabled} onClick={onNew}>
-                  開始新工作
+                  {t('Start new work')}
                   <ArrowRight size={15} />
                 </button>
               )}
             </div>
           ) : (
-            <VirtualSessionList key={feedKey} items={page.items} total={page.total} label="Session 清單"
+            <VirtualSessionList key={feedKey} items={page.items} total={page.total} label={t('Session list')}
               className="session-list" rowHeight={176} scrollMemory={scrollMemory}
               loading={loading} done={page.done} error={error} loadMore={page.loadMore} retry={page.retry}
               renderRow={(session) => (
@@ -459,22 +460,22 @@ export function HistoryView({
                     </div>
                     <h3>{session.title || session.externalId.slice(0, 12)}</h3>
                     <p className="session-snippet">
-                      {session.snippet || '開啟預覽，查看最近的對話脈絡。'}
+                      {session.snippet || t('Open the preview to see the latest conversation.')}
                     </p>
                     <div className="session-card-meta">
                       <span title={session.cwd ?? ''}>
-                        {session.cwd || projects.find((p) => p.id === session.projectId)?.launchPath || '工作目錄未知'}
+                        {session.cwd || projects.find((p) => p.id === session.projectId)?.launchPath || t('Unknown working directory')}
                       </span>
                       <span>
-                        {session.archived && '封存 '}
-                        {session.partial && '解析不完整 '}
-                        {session.parentId && '子代理／分支 '}
-                        {session.timeSource === 'mtime' && '檔案時間'}
+                        {session.archived && t('Archived ')}
+                        {session.partial && t('Partially parsed ')}
+                        {session.parentId && t('Subagent / branch ')}
+                        {session.timeSource === 'mtime' && t('File time')}
                       </span>
                     </div>
                   </button>
-                  <button className="icon-button session-card-delete" aria-label={`刪除 Session ${session.title || session.externalId}`}
-                    title="移入資源回收筒" disabled={disabled || trashBusy || !session.trashIdentity}
+                  <button className="icon-button session-card-delete" aria-label={t('Delete session {{title}}', { title: session.title || session.externalId })}
+                    title={t('Move to the recycle bin')} disabled={disabled || trashBusy || !session.trashIdentity}
                     onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(session); }}>
                     <Trash2 size={16} />
                   </button>
@@ -484,16 +485,16 @@ export function HistoryView({
 
         </div>;
   const preview = previewOpen && (
-          <section className="transcript-column" aria-label="對話預覽">
+          <section className="transcript-column" aria-label={t('Conversation preview')}>
             {selected ? (
               <>
                 <header className="transcript-header">
                   <div className="transcript-heading">
-                    <span className="eyebrow">對話預覽</span>
+                    <span className="eyebrow">{t('Conversation preview')}</span>
                     <h3>{selected.title || selected.externalId}</h3>
                   </div>
                   <div className="transcript-actions">
-                    <button className="icon-button" aria-label="刪除 Session" title="移入資源回收筒，可還原"
+                    <button className="icon-button" aria-label={t('Delete session')} title={t('Move to recycle bin (can be restored)')}
                       disabled={disabled || trashBusy || !selected.trashIdentity} onClick={event => { trashTrigger.current = event.currentTarget; event.currentTarget.focus(); setTrashError(''); setTrashTarget(selected); }}><Trash2 size={17} /></button>
                     <button
                       className="primary"
@@ -501,7 +502,7 @@ export function HistoryView({
                       aria-describedby={selected.resumeDisabledReason ? resumeReasonId : undefined}
                       onClick={() => { if (!selected.resumeDisabledReason) onResume(selected); }}
                     >
-                      接續工作
+                      {t('Resume work')}
                       <ArrowRight size={15} />
                     </button>
                   </div>
@@ -515,46 +516,46 @@ export function HistoryView({
                   <span className={`agent-badge ${selected.kind}`}>{agentName(selected.kind)}</span>
                   <span>
                     <Clock3 size={12} />
-                    {selected.timeSource === 'mtime' ? '檔案修改時間' : '對話活動'} ·{' '}
+                    {selected.timeSource === 'mtime' ? t('File modified') : t('Conversation activity')} ·{' '}
                     {dateLabel(selected.updatedAt)}
                   </span>
                 </div>
                 <div className="transcript-source">
-                  來源 {selected.sourceId} · Session {selected.externalId}
+                  {t('Source {{root}}', { root: selected.sourceId })} · Session {selected.externalId}
                   <br />
-                  {selected.cwd || '未記錄工作目錄'}
+                  {selected.cwd || t('No working directory recorded')}
                   {selectedProject?.launchPath && (
                     <>
                       <br />
-                      接續目錄（已重新定位）：{selectedProject.launchPath}
+                      {t('Resume folder (relocated): {{path}}', { path: selectedProject.launchPath })}
                     </>
                   )}
                   {selected.parentId && (
                     <>
                       <br />
-                      分支來源 {selected.parentId}
+                      {t('Branched from {{id}}', { id: selected.parentId })}
                     </>
                   )}
                 </div>
                 {onCurate && selectedProject && (
                   <div className="history-project-action">
-                    {selectedProject.curated ? <span>已加入專案：{selectedProject.name}</span> :
+                    {selectedProject.curated ? <span>{t('In projects: {{name}}', { name: selectedProject.name })}</span> :
                       <button className="secondary" disabled={disabled || curating} onClick={() => onCurate(selected)}>
-                        <FolderPlus size={14} />{selectedProject.path || selectedProject.launchPath ? '將此目錄加入專案' : '選擇目錄並加入專案'}
+                        <FolderPlus size={14} />{selectedProject.path || selectedProject.launchPath ? t('Add this folder to projects') : t('Choose a folder and add it to projects')}
                       </button>}
                   </div>
                 )}
                 {(transcript?.stale || transcript?.warning || selected.partial) && (
                   <div className="inline-warning">
                     <div>
-                      {transcript?.stale && <div>來源已變更，索引可能尚未更新。</div>}
+                      {transcript?.stale && <div>{t('The source changed; the index may not be updated yet.')}</div>}
                       {transcript?.warning && <div>{transcript.warning}</div>}
-                      {selected.partial && !transcript?.warning && <div>部分事件無法解析，可讀內容仍會顯示。</div>}
+                      {selected.partial && !transcript?.warning && <div>{t('Some events could not be parsed; the readable content is still shown.')}</div>}
                     </div>
                     {transcript?.stale && (
                       <button onClick={() => setPreviewRefresh((value) => value + 1)}>
                         <RefreshCw size={13} />
-                        重新讀取
+                        {t('Read again')}
                       </button>
                     )}
                   </div>
@@ -566,19 +567,19 @@ export function HistoryView({
                       disabled={previewLoading}
                       onClick={() => void earlier()}
                     >
-                      {previewLoading ? '讀取中…' : '載入更早的對話'}
+                      {previewLoading ? t('Loading…') : t('Load earlier messages')}
                     </button>
                   )}
                   {previewError && (
                     <div className="inline-warning" role="alert">
                       {previewError}
-                      <button onClick={() => setPreviewRefresh((value) => value + 1)}>重試</button>
+                      <button onClick={() => setPreviewRefresh((value) => value + 1)}>{t('Retry')}</button>
                     </div>
                   )}
                   {previewLoading && !transcript && (
                     <div className="empty-state">
                       <LoaderCircle className="spin" size={22} />
-                      <p>讀取對話…</p>
+                      <p>{t('Loading conversation…')}</p>
                     </div>
                   )}
                   {transcript?.messages.map((message, index) => (
@@ -589,18 +590,18 @@ export function HistoryView({
                       <div className="message-heading">
                         <span className={`message-avatar ${message.role === 'user' ? 'user' : ''}`}>
                           {message.role === 'user'
-                            ? '你'
+                            ? t('You')
                             : message.role === 'assistant'
                               ? 'AI'
                               : '·'}
                         </span>
                         <strong>
                           {message.role === 'user'
-                            ? '使用者'
+                            ? t('User')
                             : message.role === 'assistant'
                               ? agentName(selected.kind)
                               : message.role === 'tool'
-                                ? '工具'
+                                ? t('Tool')
                                 : message.role}
                         </strong>
                         {message.timestamp && <time>{dateLabel(message.timestamp)}</time>}
@@ -611,7 +612,7 @@ export function HistoryView({
                   {transcript && !transcript.messages.length && (
                     <div className="empty-state">
                       <FileText size={24} />
-                      <p>目前沒有可預覽的文字內容。附件或不支援的事件可能不包含文字。</p>
+                      <p>{t('There is no text to preview. Attachments and unsupported events may have no text.')}</p>
                     </div>
                   )}
                 </div>
@@ -619,8 +620,8 @@ export function HistoryView({
             ) : (
               <div className="empty-state">
                 <FileText size={30} />
-                <h3>留住工作的脈絡</h3>
-                <p>選取 Session，從最近的對話繼續。</p>
+                <h3>{t('Keep the context of your work')}</h3>
+                <p>{t('Choose a session to continue from its latest conversation.')}</p>
               </div>
             )}
           </section>

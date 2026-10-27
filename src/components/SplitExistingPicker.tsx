@@ -6,6 +6,7 @@ import { paneRuntimeStatusText } from '../pane-runtime-status';
 import type { Pane, Project, Session, Workspace } from '../types';
 import { paneIds } from '../workspace';
 import { useRuntimeActivity } from './RuntimeActivity';
+import { locale, t } from '../i18n';
 
 const SESSION_LIMIT = 20;
 const noopSubscribe = () => () => {};
@@ -55,23 +56,23 @@ export function SplitExistingPicker({ workspace, targetPaneId, projects, badge, 
     return () => { cancelled = true; clearTimeout(timer); };
   }, [query]);
   const openSessionIds = new Set(Object.values(workspace.panes).flatMap((pane) => pane.sessionId ? [pane.sessionId] : []));
-  const projectName = (id: string) => projects.find((project) => project.id === id)?.name ?? '未知專案';
+  const projectName = (id: string) => projects.find((project) => project.id === id)?.name ?? t('Unknown project');
 
   return <div className="split-existing">
-    <label className="field-label">搜尋
+    <label className="field-label">{t('Search')}
       <span className="split-existing-search"><Search size={14} aria-hidden="true" />
-        <input type="search" value={query} placeholder="專案、標題、Agent 或路徑"
-          aria-label="搜尋既有工作與 Session" onChange={(event) => setQuery(event.target.value)} autoFocus /></span>
+        <input type="search" value={query} placeholder={t('Project, title, agent or path')}
+          aria-label={t('Search open work and sessions')} onChange={(event) => setQuery(event.target.value)} autoFocus /></span>
     </label>
     <section aria-labelledby="split-existing-open">
-      <h3 id="split-existing-open"><TerminalSquare size={14} aria-hidden="true" />開啟中的工作<small>移入，不重新啟動</small></h3>
-      {shownPanes.length === 0 ? <p className="small-muted">{panes.length ? '沒有符合的工作。' : '其他分頁沒有開啟中的工作。'}</p> :
+      <h3 id="split-existing-open"><TerminalSquare size={14} aria-hidden="true" />{t('Open work')}<small>{t('Moved in, not restarted')}</small></h3>
+      {shownPanes.length === 0 ? <p className="small-muted">{panes.length ? t('No matching work.') : t('No open work in other tabs.')}</p> :
         <ul className="split-existing-list">{shownPanes.map((pane) => {
           const item = badge(pane.projectId);
           const index = panes.indexOf(pane);
-          const status = paneRuntimeStatusText(pane, false, observed.split('\u0001')[index]?.split('|')[0] ?? '') || '已開啟';
+          const status = paneRuntimeStatusText(pane, false, observed.split('\u0001')[index]?.split('|')[0] ?? '') || t('Open');
           return <li key={pane.id}><button type="button" onClick={() => onPickPane(pane.id)}
-            aria-label={`移入 ${item.name} · ${pane.title}，${status}`}>
+            aria-label={t('Move in {{name}} · {{title}}, {{status}}', { name: item.name, title: pane.title, status })}>
             <span className="project-initials" style={{ ['--pane-project' as string]: item.color }} aria-hidden="true">{item.initials}</span>
             <span className="split-existing-main"><strong>{pane.title}</strong>
               <span>{item.name} · {pane.kind === 'shell' ? 'Shell' : agentNames[pane.kind]}</span></span>
@@ -80,20 +81,20 @@ export function SplitExistingPicker({ workspace, targetPaneId, projects, badge, 
         })}</ul>}
     </section>
     <section aria-labelledby="split-existing-history" aria-busy={loading}>
-      <h3 id="split-existing-history"><History size={14} aria-hidden="true" />Session 歷史<small>在分割中接續</small></h3>
+      <h3 id="split-existing-history"><History size={14} aria-hidden="true" />{t('Session history')}<small>{t('Resume in the split')}</small></h3>
       {sessionError ? <p className="inline-warning" role="alert">{sessionError}</p>
-        : loading && sessions.length === 0 ? <p className="small-muted" role="status">搜尋中…</p>
-        : !loading && sessions.length === 0 ? <p className="small-muted">沒有符合的 Session。</p> :
+        : loading && sessions.length === 0 ? <p className="small-muted" role="status">{t('Searching…')}</p>
+        : !loading && sessions.length === 0 ? <p className="small-muted">{t('No matching sessions.')}</p> :
         <ul className="split-existing-list">{sessions.map((session) => {
           const item = badge(session.projectId);
           const open = openSessionIds.has(session.id);
           return <li key={session.id}><button type="button" disabled={!!session.resumeDisabledReason || open}
-            title={session.resumeDisabledReason ?? (open ? '這個 Session 已開啟；請從「開啟中的工作」移入。' : undefined)}
-            onClick={() => onPickSession(session)} aria-label={`接續 ${projectName(session.projectId)} · ${session.title}`}>
+            title={session.resumeDisabledReason ?? (open ? t('This session is already open; move it in from "Open work".') : undefined)}
+            onClick={() => onPickSession(session)} aria-label={t('Resume {{project}} · {{title}}', { project: projectName(session.projectId), title: session.title })}>
             <span className="project-initials" style={{ ['--pane-project' as string]: item.color }} aria-hidden="true">{item.initials}</span>
             <span className="split-existing-main"><strong>{session.title}</strong>
               <span>{projectName(session.projectId)} · {agentNames[session.kind]}</span></span>
-            <span className="split-existing-status">{open ? '已開啟' : new Date(session.updatedAt).toLocaleDateString('zh-TW')}</span>
+            <span className="split-existing-status">{open ? t('Open') : new Date(session.updatedAt).toLocaleDateString(locale())}</span>
           </button></li>;
         })}</ul>}
     </section>

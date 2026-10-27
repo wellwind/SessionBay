@@ -7,6 +7,7 @@ import { agentName, dateLabel } from './History';
 
 import { useSessionFeed } from '../use-session-feed';
 import { VirtualSessionList } from './VirtualSessionList';
+import { t } from '../i18n';
 
 export function SessionTrash({ onClose, onChanged, refreshToken }: {
   onClose: () => void;
@@ -47,36 +48,36 @@ export function SessionTrash({ onClose, onChanged, refreshToken }: {
     setRevision((value) => value + 1);
     await onChanged();
   };
-  return <Dialog title={inspectionTarget ? '移到系統垃圾桶' : 'Session 資源回收筒'}
+  return <Dialog title={inspectionTarget ? t('Move to system trash') : t('Session recycle bin')}
     onClose={inspectionTarget ? () => setInspectionTarget(null) : onClose} wide>
     {inspectionTarget ? <OsTrashReview key={inspectionTarget.id} entry={inspectionTarget}
       onClose={() => setInspectionTarget(null)} onMoved={moved} /> : <>
-    <p>這裡的對話已從 Session Bay 歷史與搜尋中隱藏，可以逐筆還原。原始 Agent 歷史仍保留，執行中的工作不受影響；要真正刪除檔案，請按該筆的「移到系統垃圾桶…」。</p>
-    <p className="muted">重新掃描或重建索引不會清空資源回收筒。要真正刪除時，可逐筆把 Agent 的 Session 檔案移到系統垃圾桶。</p>
+    <p>{t('These conversations are hidden from Session Bay history and search, and you can restore them one by one. The original agent history is kept and running work is not affected. To really delete the files, use "Move to system trash…" on an entry.')}</p>
+    <p className="muted">{t('Rescanning or rebuilding the index does not empty the recycle bin. To really delete, move each session\'s agent files to the system trash.')}</p>
     {error && <p className="inline-error" role="alert">{error}</p>}
-    {loading && <p role="status">讀取資源回收筒…</p>}
-    {!loading && !error && !page.error && !page.total && <p>資源回收筒是空的。</p>}
-    <VirtualSessionList items={page.items} total={page.total} label="資源回收筒清單"
+    {loading && <p role="status">{t('Loading recycle bin…')}</p>}
+    {!loading && !error && !page.error && !page.total && <p>{t('The recycle bin is empty.')}</p>}
+    <VirtualSessionList items={page.items} total={page.total} label={t('Recycle bin list')}
       className="session-trash-list" rowHeight={210} scrollMemory={scrollMemory}
       loading={loading} done={page.done} error={page.error} loadMore={page.loadMore} retry={page.retry}
       renderRow={(entry) => <article className="session-trash-entry">
         <div>
           <h3>{entry.session.title || entry.session.externalId}</h3>
-          <p>{agentName(entry.session.kind)} · 移入時間 {dateLabel(entry.deletedAt)}</p>
-          <p className="session-trash-source">來源 {entry.session.sourceId} · {entry.sourceRoot}<br />Session {entry.session.externalId}</p>
+          <p>{t('{{agent}} · deleted {{time}}', { agent: agentName(entry.session.kind), time: dateLabel(entry.deletedAt) })}</p>
+          <p className="session-trash-source">{t('Source {{root}}', { root: entry.session.sourceId })} · {entry.sourceRoot}<br />Session {entry.session.externalId}</p>
           {entry.unavailableReason && <p role="status">{entry.unavailableReason}</p>}
         </div>
         <div className="history-undo-actions">
         <button id={`${inspectionPrefix}-${entry.id}`} className="secondary" disabled={loading || busy}
-          aria-label={`移到系統垃圾桶 ${entry.session.title || entry.session.externalId}`}
-          onClick={() => { inspectionReturnId.current = `${inspectionPrefix}-${entry.id}`; setInspectionTarget(entry); }}>移到系統垃圾桶…</button>
+          aria-label={t('Move {{title}} to system trash', { title: entry.session.title || entry.session.externalId })}
+          onClick={() => { inspectionReturnId.current = `${inspectionPrefix}-${entry.id}`; setInspectionTarget(entry); }}>{t('Move to system trash…')}</button>
         <button className="secondary" disabled={loading || busy || !!entry.unavailableReason}
-          aria-label={`還原 ${entry.session.title || entry.session.externalId}`}
-          onClick={() => void restore(entry.id)}>還原</button>
+          aria-label={t('Restore {{title}}', { title: entry.session.title || entry.session.externalId })}
+          onClick={() => void restore(entry.id)}>{t('Restore')}</button>
         </div>
       </article>} />
     <MovedSessions revision={revision} onRestored={async () => { setRevision((value) => value + 1); await onChanged(); }} />
-    <button disabled={busy} onClick={() => setRevision((value) => value + 1)}>重新整理</button>
+    <button disabled={busy} onClick={() => setRevision((value) => value + 1)}>{t('Refresh')}</button>
     </>}
   </Dialog>;
 }
@@ -104,12 +105,12 @@ function MovedSessions({ revision, onRestored }: { revision: number; onRestored:
       await api.scan();
       await onRestored();
     }
-    setMessage(result.failed.length ? `部分項目未還原：${result.failed.join('；')}` : `已還原「${entry.title || entry.externalId}」，重新掃描後會出現在歷史中。`);
+    setMessage(result.failed.length ? t('Some items were not restored: {{reasons}}', { reasons: result.failed.join(t('; ')) }) : t('Restored "{{title}}". It shows up in history after a rescan.', { title: entry.title || entry.externalId }));
   });
   if (!items.length && !message) return null;
-  return <section aria-label="已移到系統垃圾桶" className="session-os-trash">
-    <h3>已移到系統垃圾桶</h3>
-    <p className="muted">系統垃圾桶中的項目以 Session ID 命名。清空垃圾桶即永久刪除；清空前可在這裡還原到原位置。</p>
+  return <section aria-label={t('Moved to system trash')} className="session-os-trash">
+    <h3>{t('Moved to system trash')}</h3>
+    <p className="muted">{t('Items in the system trash are named by session ID. Emptying the trash deletes them for good; until then you can restore them to their original location here.')}</p>
     {message && <p role="status">{message}</p>}
     {items.map(entry => {
       const remaining = entry.items.filter(item => item.inTrash).length;
@@ -117,16 +118,16 @@ function MovedSessions({ revision, onRestored }: { revision: number; onRestored:
       return <article key={entry.id} className="session-trash-entry">
         <div>
           <h3>{name}</h3>
-          <p>{agentName(entry.kind)} · 移到垃圾桶 {dateLabel(new Date(entry.movedAt * 1000).toISOString())}
-            {' · '}{remaining ? `${remaining}／${entry.items.length} 項仍在垃圾桶` : '已從垃圾桶永久刪除'}</p>
+          <p>{t('{{agent}} · moved to trash {{time}}', { agent: agentName(entry.kind), time: dateLabel(new Date(entry.movedAt * 1000).toISOString()) })}
+            {' · '}{remaining ? t('{{remaining}} / {{total}} items still in the trash', { remaining, total: entry.items.length }) : t('Permanently deleted from the trash')}</p>
           <p className="session-trash-source">Session {entry.externalId}<br />
-            {entry.items.map(item => `${item.relativePath}${item.inTrash ? '' : '（已刪除）'}`).join('、')}</p>
+            {entry.items.map(item => `${item.relativePath}${item.inTrash ? '' : t(' (deleted)')}`).join(t(', '))}</p>
         </div>
         <div className="history-undo-actions">
-          {remaining > 0 && <button className="secondary" disabled={!!busy} aria-label={`從系統垃圾桶還原 ${name}`}
-            onClick={() => void restore(entry)}>還原</button>}
-          <button className="secondary" disabled={!!busy} aria-label={`移除紀錄 ${name}`}
-            onClick={() => void run(entry.id, () => api.forgetOsTrashed(entry.id))}>移除紀錄</button>
+          {remaining > 0 && <button className="secondary" disabled={!!busy} aria-label={t('Restore {{name}} from system trash', { name })}
+            onClick={() => void restore(entry)}>{t('Restore')}</button>}
+          <button className="secondary" disabled={!!busy} aria-label={t('Remove record {{name}}', { name })}
+            onClick={() => void run(entry.id, () => api.forgetOsTrashed(entry.id))}>{t('Remove record')}</button>
         </div>
       </article>;
     })}

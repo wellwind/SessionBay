@@ -1,5 +1,6 @@
 import type { DiffSource, RepoPath } from './types';
 import { pathKey, sourceKey } from './types';
+import { t } from '../i18n';
 
 /** Central Git views. Keys include the repo identity and comparison source,
  *  so equal file names, branches or PR numbers never collide. */
@@ -34,11 +35,11 @@ export function documentTitle(document: GitDocument): string {
   switch (spec.kind) {
     case 'diff': return fileName(spec.path);
     case 'comparison': return spec.source.kind === 'commit' ? `commit ${spec.source.commit.slice(0, 7)}`
-      : spec.source.kind === 'compare' ? `${spec.source.base}${spec.source.mergeBase ? '...' : '..'}${spec.source.head}` : '比較';
-    case 'graph': return `歷史 · ${document.repoName}`;
+      : spec.source.kind === 'compare' ? `${spec.source.base}${spec.source.mergeBase ? '...' : '..'}${spec.source.head}` : t('Compare');
+    case 'graph': return t('History · {{repo}}', { repo: document.repoName });
     case 'blame': return `blame ${fileName(spec.path)}`;
-    case 'fileHistory': return `歷史 ${fileName(spec.path)}`;
-    case 'conflict': return `衝突 ${fileName(spec.path)}`;
+    case 'fileHistory': return t('History {{file}}', { file: fileName(spec.path) });
+    case 'conflict': return t('Conflict {{file}}', { file: fileName(spec.path) });
     case 'pullRequest': return `#${spec.number} ${spec.title}`.slice(0, 40);
   }
 }

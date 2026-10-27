@@ -2,6 +2,7 @@ import { GitBranch, GitCompare, GitPullRequest, History, ScrollText, Swords, X }
 import type { LucideIcon } from 'lucide-react';
 import type { GitDocument, GitDocuments } from './git-documents';
 import { documentTitle } from './git-documents';
+import { t } from '../i18n';
 
 const icons: Record<GitDocument['spec']['kind'], LucideIcon> = {
   diff: GitCompare, comparison: GitCompare, graph: GitBranch, blame: ScrollText, fileHistory: History, conflict: Swords, pullRequest: GitPullRequest,
@@ -11,7 +12,7 @@ const icons: Record<GitDocument['spec']['kind'], LucideIcon> = {
 export function GitDocumentTabs({ state, active, onActivate, onClose }: {
   state: GitDocuments; active: boolean; onActivate: (key: string) => void; onClose: (key: string) => void;
 }) {
-  return <div className="project-file-tabs git-tabs" role="tablist" aria-label="Git 檢視分頁" onKeyDown={event => {
+  return <div className="project-file-tabs git-tabs" role="tablist" aria-label={t('Git view tabs')} onKeyDown={event => {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
     const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
     const index = tabs.indexOf(event.target as HTMLButtonElement);
@@ -31,7 +32,7 @@ export function GitDocumentTabs({ state, active, onActivate, onClose }: {
           title={`${document.repoName} · ${title}`} onClick={() => onActivate(document.key)}>
           <Icon size={13} aria-hidden="true" /><span>{title}</span><span className="git-tab-repo">{document.repoName}</span>
         </button>
-        <button aria-label={`關閉 ${title}（${document.repoName}）`} title="關閉 Git 分頁" onClick={() => onClose(document.key)}><X size={13} /></button>
+        <button aria-label={t('Close {{title}} ({{repo}})', { title, repo: document.repoName })} title={t('Close Git tab')} onClick={() => onClose(document.key)}><X size={13} /></button>
       </div>;
     })}
   </div>;

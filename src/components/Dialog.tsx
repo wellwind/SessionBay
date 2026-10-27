@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { t } from '../i18n';
 export function Dialog({
   title,
   children,
@@ -90,7 +91,7 @@ export function Dialog({
       >
         <header>
           <h2>{title}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="關閉對話框">
+          <button className="icon-button" onClick={onClose} aria-label={t('Close dialog')}>
             <X size={18} />
           </button>
         </header>

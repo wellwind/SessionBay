@@ -4,6 +4,7 @@ import { api, errorMessage } from '../api';
 import type { Project } from '../types';
 import { Dialog } from './Dialog';
 import { DirectoryPathField } from './DirectoryPathField';
+import { t } from '../i18n';
 
 export function ProjectDialog({ onSaved, onClose }: {
   onSaved: (project: Project) => Promise<void>;
@@ -18,7 +19,7 @@ export function ProjectDialog({ onSaved, onClose }: {
   const saved = useRef<Project | null>(null);
   const close = () => { if (!submitting.current) onClose(); };
   return (
-    <Dialog title="加入或建立專案" onClose={close}>
+    <Dialog title={t('Add or create a project')} onClose={close}>
       <form onSubmit={(event) => {
         event.preventDefault();
         if (submitting.current) return;
@@ -33,29 +34,29 @@ export function ProjectDialog({ onSaved, onClose }: {
           .catch((reason) => setError(errorMessage(reason)))
           .finally(() => { submitting.current = false; setBusy(false); });
       }}>
-        <div className="project-mode" role="group" aria-label="專案加入方式">
+        <div className="project-mode" role="group" aria-label={t('How to add the project')}>
           <button type="button" disabled={busy || !!saved.current} className={mode === 'existing' ? 'selected' : ''}
-            onClick={() => { setMode('existing'); setError(''); }}>加入現有目錄</button>
+            onClick={() => { setMode('existing'); setError(''); }}>{t('Add existing folder')}</button>
           <button type="button" disabled={busy || !!saved.current} className={mode === 'create' ? 'selected' : ''}
-            onClick={() => { setMode('create'); setError(''); }}>建立新專案</button>
+            onClick={() => { setMode('create'); setError(''); }}>{t('Create new project')}</button>
         </div>
         <p className="dialog-description">{mode === 'create'
-          ? '在指定的上層目錄建立一個新資料夾，並加入專案清單。不會覆寫既有資料夾。'
-          : '只將你選定的目錄加入專案清單。自動找到的歷史仍可在「所有工作階段」瀏覽。'}</p>
-        <DirectoryPathField key={mode} label={mode === 'create' ? '上層目錄路徑' : '目錄路徑'}
+          ? t('Creates a new folder in the parent folder you choose and adds it to your projects. Existing folders are never overwritten.')
+          : t('Adds only the folder you choose to your projects. History found automatically stays browsable in "All sessions".')}</p>
+        <DirectoryPathField key={mode} label={mode === 'create' ? t('Parent folder path') : t('Folder path')}
           required disabled={busy || !!saved.current} autoFocus value={path}
-          placeholder="/Users/you/projects 或 /home/you/projects" onChange={setPath} />
-        <label className="field-label">{mode === 'create' ? '專案名稱（新資料夾名稱）' : '專案名稱（選填）'}
+          placeholder={t('/Users/you/projects or /home/you/projects')} onChange={setPath} />
+        <label className="field-label">{mode === 'create' ? t('Project name (new folder name)') : t('Project name (optional)')}
           <input required={mode === 'create'} disabled={busy || !!saved.current} value={name} maxLength={120}
-            placeholder={mode === 'create' ? 'my-project' : '預設使用目錄名稱'}
+            placeholder={mode === 'create' ? 'my-project' : t('Defaults to the folder name')}
             onChange={(event) => setName(event.target.value)} />
         </label>
-        <p className="small-muted">請填寫這台桌面電腦上的完整絕對路徑。{mode === 'create' && '名稱不可含 /、\\ 或 ..。'}</p>
+        <p className="small-muted">{t('Use the full absolute path on this computer.')}{mode === 'create' && t('The name cannot contain /, \\ or ...')}</p>
         {error && <p className="inline-warning" role="alert">{error}</p>}
         <div className="dialog-actions">
-          <button type="button" className="secondary" disabled={busy} onClick={close}>取消</button>
+          <button type="button" className="secondary" disabled={busy} onClick={close}>{t('Cancel')}</button>
           <button className="primary" disabled={busy || !path.trim() || (mode === 'create' && !name.trim())}>
-            {busy ? '儲存中…' : saved.current ? '重新整理專案' : mode === 'create' ? '建立並加入' : '加入專案'}
+            {busy ? t('Saving…') : saved.current ? t('Refresh projects') : mode === 'create' ? t('Create and add') : t('Add project')}
             <ArrowRight size={14} />
           </button>
         </div>

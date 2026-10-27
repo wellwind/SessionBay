@@ -1,4 +1,5 @@
 import type { Pane } from './types';
+import { t } from './i18n';
 
 export const imageLimits = { perFile: 10 * 1024 * 1024, total: 20 * 1024 * 1024, count: 4, chunk: 64 * 1024 };
 export type ImageProvider = 'codex' | 'claude' | 'grok' | 'opencode';
@@ -7,8 +8,8 @@ export function imageProvider(kind: string): ImageProvider | null {
 }
 export function imageUnsupportedReason(kind: string): string {
   return kind === 'antigravity'
-    ? 'Antigravity 的圖片路徑附件尚未驗證，請在原生 CLI 使用圖片貼上。'
-    : '圖片輸入僅支援本機 Codex、Claude Code、Grok Build 與 OpenCode；Shell、SSH／WSL 包裝程式尚未支援。';
+    ? t('Image path attachments are not verified for Antigravity yet; paste images in the native CLI instead.')
+    : t('Image input only supports local Codex, Claude Code, Grok Build and OpenCode; shells and SSH / WSL wrappers are not supported yet.');
 }
 /** xterm emits an intact bracketed paste as one event; its newlines are prompt text.
  * Split/nested frames and nonstandard key bindings cannot be inferred reliably. */
@@ -30,35 +31,35 @@ export interface ImageInputApi {
 export function imageMime(file: Pick<File, 'name' | 'type'>): string {
   const ext = file.name.split('.').pop()?.toLowerCase();
   const extension = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : null;
-  if (!extension || (file.type && file.type !== extension)) throw new Error('僅接受副檔名與格式一致的 PNG、JPEG 圖片。');
+  if (!extension || (file.type && file.type !== extension)) throw new Error(t('Only PNG and JPEG images whose extension matches their format are accepted.'));
   return extension;
 }
 export function validateImageFiles(files: readonly File[]): void {
-  if (!files.length || files.length > imageLimits.count) throw new Error('一次最多加入 4 張圖片。');
+  if (!files.length || files.length > imageLimits.count) throw new Error(t('You can add up to 4 images at a time.'));
   let total = 0;
   for (const file of files) {
     imageMime(file);
-    if (!file.size || file.size > imageLimits.perFile) throw new Error('每張圖片須介於 1 byte 與 10 MiB。');
+    if (!file.size || file.size > imageLimits.perFile) throw new Error(t('Each image must be between 1 byte and 10 MiB.'));
     total += file.size;
   }
-  if (total > imageLimits.total) throw new Error('一次加入的圖片合計不得超過 20 MiB。');
+  if (total > imageLimits.total) throw new Error(t('Images added at once cannot exceed 20 MiB in total.'));
 }
 
 /** File URL percent-encoding is recognized by these three pinned provider parsers.
  * Claude's documented fallback is an ordinary image path reference, not a native attachment claim. */
 export function imagePasteText(provider: ImageProvider, path: string): string {
   // eslint-disable-next-line no-control-regex -- Reject terminal control bytes before insertion.
-  if (!path || /[\x00-\x1f\x7f'"`$;|&<>()]/.test(path)) throw new Error('圖片路徑含不安全字元。');
+  if (!path || /[\x00-\x1f\x7f'"`$;|&<>()]/.test(path)) throw new Error(t('The image path contains unsafe characters.'));
   // Reject device/UNC namespaces, including canonical Win32 extended paths except a local drive.
   const local = path.replace(/^\\\\\?\\([A-Za-z]:\\)/, '$1');
   const windows = /^[A-Za-z]:[\\/]/.test(local);
-  if (!windows && !local.startsWith('/')) throw new Error('圖片路徑必須是本機絕對路徑。');
-  if (local.startsWith('//') || local.startsWith('\\')) throw new Error('網路圖片路徑尚未支援。');
-  if (new TextEncoder().encode(local).length > 512) throw new Error('圖片暫存路徑過長。');
+  if (!windows && !local.startsWith('/')) throw new Error(t('The image path must be a local absolute path.'));
+  if (local.startsWith('//') || local.startsWith('\\')) throw new Error(t('Network image paths are not supported yet.'));
+  if (new TextEncoder().encode(local).length > 512) throw new Error(t('The temporary image path is too long.'));
   if (provider === 'claude') return `"${local}" `;
   const slashPath = windows ? `/${local.replaceAll('\\', '/')}` : local;
   const encoded = slashPath.split('/').map((part, index) => windows && index === 1 ? part : encodeURIComponent(part)).join('/');
-  if (encoded.length > 512) throw new Error('圖片暫存路徑編碼後過長。');
+  if (encoded.length > 512) throw new Error(t('The temporary image path is too long once encoded.'));
   return `file://${encoded}`;
 }
 
@@ -74,7 +75,7 @@ export async function insertImageFiles(options: {
   let pending: string | undefined;
   let failure: unknown;
   let inserted = 0;
-  const check = () => { if (!options.isCurrent()) throw new Error('圖片輸入已取消：目標面板、連線或目前輸入已變更。'); };
+  const check = () => { if (!options.isCurrent()) throw new Error(t('Image input was cancelled: the target pane, connection or current input changed.')); };
   try {
     // Verify the whole batch before inserting any image. Each read/IPC is bounded and ordered.
     for (const file of options.files) {
@@ -89,7 +90,7 @@ export async function insertImageFiles(options: {
       }
       const image = await options.api.finishImage(options.runtimeId, pending);
       check();
-      if (image.id !== pending) throw new Error('圖片暫存識別不符。');
+      if (image.id !== pending) throw new Error(t('The temporary image ID does not match.'));
       imagePasteText(provider, image.path); // Validate before retaining anything.
       staged.push({ ...image, retainAttempted: false });
       pending = undefined;
@@ -110,7 +111,7 @@ export async function insertImageFiles(options: {
     const unused = [...staged.filter((image) => !image.retainAttempted).map((image) => image.id), ...(pending ? [pending] : [])];
     const cleanup = await Promise.allSettled(unused.map((id) => options.api.discardImage(options.runtimeId, id)));
     if (cleanup.some((result) => result.status === 'rejected')) {
-      failure = new Error('未插入的圖片暫存清理失敗，請重新開啟應用程式後檢查暫存空間。');
+      failure = new Error(t('Could not clean up temporary images that were not inserted. Reopen the app and check the temporary storage.'));
     }
   }
   if (failure) throw failure;

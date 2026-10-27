@@ -4,6 +4,7 @@ import { parseTerminalFileTarget, type TerminalFileOpen, type TerminalFileTarget
 import type { Pane, TerminalFileCandidate, TerminalFileResolution } from '../types';
 import { Dialog } from './Dialog';
 import { FileIcon } from './ExplorerTree';
+import { t } from '../i18n';
 
 export function TerminalFileDialog({ pane, request, valid, onOpen, onClose }: {
   pane: Pane & { projectId: string; runtimeId: string }; request: TerminalFileOpen;
@@ -42,27 +43,27 @@ export function TerminalFileDialog({ pane, request, valid, onOpen, onClose }: {
     // One mount is one explicit terminal intent; navigation invalidates it upstream.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return <Dialog title="開啟終端輸出的檔案" onClose={() => { generation.current++; onClose(); }}>
+  return <Dialog title={t('Open a file from terminal output')} onClose={() => { generation.current++; onClose(); }}>
     <form onSubmit={event => { event.preventDefault(); if (!busy) void resolve(text); }}>
-      <p className="dialog-description">{pane.title} · 僅開啟此終端所屬專案內的唯讀檔案。</p>
-      <label className="field-label" htmlFor={id}>檔案路徑（可含 :行:欄）
+      <p className="dialog-description">{pane.title} · {t('Only read-only files inside this terminal\'s project are opened.')}</p>
+      <label className="field-label" htmlFor={id}>{t('File path (may include :line:column)')}
         <input id={id} value={text} maxLength={4096} aria-describedby={`${id}-help`} onChange={event => {
           generation.current++; setBusy(false); setResult(undefined); setError(''); setText(event.target.value);
         }} /></label>
-      <p id={`${id}-help`} className="small-muted">相對路徑的 shell 當前目錄尚未驗證，請確認下方候選；啟動目錄只作提示。</p>
-      <div className="dialog-actions"><button type="button" onClick={() => { generation.current++; onClose(); }}>取消</button>
-        <button type="submit" data-dialog-confirm className="primary" disabled={busy || !text.trim()}>{busy ? '尋找中…' : '尋找專案檔案'}</button></div>
+      <p id={`${id}-help`} className="small-muted">{t('The shell\'s current directory for relative paths is not verified; check the candidates below. The launch directory is only a hint.')}</p>
+      <div className="dialog-actions"><button type="button" onClick={() => { generation.current++; onClose(); }}>{t('Cancel')}</button>
+        <button type="submit" data-dialog-confirm className="primary" disabled={busy || !text.trim()}>{busy ? t('Finding…') : t('Find project file')}</button></div>
     </form>
     {error && <p role="alert" className="inline-warning">{error}</p>}
     {result && <>
-      {request.confirmAbsolute && result.resolution.absolute && <p className="small-muted">未加引號的輸出可能含有空白，請確認完整檔案目標。</p>}
-      <p role="status">{result.resolution.candidates.length ? '請選擇要開啟的檔案；不會自動採用第一筆。' : '找不到可安全開啟的文字或圖片，請檢查完整路徑。'}</p>
-      {result.resolution.launchDirectory !== null && <p className="small-muted">啟動目錄候選基準：{result.resolution.launchDirectory || '專案根目錄'}（不是已驗證的 shell 當前目錄）</p>}
-      {result.resolution.truncated && <p className="inline-warning">搜尋範圍有限，可能還有其他候選；可輸入完整專案內路徑。</p>}
-      <div className="terminal-file-candidates" aria-label="專案檔案候選">
+      {request.confirmAbsolute && result.resolution.absolute && <p className="small-muted">{t('Unquoted output may contain spaces; confirm the full file target.')}</p>}
+      <p role="status">{result.resolution.candidates.length ? t('Choose the file to open; the first match is never picked automatically.') : t('No text or image file that can be opened safely was found. Check the full path.')}</p>
+      {result.resolution.launchDirectory !== null && <p className="small-muted">{t('Candidates relative to the launch directory: {{dir}} (not the verified shell directory)', { dir: result.resolution.launchDirectory || t('Project root') })}</p>}
+      {result.resolution.truncated && <p className="inline-warning">{t('The search is limited and there may be more candidates; enter the full path inside the project.')}</p>}
+      <div className="terminal-file-candidates" aria-label={t('Project file candidates')}>
         {result.resolution.candidates.map(candidate => <button key={candidate.path} type="button" title={candidate.path}
           onClick={() => open(candidate, result.target)}><FileIcon path={candidate.path} /><span>{candidate.path}</span>
-          {candidate.fromLaunchDirectory && <small>啟動目錄候選</small>}</button>)}
+          {candidate.fromLaunchDirectory && <small>{t('Launch directory candidate')}</small>}</button>)}
       </div>
     </>}
   </Dialog>;
