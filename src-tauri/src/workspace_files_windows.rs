@@ -34,8 +34,8 @@ const DRIVE_FIXED: u32 = 3;
 
 pub(super) fn fs_error(error: io::Error) -> String {
     match error.kind() {
-        io::ErrorKind::NotFound => tr!("The file or folder no longer exists; refresh").into(),
-        io::ErrorKind::PermissionDenied => tr!("No permission to read this file or folder").into(),
+        io::ErrorKind::NotFound => tr!("The file or folder no longer exists; refresh"),
+        io::ErrorKind::PermissionDenied => tr!("No permission to read this file or folder"),
         _ => tr!("Cannot read safely: symlinks and non-regular files or folders are not allowed ({{error}})", error = error),
     }
 }
@@ -48,8 +48,7 @@ fn inspect(file: &File) -> Result<WorkspaceEntryKind, String> {
     {
         return Err(tr!(
             "Only regular files can be previewed, not reparse points or special files"
-        )
-        .into());
+        ));
     }
     if metadata.is_dir() {
         return Ok(WorkspaceEntryKind::Directory);
@@ -70,17 +69,17 @@ fn inspect(file: &File) -> Result<WorkspaceEntryKind, String> {
     // SAFETY: the successful call initialized info.
     let info = unsafe { info.assume_init() };
     if !metadata.is_file() || info.DeletePending {
-        return Err(tr!("Only regular files can be previewed").into());
+        return Err(tr!("Only regular files can be previewed"));
     }
     if info.NumberOfLinks != 1 {
-        return Err(tr!("Multiple hard links are not supported: files shared with other paths cannot be previewed").into());
+        return Err(tr!("Multiple hard links are not supported: files shared with other paths cannot be previewed"));
     }
     Ok(WorkspaceEntryKind::File)
 }
 
 fn open_at(parent: &File, name: &str, directory: bool) -> Result<File, String> {
     if !valid_name(name) {
-        return Err(tr!("Unsupported file name").into());
+        return Err(tr!("Unsupported file name"));
     }
     let mut wide: Vec<u16> = name.encode_utf16().collect();
     let length = u16::try_from(wide.len() * 2).map_err(|_| tr!("The file name is too long"))?;
@@ -129,7 +128,7 @@ fn open_at(parent: &File, name: &str, directory: bool) -> Result<File, String> {
     let file = unsafe { File::from_raw_handle(handle) };
     let kind = inspect(&file)?;
     if directory && kind != WorkspaceEntryKind::Directory {
-        return Err(tr!("Choose a folder").into());
+        return Err(tr!("Choose a folder"));
     }
     Ok(file)
 }
@@ -139,7 +138,7 @@ fn open_root(root: &Path) -> Result<File, String> {
         .to_str()
         .ok_or(tr!("The project folder is not a valid UTF-8 local path"))?;
     if !root.is_absolute() || text.split(['/', '\\']).any(|p| matches!(p, "." | "..")) {
-        return Err(tr!("The project needs an absolute local folder").into());
+        return Err(tr!("The project needs an absolute local folder"));
     }
     let mut components = root.components();
     let drive = match components.next() {
@@ -147,18 +146,18 @@ fn open_root(root: &Path) -> Result<File, String> {
             Prefix::Disk(drive) | Prefix::VerbatimDisk(drive) if drive.is_ascii_alphabetic() => {
                 drive
             }
-            _ => return Err(tr!("Remote or unknown paths cannot be previewed").into()),
+            _ => return Err(tr!("Remote or unknown paths cannot be previewed")),
         },
-        _ => return Err(tr!("The project needs an absolute local folder").into()),
+        _ => return Err(tr!("The project needs an absolute local folder")),
     };
     if components.next() != Some(Component::RootDir) {
-        return Err(tr!("The project needs an absolute local folder").into());
+        return Err(tr!("The project needs an absolute local folder"));
     }
     let drive_path = format!("{}:\\", char::from(drive));
     let wide: Vec<u16> = drive_path.encode_utf16().chain(Some(0)).collect();
     // SAFETY: NUL-terminated drive root. Reject network mappings before opening.
     if unsafe { GetDriveTypeW(wide.as_ptr()) } != DRIVE_FIXED {
-        return Err(tr!("Only projects on a fixed local disk can be previewed").into());
+        return Err(tr!("Only projects on a fixed local disk can be previewed"));
     }
     let mut directory = OpenOptions::new()
         .read(true)
@@ -167,12 +166,12 @@ fn open_root(root: &Path) -> Result<File, String> {
         .open(drive_path)
         .map_err(fs_error)?;
     if inspect(&directory)? != WorkspaceEntryKind::Directory {
-        return Err(tr!("Choose a folder").into());
+        return Err(tr!("Choose a folder"));
     }
     validate_volume_root(&directory)?;
     for component in components {
         let Component::Normal(name) = component else {
-            return Err(tr!("Unsupported project path").into());
+            return Err(tr!("Unsupported project path"));
         };
         directory = open_at(
             &directory,
@@ -198,7 +197,7 @@ fn validate_volume_root(directory: &File) -> Result<(), String> {
         )
     } as usize;
     if length == 0 || length >= final_path.len() {
-        return Err(tr!("Cannot verify the local disk root").into());
+        return Err(tr!("Cannot verify the local disk root"));
     }
     let final_path = String::from_utf16(&final_path[..length])
         .map_err(|_| tr!("The disk root is not Unicode"))?;
@@ -206,7 +205,7 @@ fn validate_volume_root(directory: &File) -> Result<(), String> {
         || !final_path.ends_with("}\\")
         || final_path[4..final_path.len() - 1].contains('\\')
     {
-        return Err(tr!("Drive aliases mapped to subfolders are not supported").into());
+        return Err(tr!("Drive aliases mapped to subfolders are not supported"));
     }
     Ok(())
 }
@@ -233,7 +232,7 @@ fn open_file_from(directory: File, parts: &[&str]) -> Result<File, String> {
     let directory = descend(directory, parents)?;
     let file = open_at(&directory, name, false)?;
     if inspect(&file)? != WorkspaceEntryKind::File {
-        return Err(tr!("Only regular files can be previewed").into());
+        return Err(tr!("Only regular files can be previewed"));
     }
     Ok(file)
 }
@@ -244,7 +243,7 @@ pub(super) fn open_file(root: &Path, parts: &[&str]) -> Result<File, String> {
 
 pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
     if inspect(file)? != WorkspaceEntryKind::File {
-        return Err(tr!("Only regular files can be previewed").into());
+        return Err(tr!("Only regular files can be previewed"));
     }
     let mut identity = MaybeUninit::<FILE_ID_INFO>::uninit();
     let mut basic = MaybeUninit::<FILE_BASIC_INFO>::uninit();
@@ -288,7 +287,9 @@ pub(super) fn snapshot(file: &File) -> Result<FileSnapshot, String> {
 fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFilePreview, String> {
     let mut file = open_file_from(directory, parts)?;
     if file.metadata().map_err(fs_error)?.len() > MAX_FILE_BYTES as u64 {
-        return Err(tr!("The file is too large: the text preview limit is 256 KiB").into());
+        return Err(tr!(
+            "The file is too large: the text preview limit is 256 KiB"
+        ));
     }
     let mut bytes = Vec::new();
     Read::by_ref(&mut file)
@@ -296,7 +297,9 @@ fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFil
         .read_to_end(&mut bytes)
         .map_err(fs_error)?;
     if bytes.len() > MAX_FILE_BYTES {
-        return Err(tr!("The file is too large: the text preview limit is 256 KiB").into());
+        return Err(tr!(
+            "The file is too large: the text preview limit is 256 KiB"
+        ));
     }
     inspect(&file)?;
     let size_bytes = bytes.len();
@@ -305,7 +308,7 @@ fn read_from(directory: File, path: &str, parts: &[&str]) -> Result<WorkspaceFil
         .chars()
         .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
     {
-        return Err(tr!("Binary files and files with control characters are not supported; only UTF-8 text can be previewed").into());
+        return Err(tr!("Binary files and files with control characters are not supported; only UTF-8 text can be previewed"));
     }
     Ok(WorkspaceFilePreview {
         path: path.to_owned(),
@@ -394,7 +397,7 @@ fn enumerate(
             let header = offset_of!(FILE_ID_BOTH_DIR_INFO, FileName);
             let capacity = buffer.len() * 8;
             if position + size_of::<FILE_ID_BOTH_DIR_INFO>() > capacity {
-                return Err(tr!("Invalid folder data").into());
+                return Err(tr!("Invalid folder data"));
             }
             // SAFETY: bounds checked above; read_unaligned also handles offsets
             // defensively without relying on filesystem-provided alignment.
@@ -409,7 +412,7 @@ fn enumerate(
             };
             let length = info.FileNameLength as usize;
             if !length.is_multiple_of(2) || position + header + length > capacity {
-                return Err(tr!("Invalid folder file name data").into());
+                return Err(tr!("Invalid folder file name data"));
             }
             // SAFETY: checked bounds and even byte length; copy each UTF-16 unit
             // with unaligned reads instead of creating a potentially unaligned slice.
@@ -434,7 +437,7 @@ fn enumerate(
                 break;
             }
             if next < header + length || next > capacity - position {
-                return Err(tr!("Invalid folder data").into());
+                return Err(tr!("Invalid folder data"));
             }
             position += next;
         }
@@ -520,7 +523,7 @@ pub(super) fn search(root: &Path, query: &str) -> Result<WorkspaceFileSearch, St
 
 fn check_directory_budget(seen: usize, name_bytes: usize) -> Result<(), String> {
     if seen > MAX_DIRECTORY_ENTRIES || name_bytes > MAX_DIRECTORY_NAME_BYTES {
-        return Err(tr!("The folder is too large: up to 100,000 items and 16 MiB of file names can be previewed").into());
+        return Err(tr!("The folder is too large: up to 100,000 items and 16 MiB of file names can be previewed"));
     }
     Ok(())
 }

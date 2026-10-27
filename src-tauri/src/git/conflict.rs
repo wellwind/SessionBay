@@ -163,8 +163,8 @@ pub fn labels(
         .filter(|o| o.success())
         .map(|o| o.stdout_text().trim().to_owned());
     let base = (
-        tr!("Common ancestor (base)").to_owned(),
-        tr!("The version before the two sides diverged").to_owned(),
+        tr!("Common ancestor (base)"),
+        tr!("The version before the two sides diverged"),
     );
     match operation {
         Some(Operation::Merge) => [
