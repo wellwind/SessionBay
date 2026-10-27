@@ -31,7 +31,7 @@ export function projectRuntimeSummary(tabs: WorkspaceTab[], panes: Workspace['pa
     return pane && isAgentPane(pane) ? [pane.runtimeId ? `runtime:${pane.runtimeId}` : `pane:${id}`] : [];
   }));
   const attention = new Set(tabs.flatMap(tab => paneIds(tab.layout)).filter(id => panes[id] && ['failed', 'interrupted', 'disconnected'].includes(panes[id].state)).map(id => panes[id].runtimeId ? `runtime:${panes[id].runtimeId}` : `pane:${id}`)).size;
-  return t('{{tabs}} tabs · {{agents}} agents', { tabs: tabs.length, agents: agents.size }) + (attention ? t(' · {{count}} need attention', { count: attention }) : '');
+  return `${t('{{count}} tabs', { count: tabs.length })} · ${t('{{count}} agents', { count: agents.size })}` + (attention ? t(' · {{count}} need attention', { count: attention }) : '');
 }
 /** Live work for a project: unique runtimes (split panes share one) that are starting or running. */
 export function projectOpenCount(tabs: WorkspaceTab[], panes: Workspace['panes']): number {

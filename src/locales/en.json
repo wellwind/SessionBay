@@ -1,4 +1,5 @@
 {
+  " · {{count}} need attention_one": " · {{count}} needs attention",
   "Add as profile": "Add profile",
   "Added {{count}} file paths, not sent yet. _one": "Added {{count}} file path, not sent yet. ",
   "Amber palette": "Amber",
@@ -30,6 +31,7 @@
   "Your branch is {{count}} commits behind upstream; the remote may reject the push._one": "Your branch is {{count}} commit behind upstream; the remote may reject the push.",
   "byte backups of {{count}} untracked files_one": "byte backup of {{count}} untracked file",
   "folder, {{count}} items, _one": "folder, {{count}} item, ",
+  "{{count}} agents_one": "{{count}} agent",
   "{{count}} changes_one": "{{count}} change",
   "{{count}} conflict blocks left_one": "{{count}} conflict block left",
   "{{count}} conflicted files to resolve_one": "{{count}} conflicted file to resolve",
@@ -42,5 +44,6 @@
   "{{count}} running processes_one": "{{count}} running process",
   "{{count}} sessions_one": "{{count}} session",
   "{{count}} source problems_one": "{{count}} source problem",
-  "{{count}} staged files_one": "{{count}} staged file"
+  "{{count}} staged files_one": "{{count}} staged file",
+  "{{count}} tabs_one": "{{count}} tab"
 }
