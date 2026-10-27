@@ -45,7 +45,7 @@ Linux and Windows builds can be produced from source, but they have not been val
 
 ## Privacy and data safety
 
-- Everything runs locally. Session Bay has no account, no server and no telemetry.
+- Everything runs locally. Session Bay has no account, no server and no telemetry. It only checks GitHub Releases for new versions, which you can turn off.
 - Agent history is **read-only**. The only exception is the explicit "Move to system trash" flow, which you confirm per session after reviewing every file.
 - Agents still run with their own login, network access and permission settings.
 

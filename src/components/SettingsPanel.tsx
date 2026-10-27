@@ -1228,6 +1228,17 @@ export function SettingsPanel({
                       <span>{t('Send a system notification when an agent needs attention')}</span>
                       <small>{t('Only notifies when the work is not on screen or the window is in the background: when it waits for input or permission, finishes or fails.')}</small>
                     </label>
+                    <div className="settings-section-heading settings-section-space">
+                      <div>
+                        <h3>{t('Updates')}</h3>
+                      </div>
+                    </div>
+                    <label className="settings-check">
+                      <input type="checkbox" className="checkbox" checked={draft.updateChecks !== false} disabled={locked}
+                        onChange={(event) => update('updateChecks', event.currentTarget.checked)} />
+                      <span>{t('Check GitHub for new versions')}</span>
+                      <small>{t('Asks GitHub Releases for the newest version at startup and once a day, and shows a notice when one is available. No personal data is sent; updates are never installed automatically.')}</small>
+                    </label>
                   </>
                 )}
 

@@ -55,6 +55,22 @@ fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
     ))
 }
 
+/// Asks GitHub Releases for a newer version; the UI calls this only when update checks are on.
+#[tauri::command]
+async fn check_for_update(
+    app: tauri::AppHandle,
+) -> Result<Option<crate::updates::UpdateInfo>, String> {
+    let current = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || crate::updates::check(&current))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn open_release_page(url: String) -> Result<(), String> {
+    crate::updates::open_release(&url)
+}
+
 #[tauri::command]
 fn set_locale(locale: String) {
     crate::i18n::set_locale(&locale);
@@ -793,6 +809,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_locale,
+            check_for_update,
+            open_release_page,
             frontend_diagnostic,
             bootstrap,
             detect_installations,

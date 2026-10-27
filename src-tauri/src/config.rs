@@ -122,6 +122,9 @@ pub struct Settings {
     /// OS notifications when a background Agent waits, finishes or fails.
     #[serde(default = "default_true")]
     pub system_notifications: bool,
+    /// Ask GitHub Releases for newer versions at startup and once a day.
+    #[serde(default = "default_true")]
+    pub update_checks: bool,
     pub font_family: String,
     pub font_size: u16,
     #[serde(default = "default_app_zoom")]
@@ -170,6 +173,7 @@ impl Default for Settings {
             terminal_theme: "bay".into(),
             terminal_always_dark: false,
             system_notifications: true,
+            update_checks: true,
             font_family: DEFAULT_FONT_FAMILY.into(),
             font_size: 14,
             app_zoom: default_app_zoom(),

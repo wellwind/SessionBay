@@ -32,6 +32,7 @@ First public preview. macOS on Apple Silicon only.
   - drag and drop or paste files and images into agents;
   - read-only workspace file and image preview.
 - **Cleanup**: a recycle bin, then a reviewed move to the system trash with restore.
+- **Update notice**: checks GitHub Releases at startup and daily and shows a notice when a new version is out (can be turned off).
 - **Interface**:
   - themes with live preview, and zoom for the whole workbench;
   - English and Traditional Chinese.
@@ -40,7 +41,7 @@ First public preview. macOS on Apple Silicon only.
 
 - The macOS build is not notarized; use **Open Anyway** the first time.
 - Linux and Windows builds are not validated for release.
-- There are no in-app updates yet; download new versions from GitHub Releases.
+- Updates are not installed in the app; the update notice links to the release page.
 
 [Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/wellwind/SessionBay/releases/tag/v0.1.0

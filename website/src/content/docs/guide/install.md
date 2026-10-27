@@ -38,7 +38,7 @@ Session Bay launches the agent CLIs you already use; it does not bundle them. In
 
 ## Update or uninstall
 
-- **Update**: download the new version and replace the app in Applications. Running agents keep going while you update; close Session Bay first.
+- **Update**: Session Bay shows a notice in the bottom-left corner when a new version is on GitHub. Choose **View release**, download the new version and replace the app in Applications. Running agents keep going while you update; close Session Bay first.
 - **Uninstall**: delete the app. Session Bay's own data (index, settings, layout) is in `~/Library/Application Support/dev.sessionbay.desktop`; delete that folder too if you want. Your agents' history is never touched.
 
 ## Linux and Windows

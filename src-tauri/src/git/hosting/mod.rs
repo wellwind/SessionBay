@@ -530,21 +530,7 @@ impl Hosting {
         if !allowed || url.chars().any(|c| c.is_control() || c == ' ') {
             return Err(tr!("Only URLs of configured hosts can be opened"));
         }
-        #[cfg(target_os = "macos")]
-        let mut command = std::process::Command::new("open");
-        #[cfg(windows)]
-        let mut command = {
-            let mut command = std::process::Command::new("rundll32");
-            command.arg("url.dll,FileProtocolHandler");
-            command
-        };
-        #[cfg(all(unix, not(target_os = "macos")))]
-        let mut command = std::process::Command::new("xdg-open");
-        command
-            .arg(url)
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| tr!("Cannot open the browser: {{error}}", error = e))
+        open_in_browser(url)
     }
 
     pub fn mappings_for(&self, repo_id: &str) -> Vec<Mapping> {
@@ -597,6 +583,25 @@ impl Hosting {
         }
         self.save(&hosts)
     }
+}
+
+/// Opens an already validated https URL in the system browser.
+pub(crate) fn open_in_browser(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = std::process::Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| tr!("Cannot open the browser: {{error}}", error = e))
 }
 
 #[cfg(test)]

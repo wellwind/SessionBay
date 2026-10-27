@@ -24,7 +24,7 @@ import type {
   TerminalEvent,
   TranscriptPage,
   TrashPage,
-  OsTrashPlan, OsTrashResult, OsTrashedSession,
+  OsTrashPlan, OsTrashResult, OsTrashedSession, UpdateInfo,
 } from './types';
 import { t } from './i18n';
 export const isDesktop = () => isTauri();
@@ -132,6 +132,8 @@ export const api = {
   runtimes: () => call<RuntimeRecord[]>('list_runtimes'),
   close: () => call<void>('close_application'),
   notify: (title: string, body: string, target?: string) => call<void>('show_notification', { title, body, target }),
+  checkForUpdate: () => call<UpdateInfo | null>('check_for_update'),
+  openReleasePage: (url: string) => call<void>('open_release_page', { url }),
 };
 export const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);

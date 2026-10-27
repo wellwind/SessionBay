@@ -126,6 +126,8 @@ export interface Settings {
   /** "Always use a dark terminal". Absent/false: the terminal follows the UI light/dark mode. */
   terminalAlwaysDark?: boolean;
   systemNotifications?: boolean;
+  /** Ask GitHub Releases for newer versions; absent means on. */
+  updateChecks?: boolean;
   fontFamily: string;
   fontSize: number;
   /** Percentage; absent in older version 1 settings means 100. */
@@ -301,3 +303,11 @@ export interface TerminalFileResolution {
   absolute: boolean; launchDirectory: string | null; candidates: TerminalFileCandidate[]; truncated: boolean;
 }
 export interface FileReference { line?: number; column?: number; version: string; nonce: number }
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  url: string;
+  prerelease: boolean;
+  publishedAt: string | null;
+}

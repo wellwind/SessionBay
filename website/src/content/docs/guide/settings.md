@@ -27,6 +27,7 @@ Choose which shell and arguments new terminals use, and add environment variable
 - **Language**: English, 繁體中文, or follow the system language. Changing it reloads the window; terminals reconnect.
 - Interface and terminal themes, palettes, fonts and workbench zoom (<kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> / <kbd>⌘</kbd><kbd>0</kbd>).
 - The default agent and shell profile for **New work**, and system notifications.
+- **Updates**: check GitHub Releases for new versions at startup and once a day. Updates are never installed automatically.
 
 ## Keyboard shortcuts
 
