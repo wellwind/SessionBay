@@ -29,7 +29,7 @@ import { ThemeControls, TerminalPreview } from './ThemeControls';
 import { appearanceOf, validThemeId } from '../themes';
 import type { Appearance } from '../themes';
 import './settings.css';
-import { t } from '../i18n';
+import { readLocalePreference, saveLocalePreference, t, type LocalePreference } from '../i18n';
 
 export interface SettingsPanelProps {
   settings: Settings;
@@ -1132,6 +1132,17 @@ export function SettingsPanel({
                         <h3>{t('Appearance')}</h3>
                       </div>
                     </div>
+                    <label className="settings-field settings-section-space">
+                      <span>{t('Language')}</span>
+                      <Select aria-label={t('Language')} value={readLocalePreference()} disabled={locked}
+                        onChange={(value) => {
+                          saveLocalePreference(value as LocalePreference);
+                          // The window reloads to apply the language; terminals reattach through the broker.
+                          void (window.SessionBayReload?.() ?? Promise.resolve(window.location.reload())).catch(() => undefined);
+                        }}
+                        options={[{ value: 'system', label: t('Follow system language') }, { value: 'en', label: 'English' }, { value: 'zh-TW', label: '繁體中文' }]} />
+                      <small className="settings-help">{t('Changing the language reloads the window; running terminals reconnect. Unsaved settings changes are discarded.')}</small>
+                    </label>
                     <div className="settings-field settings-section-space">
                       <label id="app-zoom-label" htmlFor="app-zoom">{t('Workbench zoom')} <small>%</small></label>
                       <input id="app-zoom" type="number" min={50} max={200} step={10} aria-labelledby="app-zoom-label"

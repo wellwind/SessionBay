@@ -13,6 +13,7 @@ use super::{
     runner::{path_arg, Access, GitError, GitRunner, Invocation},
     status::{self, Operation},
 };
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -66,16 +67,21 @@ fn rev_oid(runner: &GitRunner, repo: &RepoInfo, name: &str) -> Result<Option<Str
 }
 
 fn expect_head(runner: &GitRunner, repo: &RepoInfo, expected: &str) -> Result<String, String> {
-    let head = remote::head(runner, repo)?.ok_or("尚無 commit")?;
+    let head = remote::head(runner, repo)?.ok_or(tr!("There are no commits yet"))?;
     if head != expected {
-        return Err("HEAD 已在確認後變更，未執行操作；請重新檢視".into());
+        return Err(tr!(
+            "HEAD changed after you confirmed, so nothing was done; review again"
+        ));
     }
     Ok(head)
 }
 
 fn no_operation(repo: &RepoInfo) -> Result<(), String> {
     if let Some(operation) = status::operation(repo) {
-        return Err(format!("有進行中的 {operation:?} 操作，請先完成或中止"));
+        return Err(tr!(
+            "A {{operation}} operation is in progress; finish or abort it first",
+            operation = format!("{operation:?}")
+        ));
     }
     Ok(())
 }
@@ -113,13 +119,15 @@ pub fn create_branch(
     start: Option<&str>,
     switch: bool,
 ) -> Result<Outcome, String> {
-    check_ref_name(runner, repo, name, "Branch ")?;
+    check_ref_name(runner, repo, name, &crate::tr!("branch"))?;
     if rev_oid(runner, repo, &format!("refs/heads/{name}"))?.is_some() {
-        return Err(format!("Branch {name} 已存在"));
+        return Err(tr!("Branch {{name}} already exists", name = name));
     }
     let start = match start {
         Some(rev) => resolve_commit(runner, repo, rev)?,
-        None => remote::head(runner, repo)?.ok_or("尚無 commit，無法建立 branch")?,
+        None => remote::head(runner, repo)?.ok_or(tr!(
+            "There are no commits yet, so a branch cannot be created"
+        ))?,
     };
     ok(
         runner,
@@ -133,14 +141,16 @@ pub fn create_branch(
     )?;
     if switch {
         switch_branch(runner, repo, name)?;
-        return Ok(Outcome::plain(format!(
-            "已建立並切換到 {name}（自 {}）",
-            &start[..7]
+        return Ok(Outcome::plain(tr!(
+            "Created and switched to {{name}} (from {{v1}})",
+            name = name,
+            v1 = &start[..7]
         )));
     }
-    Ok(Outcome::plain(format!(
-        "已建立 branch {name}（自 {}）",
-        &start[..7]
+    Ok(Outcome::plain(tr!(
+        "Created branch {{name}} (from {{v1}})",
+        name = name,
+        v1 = &start[..7]
     )))
 }
 
@@ -148,19 +158,23 @@ pub fn create_branch(
 pub fn switch_branch(runner: &GitRunner, repo: &RepoInfo, name: &str) -> Result<Outcome, String> {
     no_operation(repo)?;
     if tracked_dirty(runner, repo)? {
-        return Err("工作目錄有未提交的變更；請先 commit 或 stash 再切換 branch".into());
+        return Err(tr!("The working tree has uncommitted changes; commit or stash them before switching branches"));
     }
     let all = refs::refs(runner, repo)?;
     if let Some(local) = all.branches.iter().find(|b| !b.remote && b.name == name) {
         if let Some(path) = &local.worktree {
-            return Err(format!("Branch {name} 已在另一個 worktree 使用：{path}"));
+            return Err(tr!(
+                "Branch {{name}} is already used by another worktree: {{path}}",
+                name = name,
+                path = path
+            ));
         }
         ok(
             runner,
             repo,
             vec!["switch".into(), "--no-guess".into(), name.into()],
         )?;
-        return Ok(Outcome::plain(format!("已切換到 {name}")));
+        return Ok(Outcome::plain(tr!("Switched to {{name}}", name = name)));
     }
     if let Some(remote_branch) = all.branches.iter().find(|b| b.remote && b.name == name) {
         let local = remote_branch
@@ -168,9 +182,12 @@ pub fn switch_branch(runner: &GitRunner, repo: &RepoInfo, name: &str) -> Result<
             .split_once('/')
             .map(|(_, rest)| rest)
             .unwrap_or(name);
-        check_ref_name(runner, repo, local, "Branch ")?;
+        check_ref_name(runner, repo, local, &crate::tr!("branch"))?;
         if all.branches.iter().any(|b| !b.remote && b.name == local) {
-            return Err(format!("本機已有 {local}；請直接切換本機 branch"));
+            return Err(tr!(
+                "{{local}} already exists locally; switch to the local branch instead",
+                local = local
+            ));
         }
         ok(
             runner,
@@ -183,11 +200,13 @@ pub fn switch_branch(runner: &GitRunner, repo: &RepoInfo, name: &str) -> Result<
                 remote_branch.full_name.clone(),
             ],
         )?;
-        return Ok(Outcome::plain(format!(
-            "已建立追蹤 {name} 的本機 branch {local} 並切換"
+        return Ok(Outcome::plain(tr!(
+            "Created local branch {{name}} tracking {{local}} and switched to it",
+            name = name,
+            local = local
         )));
     }
-    Err(format!("找不到 branch：{name}"))
+    Err(tr!("Branch not found: {{name}}", name = name))
 }
 
 pub fn delete_branch(
@@ -198,28 +217,35 @@ pub fn delete_branch(
     expected: &str,
     force: bool,
 ) -> Result<Outcome, String> {
-    check_ref_name(runner, repo, name, "Branch ")?;
+    check_ref_name(runner, repo, name, &crate::tr!("branch"))?;
     let full = format!("refs/heads/{name}");
-    let oid = rev_oid(runner, repo, &full)?.ok_or_else(|| format!("找不到 branch：{name}"))?;
+    let oid = rev_oid(runner, repo, &full)?
+        .ok_or_else(|| tr!("Branch not found: {{name}}", name = name))?;
     if oid != expected {
-        return Err("Branch 已在確認後變更，未刪除".into());
+        return Err(tr!(
+            "The branch changed after you confirmed, so it was not deleted"
+        ));
     }
     let all = refs::refs(runner, repo)?;
     let branch = all
         .branches
         .iter()
         .find(|b| !b.remote && b.name == name)
-        .ok_or("找不到 branch")?;
+        .ok_or(tr!("Branch not found"))?;
     if branch.current {
-        return Err("無法刪除目前所在的 branch".into());
+        return Err(tr!("The current branch cannot be deleted"));
     }
     if let Some(path) = &branch.worktree {
-        return Err(format!("Branch {name} 正被另一個 worktree 使用：{path}"));
+        return Err(tr!(
+            "Branch {{name}} is in use by another worktree: {{path}}",
+            name = name,
+            path = path
+        ));
     }
     let mut point = store.create(
         runner,
         repo,
-        &format!("刪除 branch {name}"),
+        &tr!("Delete branch {{name}}", name = name),
         Capture::Refs(vec![SavedRef {
             name: full,
             oid: oid.clone(),
@@ -239,12 +265,19 @@ pub fn delete_branch(
         if force {
             e
         } else {
-            format!("{e}\n（尚未合併的 branch 需明確選擇強制刪除）")
+            tr!(
+                "{{e}}\n(an unmerged branch needs an explicit force delete)",
+                e = e
+            )
         }
     })?;
     store.mark_after(runner, repo, &mut point)?;
     Ok(Outcome {
-        message: format!("已刪除 branch {name}（{}）", &oid[..7]),
+        message: tr!(
+            "Deleted branch {{name}} ({{v1}})",
+            name = name,
+            v1 = &oid[..7]
+        ),
         recovery: Some(point),
         conflicts: false,
     })
@@ -292,9 +325,11 @@ fn stash_at(
     let entry = stashes(runner, repo)?
         .into_iter()
         .find(|s| s.index == index)
-        .ok_or("找不到 stash")?;
+        .ok_or(tr!("Stash not found"))?;
     if entry.oid != expected {
-        return Err("Stash 清單已在確認後變更，未執行操作".into());
+        return Err(tr!(
+            "The stash list changed after you confirmed, so nothing was done"
+        ));
     }
     Ok(entry)
 }
@@ -307,7 +342,7 @@ pub fn stash_push(
     keep_index: bool,
 ) -> Result<Outcome, String> {
     if message.contains('\0') || message.len() > 1000 {
-        return Err("Stash 訊息無效".into());
+        return Err(tr!("Invalid stash message"));
     }
     let mut args = vec!["stash".to_owned(), "push".into()];
     if include_untracked {
@@ -324,9 +359,9 @@ pub fn stash_push(
     // No user path is passed here, so magic pathspecs are safe.
     let output = run_with(runner, repo, args, &[("GIT_LITERAL_PATHSPECS", "0")])?;
     if output.contains("No local changes to save") {
-        return Err("沒有可 stash 的變更".into());
+        return Err(tr!("There are no changes to stash"));
     }
-    Ok(Outcome::plain("已建立 stash"))
+    Ok(Outcome::plain(tr!("Created a stash")))
 }
 
 pub fn stash_apply(
@@ -346,9 +381,9 @@ pub fn stash_apply(
     args.push(format!("stash@{{{}}}", entry.index));
     match ok(runner, repo, args) {
         Ok(_) => Ok(Outcome::plain(if pop {
-            "已套用並移除 stash"
+            tr!("Applied and removed the stash")
         } else {
-            "已套用 stash（保留 stash）"
+            tr!("Applied the stash (kept it)")
         })),
         Err(error) => {
             let conflicts = status::status(runner, repo)?
@@ -357,10 +392,7 @@ pub fn stash_apply(
                 .any(|e| e.conflict.is_some());
             if conflicts {
                 Ok(Outcome {
-                    message: format!(
-                        "套用 stash 產生衝突；{}請解決衝突後再手動 drop",
-                        if pop { "stash 仍保留，" } else { "" }
-                    ),
+                    message: tr!("Applying the stash caused conflicts; {{v1}}resolve them, then drop it manually", v1 = if pop { tr!("the stash is kept; ") } else { String::new() }),
                     recovery: None,
                     conflicts: true,
                 })
@@ -382,7 +414,7 @@ pub fn stash_drop(
     let point = store.create(
         runner,
         repo,
-        &format!("刪除 stash@{{{index}}}"),
+        &tr!("Delete stash@{{{index}}}", index = index),
         Capture::Refs(vec![SavedRef {
             name: format!("stash@{{{index}}}"),
             oid: entry.oid.clone(),
@@ -400,7 +432,7 @@ pub fn stash_drop(
         ],
     )?;
     Ok(Outcome {
-        message: format!("已刪除 stash：{}", entry.message),
+        message: tr!("Deleted stash: {{v1}}", v1 = entry.message),
         recovery: Some(point),
         conflicts: false,
     })
@@ -414,7 +446,9 @@ pub fn stash_clear(
 ) -> Result<Outcome, String> {
     let entries = stashes(runner, repo)?;
     if entries.iter().map(|e| &e.oid).ne(expected.iter()) {
-        return Err("Stash 清單已在確認後變更，未清除".into());
+        return Err(tr!(
+            "The stash list changed after you confirmed, so nothing was cleared"
+        ));
     }
     let saved = entries
         .iter()
@@ -425,10 +459,15 @@ pub fn stash_clear(
             stash_message: Some(e.message.clone()),
         })
         .collect();
-    let point = store.create(runner, repo, "清除全部 stash", Capture::Refs(saved))?;
+    let point = store.create(
+        runner,
+        repo,
+        &tr!("Clear all stashes"),
+        Capture::Refs(saved),
+    )?;
     ok(runner, repo, vec!["stash".into(), "clear".into()])?;
     Ok(Outcome {
-        message: format!("已清除 {} 個 stash", entries.len()),
+        message: tr!("Cleared {{v1}} stashes", v1 = entries.len()),
         recovery: Some(point),
         conflicts: false,
     })
@@ -461,7 +500,11 @@ pub fn reset(
     let mut point = store.create(
         runner,
         repo,
-        &format!("reset --{label} 到 {}", &target[..7]),
+        &tr!(
+            "reset --{{label}} to {{v1}}",
+            label = label,
+            v1 = &target[..7]
+        ),
         Capture::Tracked,
     )?;
     ok(
@@ -476,7 +519,11 @@ pub fn reset(
     )?;
     store.mark_after(runner, repo, &mut point)?;
     Ok(Outcome {
-        message: format!("已 reset --{label} 到 {}", &target[..7]),
+        message: tr!(
+            "Ran reset --{{label}} to {{v1}}",
+            label = label,
+            v1 = &target[..7]
+        ),
         recovery: Some(point),
         conflicts: false,
     })
@@ -492,7 +539,9 @@ pub fn revert(
     no_operation(repo)?;
     expect_head(runner, repo, expected_head)?;
     if tracked_dirty(runner, repo)? {
-        return Err("工作目錄有未提交的變更；請先 commit 或 stash 再 revert".into());
+        return Err(tr!(
+            "The working tree has uncommitted changes; commit or stash them before reverting"
+        ));
     }
     let commit = resolve_commit(runner, repo, commit)?;
     let parents = super::diff::commit_parents(runner, repo, &commit)?;
@@ -502,19 +551,24 @@ pub fn revert(
             args.extend(["-m".into(), n.to_string()])
         }
         (count, None) if count > 1 => {
-            return Err("Revert merge commit 需要明確選擇主線 parent".into())
+            return Err(tr!(
+                "Reverting a merge commit needs an explicit mainline parent"
+            ))
         }
-        (_, Some(_)) => return Err("只有 merge commit 需要選擇 parent".into()),
+        (_, Some(_)) => return Err(tr!("Only merge commits need a parent")),
         _ => {}
     }
     args.push(commit.clone());
     match ok(runner, repo, args) {
-        Ok(_) => Ok(Outcome::plain(format!(
-            "已建立 revert commit（反向套用 {}）",
-            &commit[..7]
+        Ok(_) => Ok(Outcome::plain(tr!(
+            "Created a revert commit (reversing {{v1}})",
+            v1 = &commit[..7]
         ))),
         Err(error) if status::operation(repo) == Some(Operation::Revert) => Ok(Outcome {
-            message: format!("Revert 產生衝突，請解決後 continue 或 abort：{error}"),
+            message: tr!(
+                "The revert caused conflicts; resolve them, then continue or abort: {{error}}",
+                error = error
+            ),
             recovery: None,
             conflicts: true,
         }),
@@ -532,18 +586,21 @@ pub fn discard(
     untracked: &[RepoPath],
 ) -> Result<Outcome, String> {
     if paths.is_empty() && untracked.is_empty() {
-        return Err("沒有選取檔案".into());
+        return Err(tr!("No files selected"));
     }
     let state = status::status(runner, repo)?;
     for path in untracked {
         if !state.entries.iter().any(|e| e.untracked && &e.path == path) {
-            return Err(format!("{} 已不是未追蹤檔案；未執行操作", path.display()));
+            return Err(tr!(
+                "{{v1}} is no longer untracked, so nothing was done",
+                v1 = path.display()
+            ));
         }
     }
     let mut point = store.create(
         runner,
         repo,
-        "捨棄工作目錄變更",
+        &tr!("Discard working tree changes"),
         Capture::TrackedAndUntracked(untracked),
     )?;
     if !paths.is_empty() {
@@ -559,11 +616,14 @@ pub fn discard(
     }
     for path in untracked {
         std::fs::remove_file(repo.root_path.join(path_arg(path.as_bytes())?))
-            .map_err(|e| format!("無法刪除 {}：{e}", path.display()))?;
+            .map_err(|e| tr!("Cannot delete {{v1}}: {{e}}", v1 = path.display(), e = e))?;
     }
     store.mark_after(runner, repo, &mut point)?;
     Ok(Outcome {
-        message: format!("已捨棄 {} 個檔案的變更", paths.len() + untracked.len()),
+        message: tr!(
+            "Discarded changes to {{v1}} files",
+            v1 = paths.len() + untracked.len()
+        ),
         recovery: Some(point),
         conflicts: false,
     })
@@ -577,31 +637,35 @@ pub fn create_tag(
     message: Option<&str>,
     sign: bool,
 ) -> Result<Outcome, String> {
-    check_ref_name(runner, repo, name, "Tag ")?;
+    check_ref_name(runner, repo, name, &crate::tr!("tag"))?;
     if rev_oid(runner, repo, &format!("refs/tags/{name}"))?.is_some() {
-        return Err(format!("Tag {name} 已存在；移動 tag 請先明確刪除"));
+        return Err(tr!(
+            "Tag {{name}} already exists; delete it explicitly before moving it",
+            name = name
+        ));
     }
     let target = match target {
         Some(rev) => resolve_commit(runner, repo, rev)?,
-        None => remote::head(runner, repo)?.ok_or("尚無 commit")?,
+        None => remote::head(runner, repo)?.ok_or(tr!("There are no commits yet"))?,
     };
     let mut args = vec!["tag".to_owned()];
     match message.map(str::trim).filter(|m| !m.is_empty()) {
         Some(message) => {
             if message.contains('\0') || message.len() > 64 * 1024 {
-                return Err("Tag 訊息無效".into());
+                return Err(tr!("Invalid tag message"));
             }
             args.push(if sign { "-s" } else { "-a" }.into());
             args.extend(["-m".into(), message.into()]);
         }
-        None if sign => return Err("簽章 tag 需要訊息".into()),
+        None if sign => return Err(tr!("A signed tag needs a message")),
         None => {}
     }
     args.extend(["--".into(), name.into(), target.clone()]);
     ok(runner, repo, args)?;
-    Ok(Outcome::plain(format!(
-        "已建立 tag {name} → {}",
-        &target[..7]
+    Ok(Outcome::plain(tr!(
+        "Created tag {{name}} → {{v1}}",
+        name = name,
+        v1 = &target[..7]
     )))
 }
 
@@ -612,16 +676,19 @@ pub fn delete_tag(
     name: &str,
     expected: &str,
 ) -> Result<Outcome, String> {
-    check_ref_name(runner, repo, name, "Tag ")?;
+    check_ref_name(runner, repo, name, &crate::tr!("tag"))?;
     let full = format!("refs/tags/{name}");
-    let oid = rev_oid(runner, repo, &full)?.ok_or_else(|| format!("找不到 tag：{name}"))?;
+    let oid =
+        rev_oid(runner, repo, &full)?.ok_or_else(|| tr!("Tag not found: {{name}}", name = name))?;
     if oid != expected {
-        return Err("Tag 已在確認後變更，未刪除".into());
+        return Err(tr!(
+            "The tag changed after you confirmed, so it was not deleted"
+        ));
     }
     let mut point = store.create(
         runner,
         repo,
-        &format!("刪除本機 tag {name}"),
+        &tr!("Delete local tag {{name}}", name = name),
         Capture::Refs(vec![SavedRef {
             name: full.clone(),
             oid,
@@ -636,7 +703,10 @@ pub fn delete_tag(
     )?;
     store.mark_after(runner, repo, &mut point)?;
     Ok(Outcome {
-        message: format!("已刪除本機 tag {name}；遠端 tag 未變更",),
+        message: tr!(
+            "Deleted local tag {{name}}; the remote tag is unchanged",
+            name = name
+        ),
         recovery: Some(point),
         conflicts: false,
     })
@@ -690,9 +760,9 @@ pub fn push_tag(
     force: bool,
 ) -> Result<Outcome, String> {
     remote_exists(runner, repo, remote_name)?;
-    check_ref_name(runner, repo, name, "Tag ")?;
+    check_ref_name(runner, repo, name, &crate::tr!("tag"))?;
     let full = format!("refs/tags/{name}");
-    rev_oid(runner, repo, &full)?.ok_or_else(|| format!("找不到 tag：{name}"))?;
+    rev_oid(runner, repo, &full)?.ok_or_else(|| tr!("Tag not found: {{name}}", name = name))?;
     let refspec = format!("{}{full}:{full}", if force { "+" } else { "" });
     ok(
         runner,
@@ -706,8 +776,10 @@ pub fn push_tag(
             refspec,
         ],
     )?;
-    Ok(Outcome::plain(format!(
-        "已推送 tag {name} 到 {remote_name}"
+    Ok(Outcome::plain(tr!(
+        "Pushed tag {{name}} to {{remote_name}}",
+        name = name,
+        remote_name = remote_name
     )))
 }
 
@@ -719,14 +791,19 @@ pub fn delete_remote_tag(
     expected: &str,
 ) -> Result<Outcome, String> {
     remote_exists(runner, repo, remote_name)?;
-    check_ref_name(runner, repo, name, "Tag ")?;
+    check_ref_name(runner, repo, name, &crate::tr!("tag"))?;
     let current = remote_tags(runner, repo, remote_name)?;
-    let tag = current
-        .iter()
-        .find(|t| t.name == name)
-        .ok_or_else(|| format!("{remote_name} 上沒有 tag {name}"))?;
+    let tag = current.iter().find(|t| t.name == name).ok_or_else(|| {
+        tr!(
+            "There is no tag {{remote_name}} on {{name}}",
+            remote_name = remote_name,
+            name = name
+        )
+    })?;
     if tag.oid != expected {
-        return Err("遠端 tag 已在確認後變更，未刪除".into());
+        return Err(tr!(
+            "The remote tag changed after you confirmed, so it was not deleted"
+        ));
     }
     let full = format!("refs/tags/{name}");
     ok(
@@ -742,7 +819,9 @@ pub fn delete_remote_tag(
             format!(":{full}"),
         ],
     )?;
-    Ok(Outcome::plain(format!(
-        "已刪除 {remote_name} 上的 tag {name}；本機 tag 未變更"
+    Ok(Outcome::plain(tr!(
+        "Deleted tag {{remote_name}} on {{name}}; the local tag is unchanged",
+        remote_name = remote_name,
+        name = name
     )))
 }

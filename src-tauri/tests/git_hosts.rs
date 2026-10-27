@@ -96,13 +96,15 @@ fn accounts_on_one_host_keep_separate_tokens_and_settings_hold_no_secrets() {
     assert!(alice["warnings"][0]
         .as_str()
         .unwrap()
-        .contains("本次執行期間"));
+        .contains("for this run only"));
     // A token for a different account than claimed is refused.
     assert!(add("token-bob", Some("alice"))
         .unwrap_err()
-        .contains("屬於 bob"));
+        .contains("belongs to bob"));
     let bob = add("token-bob", None).unwrap();
-    assert!(add("token-bob", None).unwrap_err().contains("已經連線"));
+    assert!(add("token-bob", None)
+        .unwrap_err()
+        .contains("already connected"));
 
     for (connection, token) in [(&alice, "token-alice"), (&bob, "token-bob")] {
         fixture
@@ -132,7 +134,7 @@ fn accounts_on_one_host_keep_separate_tokens_and_settings_hold_no_secrets() {
             .unwrap(),
         )
         .unwrap_err();
-    assert!(error.contains("找不到 alice@"), "{error}");
+    assert!(error.contains("No login found for alice@"), "{error}");
 
     fixture
         .host(json!({ "op": "removeConnection", "id": bob["connection"]["id"] }))
@@ -177,7 +179,7 @@ fn gitlab_identity_failures_are_diagnosable() {
     let error = fixture
         .host(json!({ "op": "addConnection", "provider": "gitlab", "webUrl": web, "token": "glpat-expired", "source": "entered", "account": null }))
         .unwrap_err();
-    assert!(error.contains("登入已失效"), "{error}");
+    assert!(error.contains("login expired"), "{error}");
     // Plain HTTP is only for loopback; DNS failures name the likely cause.
     assert!(fixture
         .host(json!({ "op": "addConnection", "provider": "gitlab", "webUrl": "http://gitlab.example.test", "token": "x", "source": "entered", "account": null }))
@@ -187,14 +189,14 @@ fn gitlab_identity_failures_are_diagnosable() {
         .host(json!({ "op": "addConnection", "provider": "gitlab", "webUrl": "https://gitlab.sessionbay.invalid", "token": "x", "source": "entered", "account": null }))
         .unwrap_err();
     assert!(
-        error.contains("DNS") || error.contains("無法連線"),
+        error.contains("DNS") || error.contains("Cannot connect"),
         "{error}"
     );
     // Only configured hosts may be opened in the browser.
     assert!(fixture
         .host(json!({ "op": "openExternal", "url": "https://evil.example.test/x" }))
         .unwrap_err()
-        .contains("已設定主機"));
+        .contains("configured hosts"));
 }
 
 #[cfg(unix)]
@@ -215,7 +217,10 @@ fn plaintext_credential_helpers_are_never_written() {
         .host(json!({ "op": "addConnection", "provider": "github", "webUrl": server.base, "token": "token-alice", "source": "entered", "persist": true, "account": null }))
         .unwrap();
     assert!(
-        added["warnings"][0].as_str().unwrap().contains("明文"),
+        added["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("plain text"),
         "{added}"
     );
     assert!(!store.exists() || !fs::read_to_string(&store).unwrap().contains("token-alice"));

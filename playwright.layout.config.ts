@@ -4,7 +4,7 @@ export default defineConfig({
   testMatch: 'terminal-layout.spec.ts',
   timeout: 30_000,
   workers: 1,
-  use: {
+  use: { locale: 'zh-TW',
     browserName: 'chromium',
     channel: 'chrome',
     headless: true,

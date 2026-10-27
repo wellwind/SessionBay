@@ -2,44 +2,53 @@
 //! 0.25 the generic WebP wrapper does not forward allocation limits, and VP8X
 //! canvas dimensions alone do not constrain an inconsistent VP8 bitstream.
 use super::{dimensions, MAX_DECODE_BYTES};
+use crate::tr;
 use image::{metadata::Orientation, DynamicImage};
 use std::io::Cursor;
 
-const INVALID: &str = "WebP 區塊損壞或影格尺寸不一致";
-const UNSUPPORTED_COMPRESSION: &str =
-    "暫不支援無損 WebP 或無損壓縮透明度；目前僅安全預覽 VP8 有損 WebP";
+fn invalid() -> String {
+    tr!("The WebP chunks are corrupt or the frame sizes do not match")
+}
+
+fn unsupported_compression() -> String {
+    tr!("Lossless WebP and losslessly compressed transparency are not supported yet; only lossy VP8 WebP is previewed")
+}
 const MAX_CHUNKS: usize = 4096;
 const MAX_FRAMES: usize = 512;
 
 pub(super) fn decode(bytes: &[u8]) -> Result<(DynamicImage, bool), String> {
     let animated = preflight(bytes)?;
     let mut decoder = image_webp::WebPDecoder::new(Cursor::new(bytes))
-        .map_err(|e| format!("WebP 無法解碼：{e}"))?;
+        .map_err(|e| tr!("Cannot decode the WebP image: {{error}}", error = e))?;
     let (width, height) = decoder.dimensions();
     dimensions(width, height)?;
     let size = decoder
         .output_buffer_size()
         .filter(|size| *size as u64 <= MAX_DECODE_BYTES)
-        .ok_or("WebP 解碼緩衝區超過上限")?;
+        .ok_or(tr!("The WebP decode buffer exceeds the limit"))?;
     decoder.set_memory_limit((MAX_DECODE_BYTES - size as u64) as usize);
     let orientation = decoder
         .exif_metadata()
-        .map_err(|e| format!("WebP 中繼資料損壞：{e}"))?
+        .map_err(|e| tr!("The WebP metadata is corrupt: {{error}}", error = e))?
         .as_deref()
         .and_then(Orientation::from_exif_chunk)
         .unwrap_or(Orientation::NoTransforms);
     let mut pixels = Vec::new();
     pixels
         .try_reserve_exact(size)
-        .map_err(|_| "WebP 解碼記憶體不足")?;
+        .map_err(|_| tr!("Not enough memory to decode the WebP image"))?;
     pixels.resize(size, 0);
     decoder
         .read_image(&mut pixels)
-        .map_err(|e| format!("WebP 無法解碼：{e}"))?;
+        .map_err(|e| tr!("Cannot decode the WebP image: {{error}}", error = e))?;
     let mut image = if decoder.has_alpha() {
-        DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, pixels).ok_or(INVALID)?)
+        DynamicImage::ImageRgba8(
+            image::RgbaImage::from_raw(width, height, pixels).ok_or_else(invalid)?,
+        )
     } else {
-        DynamicImage::ImageRgb8(image::RgbImage::from_raw(width, height, pixels).ok_or(INVALID)?)
+        DynamicImage::ImageRgb8(
+            image::RgbImage::from_raw(width, height, pixels).ok_or_else(invalid)?,
+        )
     };
     image.apply_orientation(orientation);
     Ok((image, animated))
@@ -55,18 +64,18 @@ fn chunks<'a>(bytes: &'a [u8], count: &mut usize) -> Result<Vec<Chunk<'a>>, Stri
     while offset < bytes.len() {
         *count += 1;
         if *count > MAX_CHUNKS || bytes.len() - offset < 8 {
-            return Err(INVALID.into());
+            return Err(invalid());
         }
         let size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
         let start = offset + 8;
         let end = start
             .checked_add(size)
             .filter(|end| *end <= bytes.len())
-            .ok_or(INVALID)?;
+            .ok_or_else(invalid)?;
         let padded_end = end
             .checked_add(size & 1)
             .filter(|end| *end <= bytes.len())
-            .ok_or(INVALID)?;
+            .ok_or_else(invalid)?;
         result.push(Chunk {
             kind: &bytes[offset..offset + 4],
             data: &bytes[start..end],
@@ -83,10 +92,10 @@ fn bitstream_size(chunk: &Chunk<'_>) -> Result<(u32, u32), String> {
     let data = chunk.data;
     let result = if chunk.kind == b"VP8 " {
         if data.len() < 10 || data[0] & 1 != 0 || &data[3..6] != b"\x9d\x01\x2a" {
-            return Err(INVALID.into());
+            return Err(invalid());
         }
         if (u24(&data[..3]) >> 5) as usize > data.len() - 10 {
-            return Err(INVALID.into());
+            return Err(invalid());
         }
         (
             u32::from(u16::from_le_bytes([data[6], data[7]]) & 0x3fff),
@@ -95,24 +104,24 @@ fn bitstream_size(chunk: &Chunk<'_>) -> Result<(u32, u32), String> {
     } else if chunk.kind == b"VP8L" {
         // image-webp 0.2.4's lossless Huffman-group allocation is not limited
         // by set_memory_limit or pixel count. Never enter that decoder.
-        return Err(UNSUPPORTED_COMPRESSION.into());
+        return Err(unsupported_compression());
     } else {
-        return Err(INVALID.into());
+        return Err(invalid());
     };
     dimensions(result.0, result.1)?;
     Ok(result)
 }
 
 fn alpha(data: &[u8], size: (u32, u32)) -> Result<(), String> {
-    let header = *data.first().ok_or(INVALID)?;
+    let header = *data.first().ok_or_else(invalid)?;
     if header & 3 != 0 {
-        return Err(UNSUPPORTED_COMPRESSION.into());
+        return Err(unsupported_compression());
     }
     if header & 0xc0 != 0
         || ((header >> 4) & 3) > 1
         || data.len() as u64 != 1 + u64::from(size.0) * u64::from(size.1)
     {
-        return Err(INVALID.into());
+        return Err(invalid());
     }
     Ok(())
 }
@@ -123,15 +132,15 @@ fn preflight(bytes: &[u8]) -> Result<bool, String> {
         || &bytes[8..12] != b"WEBP"
         || u64::from(u32::from_le_bytes(bytes[4..8].try_into().unwrap())) + 8 != bytes.len() as u64
     {
-        return Err(INVALID.into());
+        return Err(invalid());
     }
     let mut count = 0;
     let all = chunks(&bytes[12..], &mut count)?;
-    let first = all.first().ok_or(INVALID)?;
+    let first = all.first().ok_or_else(invalid)?;
     let extended = first.kind == b"VP8X";
     let (canvas, animated) = if extended {
         if first.data.len() != 10 {
-            return Err(INVALID.into());
+            return Err(invalid());
         }
         let size = (u24(&first.data[4..7]) + 1, u24(&first.data[7..10]) + 1);
         dimensions(size.0, size.1)?;
@@ -149,35 +158,35 @@ fn preflight(bytes: &[u8]) -> Result<bool, String> {
             b"VP8X" => {
                 extended_headers += 1;
                 if extended_headers > 1 || !extended {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             b"VP8 " | b"VP8L" => {
                 streams += 1;
                 if animated || streams > 1 || bitstream_size(chunk)? != canvas {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             b"ALPH" => {
                 alpha_chunks += 1;
                 if alpha_chunks > 1 || animated || !extended {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
                 alpha(chunk.data, canvas)?;
                 if all.get(index + 1).is_none_or(|next| next.kind != b"VP8 ") {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             b"ANIM" => {
                 animation_headers += 1;
                 if !animated || animation_headers > 1 || chunk.data.len() != 6 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             b"ANMF" => {
                 frames += 1;
                 if !animated || frames > MAX_FRAMES || chunk.data.len() < 16 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
                 let data = chunk.data;
                 let x = u24(&data[..3]) * 2;
@@ -185,7 +194,7 @@ fn preflight(bytes: &[u8]) -> Result<bool, String> {
                 let size = (u24(&data[6..9]) + 1, u24(&data[9..12]) + 1);
                 dimensions(size.0, size.1)?;
                 if x + size.0 > canvas.0 || y + size.1 > canvas.1 {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
                 let subchunks = chunks(&data[16..], &mut count)?;
                 // The pinned decoder reads the chunk immediately after ALPH as
@@ -197,17 +206,17 @@ fn preflight(bytes: &[u8]) -> Result<bool, String> {
                         alpha(transparency.data, size)?;
                         stream
                     }
-                    _ => return Err(INVALID.into()),
+                    _ => return Err(invalid()),
                 };
                 if bitstream_size(stream)? != size {
-                    return Err(INVALID.into());
+                    return Err(invalid());
                 }
             }
             _ => {}
         }
     }
     if (animated && (frames == 0 || animation_headers != 1)) || (!animated && streams != 1) {
-        return Err(INVALID.into());
+        return Err(invalid());
     }
     Ok(animated)
 }
@@ -316,7 +325,7 @@ mod tests {
         let hostile = [0x2f, 0, 0, 0, 0, 0xff, 0xff, 0xff];
         assert_eq!(
             decode(&riff(vec![chunk(b"VP8L", &hostile)])).unwrap_err(),
-            UNSUPPORTED_COMPRESSION
+            unsupported_compression()
         );
         let mut header = [0; 10];
         header[0] = 16;
@@ -327,7 +336,7 @@ mod tests {
                 chunk(b"VP8 ", &lossy(1, 1))
             ]))
             .unwrap_err(),
-            UNSUPPORTED_COMPRESSION
+            unsupported_compression()
         );
         header[0] = 2 | 16;
         for subchunks in [
@@ -343,7 +352,7 @@ mod tests {
                     chunk(b"ANMF", &frame)
                 ]))
                 .unwrap_err(),
-                UNSUPPORTED_COMPRESSION
+                unsupported_compression()
             );
         }
         assert!(alpha(&[0, 255], (1, 1)).is_ok());

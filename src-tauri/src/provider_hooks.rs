@@ -1,5 +1,6 @@
 //! Launch-local provider hooks. No user/project configuration files are edited.
 //! The callback returns only `{}`: it cannot grant permissions or steer a model.
+use crate::tr;
 use crate::{models::AgentKind, runtime::LaunchSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -78,7 +79,9 @@ pub fn configure(spec: &mut LaunchSpec, kind: AgentKind, helper: &Path) -> Resul
         );
     }
     if !supported(kind) {
-        return Err("此工具／平台尚未支援 launch-local hooks".into());
+        return Err(tr!(
+            "Launch-local hooks are not supported for this tool or platform yet"
+        ));
     }
     let helper = helper
         .to_str()

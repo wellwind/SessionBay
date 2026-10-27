@@ -8,7 +8,7 @@ export default defineConfig({
   outputDir: './test-results/git',
   timeout: 60_000,
   workers: 1,
-  use: {
+  use: { locale: 'zh-TW',
     headless: true,
     viewport: { width: 1280, height: 850 },
     baseURL: 'http://127.0.0.1:1440',

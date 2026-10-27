@@ -371,7 +371,7 @@ fn detection_distinguishes_missing_failed_timed_out_and_available_without_claimi
         .error
         .as_deref()
         .unwrap()
-        .contains("逾時"));
+        .contains("timed out"));
     for installation in installations {
         assert_eq!(installation.login_status, LoginStatus::Unknown);
         assert_eq!(

@@ -10,6 +10,7 @@ use super::{
     path::RepoPath,
     runner::{path_arg, Access, GitRunner, Invocation},
 };
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -105,7 +106,7 @@ impl Store {
 
     fn point_path(&self, repo: &RepoInfo, id: &str) -> Result<PathBuf, String> {
         if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-            return Err("復原點 ID 無效".into());
+            return Err(tr!("Invalid recovery point ID"));
         }
         Ok(self.repo_dir(repo).join(format!("{id}.json")))
     }
@@ -150,10 +151,17 @@ impl Store {
                 refs: Vec::new(),
             },
             head_after: None,
-            notes: vec!["Ignored 檔案、其他 worktree 與遠端狀態不在復原範圍內".into()],
+            notes: vec![tr!(
+                "Ignored files, other worktrees and remote state are not covered"
+            )],
         };
         let directory = self.repo_dir(repo);
-        fs::create_dir_all(&directory).map_err(|e| format!("無法建立復原點目錄：{e}"))?;
+        fs::create_dir_all(&directory).map_err(|e| {
+            tr!(
+                "Cannot create the recovery point folder: {{error}}",
+                error = e
+            )
+        })?;
         match capture {
             Capture::Refs(refs) => {
                 for saved in &refs {
@@ -176,7 +184,7 @@ impl Store {
                 point.coverage.work_files = paths.len();
                 point
                     .notes
-                    .push("Index 的衝突狀態無法保存；保存的是當時工作目錄的檔案內容".into());
+                    .push(tr!("The conflicted index state cannot be saved; the working tree file contents at that time are saved instead"));
             }
             Capture::Tracked | Capture::TrackedAndUntracked(_) => {
                 if let Some(head) = &head {
@@ -197,9 +205,9 @@ impl Store {
                     point.coverage.index = true;
                     point.coverage.tracked_files = true;
                 } else {
-                    point
-                        .notes
-                        .push("尚無 commit 的 branch 無法保存 index 與 tracked 檔案".into());
+                    point.notes.push(tr!(
+                        "A branch without commits cannot save the index and tracked files"
+                    ));
                 }
                 if let Capture::TrackedAndUntracked(paths) = capture {
                     self.copy_files(repo, &format!("{id}.files"), paths, false)?;
@@ -221,8 +229,9 @@ impl Store {
         allow_missing: bool,
     ) -> Result<(), String> {
         if paths.len() > MAX_UNTRACKED_FILES {
-            return Err(format!(
-                "檔案超過 {MAX_UNTRACKED_FILES} 個，無法完整備份；已停止操作"
+            return Err(tr!(
+                "More than {{limit}} files, so they cannot all be backed up; the operation stopped",
+                limit = MAX_UNTRACKED_FILES
             ));
         }
         let mut total = 0u64;
@@ -232,32 +241,41 @@ impl Store {
                 if allow_missing {
                     continue;
                 }
-                return Err(format!("無法讀取 {}；已停止操作", path.display()));
+                return Err(tr!(
+                    "Cannot read {{path}}; the operation stopped",
+                    path = path.display()
+                ));
             };
             if !metadata.is_file() {
-                return Err(format!(
-                    "{} 不是一般檔案，無法安全備份；已停止操作",
-                    path.display()
+                return Err(tr!(
+                    "{{path}} is not a regular file and cannot be backed up safely; the operation stopped",
+                    path = path.display()
                 ));
             }
             total += metadata.len();
         }
         if total > MAX_UNTRACKED_BYTES {
-            return Err(format!(
-                "要備份的檔案共 {} MB，超過 {} MB 上限；已停止操作",
-                total / 1024 / 1024,
-                MAX_UNTRACKED_BYTES / 1024 / 1024
+            return Err(tr!(
+                "The files to back up total {{size}} MB, over the {{limit}} MB limit; the operation stopped",
+                size = total / 1024 / 1024,
+                limit = MAX_UNTRACKED_BYTES / 1024 / 1024
             ));
         }
         let target = self.repo_dir(repo).join(folder);
-        fs::create_dir_all(&target).map_err(|e| format!("無法建立備份目錄：{e}"))?;
+        fs::create_dir_all(&target)
+            .map_err(|e| tr!("Cannot create the backup folder: {{error}}", error = e))?;
         for (index, path) in paths.iter().enumerate() {
             let source = repo.root_path.join(path_arg(path.as_bytes())?);
             if allow_missing && fs::symlink_metadata(&source).is_err() {
                 continue;
             }
-            fs::copy(&source, target.join(index.to_string()))
-                .map_err(|e| format!("無法備份 {}：{e}；已停止操作", path.display()))?;
+            fs::copy(&source, target.join(index.to_string())).map_err(|e| {
+                tr!(
+                    "Cannot back up {{path}}: {{error}}; the operation stopped",
+                    path = path.display(),
+                    error = e
+                )
+            })?;
         }
         Ok(())
     }
@@ -276,15 +294,22 @@ impl Store {
                 ["update-ref", &format!("{REF_PREFIX}{name}"), oid],
             ))
             .map(|_| ())
-            .map_err(|e| format!("無法建立復原點：{e}；已停止操作"))
+            .map_err(|e| {
+                tr!(
+                    "Cannot create the recovery point: {{error}}; the operation stopped",
+                    error = e
+                )
+            })
     }
 
     fn save(&self, repo: &RepoInfo, point: &RecoveryPoint) -> Result<(), String> {
         let path = self.point_path(repo, &point.id)?;
         let temporary = path.with_extension("json.tmp");
         let bytes = serde_json::to_vec_pretty(point).map_err(|e| e.to_string())?;
-        fs::write(&temporary, bytes).map_err(|e| format!("無法寫入復原點：{e}"))?;
-        fs::rename(&temporary, &path).map_err(|e| format!("無法寫入復原點：{e}"))
+        fs::write(&temporary, bytes)
+            .map_err(|e| tr!("Cannot write the recovery point: {{error}}", error = e))?;
+        fs::rename(&temporary, &path)
+            .map_err(|e| tr!("Cannot write the recovery point: {{error}}", error = e))
     }
 
     pub fn mark_after(
@@ -311,7 +336,8 @@ impl Store {
     }
 
     pub fn get(&self, repo: &RepoInfo, id: &str) -> Result<RecoveryPoint, String> {
-        let bytes = fs::read(self.point_path(repo, id)?).map_err(|_| "找不到復原點")?;
+        let bytes =
+            fs::read(self.point_path(repo, id)?).map_err(|_| tr!("Recovery point not found"))?;
         serde_json::from_slice(&bytes).map_err(|e| e.to_string())
     }
 
@@ -373,26 +399,29 @@ impl Store {
                         ["update-ref", &saved.name, &saved.oid, ""],
                     ))
                     .map_err(|_| {
-                        format!("{} 已存在，未覆蓋；請先改名或刪除目前的 ref", saved.name)
+                        tr!("{{name}} already exists and was not overwritten; rename or delete the current ref first", name = saved.name)
                     })?;
             }
-            done.push(format!("已還原 {}", saved.name));
+            done.push(tr!("Restored {{name}}", name = saved.name));
         }
         if point.saved_refs.is_empty() && point.head.is_some() && point.files.is_empty() {
             let status = super::status::status(runner, repo)?;
             if status.entries.iter().any(|e| !e.untracked) {
-                return Err("目前有未提交的變更；為避免覆蓋，請先 commit 或 stash 後再還原".into());
+                return Err(tr!("There are uncommitted changes; commit or stash them before restoring so nothing is overwritten"));
             }
             let current = super::remote::head(runner, repo)?;
             if current != point.head_after && current != point.head && !allow_head_move {
-                return Err("操作後已有新的 commit 或 HEAD 已移動；確認後才會把 branch 移回復原點（新 commit 仍保留在 reflog 與新的復原點）".into());
+                return Err(tr!("A new commit was made or HEAD has moved since the operation; the branch moves back to the recovery point only after you confirm (new commits stay in the reflog and a new recovery point)"));
             }
             if current != point.head {
                 // Keep today's position recoverable before moving back.
                 self.create(
                     runner,
                     repo,
-                    &format!("還原 {} 前", point.operation),
+                    &tr!(
+                        "Before restoring {{operation}}",
+                        operation = point.operation
+                    ),
                     Capture::Tracked,
                 )?;
                 if let Some(head) = &point.head {
@@ -401,7 +430,10 @@ impl Store {
                         Access::Write,
                         ["reset", "--hard", "-q", head],
                     ))?;
-                    done.push(format!("HEAD 已回到 {}", &head[..head.len().min(12)]));
+                    done.push(tr!(
+                        "HEAD is back at {{commit}}",
+                        commit = &head[..head.len().min(12)]
+                    ));
                 }
             }
             if let Some(snapshot) = &point.snapshot {
@@ -410,7 +442,7 @@ impl Store {
                     Access::Write,
                     ["stash", "apply", "--index", "-q", snapshot],
                 ))?;
-                done.push("已還原 index 與 tracked 檔案".into());
+                done.push(tr!("Restored the index and tracked files"));
             }
         }
         let work = self.repo_dir(repo).join(format!("{id}.work"));
@@ -433,25 +465,45 @@ impl Store {
                 .filter(|o| o.success())
                 .map(|o| o.stdout);
             if current.is_some() && current != committed {
-                done.push(format!("略過 {}：檔案已有新的修改", path.display()));
+                done.push(tr!(
+                    "Skipped {{path}}: the file has newer changes",
+                    path = path.display()
+                ));
                 continue;
             }
-            fs::copy(&source, &target).map_err(|e| format!("無法還原 {}：{e}", path.display()))?;
-            done.push(format!("已還原 {} 的工作目錄內容", path.display()));
+            fs::copy(&source, &target).map_err(|e| {
+                tr!(
+                    "Cannot restore {{path}}: {{error}}",
+                    path = path.display(),
+                    error = e
+                )
+            })?;
+            done.push(tr!(
+                "Restored the working tree content of {{path}}",
+                path = path.display()
+            ));
         }
         let backup = self.repo_dir(repo).join(format!("{id}.files"));
         for (index, path) in point.untracked.iter().enumerate() {
             let target = repo.root_path.join(path_arg(path.as_bytes())?);
             if target.symlink_metadata().is_ok() {
-                done.push(format!("略過 {}：檔案已存在", path.display()));
+                done.push(tr!(
+                    "Skipped {{path}}: the file already exists",
+                    path = path.display()
+                ));
                 continue;
             }
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            fs::copy(backup.join(index.to_string()), &target)
-                .map_err(|e| format!("無法還原 {}：{e}", path.display()))?;
-            done.push(format!("已還原 {}", path.display()));
+            fs::copy(backup.join(index.to_string()), &target).map_err(|e| {
+                tr!(
+                    "Cannot restore {{path}}: {{error}}",
+                    path = path.display(),
+                    error = e
+                )
+            })?;
+            done.push(tr!("Restored {{name}}", name = path.display()));
         }
         Ok(done)
     }

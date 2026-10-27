@@ -199,14 +199,14 @@ fn running_recent_or_changed_sessions_never_move() {
         .unwrap()
         .blockers
         .iter()
-        .any(|b| b.contains("最近")));
+        .any(|b| b.contains("last 2 minutes")));
     let store = PlanStore::with_recent_write(Duration::ZERO);
     let running = |_: &str, external: &str| external == "synthetic-codex-1";
     let blocked = store
         .prepare(&h.catalog, &trash_id, &running, None)
         .unwrap();
     assert!(blocked.plan_id.is_empty());
-    assert!(blocked.blockers.iter().any(|b| b.contains("執行")));
+    assert!(blocked.blockers.iter().any(|b| b.contains("still running")));
     let plan = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
     // A sidecar appearing after confirmation changes the plan.
@@ -279,7 +279,7 @@ fn antigravity_presence_lock_blocks_and_conversation_files_move() {
     let holder = fs::File::open(h.path(&format!("presence/{id}.lock"))).unwrap();
     holder.lock().unwrap();
     let locked = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
-    assert!(locked.blockers.iter().any(|b| b.contains("使用中")));
+    assert!(locked.blockers.iter().any(|b| b.contains("still in use")));
     holder.unlock().unwrap();
     let plan = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
     assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);

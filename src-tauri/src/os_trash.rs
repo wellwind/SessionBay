@@ -5,6 +5,7 @@
 //! never touched, and moving to the OS trash keeps the operation reversible.
 use crate::catalog::Catalog;
 use crate::models::AgentKind;
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -81,7 +82,9 @@ impl OpenCodeProcess {
         stdout: Option<&Path>,
     ) -> Result<(), String> {
         use std::process::{Command, Stdio};
-        let data_home = opencode_data_home(root).ok_or("OpenCode 資料位置無法對應 CLI。")?;
+        let data_home = opencode_data_home(root).ok_or(tr!(
+            "The OpenCode data location cannot be mapped to the CLI."
+        ))?;
         let log = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
         let mut command = Command::new(&self.executable);
         command
@@ -97,7 +100,7 @@ impl OpenCodeProcess {
         };
         let mut child = command
             .spawn()
-            .map_err(|e| format!("無法啟動 OpenCode：{e}"))?;
+            .map_err(|e| tr!("Cannot start OpenCode: {{e}}", e = e))?;
         let deadline = Instant::now() + CLI_TIMEOUT;
         let status = loop {
             if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
@@ -106,7 +109,7 @@ impl OpenCodeProcess {
             if Instant::now() >= deadline {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("OpenCode 指令逾時。".into());
+                return Err(tr!("The OpenCode command timed out."));
             }
             std::thread::sleep(Duration::from_millis(100));
         };
@@ -123,7 +126,11 @@ impl OpenCodeProcess {
             .into_iter()
             .rev()
             .collect();
-        Err(format!("OpenCode 指令失敗（{status}）：{tail}"))
+        Err(tr!(
+            "The OpenCode command failed ({{status}}): {{tail}}",
+            status = status,
+            tail = tail
+        ))
     }
 }
 
@@ -173,10 +180,12 @@ struct ExportInfo {
 /// The export must name this Session before the original may be deleted.
 fn verify_export(file: &Path, id: &str) -> Result<usize, String> {
     let reader = std::io::BufReader::new(fs::File::open(file).map_err(|e| e.to_string())?);
-    let export: ExportCheck =
-        serde_json::from_reader(reader).map_err(|e| format!("OpenCode 匯出內容無法解析：{e}"))?;
+    let export: ExportCheck = serde_json::from_reader(reader)
+        .map_err(|e| tr!("Cannot parse the OpenCode export: {{e}}", e = e))?;
     if export.info.id != id {
-        return Err("OpenCode 匯出的 Session 與預期不同。".into());
+        return Err(tr!(
+            "The session exported by OpenCode is not the expected one."
+        ));
     }
     Ok(export.messages.len())
 }
@@ -198,7 +207,9 @@ impl Mover for SystemTrash {
         use objc2_foundation::{NSFileManager, NSString, NSURL};
         // NSFileManager needs no Finder automation permission and reports the
         // trashed URL, which Finder's "Put Back" cannot be relied on to keep.
-        let text = path.to_str().ok_or("路徑不是 UTF-8，無法移到垃圾桶。")?;
+        let text = path.to_str().ok_or(tr!(
+            "The path is not UTF-8, so it cannot be moved to the trash."
+        ))?;
         let url = NSURL::fileURLWithPath(&NSString::from_str(text));
         let mut resulting = None;
         NSFileManager::defaultManager()
@@ -216,7 +227,10 @@ impl Mover for SystemTrash {
             .is_some_and(|path| fs::symlink_metadata(path).is_ok()))
     }
     fn restore(&self, item: &MovedItem, _: i64) -> Result<(), String> {
-        let trashed = item.trashed.as_deref().ok_or("沒有垃圾桶位置紀錄。")?;
+        let trashed = item
+            .trashed
+            .as_deref()
+            .ok_or(tr!("There is no record of the trash location."))?;
         restore_by_rename(Path::new(trashed), Path::new(&item.original))
     }
 }
@@ -232,9 +246,12 @@ impl Mover for SystemTrash {
     }
     fn restore(&self, item: &MovedItem, moved_at: i64) -> Result<(), String> {
         if Path::new(&item.original).exists() {
-            return Err("原位置已有同名項目。".into());
+            return Err(
+                tr!("An item with the same name already exists at the original location.").into(),
+            );
         }
-        let found = find_listed(item, moved_at)?.ok_or("垃圾桶中已找不到這個項目。")?;
+        let found =
+            find_listed(item, moved_at)?.ok_or(tr!("This item is no longer in the trash."))?;
         trash::os_limited::restore_all([found]).map_err(|e| e.to_string())
     }
 }
@@ -254,9 +271,12 @@ fn find_listed(item: &MovedItem, moved_at: i64) -> Result<Option<trash::TrashIte
 /// Move a trashed path back without replacing anything at the original spot.
 pub fn restore_by_rename(trashed: &Path, original: &Path) -> Result<(), String> {
     if fs::symlink_metadata(original).is_ok() {
-        return Err("原位置已有同名項目。".into());
+        return Err(tr!(
+            "An item with the same name already exists at the original location."
+        ));
     }
-    fs::symlink_metadata(trashed).map_err(|_| "垃圾桶中已找不到這個項目。".to_owned())?;
+    fs::symlink_metadata(trashed)
+        .map_err(|_| tr!("This item is no longer in the trash.").to_owned())?;
     if let Some(parent) = original.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -339,7 +359,7 @@ pub fn restore_moved(
         .os_trash_records()?
         .into_iter()
         .find(|r| r.id == id)
-        .ok_or("紀錄已變更，請重新整理。")?;
+        .ok_or(tr!("The record changed; refresh."))?;
     let mut result = OsTrashResult {
         moved: Vec::new(),
         failed: Vec::new(),
@@ -347,9 +367,10 @@ pub fn restore_moved(
     for item in &record.items {
         let label = relative_label(&record.source_root, &item.original);
         if !available(mover, item, record.moved_at)? {
-            result
-                .failed
-                .push(format!("{label}：垃圾桶中已找不到，可能已永久刪除。"));
+            result.failed.push(tr!(
+                "{{label}}: no longer in the trash; it may have been deleted permanently.",
+                label = label
+            ));
             continue;
         }
         let restored = match &item.import_cwd {
@@ -365,7 +386,9 @@ pub fn restore_moved(
         };
         match restored {
             Ok(()) => result.moved.push(label),
-            Err(e) => result.failed.push(format!("{label}：{e}")),
+            Err(e) => result
+                .failed
+                .push(tr!("{{label}}: {{e}}", label = label, e = e)),
         }
     }
     if record
@@ -392,21 +415,28 @@ fn restore_opencode(
     cwd: &str,
     opencode: Option<&dyn OpenCodeCli>,
 ) -> Result<(), String> {
-    let cli = opencode.ok_or("找不到 OpenCode 執行檔；請在設定指定後再還原。")?;
+    let cli = opencode.ok_or(tr!(
+        "OpenCode executable not found; set it in Settings, then restore."
+    ))?;
     let file = Path::new(&item.original);
     if mover.in_trash(item, moved_at)? {
         mover.restore(item, moved_at)?;
     }
     let cwd = Path::new(cwd);
     if !cwd.is_dir() {
-        return Err(format!(
-            "原工作目錄 {} 已不存在；匯出檔保留在 {}。",
-            cwd.display(),
-            file.display()
+        return Err(tr!(
+            "The original working directory {{v1}} no longer exists; the export is kept at {{v2}}.",
+            v1 = cwd.display(),
+            v2 = file.display()
         ));
     }
-    cli.import(Path::new(root), file, cwd)
-        .map_err(|e| format!("{e}；匯出檔保留在 {}。", file.display()))?;
+    cli.import(Path::new(root), file, cwd).map_err(|e| {
+        tr!(
+            "{{e}}; the export is kept at {{v1}}.",
+            e = e,
+            v1 = file.display()
+        )
+    })?;
     let _ = fs::remove_file(file);
     Ok(())
 }
@@ -463,7 +493,10 @@ impl PlanStore {
         opencode: Option<&dyn OpenCodeCli>,
     ) -> Result<OsTrashPlan, String> {
         let (mut plan, stamps) = build(catalog, trash_id, running, self.recent_write, opencode)?;
-        let mut plans = self.plans.lock().map_err(|_| "垃圾桶計畫鎖定失敗")?;
+        let mut plans = self
+            .plans
+            .lock()
+            .map_err(|_| tr!("Could not lock the trash plans"))?;
         plans.retain(|_, p| p.created.elapsed() < PLAN_LIFETIME);
         if plan.blockers.is_empty() {
             plan.plan_id = uuid::Uuid::new_v4().to_string();
@@ -491,10 +524,12 @@ impl PlanStore {
         let prepared = self
             .plans
             .lock()
-            .map_err(|_| "垃圾桶計畫鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the trash plans"))?
             .remove(plan_id)
             .filter(|p| p.created.elapsed() < PLAN_LIFETIME)
-            .ok_or("確認已過期，請重新檢查後再移到垃圾桶。")?;
+            .ok_or(tr!(
+                "The confirmation expired; check again before moving to the trash."
+            ))?;
         let (plan, stamps) = build(
             catalog,
             &prepared.trash_id,
@@ -506,10 +541,12 @@ impl PlanStore {
             return Err(blocker.clone());
         }
         if plan.session_id != prepared.session_id || stamps != prepared.stamps {
-            return Err("確認後來源檔案已變更，未移動任何檔案；請重新檢查。".into());
+            return Err(tr!(
+                "Source files changed after you confirmed, so nothing was moved; check again."
+            ));
         }
         if plan.kind == AgentKind::OpenCode {
-            let cli = opencode.ok_or("找不到 OpenCode 執行檔。")?;
+            let cli = opencode.ok_or(tr!("OpenCode executable not found."))?;
             return self.execute_opencode(catalog, &plan, mover, cli);
         }
         let root = PathBuf::from(&plan.source_root);
@@ -532,7 +569,9 @@ impl PlanStore {
                         import_cwd: None,
                     });
                 }
-                Err(e) => result.failed.push(format!("{}：{e}", item.relative_path)),
+                Err(e) => result
+                    .failed
+                    .push(tr!("{{v1}}: {{e}}", v1 = item.relative_path, e = e)),
             }
         }
         // Once anything left, the indexed Session is no longer whole; drop it so
@@ -590,9 +629,12 @@ impl PlanStore {
                 trashed
             }
             Err(e) => {
-                result
-                    .failed
-                    .push(format!("{label}：{e}（匯出檔保留在 {}）", file.display()));
+                result.failed.push(tr!(
+                    "{{label}}: {{e}} (the export is kept at {{v1}})",
+                    label = label,
+                    e = e,
+                    v1 = file.display()
+                ));
                 None
             }
         };
@@ -623,21 +665,21 @@ fn valid_external_id(id: &str) -> bool {
 fn kept_stores(kind: AgentKind) -> Vec<String> {
     let names: &[&str] = match kind {
         AgentKind::Codex => &[
-            "state_*.sqlite（共享狀態索引）",
-            "thread_history_*.sqlite（共享）",
-            "history.jsonl（共享輸入歷史）",
-            "session_index.jsonl（共享名稱索引）",
+            "state_*.sqlite (shared state index)",
+            "thread_history_*.sqlite (shared)",
+            "history.jsonl (shared input history)",
+            "session_index.jsonl (shared name index)",
         ],
-        AgentKind::Claude => &["history.jsonl（共享輸入歷史）"],
+        AgentKind::Claude => &["history.jsonl (shared input history)"],
         AgentKind::Grok => &[
-            "sessions/<工作目錄>/prompt_history.jsonl（共享）",
-            "session_search.sqlite（共享搜尋索引）",
-            "active_sessions.json（共享）",
+            "sessions/<working directory>/prompt_history.jsonl (shared)",
+            "session_search.sqlite (shared search index)",
+            "active_sessions.json (shared)",
         ],
-        AgentKind::Antigravity => &["conversation_summaries.db（共享 metadata）"],
-        AgentKind::OpenCode => &["opencode.db（共享資料庫）"],
+        AgentKind::Antigravity => &["conversation_summaries.db (shared metadata)"],
+        AgentKind::OpenCode => &["opencode.db (shared database)"],
     };
-    names.iter().map(|n| (*n).to_owned()).collect()
+    names.iter().map(|n| crate::i18n::tr(n)).collect()
 }
 
 fn build(
@@ -660,23 +702,26 @@ fn build(
     };
     let id = inspection.external_id;
     if !valid_external_id(&id) {
-        plan.blockers
-            .push("Session ID 含有無法安全對應檔名的字元。".into());
+        plan.blockers.push(tr!(
+            "The session ID has characters that cannot be mapped safely to a file name."
+        ));
         return Ok((plan, Vec::new()));
     }
     if running(&plan.session_id, &id) {
-        plan.blockers
-            .push("這個 Session 仍在 Session Bay 中執行；請先結束它。".into());
+        plan.blockers.push(tr!(
+            "This session is still running in Session Bay; end it first."
+        ));
     }
     if plan.kind == AgentKind::OpenCode {
         let session = catalog.trashed_snapshot(&plan.trash_id)?;
         if opencode.is_none() {
-            plan.blockers
-                .push("找不到 OpenCode 執行檔；請在設定指定後再試。".into());
+            plan.blockers.push(tr!(
+                "OpenCode executable not found; set it in Settings, then try again."
+            ));
         }
         if opencode_data_home(Path::new(&plan.source_root)).is_none() {
             plan.blockers.push(
-                "這個 OpenCode 來源不是標準的 opencode 資料夾，無法交給官方 CLI 處理。".into(),
+                tr!("This OpenCode source is not a standard opencode folder, so the official CLI cannot handle it."),
             );
         }
         let recent = chrono::DateTime::parse_from_rfc3339(&session.updated_at)
@@ -688,13 +733,12 @@ fn build(
             })
             .is_none_or(|age| age < recent_write);
         if recent {
-            plan.blockers
-                .push("最近 2 分鐘內仍有更新，OpenCode 可能仍在使用這個 Session。".into());
+            plan.blockers.push(tr!(
+                "It was updated in the last 2 minutes; OpenCode may still be using this session."
+            ));
         }
         let item = OsTrashItem {
-            relative_path: format!(
-                "opencode-session-{id}.json（先以官方 CLI 匯出，再刪除資料庫中的 Session）"
-            ),
+            relative_path: tr!("opencode-session-{{id}}.json (exported with the official CLI first, then the session is deleted from the database)", id = id),
             directory: false,
             bytes: 0,
             entries: 0,
@@ -715,8 +759,9 @@ fn build(
         .iter()
         .any(|a| a.status == "changedOrUnavailable")
     {
-        plan.blockers
-            .push("有檔案已變更、遺失或包含連結；請重新掃描後再次檢查。".into());
+        plan.blockers.push(tr!(
+            "Some files changed, are missing or contain links; rescan and check again."
+        ));
     }
     let root = Path::new(&plan.source_root);
     let mut candidates = Vec::<(PathBuf, bool)>::new();
@@ -782,20 +827,21 @@ fn build(
                 }
                 _ => plan
                     .blockers
-                    .push("Grok Session 檔案不在單一 Session 目錄中，無法安全移動。".into()),
+                    .push(tr!("The Grok session files are not in a single session folder, so they cannot be moved safely.")),
             }
         }
         AgentKind::Antigravity => {
             if presence_locked(&root.join(format!("presence/{id}.lock"))) {
-                plan.blockers
-                    .push("Antigravity 顯示這個對話仍在使用中；請先結束它。".into());
+                plan.blockers.push(tr!(
+                    "Antigravity shows this conversation is still in use; end it first."
+                ));
             }
             if indexed.iter().any(|p| {
                 let p = parts(p);
                 p.len() < 3 || p[0] != "brain" || p[1] != id
             }) {
                 plan.blockers
-                    .push("Antigravity 索引檔案不在對話目錄中，無法安全移動。".into());
+                    .push(tr!("The Antigravity index files are not in the conversation folder, so they cannot be moved safely."));
             }
             candidates.push((PathBuf::from(format!("brain/{id}")), true));
             for suffix in [".db", ".db-shm", ".db-wal"] {
@@ -823,15 +869,17 @@ fn build(
         }
     }
     if stamps.is_empty() {
-        plan.blockers.push("找不到可移動的 Session 檔案。".into());
+        plan.blockers
+            .push(tr!("No session files to move were found."));
     }
     let recent = SystemTime::now()
         .checked_sub(recent_write)
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_nanos());
     if stamps.iter().any(|s| s.newest > recent) {
-        plan.blockers
-            .push("最近 2 分鐘內仍有寫入，Agent 可能仍在使用這個 Session。".into());
+        plan.blockers.push(tr!(
+            "It was written in the last 2 minutes; the agent may still be using this session."
+        ));
     }
     plan.items = stamps.iter().map(|s| s.item.clone()).collect();
     Ok((plan, stamps))
@@ -870,7 +918,10 @@ fn stamp(root: &Path, relative: &Path, directory: bool) -> Result<Option<Stamp>,
             .components()
             .all(|c| matches!(c, Component::Normal(_)))
     {
-        return Err(format!("{label}：路徑不在來源範圍內。"));
+        return Err(tr!(
+            "{{label}}: the path is outside the source.",
+            label = label
+        ));
     }
     // Every ancestor below the root must be a real directory, not a link.
     let mut current = root.to_path_buf();
@@ -880,18 +931,25 @@ fn stamp(root: &Path, relative: &Path, directory: bool) -> Result<Option<Stamp>,
         let metadata = match fs::symlink_metadata(&current) {
             Ok(m) => m,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(format!("{label}：{e}")),
+            Err(e) => return Err(tr!("{{label}}: {{e}}", label = label, e = e)),
         };
         if metadata.file_type().is_symlink() {
-            return Err(format!("{label}：路徑包含連結，不會移動。"));
+            return Err(tr!(
+                "{{label}}: the path contains a link and will not be moved.",
+                label = label
+            ));
         }
         if index + 1 < components.len() && !metadata.is_dir() {
             return Ok(None);
         }
     }
-    let metadata = fs::symlink_metadata(&current).map_err(|e| format!("{label}：{e}"))?;
+    let metadata = fs::symlink_metadata(&current)
+        .map_err(|e| tr!("{{label}}: {{e}}", label = label, e = e))?;
     if metadata.is_dir() != directory || !(metadata.is_dir() || metadata.is_file()) {
-        return Err(format!("{label}：檔案類型與預期不同。"));
+        return Err(tr!(
+            "{{label}}: the file type is not what was expected.",
+            label = label
+        ));
     }
     let mut item = OsTrashItem {
         relative_path: label.clone(),
@@ -903,15 +961,20 @@ fn stamp(root: &Path, relative: &Path, directory: bool) -> Result<Option<Stamp>,
     if directory {
         let mut pending = vec![current];
         while let Some(dir) = pending.pop() {
-            for entry in fs::read_dir(&dir).map_err(|e| format!("{label}：{e}"))? {
-                let entry = entry.map_err(|e| format!("{label}：{e}"))?;
+            for entry in
+                fs::read_dir(&dir).map_err(|e| tr!("{{label}}: {{e}}", label = label, e = e))?
+            {
+                let entry = entry.map_err(|e| tr!("{{label}}: {{e}}", label = label, e = e))?;
                 let metadata = entry
                     .path()
                     .symlink_metadata()
-                    .map_err(|e| format!("{label}：{e}"))?;
+                    .map_err(|e| tr!("{{label}}: {{e}}", label = label, e = e))?;
                 item.entries += 1;
                 if item.entries > MAX_ENTRIES {
-                    return Err(format!("{label}：目錄項目過多，無法完整檢查。"));
+                    return Err(tr!(
+                        "{{label}}: the folder has too many items to check completely.",
+                        label = label
+                    ));
                 }
                 newest = newest.max(nanos(&metadata));
                 if metadata.is_dir() {

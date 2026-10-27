@@ -1,5 +1,6 @@
 //! Launch-local Claude Code mod for authoritative main-turn lifecycle reports.
 //! No global settings or source transcripts are read or written.
+use crate::tr;
 use crate::{provider_hooks, runtime::LaunchSpec};
 use std::{
     collections::HashMap,
@@ -119,7 +120,9 @@ fn version(_spec: &LaunchSpec) -> Result<Vec<u8>, String> {
 pub fn prepare(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
     let output = version(spec)?;
     if !supported_version(&output) {
-        return Err("即時 Claude 狀態需要 Claude Code 2.1.287 或更新版本；請更新後再啟用".into());
+        return Err(tr!(
+            "Live Claude status needs Claude Code 2.1.287 or later; update it, then enable this"
+        ));
     }
     install(spec, helper)
 }

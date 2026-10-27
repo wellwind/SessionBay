@@ -83,7 +83,7 @@ fn deliver(identifier: &str, title: &str, body: &str, wait: bool) -> bool {
     {
         let _ = identifier;
         // Many XDG servers only report body clicks for a declared default action.
-        notification.action("default", "開啟");
+        notification.action("default", &crate::tr!("Open (notification)"));
     }
     let Ok(handle) = notification.show() else {
         return false;

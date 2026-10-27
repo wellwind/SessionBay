@@ -4,7 +4,7 @@ export default defineConfig({
   testMatch: ['workspace-files.spec.ts', 'explorer.spec.ts'],
   timeout: 30_000,
   workers: 1,
-  use: {
+  use: { locale: 'zh-TW',
     browserName: 'chromium',
     channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? undefined : 'chrome',
     headless: true,

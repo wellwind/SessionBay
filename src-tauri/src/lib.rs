@@ -12,6 +12,7 @@ pub mod fresh_launch;
 pub mod git;
 pub mod history_sources;
 mod host_environment;
+pub mod i18n;
 pub mod image_input;
 pub mod launch_options;
 pub mod launch_provenance;

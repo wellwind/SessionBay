@@ -9,6 +9,7 @@ use super::{
     http::{Client, HostError, HostErrorKind},
     Connection, Provider,
 };
+use crate::tr;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -436,10 +437,14 @@ impl Api<'_> {
                 let own = summary.author.eq_ignore_ascii_case(viewer);
                 let mut notes = Vec::new();
                 if own {
-                    notes.push("GitHub 不允許核准或要求變更自己的 PR".into());
+                    notes.push(tr!(
+                        "GitHub does not allow approving or requesting changes on your own PR"
+                    ));
                 }
                 if push == Some(false) {
-                    notes.push("此帳號沒有 push 權限，無法合併".into());
+                    notes.push(tr!(
+                        "This account has no push permission, so it cannot merge"
+                    ));
                 }
                 let open = summary.state == PullState::Open;
                 let ci = self.ci(&summary.head_sha, None);
@@ -499,12 +504,14 @@ impl Api<'_> {
                 }
                 let open = summary.state == PullState::Open;
                 let mut notes =
-                    vec!["GitLab 的「要求變更」依版本與方案而定，此處以留言代替".to_owned()];
+                    vec![tr!("GitLab's \"Request changes\" depends on the version and plan; a comment is used here instead")];
                 if approvals.is_none() {
-                    notes.push("無法讀取核准狀態（可能是版本或權限限制）".into());
+                    notes.push(tr!(
+                        "Cannot read the approval status (possibly a version or permission limit)"
+                    ));
                 }
                 if user_can_merge == Some(false) || (user_can_merge.is_none() && access < 30) {
-                    notes.push("此帳號在目前設定下不能合併".into());
+                    notes.push(tr!("This account cannot merge with the current settings"));
                 }
                 let ci = self.ci(&summary.head_sha, Some(&mr["head_pipeline"]));
                 Ok(PullDetail {
@@ -712,10 +719,10 @@ impl Api<'_> {
             return Err(HostError::new(
                 HostErrorKind::Conflict,
                 None,
-                format!(
-                    "遠端已有新的 commit（{} → {}）；先前的檢視已失效，請重新檢視後再操作",
-                    &expected[..expected.len().min(7)],
-                    &detail.summary.head_sha[..detail.summary.head_sha.len().min(7)]
+                tr!(
+                    "A new commit is on the remote ({{from}} → {{to}}); the earlier review is out of date, so review again before acting",
+                    from = &expected[..expected.len().min(7)],
+                    to = &detail.summary.head_sha[..detail.summary.head_sha.len().min(7)]
                 ),
             ));
         }
@@ -731,7 +738,11 @@ impl Api<'_> {
         viewer: &str,
     ) -> Result<(), HostError> {
         if body.trim().is_empty() {
-            return Err(HostError::new(HostErrorKind::Invalid, None, "留言不可空白"));
+            return Err(HostError::new(
+                HostErrorKind::Invalid,
+                None,
+                tr!("The comment cannot be empty"),
+            ));
         }
         let Some(position) = position else {
             let url = match self.connection.provider {
@@ -783,7 +794,7 @@ impl Api<'_> {
             (Provider::Github, ReviewEvent::Unapprove) => Err(HostError::new(
                 HostErrorKind::Unsupported,
                 None,
-                "GitHub 不支援撤回核准；請改為要求變更或留言",
+                tr!("GitHub does not support withdrawing an approval; request changes or comment instead"),
             )),
             (Provider::Github, event) => {
                 let kind = match event {
@@ -795,7 +806,7 @@ impl Api<'_> {
                     return Err(HostError::new(
                         HostErrorKind::Invalid,
                         None,
-                        "此 review 需要說明",
+                        tr!("This review needs a note"),
                     ));
                 }
                 self.send(
@@ -828,7 +839,7 @@ impl Api<'_> {
             (Provider::Gitlab, ReviewEvent::RequestChanges) => Err(HostError::new(
                 HostErrorKind::Unsupported,
                 None,
-                "此 GitLab 整合不支援「要求變更」；請改用留言",
+                tr!("This GitLab integration does not support \"Request changes\"; comment instead"),
             )),
             (Provider::Gitlab, ReviewEvent::Comment) => {
                 self.comment(number, body, None, expected_head, viewer)
@@ -853,7 +864,10 @@ impl Api<'_> {
             return Err(HostError::new(
                 HostErrorKind::Unsupported,
                 None,
-                format!("此 repository 不允許 {method} 合併方式"),
+                tr!(
+                    "This repository does not allow the {{method}} merge method",
+                    method = method
+                ),
             ));
         }
         match self.connection.provider {
@@ -877,7 +891,7 @@ impl Api<'_> {
                         HostError::new(
                             HostErrorKind::Forbidden,
                             Some(401),
-                            "此帳號不能接受此 MR（權限或分支保護設定）（HTTP 401）",
+                            tr!("This account cannot accept this MR (permissions or branch protection) (HTTP 401)"),
                         )
                     } else {
                         error
@@ -897,7 +911,11 @@ impl Api<'_> {
         draft: bool,
     ) -> Result<PullSummary, HostError> {
         if title.trim().is_empty() {
-            return Err(HostError::new(HostErrorKind::Invalid, None, "標題不可空白"));
+            return Err(HostError::new(
+                HostErrorKind::Invalid,
+                None,
+                tr!("The title cannot be empty"),
+            ));
         }
         match self.connection.provider {
             Provider::Github => {

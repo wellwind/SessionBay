@@ -367,9 +367,9 @@ fn legacy_hook_preflight_is_local_and_allows_explicit_opt_out() {
         )
         .unwrap_err();
     assert_eq!(subscribed_error, error);
-    assert!(error.contains("這次未啟動 Agent"));
-    assert!(error.contains("既有工作不受影響"));
-    assert!(!error.contains("請先結束"));
+    assert!(error.contains("was not started this time"));
+    assert!(error.contains("existing work is not affected"));
+    assert!(!error.contains("end it first"));
     spec.env.remove(crate::provider_hooks::OPT_IN);
     assert!(client.check_provider_hooks(&spec).is_ok());
 }

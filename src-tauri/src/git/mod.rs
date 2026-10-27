@@ -18,6 +18,7 @@ pub mod runner;
 pub mod status;
 pub mod worktrees;
 
+use crate::tr;
 use diff::{DiffRequest, DiffSource};
 use discovery::{Discovery, RepoInfo};
 use patch::{Direction, Selection};
@@ -404,7 +405,7 @@ pub struct GitService {
 }
 
 pub const STALE_SELECTION: &str =
-    "內容已在選取後變更（可能是 Agent、編輯器或其他 Git 操作），未寫入任何內容；請重新選取";
+    "The content changed after you selected it (perhaps an agent, editor or another Git operation), so nothing was written; select again";
 
 fn path_invocation<'a, I, S>(
     repo: &'a RepoInfo,
@@ -416,7 +417,7 @@ where
     S: AsRef<std::ffi::OsStr>,
 {
     if paths.is_empty() {
-        return Err("沒有選取檔案".into());
+        return Err(tr!("No files selected"));
     }
     let mut invocation = Invocation::new(&repo.root_path, Access::Write, args);
     for path in paths {
@@ -446,7 +447,7 @@ impl GitService {
     pub fn hosting(&self) -> Result<&hosting::Hosting, String> {
         self.hosting
             .as_ref()
-            .ok_or_else(|| "沒有可用的主機設定儲存位置".into())
+            .ok_or_else(|| tr!("No storage location is available for host settings"))
     }
 
     pub fn handle_hosting(
@@ -470,7 +471,7 @@ impl GitService {
         self.recovery_dir
             .clone()
             .map(|directory| recovery::Store { directory })
-            .ok_or_else(|| "沒有可用的復原點儲存位置；已停止破壞性操作".into())
+            .ok_or_else(|| tr!("No storage location is available for recovery points, so the destructive operation stopped"))
     }
 
     /// Only a successful detection is cached, so installing Git later works.
@@ -478,7 +479,7 @@ impl GitService {
         let mut guard = self
             .runner
             .lock()
-            .map_err(|_| GitError::failed("Git 狀態鎖定失敗"))?;
+            .map_err(|_| GitError::failed(tr!("Could not lock the Git state")))?;
         if let Some(runner) = guard.as_ref() {
             return Ok(runner.clone());
         }
@@ -904,13 +905,13 @@ impl GitService {
             }),
             GitRequest::PullCreate { repo_id, remote, title, body, source, target, draft } => {
                 let (runner, repo) = self.repo(project_root, &repo_id)?;
-                remote::check_ref_name(&runner, &repo, &source, "來源 branch ")?;
-                remote::check_ref_name(&runner, &repo, &target, "目標 branch ")?;
+                remote::check_ref_name(&runner, &repo, &source, &crate::tr!("source branch"))?;
+                remote::check_ref_name(&runner, &repo, &target, &crate::tr!("target branch"))?;
                 let pushed = runner
                     .run(runner::Invocation::new(&repo.root_path, Access::Read, ["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{remote}/{source}")]))?
                     .success();
                 if !pushed {
-                    return Err(format!("{remote} 上沒有 {source}；請先推送此 branch 再建立 PR／MR"));
+                    return Err(tr!("{{source}} is not on {{remote}}; push this branch before creating a PR / MR", source = source, remote = remote));
                 }
                 self.with_pulls(project_root, &repo_id, &remote, |api, _, hosting| {
                     let created = api.create(&title, &body, &source, &target, draft)?;
@@ -922,7 +923,7 @@ impl GitService {
                 if let Some(flag) = self
                     .operations
                     .lock()
-                    .map_err(|_| "Git 狀態鎖定失敗")?
+                    .map_err(|_| tr!("Could not lock the Git state"))?
                     .get(&repo_id)
                 {
                     flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1022,7 +1023,7 @@ impl GitService {
             .mappings_for(&repo.id)
             .into_iter()
             .find(|m| m.remote == remote)
-            .ok_or_else(|| format!("{remote} 尚未對應主機帳號；請在「主機與帳號」確認對應"))?;
+            .ok_or_else(|| tr!("{{remote}} is not linked to a host account yet; confirm the mapping under \"Hosts and accounts\"", remote = remote))?;
         let connection = hosting.connection(&mapping.connection_id)?;
         let token = hosting.token(&runner, project_root, &connection)?;
         let api = hosting::review::Api {
@@ -1038,7 +1039,7 @@ impl GitService {
         let flag = Arc::new(AtomicBool::new(false));
         self.operations
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .insert(repo_id.to_owned(), flag.clone());
         Ok(flag)
     }
@@ -1073,7 +1074,9 @@ impl GitService {
     ) -> Result<T, String> {
         let (runner, repo) = self.repo(project_root, repo_id)?;
         let lock = self.write_lock(&repo)?;
-        let _guard = lock.lock().map_err(|_| "Git 寫入鎖定失敗")?;
+        let _guard = lock
+            .lock()
+            .map_err(|_| tr!("Could not take the Git write lock"))?;
         action(&runner, &repo)
     }
 
@@ -1108,11 +1111,11 @@ impl GitService {
             )?;
             let entry = diff::index_entry(runner, repo, path)?;
             if diff::snapshot(&raw, &entry) != expected {
-                return Err(STALE_SELECTION.into());
+                return Err(crate::i18n::tr(STALE_SELECTION));
             }
             let selected = patch::selected_lines(&raw, selection)?;
             let Some(bytes) = patch::build(&raw, path.as_bytes(), &selected, direction)? else {
-                return Err("所選內容沒有可套用的變更".into());
+                return Err(tr!("The selection has no changes to apply"));
             };
             let mut args = vec!["apply", "--cached", "--whitespace=nowarn"];
             if direction == Direction::Unstage {
@@ -1121,7 +1124,12 @@ impl GitService {
             args.push("-");
             runner
                 .ok(Invocation::new(&repo.root_path, Access::Write, args).stdin(bytes))
-                .map_err(|e| format!("無法套用所選變更（未寫入任何內容）：{e}"))?;
+                .map_err(|e| {
+                    tr!(
+                        "Cannot apply the selected changes (nothing was written): {{error}}",
+                        error = e
+                    )
+                })?;
             Ok(Value::Null)
         })
     }
@@ -1139,17 +1147,20 @@ impl GitService {
         };
         self.extra_repos
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .entry(project_root.to_owned())
             .or_default()
             .retain(|known| known.id != repo.id);
         self.extra_repos
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .entry(project_root.to_owned())
             .or_default()
             .push(repo.clone());
-        let mut discoveries = self.discoveries.lock().map_err(|_| "Git 狀態鎖定失敗")?;
+        let mut discoveries = self
+            .discoveries
+            .lock()
+            .map_err(|_| tr!("Could not lock the Git state"))?;
         if let Some(found) = discoveries.get_mut(project_root) {
             if !found.repos.iter().any(|known| known.id == repo.id) {
                 found.repos.push(repo);
@@ -1164,7 +1175,7 @@ impl GitService {
         let cached = self
             .discoveries
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .get(project_root)
             .cloned();
         match cached {
@@ -1190,14 +1201,14 @@ impl GitService {
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancels
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .insert(project_root.to_owned(), cancel.clone());
         let mut found = discovery::discover_with(&runner, project_root, &cancel, limits)?;
         // Repos found through opened files stay listed after a rescan.
         if let Some(extra) = self
             .extra_repos
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .get(project_root)
         {
             for repo in extra {
@@ -1208,7 +1219,7 @@ impl GitService {
         }
         self.discoveries
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .insert(project_root.to_owned(), found.clone());
         Ok(ProjectGit::Ready(found))
     }
@@ -1232,7 +1243,7 @@ impl GitService {
         let cached = self
             .discoveries
             .lock()
-            .map_err(|_| "Git 狀態鎖定失敗")?
+            .map_err(|_| tr!("Could not lock the Git state"))?
             .get(project_root)
             .and_then(|found| found.repos.iter().find(|repo| repo.id == repo_id).cloned());
         let repo = match cached {
@@ -1242,12 +1253,14 @@ impl GitService {
                     .repos
                     .into_iter()
                     .find(|repo| repo.id == repo_id)
-                    .ok_or("找不到此 repository；請重新整理 Git 面板")?,
+                    .ok_or(tr!("This repository was not found; refresh the Git panel"))?,
                 ProjectGit::Unavailable { message } => return Err(message),
             },
         };
         if !repo.root_path.is_dir() || !repo.git_dir_path.exists() {
-            return Err("Repository 已不存在或已移動；請重新整理 Git 面板".into());
+            return Err(tr!(
+                "The repository no longer exists or was moved; refresh the Git panel"
+            ));
         }
         Ok((runner, repo))
     }
@@ -1255,7 +1268,10 @@ impl GitService {
     /// Serializes Session Bay's own writes per common dir. External Git
     /// processes keep using Git's index.lock, which is never removed here.
     pub fn write_lock(&self, repo: &RepoInfo) -> Result<Arc<Mutex<()>>, String> {
-        let mut locks = self.write_locks.lock().map_err(|_| "Git 狀態鎖定失敗")?;
+        let mut locks = self
+            .write_locks
+            .lock()
+            .map_err(|_| tr!("Could not lock the Git state"))?;
         Ok(locks
             .entry(repo.common_dir_path.clone())
             .or_insert_with(|| Arc::new(Mutex::new(())))

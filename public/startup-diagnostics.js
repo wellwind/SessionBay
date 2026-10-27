@@ -1,6 +1,16 @@
 /* Runs before the module graph, so missing chunks and import-time errors remain visible. */
 (function () {
   'use strict';
+  // Mirrors src/i18n.ts, which has not loaded yet when this runs.
+  var chinese = (function () {
+    try {
+      var saved = localStorage.getItem('sessionbay.language');
+      if (saved === 'zh-TW') return true;
+      if (saved === 'en') return false;
+    } catch (ignored) { /* fall back to the system language */ }
+    return /^zh(?:-|$)/i.test(navigator.language || '');
+  })();
+  function text(en, zh) { return chinese ? zh : en; }
   var failed = false;
   var ready = false;
   var reports = 0;
@@ -27,15 +37,15 @@
       if (status) {
         status.hidden = false;
         status.setAttribute('role', 'alert');
-        status.textContent = 'Session Bay 畫面發生錯誤。\n' + detail + '\n';
+        status.textContent = text('Session Bay ran into an error.', 'Session Bay 畫面發生錯誤。') + '\n' + detail + '\n';
         var button = document.createElement('button');
         button.type = 'button';
-        button.textContent = '重新載入視窗（Reload Window）';
+        button.textContent = text('Reload window', '重新載入視窗（Reload Window）');
         var feedback = document.createElement('div');
         feedback.setAttribute('role', 'status');
         button.addEventListener('click', function () {
           button.disabled = true;
-          feedback.textContent = '正在準備重新載入…';
+          feedback.textContent = text('Preparing to reload…', '正在準備重新載入…');
           // This fallback works even if the app's module graph never loaded.
           // Once mounted, its handler flushes workspace persistence first.
           Promise.resolve().then(function () {

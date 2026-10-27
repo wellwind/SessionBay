@@ -2,6 +2,7 @@
 //!
 //! Paths and refs are always individual arguments; nothing is joined into a
 //! shell string. Output is bounded and every command can time out or cancel.
+use crate::tr;
 use std::{
     ffi::{OsStr, OsString},
     io::{Read, Write},
@@ -85,24 +86,24 @@ pub struct GitError {
 impl std::fmt::Display for GitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let prefix = match self.kind {
-            GitErrorKind::NotFound => "找不到 Git 執行檔",
-            GitErrorKind::Timeout => "Git 操作逾時",
-            GitErrorKind::Cancelled => "Git 操作已取消",
-            GitErrorKind::TooLarge => "Git 輸出超過上限",
-            GitErrorKind::Authentication => "認證失敗",
-            GitErrorKind::Offline => "無法連線遠端",
-            GitErrorKind::Rejected => "遠端拒絕推送",
-            GitErrorKind::Hook => "Git hook 失敗",
-            GitErrorKind::Signing => "簽章失敗",
-            GitErrorKind::Locked => "Repository 正被其他程序鎖定",
-            GitErrorKind::Conflict => "發生衝突",
-            GitErrorKind::DubiousOwnership => "Git 拒絕不受信任的目錄擁有者",
-            GitErrorKind::Failed => "Git 操作失敗",
+            GitErrorKind::NotFound => tr!("Git executable not found"),
+            GitErrorKind::Timeout => tr!("The Git operation timed out"),
+            GitErrorKind::Cancelled => tr!("The Git operation was cancelled"),
+            GitErrorKind::TooLarge => tr!("Git output exceeded the limit"),
+            GitErrorKind::Authentication => tr!("Authentication failed"),
+            GitErrorKind::Offline => tr!("Cannot reach the remote"),
+            GitErrorKind::Rejected => tr!("The remote rejected the push"),
+            GitErrorKind::Hook => tr!("A Git hook failed"),
+            GitErrorKind::Signing => tr!("Signing failed"),
+            GitErrorKind::Locked => tr!("The repository is locked by another process"),
+            GitErrorKind::Conflict => tr!("Conflicts occurred"),
+            GitErrorKind::DubiousOwnership => tr!("Git rejected an untrusted folder owner"),
+            GitErrorKind::Failed => tr!("The Git operation failed"),
         };
         if self.message.is_empty() {
             write!(f, "{prefix}")
         } else {
-            write!(f, "{prefix}：{}", self.message)
+            write!(f, "{prefix}{}{}", tr!(": "), self.message)
         }
     }
 }
@@ -334,15 +335,19 @@ impl GitRunner {
         let version = parse_version(&text).ok_or_else(|| {
             GitError::new(
                 GitErrorKind::NotFound,
-                format!("無法辨識 Git 版本：{}", text.trim()),
+                tr!(
+                    "Cannot recognize the Git version: {{version}}",
+                    version = text.trim()
+                ),
             )
         })?;
         if (version.0, version.1) < MINIMUM_GIT {
             return Err(GitError::new(
                 GitErrorKind::NotFound,
-                format!(
-                    "Git {}.{}.{} 太舊，至少需要 {}.{}",
-                    version.0, version.1, version.2, MINIMUM_GIT.0, MINIMUM_GIT.1
+                tr!(
+                    "Git {{version}} is too old; {{minimum}} or later is required",
+                    version = format!("{}.{}.{}", version.0, version.1, version.2),
+                    minimum = format!("{}.{}", MINIMUM_GIT.0, MINIMUM_GIT.1)
                 ),
             ));
         }
@@ -418,7 +423,7 @@ impl GitRunner {
                     self.executable.display().to_string(),
                 )
             } else {
-                GitError::failed(format!("無法啟動 Git：{e}"))
+                GitError::failed(tr!("Cannot start Git: {{error}}", error = e))
             }
         })?;
         let writer = invocation.stdin.clone().and_then(|bytes| {
@@ -458,7 +463,7 @@ impl GitRunner {
                 killed = true;
                 break Err(GitError::new(
                     GitErrorKind::TooLarge,
-                    format!("超過 {limit} bytes"),
+                    tr!("over {{limit}} bytes", limit = limit),
                 ));
             }
             if started.elapsed() > invocation.timeout {
@@ -466,7 +471,10 @@ impl GitRunner {
                 killed = true;
                 break Err(GitError::new(
                     GitErrorKind::Timeout,
-                    format!("超過 {} 秒", invocation.timeout.as_secs()),
+                    tr!(
+                        "over {{seconds}} seconds",
+                        seconds = invocation.timeout.as_secs()
+                    ),
                 ));
             }
             thread::sleep(Duration::from_millis(5));
@@ -487,7 +495,7 @@ impl GitRunner {
         if overflow.load(Ordering::Relaxed) {
             return Err(GitError::new(
                 GitErrorKind::TooLarge,
-                format!("超過 {limit} bytes"),
+                tr!("over {{limit}} bytes", limit = limit),
             ));
         }
         Ok(GitOutput {
@@ -564,7 +572,9 @@ pub fn path_arg(bytes: &[u8]) -> Result<OsString, GitError> {
     {
         String::from_utf8(bytes.to_vec())
             .map(OsString::from)
-            .map_err(|_| GitError::failed("此平台不支援非 UTF-8 路徑"))
+            .map_err(|_| {
+                GitError::failed(tr!("Non-UTF-8 paths are not supported on this platform"))
+            })
     }
 }
 

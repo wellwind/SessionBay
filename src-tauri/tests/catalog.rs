@@ -2522,7 +2522,7 @@ fn removal_inspection_rejects_indexed_path_outside_original_source() {
         .catalog
         .inspect_removal(&id)
         .unwrap_err()
-        .contains("範圍外"));
+        .contains("outside the source"));
     assert_eq!(fs::read(outside).unwrap(), b"synthetic sentinel");
 }
 
@@ -2555,7 +2555,7 @@ fn removal_inspection_rejects_configured_root_symlink() {
         rusqlite::params![linked.to_str().unwrap(), source.id],
     )
     .unwrap();
-    assert!(h.catalog.inspect_removal(&id).unwrap_err().contains("連結"));
+    assert!(h.catalog.inspect_removal(&id).unwrap_err().contains("link"));
 }
 
 #[test]
@@ -2587,7 +2587,7 @@ fn removal_inspection_discloses_that_rescanned_files_are_not_a_trash_time_snapsh
     assert!(inspection
         .blockers
         .iter()
-        .any(|b| b.contains("不能證明與移入時內容相同")));
+        .any(|b| b.contains("cannot prove the content is unchanged")));
 }
 
 #[test]
@@ -2614,7 +2614,11 @@ fn removal_inspection_refuses_truncated_artifact_inventory() {
     for i in 0..200 {
         conn.execute("INSERT INTO files(source_id,path,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived) SELECT source_id,path || ?1,session_id,identity,size,modified,offset,lines,prefix_hash,parser_version,state,archived FROM files WHERE session_id=?2 ORDER BY id LIMIT 1", rusqlite::params![format!(".synthetic-{i}"), session.id]).unwrap();
     }
-    assert!(h.catalog.inspect_removal(&id).unwrap_err().contains("過多"));
+    assert!(h
+        .catalog
+        .inspect_removal(&id)
+        .unwrap_err()
+        .contains("too many items"));
 }
 
 #[test]

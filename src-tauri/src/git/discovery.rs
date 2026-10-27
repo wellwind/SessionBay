@@ -4,6 +4,7 @@
 //! `git rev-parse`, so broken gitdirs, bare repos and untrusted owners get
 //! explicit states instead of operable buttons.
 use super::runner::{Access, GitErrorKind, GitRunner, Invocation};
+use crate::tr;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -158,47 +159,50 @@ pub fn discover_with(
     cancel: &Arc<AtomicBool>,
     limits: ScanLimits,
 ) -> Result<Discovery, String> {
-    let root = canonical(project_root).map_err(|e| format!("無法開啟專案目錄：{e}"))?;
+    let root = canonical(project_root)
+        .map_err(|e| tr!("Cannot open the project folder: {{error}}", error = e))?;
     let mut repos: Vec<RepoInfo> = Vec::new();
     let mut issues = Vec::new();
     let mut seen = HashSet::new();
-    let mut record =
-        |probe: Probe, directory: &Path, repos: &mut Vec<RepoInfo>, issues: &mut Vec<RepoIssue>| {
-            let relative = relative_display(&root, directory);
-            match probe {
-                Probe::WorkTree(info, superproject) => {
-                    if let Some(superproject) = superproject {
-                        // Submodules are shown, never silently operated on.
-                        issues.push(RepoIssue {
+    let mut record = |probe: Probe,
+                      directory: &Path,
+                      repos: &mut Vec<RepoInfo>,
+                      issues: &mut Vec<RepoIssue>| {
+        let relative = relative_display(&root, directory);
+        match probe {
+            Probe::WorkTree(info, superproject) => {
+                if let Some(superproject) = superproject {
+                    // Submodules are shown, never silently operated on.
+                    issues.push(RepoIssue {
                             kind: IssueKind::Submodule,
                             relative_path: relative,
-                            message: format!(
-                                "子模組（上層 {}）；Session Bay 目前不在子模組內執行 Git 操作",
-                                superproject.display()
+                            message: tr!(
+                                "Submodule (parent {{parent}}); Session Bay does not run Git operations inside submodules yet",
+                                parent = superproject.display()
                             ),
                         });
-                    } else if seen.insert(info.id.clone()) {
-                        repos.push(*info);
-                    }
+                } else if seen.insert(info.id.clone()) {
+                    repos.push(*info);
                 }
-                Probe::Bare(message) => issues.push(RepoIssue {
-                    kind: IssueKind::Bare,
-                    relative_path: relative,
-                    message,
-                }),
-                Probe::Broken(message) => issues.push(RepoIssue {
-                    kind: IssueKind::Broken,
-                    relative_path: relative,
-                    message,
-                }),
-                Probe::Dubious(message) => issues.push(RepoIssue {
-                    kind: IssueKind::DubiousOwnership,
-                    relative_path: relative,
-                    message,
-                }),
-                Probe::NotRepo => {}
             }
-        };
+            Probe::Bare(message) => issues.push(RepoIssue {
+                kind: IssueKind::Bare,
+                relative_path: relative,
+                message,
+            }),
+            Probe::Broken(message) => issues.push(RepoIssue {
+                kind: IssueKind::Broken,
+                relative_path: relative,
+                message,
+            }),
+            Probe::Dubious(message) => issues.push(RepoIssue {
+                kind: IssueKind::DubiousOwnership,
+                relative_path: relative,
+                message,
+            }),
+            Probe::NotRepo => {}
+        }
+    };
     record(probe(runner, &root, &root), &root, &mut repos, &mut issues);
 
     let started = Instant::now();
@@ -266,9 +270,9 @@ pub fn discover_with(
             issues.push(RepoIssue {
                 kind: IssueKind::Submodule,
                 relative_path: relative_display(&root, &absolute),
-                message: format!(
-                    "{} 的子模組；Session Bay 目前不在子模組內執行 Git 操作",
-                    repo.name
+                message: tr!(
+                    "Submodule of {{repo}}; Session Bay does not run Git operations inside submodules yet",
+                    repo = repo.name
                 ),
             });
         }
@@ -296,13 +300,14 @@ pub fn repo_for_path(
     project_root: &Path,
     relative: &str,
 ) -> Result<Option<RepoInfo>, String> {
-    let root = canonical(project_root).map_err(|e| format!("無法開啟專案目錄：{e}"))?;
+    let root = canonical(project_root)
+        .map_err(|e| tr!("Cannot open the project folder: {{error}}", error = e))?;
     if relative.is_empty() || relative.contains('\0') || Path::new(relative).is_absolute() {
-        return Err("檔案路徑無效".into());
+        return Err(tr!("Invalid file path"));
     }
-    let target = canonical(&root.join(relative)).map_err(|_| "找不到檔案".to_owned())?;
+    let target = canonical(&root.join(relative)).map_err(|_| tr!("File not found"))?;
     if !target.starts_with(&root) {
-        return Err("檔案不在專案內".into());
+        return Err(tr!("The file is not in the project"));
     }
     let directory = if target.is_dir() {
         target
@@ -379,8 +384,7 @@ fn probe(runner: &GitRunner, directory: &Path, project_root: &Path) -> Probe {
         Err(stderr) => {
             if super::runner::classify(&stderr) == GitErrorKind::DubiousOwnership {
                 return Probe::Dubious(
-                    "Git 的 safe.directory 保護拒絕此目錄；Session Bay 不會自動修改 Git 設定"
-                        .into(),
+                    tr!("Git's safe.directory protection rejects this folder; Session Bay never changes your Git config automatically"),
                 );
             }
             if stderr.contains("not a git repository") && !has_git_marker(directory, project_root) {
@@ -390,7 +394,9 @@ fn probe(runner: &GitRunner, directory: &Path, project_root: &Path) -> Probe {
         }
     };
     if lines.first().map(String::as_str) == Some("true") {
-        return Probe::Bare("裸 repository 沒有工作目錄，無法提供變更與暫存操作".into());
+        return Probe::Bare(tr!(
+            "A bare repository has no working tree, so changes and staging are not available"
+        ));
     }
     if lines.get(1).map(String::as_str) != Some("true") || lines.len() < 4 {
         // Inside a .git directory or an unexpected answer.
@@ -404,7 +410,7 @@ fn probe(runner: &GitRunner, directory: &Path, project_root: &Path) -> Probe {
         &["--show-toplevel", "--show-superproject-working-tree"],
     ) {
         Ok(top) if !top.is_empty() => top,
-        Ok(_) => return Probe::Broken("Git 沒有回報工作目錄".into()),
+        Ok(_) => return Probe::Broken(tr!("Git did not report a working tree")),
         Err(stderr) => return Probe::Broken(stderr.trim().to_owned()),
     };
     let toplevel = PathBuf::from(&top[0]);
@@ -417,7 +423,9 @@ fn probe(runner: &GitRunner, directory: &Path, project_root: &Path) -> Probe {
         canonical(&git_dir),
         canonical(&common_dir),
     ) else {
-        return Probe::Broken("Git 回報的工作目錄或 gitdir 無法存取".into());
+        return Probe::Broken(tr!(
+            "The working tree or gitdir reported by Git is not accessible"
+        ));
     };
     let encloses_project = root_path != project_root && project_root.starts_with(&root_path);
     let relative_path = if encloses_project {

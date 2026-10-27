@@ -1,4 +1,5 @@
 //! Launch-local OpenCode lifecycle plugin. User configuration and argv stay intact.
+use crate::tr;
 use crate::{provider_hooks, runtime::LaunchSpec};
 use std::{
     collections::HashMap,
@@ -394,7 +395,7 @@ pub fn prepare(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
     expected_session(spec)?;
     let output = version(spec)?;
     if !supported_version(&output) {
-        return Err("即時 OpenCode 狀態需要穩定版 1.19.2 以上且低於 2.0.0".into());
+        return Err(tr!("Live OpenCode status needs a stable version from 1.19.2 up to, but not including, 2.0.0"));
     }
     install(spec, helper)
 }

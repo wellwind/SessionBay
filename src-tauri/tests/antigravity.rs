@@ -907,6 +907,6 @@ fn removal_inspection_keeps_metadata_only_records_explicitly_shared() {
     assert!(inspection.indexed_artifacts[0]
         .relative_path
         .starts_with("conversation_summaries.db"));
-    assert!(inspection.blockers[0].contains("禁止刪除整個資料庫"));
+    assert!(inspection.blockers[0].contains("deleting the whole database is not allowed"));
     assert_eq!(fs::read(h.db_path()).unwrap(), before);
 }

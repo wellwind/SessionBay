@@ -1,4 +1,5 @@
 //! Untrusted terminal paths resolve only into the existing project read boundary.
+use crate::tr;
 use crate::{
     broker::RuntimeRecord,
     models::{TerminalFileCandidate, TerminalFileResolution, WorkspaceFileKind},
@@ -19,7 +20,7 @@ pub(crate) fn launch_cwd(
         .iter()
         .any(|id| id.is_empty() || id.len() > 1024 || id.chars().any(char::is_control))
     {
-        return Err("終端身分無效，請重新整理工作區".into());
+        return Err(tr!("Invalid terminal identity; refresh the workspace"));
     }
     records
         .iter()
@@ -29,7 +30,7 @@ pub(crate) fn launch_cwd(
                 && record.project_id.as_deref() == Some(project)
         })
         .map(|record| PathBuf::from(&record.info.cwd))
-        .ok_or_else(|| "終端所屬專案或身分已變更，請重新點選路徑".into())
+        .ok_or_else(|| tr!("The terminal's project or identity changed; click the path again"))
 }
 fn validate(path: &str) -> Result<(), String> {
     if path.is_empty()
@@ -37,13 +38,15 @@ fn validate(path: &str) -> Result<(), String> {
         || path.chars().any(|c| c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
         || path.contains(['$', '`', ';', '|', '&', '<', '>', '"'])
     {
-        return Err("路徑無效或含不支援字元；只接受檔案路徑，不接受命令或網址".into());
+        return Err(tr!("The path is invalid or has unsupported characters; only file paths are accepted, not commands or URLs"));
     }
     if path.starts_with(['~']) || path.starts_with("//") || path.starts_with('\\') {
-        return Err("不支援家目錄縮寫、UNC、網路或裝置路徑；請選擇專案內檔案".into());
+        return Err(tr!("Home-directory shorthand, UNC, network and device paths are not supported; choose a file inside the project"));
     }
     if path.split(['/', '\\']).any(|part| part == "..") {
-        return Err("不支援含上層目錄的路徑；請使用專案內路徑".into());
+        return Err(tr!(
+            "Paths with parent folders are not supported; use a path inside the project"
+        ));
     }
     Ok(())
 }
@@ -57,12 +60,16 @@ fn drive_absolute(path: &str) -> bool {
 fn absolute(path: &str) -> Result<bool, String> {
     if drive_absolute(path) {
         if !cfg!(windows) {
-            return Err("Windows 磁碟路徑無法在目前主機解析".into());
+            return Err(tr!(
+                "Windows drive paths cannot be resolved on this machine"
+            ));
         }
         return Ok(true);
     }
     if path.contains(':') || (!cfg!(windows) && path.contains('\\')) {
-        return Err("不支援網址、磁碟相對路徑或此平台的路徑語法".into());
+        return Err(tr!(
+            "URLs, drive-relative paths and this platform's path syntax are not supported"
+        ));
     }
     Ok(path.starts_with('/'))
 }
@@ -104,7 +111,9 @@ fn relative_text(path: &str) -> Result<String, String> {
             .split('/')
             .any(|part| part.is_empty() || matches!(part, "." | "..") || part.contains(':'))
     {
-        return Err("路徑必須指向專案內的一般檔案".into());
+        return Err(tr!(
+            "The path must point to a regular file inside the project"
+        ));
     }
     Ok(path.to_owned())
 }
@@ -116,7 +125,7 @@ fn inspect(
     validate(path)?;
     let info = workspace_files::inspect(root, path)?;
     if info.kind == WorkspaceFileKind::Binary {
-        return Err("此檔案不是支援的文字或圖片".into());
+        return Err(tr!("This file is not supported text or an image"));
     }
     Ok(TerminalFileCandidate {
         path: info.path,
@@ -131,8 +140,9 @@ pub(crate) fn resolve(
 ) -> Result<TerminalFileResolution, String> {
     validate(path)?;
     if absolute(path)? {
-        let relative =
-            relative_to_root(root, path).ok_or("路徑不在此終端所屬專案內，未開啟檔案")?;
+        let relative = relative_to_root(root, path).ok_or(tr!(
+            "The path is not inside this terminal's project, so the file was not opened"
+        ))?;
         let relative = relative_text(&relative)?;
         return Ok(TerminalFileResolution {
             absolute: true,

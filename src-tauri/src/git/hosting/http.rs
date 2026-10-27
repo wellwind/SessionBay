@@ -1,4 +1,5 @@
 //! HTTPS client for hosting APIs with diagnosable, token-free errors.
+use crate::tr;
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
 use ureq::{
@@ -77,34 +78,39 @@ fn describe_status(status: u16, sso: bool, body: &str) -> HostError {
     let suffix = if detail.is_empty() {
         String::new()
     } else {
-        format!("（{detail}）")
+        tr!(" ({{detail}})", detail = detail)
     };
     let (kind, text) = match status {
         401 => (
             HostErrorKind::Unauthorized,
-            "登入已失效或 token 無效，請重新設定帳號",
+            tr!("Your login expired or the token is invalid; set up the account again"),
         ),
         403 if sso => (
             HostErrorKind::SsoRequired,
-            "此組織需要 SSO 授權；請在系統瀏覽器為 token 完成授權後重試",
+            tr!("This organization requires SSO; authorize the token in your browser, then try again"),
         ),
         403 if detail.to_lowercase().contains("rate limit") => {
-            (HostErrorKind::RateLimited, "已達 API 使用上限，請稍後再試")
+            (HostErrorKind::RateLimited, tr!("API rate limit reached; try again later"))
         }
         403 => (
             HostErrorKind::Forbidden,
-            "權限不足：此帳號或 token 沒有這項操作的權限",
+            tr!("Permission denied: this account or token cannot do this"),
         ),
-        404 => (HostErrorKind::NotFound, "找不到資源，或此帳號沒有讀取權限"),
-        405 | 409 | 422 => (HostErrorKind::Conflict, "平台拒絕此操作"),
-        429 => (HostErrorKind::RateLimited, "已達 API 使用上限，請稍後再試"),
-        400..=499 => (HostErrorKind::Invalid, "平台拒絕此請求"),
-        _ => (HostErrorKind::Server, "主機發生錯誤，請稍後再試"),
+        404 => (HostErrorKind::NotFound, tr!("Not found, or this account cannot read it")),
+        405 | 409 | 422 => (HostErrorKind::Conflict, tr!("The host rejected this operation")),
+        429 => (HostErrorKind::RateLimited, tr!("API rate limit reached; try again later")),
+        400..=499 => (HostErrorKind::Invalid, tr!("The host rejected this request")),
+        _ => (HostErrorKind::Server, tr!("The host had an error; try again later")),
     };
     HostError::new(
         kind,
         Some(status),
-        format!("{text}{suffix}（HTTP {status}）"),
+        tr!(
+            "{{text}}{{suffix}} (HTTP {{status}})",
+            text = text,
+            suffix = suffix,
+            status = status
+        ),
     )
 }
 
@@ -113,14 +119,14 @@ fn transport(error: ureq::Error) -> HostError {
         ureq::Error::Tls(_) | ureq::Error::Rustls(_) | ureq::Error::Pem(_) => HostError::new(
             HostErrorKind::Tls,
             None,
-            "TLS 憑證驗證失敗：主機憑證不受作業系統信任。企業 CA 需安裝到系統信任區；Session Bay 不會停用憑證驗證",
+            tr!("TLS certificate verification failed: your OS does not trust the host certificate. Install an enterprise CA into the system trust store; Session Bay never disables certificate verification"),
         ),
-        ureq::Error::HostNotFound => HostError::new(HostErrorKind::Dns, None, "找不到主機（DNS）；內網主機請確認 VPN 與主機名稱"),
-        ureq::Error::Timeout(_) => HostError::new(HostErrorKind::Timeout, None, "連線逾時；請確認網路、VPN 或 proxy"),
-        ureq::Error::Io(io) => HostError::new(HostErrorKind::Network, None, format!("無法連線主機（{}）；請確認網路、VPN、防火牆或 proxy", io.kind())),
-        ureq::Error::ConnectionFailed => HostError::new(HostErrorKind::Network, None, "無法連線主機；請確認網路、VPN、防火牆或 proxy"),
-        ureq::Error::InvalidProxyUrl => HostError::new(HostErrorKind::Network, None, "Proxy 環境變數設定無效"),
-        other => HostError::new(HostErrorKind::Network, None, format!("連線失敗：{}", super::super::runner::redact_url_credentials(&other.to_string()))),
+        ureq::Error::HostNotFound => HostError::new(HostErrorKind::Dns, None, tr!("Host not found (DNS); for internal hosts, check your VPN and the host name")),
+        ureq::Error::Timeout(_) => HostError::new(HostErrorKind::Timeout, None, tr!("The connection timed out; check your network, VPN or proxy")),
+        ureq::Error::Io(io) => HostError::new(HostErrorKind::Network, None, tr!("Cannot connect to the host ({{reason}}); check your network, VPN, firewall or proxy", reason = io.kind())),
+        ureq::Error::ConnectionFailed => HostError::new(HostErrorKind::Network, None, tr!("Cannot connect to the host; check your network, VPN, firewall or proxy")),
+        ureq::Error::InvalidProxyUrl => HostError::new(HostErrorKind::Network, None, tr!("Invalid proxy environment variables")),
+        other => HostError::new(HostErrorKind::Network, None, tr!("Connection failed: {{error}}", error = super::super::runner::redact_url_credentials(&other.to_string()))),
     }
 }
 
@@ -136,7 +142,7 @@ pub fn validate_base(url: &str) -> Result<(), String> {
             return Ok(());
         }
     }
-    Err("主機網址必須使用 https://".into())
+    Err(tr!("The host URL must use https://"))
 }
 
 pub struct Response<T> {
@@ -220,7 +226,7 @@ impl Client {
             HostError::new(
                 HostErrorKind::Invalid,
                 Some(status),
-                format!("無法解析主機回應：{e}"),
+                tr!("Cannot parse the host response: {{error}}", error = e),
             )
         })?;
         Ok(Response { body, headers })
@@ -266,7 +272,7 @@ impl Client {
                     return Err(HostError::new(
                         HostErrorKind::Invalid,
                         None,
-                        "不支援的 HTTP 方法",
+                        tr!("Unsupported HTTP method"),
                     ))
                 }
             },

@@ -1,5 +1,6 @@
 //! User-triggered image staging. Never accepts an input/output filesystem path.
 //! Pending files are deleted on discard; retained files survive UI/runtime teardown.
+use crate::tr;
 use image::{ImageDecoder, ImageFormat, ImageReader, Limits};
 use serde::{
     de::{self, SeqAccess, Visitor},
@@ -104,7 +105,9 @@ fn private_directory(directory: &Path) -> Result<(), String> {
             || m.uid() != unsafe { libc::geteuid() }
             || m.permissions().mode() & 0o077 != 0
         {
-            return Err("圖片暫存位置必須是目前使用者專用的真實目錄。".into());
+            return Err(tr!(
+                "The image staging location must be a real folder owned by the current user."
+            ));
         }
     }
     #[cfg(windows)]
@@ -129,28 +132,30 @@ impl ImageStaging {
         })
     }
     fn quota_error(&self, limit: &str) -> String {
-        format!("圖片暫存已達 {limit} 上限。保留位置：{}。請先結束使用這些圖片的 Agent；僅手動移除確定不再用於接續對話的圖片。不要刪除 staging.lock。", self.directory.display())
+        tr!("Image staging reached its {{limit}} limit. Location: {{v1}}. End the agents using these images first, and only remove images by hand that you are sure are no longer needed to resume conversations. Do not delete staging.lock.", limit = limit, v1 = self.directory.display())
     }
     fn check_directory(&self) -> Result<(), String> {
         let current = open_directory(&self.directory)?;
         if !same_file(&self.directory_handle, &current)? {
-            return Err("圖片暫存目錄已被替換。".into());
+            return Err(tr!("The image staging folder was replaced."));
         }
         Ok(())
     }
     pub fn begin(&mut self, runtime: &str, mime: &str, size: usize) -> Result<String, String> {
         if size == 0 || size > MAX_IMAGE_BYTES {
-            return Err("每張圖片須介於 1 byte 與 10 MiB。".into());
+            return Err(tr!("Each image must be between 1 byte and 10 MiB."));
         }
         let (format, suffix) = match mime {
             "image/png" => (ImageFormat::Png, ".png"),
             "image/jpeg" => (ImageFormat::Jpeg, ".jpg"),
-            _ => return Err("僅支援 PNG 與 JPEG 圖片。".into()),
+            _ => return Err(tr!("Only PNG and JPEG images are supported.")),
         };
         if self.pending.len() >= MAX_PENDING
             || self.pending.values().map(|p| p.expected).sum::<usize>() + size > MAX_PENDING_BYTES
         {
-            return Err("待處理圖片已達 4 張／20 MiB 上限。".into());
+            return Err(tr!(
+                "Pending images reached the limit of 4 images / 20 MiB."
+            ));
         }
         self.check_directory()?;
         let mut stored = 0u64;
@@ -159,12 +164,14 @@ impl ImageStaging {
             .enumerate()
         {
             if index + 1 >= MAX_STORED_FILES {
-                return Err(self.quota_error("數量"));
+                return Err(self.quota_error(&tr!("count")));
             }
             let entry = entry.map_err(|e| e.to_string())?;
             let metadata = fs::symlink_metadata(entry.path()).map_err(|e| e.to_string())?;
             if !metadata.is_file() {
-                return Err("圖片暫存目錄含非預期項目；未寫入圖片。".into());
+                return Err(tr!(
+                    "The image staging folder has unexpected items; nothing was written."
+                ));
             }
             stored = stored.saturating_add(metadata.len());
         }
@@ -211,14 +218,14 @@ impl ImageStaging {
             .pending
             .get_mut(id)
             .filter(|p| p.runtime == runtime)
-            .ok_or("找不到此工作階段的待處理圖片。")?;
+            .ok_or(tr!("No pending image was found for this session."))?;
         if p.verified
             || bytes.is_empty()
             || bytes.len() > MAX_CHUNK_BYTES
             || offset != p.received
             || bytes.len() > p.expected - p.received
         {
-            return Err("圖片分段大小或順序無效。".into());
+            return Err(tr!("Invalid image chunk size or order."));
         }
         p.file.write_all(bytes).map_err(|e| e.to_string())?;
         p.received += bytes.len();
@@ -230,9 +237,9 @@ impl ImageStaging {
             .pending
             .get_mut(id)
             .filter(|p| p.runtime == runtime)
-            .ok_or("找不到此工作階段的待處理圖片。")?;
+            .ok_or(tr!("No pending image was found for this session."))?;
         if p.received != p.expected {
-            return Err("圖片尚未接收完整。".into());
+            return Err(tr!("The image has not been fully received."));
         }
         p.file.flush().map_err(|e| e.to_string())?;
         p.file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
@@ -250,13 +257,13 @@ impl ImageStaging {
             .pending
             .get(id)
             .filter(|p| p.runtime == runtime)
-            .ok_or("找不到此工作階段的待處理圖片。")?;
+            .ok_or(tr!("No pending image was found for this session."))?;
         if !p.verified {
-            return Err("圖片尚未通過驗證。".into());
+            return Err(tr!("The image has not been verified yet."));
         }
         verify_pending_path(p)?;
         self.check_directory()?;
-        let p = self.pending.remove(id).ok_or("找不到圖片。")?;
+        let p = self.pending.remove(id).ok_or(tr!("Image not found."))?;
         p.file.as_file().sync_all().map_err(|e| e.to_string())?;
         p.file.keep().map_err(|e| e.error.to_string())?;
         Ok(())
@@ -264,13 +271,15 @@ impl ImageStaging {
     pub fn discard(&mut self, runtime: &str, id: &str) -> Result<(), String> {
         if let Some(p) = self.pending.get(id) {
             if p.runtime != runtime {
-                return Err("圖片屬於另一個工作階段。".into());
+                return Err(tr!("The image belongs to another session."));
             }
         }
         if let Some(pending) = self.pending.remove(id) {
             if self.check_directory().is_err() || verify_pending_path(&pending).is_err() {
                 let _ = pending.file.keep(); // Do not unlink a substituted path.
-                return Err("圖片暫存位置已變更，未刪除不明檔案。".into());
+                return Err(tr!(
+                    "The image staging location changed, so unknown files were not deleted."
+                ));
             }
             pending.file.close().map_err(|e| e.to_string())?;
         }
@@ -308,7 +317,7 @@ fn lock_store(directory: &Path) -> Result<File, String> {
             .map_err(|e| e.to_string())?
     };
     if !file.metadata().map_err(|e| e.to_string())?.is_file() {
-        return Err("圖片暫存鎖不是一般檔案。".into());
+        return Err(tr!("The image staging lock is not a regular file."));
     }
     #[cfg(unix)]
     {
@@ -318,13 +327,14 @@ fn lock_store(directory: &Path) -> Result<File, String> {
             || m.uid() != unsafe { libc::geteuid() }
             || m.permissions().mode() & 0o077 != 0
         {
-            return Err("圖片暫存鎖權限不安全。".into());
+            return Err(tr!("The image staging lock permissions are unsafe."));
         }
     }
     #[cfg(windows)]
     windows_security::verify_file(&file).map_err(|e| e.to_string())?;
-    file.try_lock()
-        .map_err(|_| "另一個 Session Bay 程序正在使用圖片暫存，請在原視窗操作。")?;
+    file.try_lock().map_err(|_| {
+        tr!("Another Session Bay process is using image staging; use the original window.")
+    })?;
     Ok(file)
 }
 
@@ -347,7 +357,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
     let file = options.open(path).map_err(|e| e.to_string())?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_dir() {
-        return Err("圖片暫存位置不是目錄。".into());
+        return Err(tr!("The image staging location is not a folder."));
     }
     #[cfg(unix)]
     {
@@ -355,7 +365,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
         if metadata.uid() != unsafe { libc::geteuid() }
             || metadata.permissions().mode() & 0o077 != 0
         {
-            return Err("圖片暫存目錄權限不安全。".into());
+            return Err(tr!("The image staging folder permissions are unsafe."));
         }
     }
     #[cfg(windows)]
@@ -365,7 +375,7 @@ fn open_directory(path: &Path) -> Result<File, String> {
             & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
             != 0
         {
-            return Err("圖片暫存位置不能是連結。".into());
+            return Err(tr!("The image staging location cannot be a link.").into());
         }
         windows_security::verify_file(&file).map_err(|e| e.to_string())?;
     }
@@ -404,7 +414,7 @@ fn verify_pending_path(p: &Pending) -> Result<(), String> {
     if !current.metadata().map_err(|e| e.to_string())?.is_file()
         || !same_file(p.file.as_file(), &current)?
     {
-        return Err("圖片暫存檔案已被替換。".into());
+        return Err(tr!("A staged image was replaced."));
     }
     #[cfg(unix)]
     {
@@ -414,7 +424,7 @@ fn verify_pending_path(p: &Pending) -> Result<(), String> {
             || m.uid() != unsafe { libc::geteuid() }
             || m.permissions().mode() & 0o077 != 0
         {
-            return Err("圖片暫存檔案權限不安全。".into());
+            return Err(tr!("A staged image has unsafe permissions."));
         }
     }
     #[cfg(windows)]
@@ -423,7 +433,9 @@ fn verify_pending_path(p: &Pending) -> Result<(), String> {
 }
 
 pub fn safe_path(path: &Path) -> Result<String, String> {
-    let value = path.to_str().ok_or("圖片暫存路徑不是有效 UTF-8。")?;
+    let value = path
+        .to_str()
+        .ok_or(tr!("The image staging path is not valid UTF-8."))?;
     if value.chars().any(|c| {
         c.is_control()
             || matches!(
@@ -431,7 +443,7 @@ pub fn safe_path(path: &Path) -> Result<String, String> {
                 '\'' | '"' | '`' | '$' | ';' | '|' | '&' | '<' | '>' | '(' | ')'
             )
     }) {
-        return Err("圖片暫存路徑含不安全字元，無法插入終端。".into());
+        return Err(tr!("The image staging path has unsafe characters, so it cannot be inserted into the terminal."));
     }
     Ok(value.to_owned())
 }
@@ -441,7 +453,7 @@ fn validate_image(file: &mut File, expected: ImageFormat) -> Result<(), String> 
         .with_guessed_format()
         .map_err(|e| e.to_string())?;
     if reader.format() != Some(expected) {
-        return Err("圖片內容與宣告格式不符。".into());
+        return Err(tr!("The image content does not match its declared format."));
     }
     let mut limits = Limits::default();
     limits.max_image_width = Some(8192);
@@ -450,16 +462,20 @@ fn validate_image(file: &mut File, expected: ImageFormat) -> Result<(), String> 
     reader.limits(limits);
     let decoder = reader
         .into_decoder()
-        .map_err(|e| format!("無法讀取圖片：{e}"))?;
+        .map_err(|e| tr!("Cannot read the image: {{e}}", e = e))?;
     let (w, h) = decoder.dimensions();
     if w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_PIXELS {
-        return Err("圖片不得超過 1600 萬像素。".into());
+        return Err(tr!("Images cannot exceed 16 million pixels."));
     }
     if decoder.total_bytes() > 64 * 1024 * 1024 {
-        return Err("圖片解碼記憶體超過 64 MiB。".into());
+        return Err(tr!("Decoding the image needs more than 64 MiB of memory."));
     }
-    image::DynamicImage::from_decoder(decoder)
-        .map_err(|e| format!("圖片損壞或超過解碼限制：{e}"))?;
+    image::DynamicImage::from_decoder(decoder).map_err(|e| {
+        tr!(
+            "The image is corrupt or over the decode limit: {{e}}",
+            e = e
+        )
+    })?;
     if expected == ImageFormat::Png {
         // Reject APNG rather than silently attaching only its first frame.
         file.seek(SeekFrom::Start(8)).map_err(|e| e.to_string())?;
@@ -468,12 +484,12 @@ fn validate_image(file: &mut File, expected: ImageFormat) -> Result<(), String> 
             let mut header = [0u8; 8];
             file.read_exact(&mut header).map_err(|e| e.to_string())?;
             if &header[4..] == b"acTL" {
-                return Err("暫不支援動態 PNG。".into());
+                return Err(tr!("Animated PNGs are not supported yet."));
             }
             let len = u32::from_be_bytes(header[..4].try_into().unwrap()) as u64;
             let position = file.stream_position().map_err(|e| e.to_string())?;
             if position.saturating_add(len).saturating_add(4) > size {
-                return Err("PNG 區塊不完整。".into());
+                return Err(tr!("The PNG chunks are incomplete."));
             }
             file.seek(SeekFrom::Current((len + 4) as i64))
                 .map_err(|e| e.to_string())?;
@@ -528,7 +544,7 @@ mod tests {
         assert!(store
             .begin("runtime", "image/png", 1)
             .unwrap_err()
-            .contains("數量"));
+            .contains("count"));
         store.discard("runtime", &id).unwrap();
         assert!(store.begin("runtime", "image/png", 1).is_ok());
     }
