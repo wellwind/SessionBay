@@ -1,0 +1,58 @@
+---
+title: Session Bay
+description: A local-first desktop workbench for AI coding agents. One history for Claude Code, Codex, OpenCode, Grok Build and Antigravity CLI, with real terminals and a Git workbench.
+template: splash
+hero:
+  tagline: Find your coding context. Continue your work. One local history for every AI coding agent, organized by project, with real terminals and a Git workbench built in.
+  image:
+    file: ../../assets/logo.svg
+  actions:
+    - text: Download for macOS
+      link: https://github.com/wellwind/SessionBay/releases/latest
+      icon: external
+      variant: primary
+    - text: Read the guide
+      link: /SessionBay/guide/getting-started/
+      icon: right-arrow
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Image } from 'astro:assets';
+import history from '../../assets/screenshots/en/history.png';
+import terminals from '../../assets/screenshots/en/terminals.png';
+import overview from '../../assets/screenshots/en/overview.png';
+
+<Image src={history} alt="Session Bay showing a project's sessions from several agents with a conversation preview" class="screenshot" />
+
+## One project, many agents
+
+Claude Code writes the code, Codex generates the assets, and when your quota runs out you switch to OpenCode with a free model. The context of one project ends up scattered across several agents, each with its own history in its own folder. Session Bay brings it together by project, so you can search, preview and resume any session in the right folder with one click.
+
+<CardGrid>
+  <Card title="One history for every agent" icon="magnifier">
+    Claude Code, Codex CLI, OpenCode, Grok Build and Antigravity CLI. Full-text search, including CJK, plus filters and a read-only preview.
+  </Card>
+  <Card title="Real terminals" icon="seti:shell">
+    Tabs and split panes backed by real PTYs. Agents keep running when you close the window and reattach when you come back.
+  </Card>
+  <Card title="Knows when an agent needs you" icon="warning">
+    Status badges and system notifications when an agent waits for input, finishes or fails. Click a notification to jump to its pane.
+  </Card>
+  <Card title="Git workbench" icon="github">
+    Partial staging, history graph, blame, branches, worktrees, three-way conflicts, and GitHub or GitLab pull requests.
+  </Card>
+  <Card title="Local and private" icon="approve-check">
+    No account, no server, no telemetry. Agent history is read-only unless you explicitly move a session to the system trash.
+  </Card>
+  <Card title="Free and open source" icon="open-book">
+    MIT licensed. English and Traditional Chinese interface.
+  </Card>
+</CardGrid>
+
+## Work with several agents at once
+
+<Image src={terminals} alt="An agent and a dev server running side by side in split terminals" class="screenshot" />
+
+<Image src={overview} alt="The all-workspaces overview highlighting an agent that is waiting for permission" class="screenshot" />
+
+The first preview runs on **macOS with Apple Silicon**. [Install it](/SessionBay/guide/install/) or [build it from source](https://github.com/wellwind/SessionBay#build-from-source).

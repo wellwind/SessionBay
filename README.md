@@ -8,15 +8,17 @@
 
 A local-first desktop workbench that brings the history of all your AI coding agents together, organized by project, with real terminals, split panes and a Git workbench built in.
 
-[Website](https://wellwind.github.io/SessionBay/) · [Download](https://github.com/wellwind/SessionBay/releases) · [Guide](https://wellwind.github.io/SessionBay/guide/getting-started/) · [繁體中文](README.zh-TW.md)
+[Website](https://fullstackladder.dev/SessionBay/) · [Download](https://github.com/wellwind/SessionBay/releases) · [Guide](https://fullstackladder.dev/SessionBay/guide/getting-started/) · [繁體中文](README.zh-TW.md)
 
 </div>
 
+![Session Bay showing sessions from several agents with a conversation preview](website/src/assets/screenshots/en/history.png)
+
 ## Why
 
-You used Claude Code on Monday, Codex on Wednesday and OpenCode on Friday — all on the same project. A week later you need that one conversation again, and you no longer remember which agent had it.
+One project rarely uses just one agent. Claude Code writes the code, Codex generates the assets, and when your quota runs out you switch to OpenCode with a free model. The context of that project ends up scattered across several agents, each keeping its own history in its own folder.
 
-Session Bay indexes the local history of every supported agent, groups it by working directory, and lets you search, preview and resume a session in the right folder with one click.
+Session Bay indexes the local history of every supported agent, brings it together by project, and lets you search, preview and resume any session in the right folder with one click.
 
 ## Features
 
@@ -37,7 +39,7 @@ The first preview targets **macOS on Apple Silicon** (macOS 12 or later).
 
 1. Download `Session.Bay_<version>_aarch64.dmg` from the [latest release](https://github.com/wellwind/SessionBay/releases).
 2. Open the disk image and drag **Session Bay** into **Applications**.
-3. The preview build is not notarized by Apple yet. The first time you open it, macOS will block it: open **System Settings → Privacy & Security** and click **Open Anyway**. See the [install guide](https://wellwind.github.io/SessionBay/guide/install/) for screenshots.
+3. The preview build is not notarized by Apple yet. The first time you open it, macOS will block it: open **System Settings → Privacy & Security** and click **Open Anyway**. See the [install guide](https://fullstackladder.dev/SessionBay/guide/install/) for screenshots.
 
 Linux and Windows builds can be produced from source, but they have not been validated for release yet.
 
@@ -65,7 +67,7 @@ See [Development](docs/development.md) for tests and platform notes.
 
 | | |
 | --- | --- |
-| [User guide](https://wellwind.github.io/SessionBay/guide/getting-started/) | Install, find sessions, terminals, Git, cleanup |
+| [User guide](https://fullstackladder.dev/SessionBay/guide/getting-started/) | Install, find sessions, terminals, Git, cleanup |
 | [Architecture](docs/architecture.md) | How the app, broker, indexer and runtime fit together |
 | [Agent integrations](docs/agent-integrations.md) | Where each agent's history is read from and how resume works |
 | [Data safety](docs/data-safety.md) | Read-only guarantees and the system trash flow |
