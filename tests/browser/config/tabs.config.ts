@@ -1,9 +1,10 @@
 import { defineConfig } from '@playwright/test';
+import { output, root, testDir } from './root';
 export default defineConfig({
-  testDir: './tests/browser',
+  testDir,
   // Keep the preceding layout suite's screenshots and geometry intact.
-  outputDir: './test-results/image-input',
-  testMatch: 'image-input.spec.ts',
+  outputDir: output('test-results/tab-drag'),
+  testMatch: 'workspace-tabs.spec.ts',
   timeout: 30_000,
   workers: 1,
   use: { locale: 'zh-TW',
@@ -12,11 +13,11 @@ export default defineConfig({
     headless: true,
     launchOptions: { chromiumSandbox: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE },
     viewport: { width: 1200, height: 850 },
-    baseURL: 'http://127.0.0.1:1432',
+    baseURL: 'http://127.0.0.1:1428',
   },
   webServer: {
-    command: 'npm run dev:web -- --port 1432',
-    url: 'http://127.0.0.1:1432',
+    cwd: root, command: 'npm run dev:web -- --port 1428',
+    url: 'http://127.0.0.1:1428',
     reuseExistingServer: false,
   },
 });

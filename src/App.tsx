@@ -4,6 +4,7 @@ import type { TerminalFileOpen } from './terminal-file-links';
 import type { FileReference, Pane as FileLinkPane } from './types';
 import { RuntimeActivityProvider, RuntimeActivityIndicator } from './components/RuntimeActivity';
 import { AttentionNotifier } from './components/AttentionNotifier';
+import { UpdateNotice } from './components/UpdateNotice';
 import { projectOpenCount, tabRuntimeSummary } from './project-runtime';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -1571,7 +1572,7 @@ export default function App() {
             )}
           </ProjectNavigation>;
   return (
-    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} workspace={workspace} projects={projects} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
+    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} workspace={workspace} projects={projects} /><UpdateNotice enabled={!!settings && settings.updateChecks !== false} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">{t('Skip to main workspace')}</a>
       <header className="app-topbar">
         <div className="brand">

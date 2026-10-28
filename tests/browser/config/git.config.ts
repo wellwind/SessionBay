@@ -1,11 +1,12 @@
 import { defineConfig } from '@playwright/test';
+import { output, root, testDir } from './root';
 
 // Real Git over a synthetic repository through the loopback bridge; the
 // browser UI is the full App with every other IPC call synthetic.
 export default defineConfig({
-  testDir: './tests/browser',
+  testDir,
   testMatch: ['git-workbench.spec.ts', 'git-performance.spec.ts'],
-  outputDir: './test-results/git',
+  outputDir: output('test-results/git'),
   timeout: 60_000,
   workers: 1,
   use: { locale: 'zh-TW',
@@ -22,8 +23,8 @@ export default defineConfig({
     { name: 'webkit', use: { browserName: 'webkit' } },
   ],
   webServer: [
-    { command: 'npm run dev:web -- --port 1440', url: 'http://127.0.0.1:1440', reuseExistingServer: false },
-    { command: `${process.env.CARGO ?? 'cargo'} run --quiet --manifest-path src-tauri/Cargo.toml --no-default-features --example git_bridge -- 1441`,
+    { cwd: root, command: 'npm run dev:web -- --port 1440', url: 'http://127.0.0.1:1440', reuseExistingServer: false },
+    { cwd: root, command: `${process.env.CARGO ?? 'cargo'} run --quiet --manifest-path src-tauri/Cargo.toml --no-default-features --example git_bridge -- 1441`,
       url: 'http://127.0.0.1:1441/health', reuseExistingServer: false, timeout: 600_000 },
   ],
 });

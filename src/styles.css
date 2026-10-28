@@ -1418,6 +1418,18 @@ kbd {
   padding: 3px;
   color: var(--muted);
 }
+.toast.update-notice {
+  right: auto;
+  left: 24px;
+}
+.toast.update-notice > svg {
+  color: var(--accent);
+}
+.toast.update-notice button.secondary {
+  padding: 4px 10px;
+  color: inherit;
+  white-space: nowrap;
+}
 .palette-input {
   display: flex;
   align-items: center;

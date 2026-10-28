@@ -27,6 +27,7 @@ pub mod runtime;
 pub mod service;
 pub mod shells;
 mod terminal_file_links;
+pub mod updates;
 mod workspace_files;
 mod workspace_images;
 

@@ -2,11 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
 // Captures the website screenshots from the synthetic showcase fixture:
-// npx playwright test --config playwright.showcase.config.ts
+// npx playwright test --config tests/browser/config/showcase.config.ts
 const zh = () => test.info().project.name === 'zh-tw';
 const L = (en: string, zhText: string) => (zh() ? zhText : en);
 
-const bridge = 'http://127.0.0.1:1472';
+const bridge = 'http://127.0.0.1:1452';
 
 async function open(page: Page, git = false) {
   await page.goto(`/tests/browser/showcase.html${git ? `?git=${encodeURIComponent(bridge)}` : ''}`);
