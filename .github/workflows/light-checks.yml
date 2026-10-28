@@ -20,7 +20,7 @@ jobs:
     name: Linux lightweight
     if: ${{ !github.event.deleted }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, Node 24
@@ -128,6 +128,8 @@ jobs:
           path: test-results/sidebar/
           retention-days: 7
           if-no-files-found: warn
+      - name: Layout audit in English and Traditional Chinese
+        run: npm run test:layout-audit
       - name: Workspace focus-mode browser integration
         run: npm run test:focus-mode
       - name: Upload focus-mode browser evidence

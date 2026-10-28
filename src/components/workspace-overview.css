@@ -18,9 +18,9 @@
 .overview-card-open:hover { background: var(--surface-hover); }
 .overview-card-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .overview-card .project-initials { background: var(--card-project); }
-.overview-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.overview-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
 .overview-card-project { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
-.overview-status { flex: 0 0 auto; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: 10px; font-size: 11px; color: var(--muted); background: var(--surface-hover); }
+.overview-status { flex: 0 1 auto; max-width: 100%; overflow-wrap: anywhere; padding: 1px 8px; border-radius: 8px; line-height: 1.5; font-size: 11px; color: var(--muted); background: var(--surface-hover); }
 .overview-status.attention-input { color: var(--warning); background: var(--warning-bg); font-weight: 600; }
 .overview-status.attention-error { color: var(--danger); background: var(--danger-bg); }
 .overview-status.attention-working { color: var(--accent); background: var(--accent-bg); }
@@ -36,5 +36,7 @@
 .overview-split-hint { font-size: 12px; color: var(--muted); }
 .overview-split button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; }
 .overview-select { position: absolute; top: 10px; right: 12px; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 6px; background: var(--surface); font-size: 11px; color: var(--muted); }
-.overview-card:has(.overview-select) .overview-status { margin-right: 52px; }
+/* Reserve room for the absolutely positioned side-by-side checkbox; long statuses wrap below the name. */
+.overview-card:has(.overview-select) .overview-card-head { padding-right: 104px; }
+.overview-card-head .overview-card-project { flex-basis: 40%; }
 

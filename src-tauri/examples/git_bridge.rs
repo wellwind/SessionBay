@@ -156,6 +156,9 @@ fn main() {
         .unwrap_or(1441);
     // Browser specs run the UI in Traditional Chinese; the core follows it.
     sessionbay_lib::i18n::set_locale(&std::env::args().nth(2).unwrap_or_else(|| "zh-TW".into()));
+    // The page origin allowed to call the bridge (the Vite server of the calling config).
+    let origin = std::env::var("SESSIONBAY_GIT_BRIDGE_ORIGIN")
+        .unwrap_or_else(|_| "http://127.0.0.1:1440".into());
     let state = Mutex::new(fixture());
     let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
     eprintln!("git bridge on http://127.0.0.1:{port}");
@@ -207,7 +210,7 @@ fn main() {
             }
         };
         let response = format!(
-            "HTTP/1.1 {status} OK\r\nAccess-Control-Allow-Origin: http://127.0.0.1:1440\r\nAccess-Control-Allow-Headers: content-type\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+            "HTTP/1.1 {status} OK\r\nAccess-Control-Allow-Origin: {origin}\r\nAccess-Control-Allow-Headers: content-type\r\nAccess-Control-Allow-Methods: POST, GET, OPTIONS\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
             payload.len()
         );
         let mut stream = stream;

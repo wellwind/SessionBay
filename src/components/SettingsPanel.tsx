@@ -56,6 +56,7 @@ const shortcutNames: Record<string, string> = {
   'toggle-project-sessions': t('Show / hide project sessions'),
   'toggle-project-files': t('Show / hide project files'),
   'toggle-project-git': t('Show / hide project Git'),
+  'toggle-workspace-overview': t('Open / leave the all-workspaces overview'),
   'new-terminal': t('Open a terminal'),
   'new-agent': t('Start agent work'),
   'search-sessions': t('Search sessions'),
@@ -581,7 +582,7 @@ export function SettingsPanel({
           </div>
           <div>
             <span className="settings-eyebrow">
-              {onboarding ? 'WELCOME TO SESSION BAY' : 'MAKE IT YOURS'}
+              {onboarding ? t('WELCOME TO SESSION BAY') : t('MAKE IT YOURS')}
             </span>
             <h2 id="settings-title">{onboarding ? t('Bring your work back to one place.') : t('Workbench settings')}</h2>
             {onboarding && <p id="settings-description">{t('Connect your local agent history and set up the environment you like.')}</p>}
