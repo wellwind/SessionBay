@@ -43,3 +43,17 @@ Session Bay is a local-first desktop workbench for AI coding agents: unified ses
 ## UI/UX skill
 
 For UI structure, visual design, interaction, responsive layout or accessibility work, read [UI UX Pro Max](.agents/skills/ui-ux-pro-max/SKILL.md) first and search the domain or stack that fits the task. Its suggestions do not override the existing UI. Backend-only work does not need it.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for wellwind/SessionBay (gh CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
