@@ -324,6 +324,8 @@ input.checkbox::before { border-color: var(--on-accent); }
 .split-existing-search { display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--surface); }
 .split-existing-search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 8px 0; color: var(--text); font: inherit; outline: none; }
 .split-existing-search:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The wrapper draws the focus ring; the input must not add a second one. */
+.split-existing-search input:focus-visible { outline: 0; }
 .split-existing h3 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 6px; font-size: 13px; }
 .split-existing h3 small { font-weight: 400; font-size: 11px; color: var(--muted); }
 .split-existing-list { display: flex; flex-direction: column; gap: 2px; max-height: 210px; overflow: auto; margin: 0; padding: 0; list-style: none; }

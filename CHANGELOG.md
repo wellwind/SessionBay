@@ -4,7 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+### Fixed
+
+- The search box in the split dialog's **Existing work** tab drew two focus rings.
+
+## [0.1.0] - 2026-10-28
 
 First public preview. macOS on Apple Silicon only.
 
