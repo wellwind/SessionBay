@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-29
+
 ### Changed
 
 - Production now uses the app identity `dev.fullstackladder.sessionbay`. Data from the previous identity does not carry over. On macOS, use **Open Anyway** again on first launch and grant notification permission again.
@@ -12,6 +14,8 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 
 - The search box in the split dialog's **Existing work** tab drew two focus rings.
+- When the app was opened from Finder or the Dock, agent CLIs installed through nvm, fnm, volta, mise, asdf or bun were reported as missing.
+- The unread-output dot on a workspace tab with no known agent status now sits on the tab's icon instead of floating over the title.
 
 ## [0.1.0] - 2026-10-28
 
@@ -52,5 +56,6 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wellwind/SessionBay/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wellwind/SessionBay/releases/tag/v0.1.0
