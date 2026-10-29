@@ -19,7 +19,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const SCHEMA_VERSION: i64 = 6;
+#[path = "kanban.rs"]
+pub mod kanban;
+
+const SCHEMA_VERSION: i64 = 8;
 const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial,(SELECT root FROM sources WHERE id=s.source_id),(SELECT identity FROM files WHERE session_id=s.id LIMIT 1),(SELECT storage_root FROM sources WHERE id=s.source_id)";
 const MAX_ERRORS: usize = 100;
 const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
@@ -402,6 +405,12 @@ impl Catalog {
                 PRAGMA user_version=6;",
             )
             .map_err(error)?;
+        }
+        if version < 7 {
+            kanban::migrate(&mut conn)?;
+        }
+        if version < 8 {
+            kanban::migrate_actions(&mut conn)?;
         }
         #[cfg(unix)]
         {
@@ -949,6 +958,7 @@ impl Catalog {
         .map_err(error)?;
         tx.execute("DELETE FROM files WHERE session_id=?1", [&owner])
             .map_err(error)?;
+        kanban::detach_missing(&tx, &owner)?;
         tx.execute("DELETE FROM sessions WHERE id=?1", [&owner])
             .map_err(error)?;
         tx.execute("DELETE FROM session_trash WHERE id=?1", [trash_id])
@@ -1733,7 +1743,9 @@ impl Catalog {
             }
         }
         let existing = conn
-            .prepare("SELECT id FROM sources")
+            .prepare(
+                "SELECT id FROM sources UNION SELECT DISTINCT source_id FROM kanban_card_sessions",
+            )
             .map_err(error)?
             .query_map([], |r| r.get::<_, String>(0))
             .map_err(error)?
@@ -1741,8 +1753,13 @@ impl Catalog {
             .map_err(error)?;
         for id in existing {
             if !ids.contains(&id) {
-                conn.execute("DELETE FROM sources WHERE id=?1", [&id])
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(error)?;
+                kanban::detach_source(&tx, &id)?;
+                tx.execute("DELETE FROM sources WHERE id=?1", [&id])
+                    .map_err(error)?;
+                tx.commit().map_err(error)?;
             }
         }
         let mut discoveries = Vec::new();
@@ -1785,6 +1802,9 @@ impl Catalog {
                 kind != source.kind.as_str() || root != source.root || storage != storage_root
             }) || !source.enabled
             {
+                if source.enabled {
+                    kanban::detach_source(&tx, &source.id)?;
+                }
                 tx.execute("DELETE FROM sources WHERE id=?1", [&source.id])
                     .map_err(error)?;
             }
@@ -2005,6 +2025,24 @@ impl Catalog {
             }
         }
         status.cancelled |= cancel.load(Ordering::Relaxed);
+        if !status.cancelled {
+            for health in &status.sources {
+                if matches!(health.status.as_str(), "ready" | "empty")
+                    && !paused_providers.iter().any(|kind| {
+                        sources
+                            .iter()
+                            .any(|s| s.id == health.source_id && s.kind == *kind)
+                    })
+                {
+                    let tx = conn
+                        .transaction_with_behavior(TransactionBehavior::Immediate)
+                        .map_err(error)?;
+                    kanban::detach_absent(&tx, &health.source_id)?;
+                    tx.commit().map_err(error)?;
+                }
+            }
+            self.refresh_kanban_intake()?;
+        }
         status.running = false;
         for health in &status.sources {
             if health.status == "error" && status.errors.len() < MAX_ERRORS {
@@ -3365,6 +3403,7 @@ fn refresh_source_titles(
 fn rebuild_session(conn: &Connection, source: &HistorySource, id: &str) -> Result<(), String> {
     let files=conn.prepare("SELECT path,state,archived,trailing_partial FROM files WHERE session_id=?1 ORDER BY archived ASC,modified DESC,path").map_err(error)?.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,bool>(2)?,r.get::<_,bool>(3)?))).map_err(error)?.collect::<Result<Vec<_>,_>>().map_err(error)?;
     if files.is_empty() {
+        kanban::detach_missing(conn, id)?;
         conn.execute("DELETE FROM sessions WHERE id=?1", [id])
             .map_err(error)?;
         return Ok(());

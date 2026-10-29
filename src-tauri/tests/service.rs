@@ -78,11 +78,27 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
         })
         .unwrap();
     assert_eq!(sessions.total, 2);
+    service
+        .catalog
+        .add_project(project.to_str().unwrap(), None)
+        .unwrap();
+    service
+        .catalog
+        .set_kanban_board_enabled(&projects[0].id, true)
+        .unwrap();
+    assert!(service
+        .catalog
+        .kanban_board(&projects[0].id)
+        .unwrap()
+        .unwrap()
+        .cards
+        .is_empty());
     for session in sessions.items {
         let preview = service.catalog.transcript(&session.id, None, 40).unwrap();
         assert!(preview.messages[0].text.contains("auth_flow"));
         assert!(!preview.stale);
         let request = LaunchRequest {
+            kanban_card_id: None,
             pane_id: format!("pane-{}", session.kind.as_str()),
             kind: session.kind.as_str().into(),
             project_id: Some(projects[0].id.clone()),
@@ -93,6 +109,12 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
             cols: 80,
             rows: 24,
         };
+        service.plan_launch(&request).unwrap();
+        assert!(service
+            .catalog
+            .kanban_session_card(&session.id)
+            .unwrap()
+            .is_none());
         let (tx, rx) = mpsc::channel();
         service
             .launch(
@@ -100,6 +122,16 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
                 Arc::new(move |event| tx.send(event).map_err(|e| e.to_string())),
             )
             .unwrap();
+        assert_eq!(
+            service
+                .catalog
+                .kanban_session_card(&session.id)
+                .unwrap()
+                .unwrap()
+                .sessions
+                .len(),
+            1
+        );
         let mut output = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -143,6 +175,7 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
         }
     }
     let mut request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "ordinary-shell".into(),
         kind: "shell".into(),
         project_id: Some(projects[0].id.clone()),
@@ -235,6 +268,7 @@ fn uncurated_sessions_keep_their_own_cwd_and_relocation_and_live_runtimes() {
         .find(|s| s.external_id == "b-original")
         .unwrap();
     let mut request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "curation-regression".into(),
         kind: "codex".into(),
         project_id: Some(project.id.clone()),
@@ -315,6 +349,7 @@ fn provider_live_state_is_explicit_and_only_affects_future_launch_plans() {
     settings.executables.claude = "/bin/sh".into();
     service.save_settings(settings.clone()).unwrap();
     let request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "state-pane".into(),
         kind: "claude".into(),
         project_id: None,

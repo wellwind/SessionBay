@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { t } from '../i18n';
+
+// Chromium keeps offsetParent for content of a closed <details>, so check it explicitly.
+function inClosedDetails(el: HTMLElement) {
+  const details = el.closest('details');
+  return !!details && !details.open && el.parentElement !== details;
+}
+
 export function Dialog({
   title,
   children,
@@ -49,7 +56,7 @@ export function Dialog({
           root?.querySelectorAll<HTMLElement>(
             'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]',
           ) ?? [],
-        ).filter((el) => el.tabIndex >= 0 && el.offsetParent !== null);
+        ).filter((el) => el.tabIndex >= 0 && el.offsetParent !== null && !inClosedDetails(el));
         if (!focusable.length) return;
         if (event.shiftKey && document.activeElement === focusable[0]) {
           event.preventDefault();

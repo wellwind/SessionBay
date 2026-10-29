@@ -58,6 +58,68 @@ const views: View[] = [
     await page.getByRole('button', { name: L('Open workspace harbor-api Rate limiting', '開啟工作區 harbor-api 速率限制') }).click();
     await expect(page.locator('.xterm-screen').first()).toBeVisible();
   }],
+  ['project-board', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await expect(page.locator('.kanban-card').first()).toBeVisible();
+  }],
+  ['board-task-details', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.locator('.kanban-card-open').first().click();
+    await expect(page.getByRole('dialog', { name: L('Task details', '工作詳情') })).toBeVisible();
+  }],
+  ['board-done-details', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.locator('[data-kanban-card="card-4"] .kanban-card-open').click();
+    await expect(page.getByRole('heading', { name: L('Done actions', '完成後動作') })).toBeVisible();
+  }],
+  ['board-auto-archive', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.getByRole('button', { name: L('Auto-archive', '自動封存'), exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  }],
+  ['board-enable', async page => {
+    await page.goto('/tests/browser/showcase.html?board=off');
+    await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await expect(page.getByRole('button', { name: L('Enable board', '啟用看板'), exact: true })).toBeVisible();
+  }],
+  ['board-add-column', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.getByRole('button', { name: L('Add column', '新增欄位'), exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  }],
+  ['board-column-settings', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.getByRole('button', { name: L('Column settings: Todo', '欄位設定：待辦') }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  }],
+  ['board-move-menu', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.locator('.kanban-move-menu button').first().click();
+    await expect(page.getByRole('menu')).toBeVisible();
+  }],
+  ['all-boards', async page => {
+    await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+    await expect(page.locator('[data-kanban-card="web-task"]')).toBeVisible();
+  }],
+  ['all-boards-move-menu', async page => {
+    await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+    await page.locator('[data-kanban-card="web-task"] .kanban-move-menu button').click();
+    await expect(page.getByRole('menu')).toBeVisible();
+  }],
+  ['all-boards-details', async page => {
+    await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+    await page.locator('[data-kanban-card="web-task"] .kanban-card-open').click();
+    await expect(page.getByRole('dialog', { name: L('Task details', '工作詳情') })).toBeVisible();
+  }],
   ['overview', async page => { await page.locator('.sidebar-global', { hasText: L('All workspaces', '全部工作區') }).click(); }],
   ['settings-sources', settings(['Sources and tools', '來源與工具'])],
   ['settings-profiles', settings(['Shell Profiles', 'Shell Profiles'])],

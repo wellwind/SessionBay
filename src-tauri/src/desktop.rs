@@ -1,3 +1,6 @@
+use crate::catalog::kanban::{
+    KanbanBoard, KanbanCard, KanbanColumn, KanbanSessionDisposition, KanbanStage,
+};
 use crate::tr;
 use crate::{
     broker::{RuntimeRecord, UiEvent},
@@ -328,6 +331,201 @@ async fn update_project(
         )
     })
     .await
+}
+#[tauri::command]
+async fn kanban_board(
+    state: AppState<'_>,
+    project_id: String,
+) -> Result<Option<KanbanBoard>, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        let _ = s.reconcile_kanban_launches();
+        s.catalog.kanban_board(&project_id)
+    })
+    .await
+}
+#[tauri::command]
+async fn set_kanban_auto_archive(
+    state: AppState<'_>,
+    project_id: String,
+    days: Option<u32>,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.set_kanban_auto_archive(&project_id, days)).await
+}
+#[tauri::command]
+async fn bind_kanban_worktree(
+    state: AppState<'_>,
+    card_id: String,
+    path: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.bind_kanban_worktree(&card_id, &path)).await
+}
+#[tauri::command]
+async fn list_kanban_boards(state: AppState<'_>) -> Result<Vec<KanbanBoard>, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.list_kanban_boards()).await
+}
+#[tauri::command]
+async fn set_kanban_board_enabled(
+    state: AppState<'_>,
+    project_id: String,
+    enabled: bool,
+) -> Result<KanbanBoard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.set_kanban_board_enabled(&project_id, enabled)).await
+}
+#[tauri::command]
+async fn create_kanban_column(
+    state: AppState<'_>,
+    project_id: String,
+    name: String,
+    stage: Option<KanbanStage>,
+) -> Result<KanbanColumn, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.create_kanban_column(&project_id, &name, stage)).await
+}
+#[tauri::command]
+async fn rename_kanban_column(
+    state: AppState<'_>,
+    column_id: String,
+    name: String,
+) -> Result<KanbanColumn, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.rename_kanban_column(&column_id, &name)).await
+}
+#[tauri::command]
+async fn set_kanban_column_stage(
+    state: AppState<'_>,
+    column_id: String,
+    stage: KanbanStage,
+) -> Result<KanbanColumn, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.set_kanban_column_stage(&column_id, stage)).await
+}
+#[tauri::command]
+async fn reorder_kanban_columns(
+    state: AppState<'_>,
+    project_id: String,
+    column_ids: Vec<String>,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.reorder_kanban_columns(&project_id, &column_ids)).await
+}
+#[tauri::command]
+async fn delete_kanban_column(
+    state: AppState<'_>,
+    column_id: String,
+    target_column_id: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.catalog
+            .delete_kanban_column(&column_id, &target_column_id)
+    })
+    .await
+}
+#[tauri::command]
+async fn create_kanban_card(
+    state: AppState<'_>,
+    column_id: String,
+    title: String,
+    notes: String,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.create_kanban_card(&column_id, &title, &notes)).await
+}
+#[tauri::command]
+async fn edit_kanban_card(
+    state: AppState<'_>,
+    card_id: String,
+    title: String,
+    notes: String,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.edit_kanban_card(&card_id, &title, &notes)).await
+}
+#[tauri::command]
+async fn move_kanban_card(
+    state: AppState<'_>,
+    card_id: String,
+    column_id: String,
+    position: u32,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.move_kanban_card(&card_id, &column_id, position)).await
+}
+#[tauri::command]
+async fn archive_kanban_card(
+    state: AppState<'_>,
+    card_id: String,
+    archived: bool,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.archive_kanban_card(&card_id, archived)).await
+}
+#[tauri::command]
+async fn delete_kanban_card(
+    state: AppState<'_>,
+    card_id: String,
+    sessions: KanbanSessionDisposition,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.delete_kanban_card(&card_id, sessions)).await
+}
+#[tauri::command]
+async fn attach_kanban_session(
+    state: AppState<'_>,
+    card_id: String,
+    session_id: String,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.attach_kanban_session(&card_id, &session_id)).await
+}
+#[tauri::command]
+async fn detach_kanban_session(
+    state: AppState<'_>,
+    card_id: String,
+    session_id: String,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.detach_kanban_session(&card_id, &session_id)).await
+}
+#[tauri::command]
+async fn merge_kanban_cards(
+    state: AppState<'_>,
+    source_card_id: String,
+    target_card_id: String,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || {
+        s.catalog
+            .merge_kanban_cards(&source_card_id, &target_card_id)
+    })
+    .await
+}
+#[tauri::command]
+async fn split_kanban_session(
+    state: AppState<'_>,
+    card_id: String,
+    session_id: String,
+) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.split_kanban_session(&card_id, &session_id)).await
+}
+#[tauri::command]
+async fn add_kanban_session(state: AppState<'_>, session_id: String) -> Result<KanbanCard, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.add_kanban_session(&session_id)).await
+}
+#[tauri::command]
+async fn kanban_session_card(
+    state: AppState<'_>,
+    session_id: String,
+) -> Result<Option<KanbanCard>, String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.kanban_session_card(&session_id)).await
 }
 #[tauri::command]
 async fn query_sessions(state: AppState<'_>, query: SessionQuery) -> Result<SessionPage, String> {
@@ -886,6 +1084,27 @@ pub fn run() {
             add_project,
             create_project,
             update_project,
+            kanban_board,
+            set_kanban_auto_archive,
+            bind_kanban_worktree,
+            list_kanban_boards,
+            set_kanban_board_enabled,
+            create_kanban_column,
+            rename_kanban_column,
+            set_kanban_column_stage,
+            reorder_kanban_columns,
+            delete_kanban_column,
+            create_kanban_card,
+            edit_kanban_card,
+            move_kanban_card,
+            archive_kanban_card,
+            delete_kanban_card,
+            attach_kanban_session,
+            detach_kanban_session,
+            merge_kanban_cards,
+            split_kanban_session,
+            add_kanban_session,
+            kanban_session_card,
             query_sessions,
             trash_session,
             restore_session,

@@ -43,6 +43,8 @@ pub type UiEmitter = Arc<dyn Fn(UiEvent) -> Result<(), String> + Send + Sync>;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_session_id: Option<String>,
     #[serde(flatten)]
     pub info: RuntimeInfo,
     pub kind: String,
@@ -751,6 +753,7 @@ impl Host {
                     info.id.clone(),
                     Entry {
                         record: RuntimeRecord {
+                            provider_session_id: None,
                             info: info.clone(),
                             kind,
                             project_id,
@@ -1206,6 +1209,7 @@ mod tests {
     fn metadata_only_recovery_marks_previous_live_records_interrupted() {
         let temp = tempfile::tempdir().unwrap();
         let record = RuntimeRecord {
+            provider_session_id: None,
             info: RuntimeInfo {
                 id: "synthetic-id".into(),
                 pane_id: "pane".into(),

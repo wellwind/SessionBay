@@ -25,6 +25,7 @@ use std::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchRequest {
+    pub kanban_card_id: Option<String>,
     pub pane_id: String,
     pub kind: String,
     pub project_id: Option<String>,
@@ -356,7 +357,8 @@ impl Service {
                     .into_iter()
                     .filter(|kind| !settings.is_agent_enabled(*kind))
                     .collect();
-                service.catalog.sync_with_paused_providers(
+                let _ = service.reconcile_kanban_launches();
+                let result = service.catalog.sync_with_paused_providers(
                     &settings.sources,
                     &paused_providers,
                     &service.cancel,
@@ -366,7 +368,9 @@ impl Service {
                             *status = progress;
                         }
                     },
-                )
+                )?;
+                let _ = service.reconcile_kanban_launches();
+                Ok(result)
             })();
             if let Ok(mut status) = service.index.lock() {
                 match result {
@@ -431,7 +435,22 @@ impl Service {
             let _ = self.start_index(false);
         }
     }
+    pub fn reconcile_kanban_launches(&self) -> Result<(), String> {
+        if let Some(broker) = &self.broker {
+            for record in broker.list()? {
+                if let Some(external) = record.provider_session_id {
+                    self.catalog
+                        .reconcile_kanban_launch(&record.info.id, &external)?;
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn plan_launch(&self, request: &LaunchRequest) -> Result<LaunchSpec, String> {
+        if let Some(card) = &request.kanban_card_id {
+            self.catalog
+                .validate_kanban_launch(card, request.project_id.as_deref())?;
+        }
         if request.pane_id.is_empty()
             || request.pane_id.len() > 128
             || request.pane_id.contains('\0')
@@ -628,6 +647,9 @@ impl Service {
                 env.insert(crate::provider_hooks::OPT_IN.into(), "live".into());
             }
         }
+        if let Some(card) = &request.kanban_card_id {
+            self.catalog.validate_kanban_launch_cwd(card, &cwd)?;
+        }
         Ok(LaunchSpec {
             executable: executable.to_string_lossy().into_owned(),
             args,
@@ -653,6 +675,7 @@ impl Service {
     ) -> Result<RuntimeInfo, String> {
         if let Some(key) = self.existing_resume_key(request)? {
             if let Some(existing) = self.runtime.find_running_resume(&key) {
+                self.record_kanban_resume(request)?;
                 return Ok(existing);
             }
         }
@@ -662,7 +685,11 @@ impl Service {
                 "Activity hooks require launching through the persistent broker"
             ));
         }
-        self.runtime.launch(spec, request.cols, request.rows, emit)
+        let result = self
+            .runtime
+            .launch(spec, request.cols, request.rows, emit)?;
+        self.record_kanban_resume(request)?;
+        Ok(result)
     }
 
     fn existing_resume_key(&self, request: &LaunchRequest) -> Result<Option<String>, String> {
@@ -817,7 +844,12 @@ impl Service {
         };
         // Keep catalog commits outside the confirmation's admission/consume boundary.
         // Both launch paths reserve in the same fresh -> catalog -> settings order.
-        self.catalog.with_launch_revision(&mut launch)
+        let result = self.catalog.with_launch_revision(&mut launch)?;
+        if let Some(card) = &request.kanban_card_id {
+            self.catalog
+                .record_kanban_launch(card, &result.id, &request.kind)?;
+        }
+        Ok(result)
     }
 
     /// Live Session Bay runtimes that resume or launched this Session.
@@ -935,16 +967,44 @@ impl Service {
         // A provider toggle must never strand a live conversation behind plan_launch.
         if let Some(key) = self.existing_resume_key(request)? {
             if let Some(existing) = self.broker()?.find_running_resume(&key)? {
-                return if existing.pane_id == request.pane_id {
+                let result = if existing.pane_id == request.pane_id {
                     self.broker()?.attach(&existing.id, attachment_id, emit)
                 } else {
                     Ok(existing)
-                };
+                }?;
+                self.record_kanban_resume(request)?;
+                return Ok(result);
             }
         }
         let spec = self.plan_launch(request)?;
-        self.broker()?.launch(spec, request, attachment_id, emit)
+        let result = self.broker()?.launch(spec, request, attachment_id, emit)?;
+        self.record_kanban_resume(request)?;
+        Ok(result)
     }
+    fn record_kanban_resume(&self, request: &LaunchRequest) -> Result<(), String> {
+        if let Some(id) = &request.session_id {
+            if self.catalog.session(id).is_ok() {
+                self.catalog.kanban_session_resumed(id)?;
+            }
+        } else if let (Ok(kind), Some(external)) = (
+            AgentKind::parse(&request.kind),
+            request.resume_id.as_deref(),
+        ) {
+            let settings = self.settings()?;
+            let Ok(root) = manual_resume_root(&settings, kind) else {
+                return Ok(());
+            };
+            if let Some(source) = settings
+                .sources
+                .iter()
+                .find(|s| s.kind == kind && s.enabled && s.root == root)
+            {
+                self.catalog.request_kanban_resume(source, external)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn is_shutdown(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
@@ -1094,6 +1154,7 @@ mod tests {
         let service = Service::open_internal(app, Some(client.clone()), Vec::new()).unwrap();
         *service.ui_owner.lock().unwrap() = Some(owner);
         let request = LaunchRequest {
+            kanban_card_id: None,
             pane_id: "native-owner-prompt".into(),
             kind: "shell".into(),
             project_id: Some("synthetic-project".into()),
@@ -1170,6 +1231,7 @@ mod tests {
             .add_project(root.to_str().unwrap(), Some("Synthetic project"))
             .unwrap();
         let request = LaunchRequest {
+            kanban_card_id: None,
             pane_id: "source-pane".into(),
             kind: "shell".into(),
             project_id: Some(project.id.clone()),
@@ -1427,6 +1489,7 @@ mod tests {
     use super::*;
     fn request(cwd: Option<String>) -> LaunchRequest {
         LaunchRequest {
+            kanban_card_id: None,
             pane_id: "test-pane".into(),
             kind: "shell".into(),
             project_id: None,

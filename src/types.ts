@@ -159,6 +159,7 @@ export interface Bootstrap {
   warnings: string[];
 }
 export interface LaunchRequest {
+  kanbanCardId?: string;
   paneId: string;
   kind: 'shell' | AgentKind;
   projectId?: string;
@@ -179,6 +180,7 @@ export interface RuntimeInfo {
   exitCode: number | null;
 }
 export interface RuntimeRecord extends RuntimeInfo {
+  providerSessionId?: string | null;
   kind: 'shell' | AgentKind;
   projectId: string | null;
   profileId: string | null;
@@ -196,6 +198,9 @@ export type TerminalEvent =
   | { type: 'error'; runtimeId: string; message: string };
 export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed' | 'disconnected' | 'interrupted';
 export interface Pane {
+  providerSessionId?: string | null;
+  pendingTaskText?: string;
+  kanbanCardId?: string;
   id: string;
   kind: 'shell' | AgentKind;
   title: string;
@@ -314,4 +319,44 @@ export interface UpdateInfo {
   url: string;
   prerelease: boolean;
   publishedAt: string | null;
+}
+
+export type KanbanStage = 'unsorted' | 'todo' | 'doing' | 'review' | 'done';
+export type KanbanSessionDisposition = 'unsorted' | 'detach';
+export interface KanbanColumn {
+  id: string;
+  projectId: string;
+  /** Null names use defaultName as a translation key in the current UI language. */
+  name: string | null;
+  defaultName: 'Unsorted' | 'Todo' | 'In progress' | 'Review' | 'Done' | null;
+  stage: KanbanStage;
+  position: number;
+  systemRole: 'unsorted' | 'done' | null;
+}
+export interface KanbanSession {
+  session: Session;
+  branch: string | null;
+}
+export interface KanbanCard {
+  worktreePath?: string | null;
+  id: string;
+  projectId: string;
+  columnId: string;
+  /** Empty titles render as the translated Untitled task until a session is attached. */
+  title: string;
+  notes: string;
+  position: number;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  sessions: KanbanSession[];
+}
+export interface KanbanBoard {
+  autoArchiveDays?: number | null;
+  projectId: string;
+  enabled: boolean;
+  enabledAt: string;
+  columns: KanbanColumn[];
+  /** Includes archived cards. Recycled sessions are omitted without losing links. */
+  cards: KanbanCard[];
 }

@@ -636,3 +636,11 @@ describe('moving an open pane into a split', () => {
     expect(movePaneIntoSplit(together, 'b', 'a', 'horizontal')).toBe(together);
   });
 });
+
+it('never persists task prompt text, card launch context or native session handshake identity', () => {
+  const current = workspace();
+  const id = Object.keys(current.panes)[0];
+  Object.assign(current.panes[id], { pendingTaskText: 'Synthetic private task notes', kanbanCardId: 'synthetic-card', providerSessionId: 'native-session' });
+  const saved = JSON.stringify(serializeWorkspace(current));
+  expect(saved).not.toMatch(/pendingTaskText|kanbanCardId|providerSessionId|Synthetic private task notes|native-session/);
+});

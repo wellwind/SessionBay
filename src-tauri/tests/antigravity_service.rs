@@ -150,6 +150,7 @@ fn antigravity_native_resume_child_helper() {
         assert_eq!(session.external_id, ID);
         assert_eq!(session.resume_disabled_reason, None);
         let indexed = LaunchRequest {
+            kanban_card_id: None,
             pane_id: "indexed-native".into(),
             kind: "antigravity".into(),
             project_id: Some(session.project_id.clone()),

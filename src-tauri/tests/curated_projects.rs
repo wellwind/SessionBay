@@ -257,7 +257,7 @@ fn version_two_migration_preserves_only_manual_or_pinned_membership() {
     assert_eq!(
         conn.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
             .unwrap(),
-        6
+        8
     );
 }
 
