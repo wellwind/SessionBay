@@ -50,3 +50,5 @@ DND detection is best effort. If unavailable, unsuccessful, or unrecognized, sou
 ## Keyboard shortcuts
 
 Change the shortcuts for common commands. `Mod` means <kbd>⌘</kbd> on macOS.
+
+**Mod+Shift+K** shows or hides the project Board activity panel. It appears in the command palette and can be rebound in this shortcut list.
