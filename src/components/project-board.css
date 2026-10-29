@@ -37,3 +37,17 @@
 .kanban-dragging { opacity: .6; }
 .kanban-delete-column { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 16px; }
 .kanban-delete-column p { color: var(--muted); font-size: 12px; }
+.kanban-card-head h4 { flex: 1; }
+.kanban-card-open { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); text-align: left; font: inherit; overflow-wrap: anywhere; white-space: normal; }
+.kanban-card-open:hover { color: var(--accent); }
+.kanban-drop-merge { outline: 2px solid var(--accent); background: var(--accent-bg); }
+.kanban-details { min-width: 0; }
+.kanban-details textarea, .field-label textarea { width: 100%; min-width: 0; resize: vertical; font: inherit; }
+.kanban-detail-times { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12px; margin: 12px 0; }
+.kanban-detail-path { overflow-wrap: anywhere; color: var(--muted); font: 12px var(--mono); }
+.kanban-detail-sessions { padding: 0; margin: 12px 0; list-style: none; }
+.kanban-detail-sessions li { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.kanban-detail-sessions li > div:first-child { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.kanban-session-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.kanban-done-actions, .kanban-worktree-form { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 16px; }
+.kanban-attention input[type='checkbox'] { width: auto; margin-right: 6px; }

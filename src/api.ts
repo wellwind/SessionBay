@@ -70,6 +70,8 @@ export const api = {
     call<ArrayBuffer>('read_workspace_image', { projectId, path, version }),
   readWorkspaceFileChunk: (projectId: string, path: string, version: string, offset: number, maxBytes: number) =>
     call<WorkspaceFileChunk>('read_workspace_file_chunk', { projectId, path, version, offset, maxBytes }),
+  setKanbanAutoArchive: (projectId: string, days: number | null) => call<void>('set_kanban_auto_archive', { projectId, days }),
+  bindKanbanWorktree: (cardId: string, path: string) => call<void>('bind_kanban_worktree', { cardId, path }),
   kanbanBoard: (projectId: string) => call<KanbanBoard | null>('kanban_board', { projectId }),
   listKanbanBoards: () => call<KanbanBoard[]>('list_kanban_boards'),
   setKanbanBoardEnabled: (projectId: string, enabled: boolean) => call<KanbanBoard>('set_kanban_board_enabled', { projectId, enabled }),

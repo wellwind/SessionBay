@@ -5,7 +5,8 @@ import { agentNames } from '../agents';
 import { locale, t } from '../i18n';
 import { paneRuntimeStatusText } from '../pane-runtime-status';
 import { paneAttention } from '../workspace-overview';
-import type { KanbanBoard, KanbanCard, KanbanColumn, KanbanSession, KanbanStage, Pane, Project, Workspace } from '../types';
+import type { KanbanBoard, KanbanCard, KanbanColumn, KanbanSession, KanbanStage, Pane, Project, Session, Workspace } from '../types';
+import { KanbanCardDetails } from './KanbanCardDetails';
 import { Dialog } from './Dialog';
 import { dateLabel } from './History';
 import { KanbanMoveMenu } from './KanbanMoveMenu';
@@ -26,11 +27,12 @@ const ordered = <T extends { position: number }>(items: T[]) => [...items].sort(
 function sessionPane(link: KanbanSession, panes: Pane[]) {
   const session = link.session;
   return panes.find(pane => pane.sessionId === session.id) ?? panes.find(pane =>
-    !pane.sessionId && pane.kind === session.kind && pane.resumeId === session.externalId && pane.cwd === session.cwd);
+    !pane.sessionId && pane.kind === session.kind && (pane.resumeId === session.externalId || pane.providerSessionId === session.externalId) && pane.cwd === session.cwd);
 }
 
-export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
+export function ProjectBoard({ project, workspace, refreshToken = 0, onStart, onResume, onHistoryChanged }: {
   project: Project; workspace: Workspace; refreshToken?: number;
+  onStart?: (card: KanbanCard) => void; onResume?: (session: Session) => void; onHistoryChanged?: () => Promise<void>;
 }) {
   const [board, setBoard] = useState<KanbanBoard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,9 @@ export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
   const [announcement, setAnnouncement] = useState('');
   const [query, setQuery] = useState(''), [agent, setAgent] = useState(''), [attention, setAttention] = useState(false);
   const [settings, setSettings] = useState<string | null>(null);
+  const [details, setDetails] = useState<string | null>(null), [archived, setArchived] = useState(false);
+  const [newTask, setNewTask] = useState(false), [policy, setPolicy] = useState(false);
+  const [merge, setMerge] = useState<{ source: string; target: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const root = useRef<HTMLElement>(null);
   const help = useId();
@@ -117,7 +122,8 @@ export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
       t('Moved column "{{name}}" to position {{position}}.', { name: columnName(source), position: position + 1 }));
   };
   const columnReorder = useAnimatedReorder(columns, 'x', '.kanban-columns', moveColumn);
-  const cardDrag = useKanbanCardDrag(root, JSON.stringify([cards.map(card => [card.id, card.columnId, card.position]), query, agent, attention, busy]), (id, drop) => {
+  const cardDrag = useKanbanCardDrag(root, JSON.stringify([cards.map(card => [card.id, card.columnId, card.position]), query, agent, attention, busy, archived]), (id, drop) => {
+    if (drop.merge && drop.targetId) { setMerge({ source: id, target: drop.targetId }); return; }
     const remaining = inColumn(drop.columnId, id);
     const position = drop.targetId ? remaining.findIndex(card => card.id === drop.targetId) + Number(drop.after) : remaining.length;
     if (position >= 0) moveCard(id, drop.columnId, position);
@@ -135,7 +141,7 @@ export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
       || paneRuntimeStatusText(pane, false, '') || t('Running') : t('Not running');
     return { text, attention: kind === 'input' || kind === 'error', kind };
   };
-  const shown = cards.filter(card => !card.archived && (!agent || card.sessions.some(link => link.session.kind === agent))
+  const shown = cards.filter(card => card.archived === archived && (!agent || card.sessions.some(link => link.session.kind === agent))
     && (!attention || card.sessions.some(link => status(link).attention))
     && (!query.trim() || [card.title, card.notes, ...card.sessions.map(link => link.session.title)]
       .some(text => text.toLocaleLowerCase(locale()).includes(query.trim().toLocaleLowerCase(locale())))));
@@ -162,6 +168,15 @@ export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
       if (next) moveCard(card.id, next.id, inColumn(next.id).length);
     }
   };
+  const dismissMerge = () => {
+    if (lock.current) return;
+    const source = merge?.source;
+    setMerge(null);
+    requestAnimationFrame(() => {
+      const card = [...(root.current?.querySelectorAll<HTMLElement>('[data-kanban-card]') ?? [])].find(card => card.dataset.kanbanCard === source);
+      card?.querySelector<HTMLElement>('.kanban-card-open')?.focus();
+    });
+  };
   if (!eligible) return <div className="empty-state"><p>{t('Add this directory to Projects to enable a board.')}</p></div>;
   if (loading) return <div className="empty-state" role="status">{t('Loading board…')}</div>;
   return <section className="project-board" ref={root} aria-label={t('Project board')} aria-busy={busy}>
@@ -174,9 +189,12 @@ export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
         <label>{t('Agent')}<select value={agent} onChange={event => setAgent(event.target.value)}>
           <option value="">{t('All agents')}</option>{Object.entries(agentNames).map(([kind, name]) => <option value={kind} key={kind}>{name}</option>)}</select></label>
         <label className="kanban-attention"><input type="checkbox" checked={attention} onChange={event => setAttention(event.target.checked)} />{t('Needs attention')}</label>
+        <button disabled={busy} aria-pressed={archived} onClick={() => setArchived(!archived)}>{t('Archived tasks')}</button>
+        <button disabled={busy} onClick={() => setPolicy(true)}>{t('Auto-archive')}</button>
+        <button className="secondary" disabled={busy} onClick={() => setNewTask(true)}>{t('New task')}</button>
         <button className="secondary" disabled={busy} onClick={() => setAdding(true)}><Plus size={14} aria-hidden="true" />{t('Add column')}</button>
       </header>
-      <span className="organization-sr-only" id={help}>{t('Drag cards to reorder or move between columns. Use Alt+Up/Down to reorder, Alt+Left/Right to change columns, or the Move to menu. Press Escape to cancel dragging.')}</span>
+      <span className="organization-sr-only" id={help}>{t('Drag cards to reorder or move between columns. Use Alt+Up/Down to reorder, Alt+Left/Right to change columns, or the Move to menu. Drop on the center of another card to merge. Press Escape to cancel dragging.')}</span>
       <span className="organization-sr-only" role="status" aria-live="polite">{announcement}</span>
       {shown.length === 0 && cards.some(card => !card.archived) && <p className="small-muted">{t('No tasks match the filters.')}</p>}
       <div className="kanban-columns" aria-label={t('Board columns')}>
@@ -194,11 +212,11 @@ export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
             </div>
             <div className="kanban-card-list" role="list" aria-label={columnName(column)}>
               {items.map(card => <div role="listitem" data-kanban-card={card.id} key={card.id}
-                className={`kanban-card${drop?.targetId === card.id ? drop.after ? ' kanban-drop-after' : ' kanban-drop-before' : ''}${drop?.id === card.id ? ' kanban-dragging' : ''}`}>
+                className={`kanban-card${drop?.targetId === card.id ? drop.merge ? ' kanban-drop-merge' : drop.after ? ' kanban-drop-after' : ' kanban-drop-before' : ''}${drop?.id === card.id ? ' kanban-dragging' : ''}`}>
                 <div className="kanban-card-head"><button className="icon-button kanban-card-handle" disabled={busy}
                   aria-label={t('Move task {{title}}', { title: cardTitle(card) })} aria-describedby={help} aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
                   {...cardDrag.handlers(card.id)} onKeyDown={event => cardKey(event, card)}><GripVertical size={14} aria-hidden="true" /></button>
-                  <h4>{cardTitle(card)}</h4></div>
+                  <h4><button className="kanban-card-open" disabled={busy} onClick={() => setDetails(card.id)}>{cardTitle(card)}</button></h4></div>
                 <div className="kanban-card-agents">{card.sessions.map(link => {
                   const live = status(link);
                   return <span key={link.session.id} className={`kanban-status attention-${live.kind}`} title={link.session.title}>{agentNames[link.session.kind]} · {live.text}</span>;
@@ -220,6 +238,31 @@ export function ProjectBoard({ project, workspace, refreshToken = 0 }: {
           </div>;
         })}
       </div>
+      {details && cards.some(card => card.id === details) && <KanbanCardDetails key={details} card={cards.find(card => card.id === details)!}
+        project={project} done={columns.find(column => column.id === cards.find(card => card.id === details)!.columnId)?.stage === 'done'}
+        busy={busy} error={error} mutate={mutate} status={status}
+        mergeTargets={cards.filter(card => card.id !== details && !card.archived)} onMerge={target => { setDetails(null); setMerge({ source: details, target }); }} onClose={() => { if (!lock.current) {
+          setDetails(null);
+          requestAnimationFrame(() => {
+            const card = [...(root.current?.querySelectorAll<HTMLElement>('[data-kanban-card]') ?? [])].find(card => card.dataset.kanbanCard === details);
+            card?.querySelector<HTMLElement>('.kanban-card-open')?.focus();
+          });
+        } }}
+        onStart={onStart ? card => { setDetails(null); onStart(card); } : undefined}
+        onResume={onResume ? session => { setDetails(null); onResume(session); } : undefined} onHistoryChanged={onHistoryChanged} />}
+      {newTask && <NewTask columns={columns} busy={busy} error={error} onClose={() => { if (!lock.current) setNewTask(false); }} onCreate={async (column, title, notes) => {
+        let created: KanbanCard | undefined;
+        if (await mutate(async () => { created = await api.createKanbanCard(column, title, notes); })) { setNewTask(false); setDetails(created!.id); }
+      }} />}
+      {policy && <ArchivePolicy days={board.autoArchiveDays ?? null} busy={busy} error={error} onClose={() => { if (!lock.current) setPolicy(false); }}
+        onSave={async days => { if (await mutate(() => api.setKanbanAutoArchive(project.id, days))) setPolicy(false); }} />}
+      {merge && cards.some(card => card.id === merge.source) && cards.some(card => card.id === merge.target) && <Dialog title={t('Merge tasks?')} onClose={dismissMerge}>
+        <p>{t('Merge "{{source}}" into "{{target}}"? Sessions and notes move to the target; the source task is deleted.', { source: cardTitle(cards.find(card => card.id === merge.source)!), target: cardTitle(cards.find(card => card.id === merge.target)!) })}</p>
+        {error && <p className="inline-warning" role="alert">{error}</p>}
+        <div className="dialog-actions"><button disabled={busy} onClick={dismissMerge}>{t('Cancel')}</button><button className="primary" data-dialog-confirm disabled={busy} onClick={async () => {
+          if (await mutate(() => api.mergeKanbanCards(merge.source, merge.target), undefined, merge.target)) setMerge(null);
+        }}>{t('Merge tasks')}</button></div>
+      </Dialog>}
       {adding && <AddColumn busy={busy} onClose={() => { if (!lock.current) setAdding(false); }} onAdd={async (name, stage) => {
         if (await mutate(() => api.createKanbanColumn(project.id, name, stage))) setAdding(false);
       }} error={error} />}
@@ -269,4 +312,26 @@ function ColumnSettings({ column, columns, busy, error, onClose, onRename, onSta
       </select></label><button className="danger" disabled={busy || !target} onClick={() => void onDelete(target)}>{t('Delete column')}</button></div>}
     {error && <p role="alert" className="inline-warning">{error}</p>}
   </Dialog>;
+}
+
+function NewTask({ columns, busy, error, onClose, onCreate }: { columns: KanbanColumn[]; busy: boolean; error: string; onClose: () => void; onCreate: (column: string, title: string, notes: string) => Promise<void> }) {
+  const [column, setColumn] = useState(columns.find(column => column.stage === 'todo')?.id ?? columns[0]?.id ?? '');
+  const [title, setTitle] = useState(''), [notes, setNotes] = useState('');
+  return <Dialog title={t('New task')} onClose={onClose}><form onSubmit={event => { event.preventDefault(); if (!busy && column) void onCreate(column, title, notes); }}>
+    <label className="field-label">{t('Task title')}<input value={title} maxLength={500} disabled={busy} onChange={event => setTitle(event.target.value)} /></label>
+    <label className="field-label">{t('Notes')}<textarea rows={4} value={notes} disabled={busy} onChange={event => setNotes(event.target.value)} /></label>
+    <label className="field-label">{t('Column')}<select value={column} disabled={busy} onChange={event => setColumn(event.target.value)}>{columns.map(column => <option key={column.id} value={column.id}>{columnName(column)}</option>)}</select></label>
+    {error && <p role="alert" className="inline-warning">{error}</p>}
+    <div className="dialog-actions"><button type="button" disabled={busy} onClick={onClose}>{t('Cancel')}</button><button className="primary" disabled={busy || !column}>{t('Create task')}</button></div>
+  </form></Dialog>;
+}
+function ArchivePolicy({ days, busy, error, onClose, onSave }: { days: number | null; busy: boolean; error: string; onClose: () => void; onSave: (days: number | null) => Promise<void> }) {
+  const [enabled, setEnabled] = useState(days !== null), [value, setValue] = useState(String(days ?? 30));
+  return <Dialog title={t('Auto-archive')} onClose={onClose}><form onSubmit={event => { event.preventDefault(); if (!busy) void onSave(enabled ? Number(value) : null); }}>
+    <p>{t('Archive Done tasks after this many days without task changes. Sessions are kept. Off by default.')}</p>
+    <label className="kanban-attention"><input type="checkbox" disabled={busy} checked={enabled} onChange={event => setEnabled(event.target.checked)} />{t('Enable auto-archive')}</label>
+    <label className="field-label">{t('Days')}<input type="number" min={1} max={36500} required disabled={busy || !enabled} value={value} onChange={event => setValue(event.target.value)} /></label>
+    {error && <p role="alert" className="inline-warning">{error}</p>}
+    <div className="dialog-actions"><button type="button" disabled={busy} onClick={onClose}>{t('Cancel')}</button><button className="primary" disabled={busy}>{t('Save changes')}</button></div>
+  </form></Dialog>;
 }

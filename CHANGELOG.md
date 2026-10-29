@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- Project boards with configurable columns, manual card ordering, live agent status and filters.
+- Project boards with configurable columns, manual card ordering, live agent status and filters; task details, safe start/resume, merge/split, worktree binding, archive/restore, optional auto-archive and per-session recycling.
 
 ### Fixed
 

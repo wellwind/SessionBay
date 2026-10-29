@@ -251,7 +251,7 @@ export function reconcileRuntimes(workspace: Workspace, records: RuntimeRecord[]
     const pane: Pane = {
       id: record.paneId, kind: record.kind, projectId, cwd: record.cwd,
       title: existing?.title || (record.kind === 'shell' ? t('Preserved shell') : t('Preserved {{kind}}', { kind: record.kind })),
-      sessionId: record.sessionId ?? undefined, resumeId: record.resumeId ?? undefined,
+      sessionId: record.sessionId ?? undefined, providerSessionId: record.providerSessionId, resumeId: record.resumeId ?? undefined,
       profileId: record.profileId ?? undefined,
       homeDirectory: record.kind === 'shell' && projectId === null && !record.sessionId && !record.resumeId &&
         (record.homeDirectory === true || (record.homeDirectory === undefined &&

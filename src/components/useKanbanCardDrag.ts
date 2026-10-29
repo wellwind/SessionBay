@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 
-export interface CardDrop { columnId: string; targetId?: string; after: boolean }
+export interface CardDrop { columnId: string; targetId?: string; after: boolean; merge?: boolean }
 
 /** Cross-column pointer capture with the same cancellation and keyboard alternatives as tab reordering. */
 export function useKanbanCardDrag(root: RefObject<HTMLElement | null>, signature: string,
@@ -27,7 +27,9 @@ export function useKanbanCardDrag(root: RefObject<HTMLElement | null>, signature
     const column = hit.closest<HTMLElement>('[data-kanban-column]');
     if (!column) return null;
     const card = hit.closest<HTMLElement>('[data-kanban-card]');
-    return { columnId: column.dataset.kanbanColumn!, targetId: card?.dataset.kanbanCard,
+    const box = card?.getBoundingClientRect();
+    const fraction = box ? (event.clientY - box.top) / box.height : 1;
+    return { merge: !!card && fraction >= .3 && fraction <= .7, columnId: column.dataset.kanbanColumn!, targetId: card?.dataset.kanbanCard,
       after: card ? event.clientY >= card.getBoundingClientRect().top + card.getBoundingClientRect().height / 2 : true };
   };
   return { preview, handlers: (id: string) => ({
