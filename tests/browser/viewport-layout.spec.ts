@@ -164,9 +164,16 @@ test('resize hands focused footer and compact trigger to visible controls in bot
   await page.keyboard.press('Enter'); await stop.focus();
   await pane.evaluate(e=>e.style.height='181px');
   await expect(stop).toBeFocused(); await expect(stop).toBeVisible();
+  await expect(pane).not.toHaveClass(/minimal-chrome/);
   await pane.evaluate(e=>e.style.height='');
   await page.setViewportSize({width:600,height:413});
-  await options.focus();
+  await expect(options).toBeVisible();
+  // The viewport change can rebuild the pane header over a few frames, so the
+  // first trigger may be replaced after it is focused. Wait until focus sticks.
+  await expect(async () => {
+    await options.focus();
+    await expect(options).toBeFocused({ timeout: 250 });
+  }).toPass();
   await page.setViewportSize({width:1200,height:850});
   await expect(pane.getByRole('button', {name:'重新命名面板 Focus shell'})).toBeFocused();
   await expect(options).toHaveCount(0);
