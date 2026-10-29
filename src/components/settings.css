@@ -406,6 +406,7 @@
 }
 .settings-field input[type='range'] {
   accent-color: var(--settings-accent);
+  margin: 0;
   padding: 0;
   cursor: pointer;
 }
