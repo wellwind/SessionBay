@@ -123,15 +123,16 @@ test('unreported session change invalidates instead of refreshing stale busy', a
   expect(state.reports.map(r => r.observation)).toEqual(['busy', 'unknown'])
 })
 
-test('helper failure does not change next and prevents renewed evidence', async ($, on) => {
+test('helper failure does not change next, stops renewals and resumes at the next turn', async ($, on) => {
   const { state, clock } = setup(on)
   await $.turn.start({ turnId: 'a', text: '' })
   state.failProcess = true
   expect(await $.turn.complete(completion('a'))).toEqual({ text: 'synthetic-next-result' })
   state.failProcess = false
   await clock.advance(10000)
-  await $.turn.start({ turnId: 'b', text: '' })
   expect(state.reports.map(r => r.observation)).toEqual(['busy', 'idle'])
+  await $.turn.start({ turnId: 'b', text: '' })
+  expect(state.reports.map(r => [r.turn, r.observation, r.sequence])).toEqual([['a', 'busy', 1], ['a', 'idle', 2], ['b', 'busy', 3]])
   expect(state.forwarded.length).toBe(3)
 })
 
