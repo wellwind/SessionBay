@@ -599,20 +599,10 @@ impl Service {
                 key == "PATH"
             }
         }) {
-            let mut paths: Vec<PathBuf> =
-                std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-                    .filter(|p| p.is_absolute())
-                    .collect();
-            if let Some(parent) = executable.parent() {
-                paths.insert(0, parent.to_path_buf());
-            }
-            for path in config::executable_fallback_directories() {
-                if !paths.contains(&path) {
-                    paths.push(path);
-                }
-            }
-            if let Ok(path) = std::env::join_paths(paths) {
-                env.insert("PATH".into(), path.to_string_lossy().into_owned());
+            if let Some(path) =
+                config::launch_path(&executable, std::env::var_os("PATH").as_deref())
+            {
+                env.insert("PATH".into(), path);
             }
         }
         if let Some(kind) = agent {
