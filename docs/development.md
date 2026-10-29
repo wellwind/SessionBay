@@ -128,3 +128,4 @@ python3 scripts/validate-macos-icon.py src-tauri/icons/icon.icns
 - **`Port 1420 is already in use`**: another `npm run dev` is still running. Stop it with Ctrl+C.
 - **Tauri CLI panics in `interface/rust.rs`**: `rustc -vV` is broken on your `PATH`, often a Homebrew Rust that is missing LLVM libraries. Use the rustup toolchain.
 - **An agent CLI is not found**: GUI apps on macOS do not inherit your shell's `PATH`. Set the absolute executable path in **Settings → Agents**.
+- **`node` or `npm` is missing in a terminal pane**: terminals do not inherit the session state of whatever started the runtime broker (`nvm_current_version`, or `npm_*` variables when it was started by `npm run`), and shell `PATH` fallbacks leave Node versions to your version manager. A broker started before this fix keeps the old environment until it restarts.

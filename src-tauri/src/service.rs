@@ -578,6 +578,11 @@ impl Service {
                 "The working directory does not exist or is not absolute; relocate the project"
             ));
         }
+        let fallbacks = if agent.is_some() {
+            config::executable_fallback_directories()
+        } else {
+            config::shell_fallback_directories()
+        };
         let executable = if let Some(kind) = &agent {
             args.extend(crate::launch_options::arguments(
                 *kind,
@@ -607,9 +612,11 @@ impl Service {
                 key == "PATH"
             }
         }) {
-            if let Some(path) =
-                config::launch_path(&executable, std::env::var_os("PATH").as_deref())
-            {
+            if let Some(path) = config::launch_path_with(
+                &executable,
+                std::env::var_os("PATH").as_deref(),
+                &fallbacks,
+            ) {
                 env.insert("PATH".into(), path);
             }
         }

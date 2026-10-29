@@ -532,6 +532,16 @@ pub fn validate_workspace(value: &serde_json::Value) -> Result<(), String> {
 /// Only absolute paths participate: an empty/relative PATH entry never opts in
 /// to searching an untrusted working directory.
 pub fn executable_fallback_directories() -> Vec<PathBuf> {
+    fallback_directories(true)
+}
+
+/// Shells select their own Node version; every installed version's bin on PATH
+/// would let stale global CLIs shadow the selected ones.
+pub fn shell_fallback_directories() -> Vec<PathBuf> {
+    fallback_directories(false)
+}
+
+fn fallback_directories(node_managers: bool) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(home) = dirs::home_dir() {
         paths.push(home.join(".local/bin"));
@@ -541,8 +551,12 @@ pub fn executable_fallback_directories() -> Vec<PathBuf> {
         paths.push(home.join(".grok/bin"));
         // npm-installed CLIs live beside Node, which a GUI launch never puts on PATH.
         #[cfg(unix)]
-        paths.extend(node_manager_directories(&home));
+        if node_managers {
+            paths.extend(node_manager_directories(&home));
+        }
     }
+    #[cfg(not(unix))]
+    let _ = node_managers;
     #[cfg(windows)]
     {
         for (key, suffixes) in [
@@ -761,6 +775,14 @@ fn versioned_directories(root: &Path, suffix: &Path) -> Vec<PathBuf> {
 /// PATH for running a resolved executable: its own directory first so script
 /// shebangs such as `#!/usr/bin/env node` find their sibling interpreter.
 pub fn launch_path(executable: &Path, inherited: Option<&std::ffi::OsStr>) -> Option<String> {
+    launch_path_with(executable, inherited, &executable_fallback_directories())
+}
+
+pub fn launch_path_with(
+    executable: &Path,
+    inherited: Option<&std::ffi::OsStr>,
+    fallbacks: &[PathBuf],
+) -> Option<String> {
     let mut paths: Vec<PathBuf> = std::env::split_paths(inherited.unwrap_or_default())
         .filter(|p| p.is_absolute())
         .collect();
@@ -768,9 +790,9 @@ pub fn launch_path(executable: &Path, inherited: Option<&std::ffi::OsStr>) -> Op
         paths.retain(|p| p != parent);
         paths.insert(0, parent.to_path_buf());
     }
-    for path in executable_fallback_directories() {
-        if !paths.contains(&path) {
-            paths.push(path);
+    for path in fallbacks {
+        if !paths.contains(path) {
+            paths.push(path.clone());
         }
     }
     std::env::join_paths(paths)
@@ -1333,6 +1355,18 @@ mod tests {
             ["v22.22.3", "v22.3.0", "v9.1.0"].map(|v| temp.path().join(v).join("bin"))
         );
         assert!(versioned_directories(&temp.path().join("missing"), Path::new("bin")).is_empty());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn shell_fallbacks_leave_node_version_selection_to_the_shell() {
+        let home = dirs::home_dir().unwrap();
+        let shell = shell_fallback_directories();
+        let all = executable_fallback_directories();
+        for directory in node_manager_directories(&home) {
+            assert!(!shell.contains(&directory));
+            assert!(all.contains(&directory));
+        }
+        assert!(shell.contains(&home.join(".local/bin")));
     }
     #[cfg(unix)]
     #[test]
