@@ -119,6 +119,8 @@ import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
 import { taskInputText } from './task-input';
 import { ProjectBoard } from './components/ProjectBoard';
+import { createBoardActivity } from './components/BoardActivity';
+import { useKanbanBoards } from './components/useKanbanBoards';
 import { WorkspaceOverview } from './components/WorkspaceOverview';
 import { SplitExistingPicker } from './components/SplitExistingPicker';
 import { projectColor, projectColorSlots, projectInitials } from './project-identity';
@@ -158,6 +160,10 @@ const noIndex: IndexStatus = {
   sources: [],
 };
 export default function App() {
+  return <RuntimeActivityProvider><AppContent /></RuntimeActivityProvider>;
+}
+
+function AppContent() {
   const desktop = isDesktop();
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState('');
@@ -358,6 +364,8 @@ export default function App() {
   );
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
+  const boardAvailable = !!current?.curated && !current.workspaceOnly;
+  const boardData = useKanbanBoards(workspace, current?.id, ready && boardAvailable, refreshToken);
   // Selecting any project or the temporary workspace (including zooming into a card) leaves the grid.
   useEffect(() => { if (selectedId !== undefined) { setWorkspaceOverview(false); setAllBoards(false); } }, [selectedId]);
   const activeTabId = activeWorkspaceTabId(workspace, selectedId);
@@ -1179,6 +1187,8 @@ export default function App() {
       run: () => setActiveActivity(activeActivity === 'sessions' ? null : 'sessions') },
     { id: 'toggle-project-files', label: t('Show / hide project files'), disabled: !filesAvailable,
       run: () => setActiveActivity(activeActivity === 'files' ? null : 'files') },
+    { id: 'toggle-project-board', label: t('Show / hide project board'), disabled: !boardAvailable,
+      run: () => setActiveActivity(activeActivity === 'board' ? null : 'board') },
     { id: 'toggle-project-git', label: t('Show / hide project Git'), disabled: !filesAvailable,
       run: () => setActiveActivity(activeActivity === 'git' ? null : 'git') },
     {
@@ -1308,7 +1318,7 @@ export default function App() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git', 'toggle-workspace-overview'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git', 'toggle-project-board', 'toggle-workspace-overview'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
@@ -1465,6 +1475,14 @@ export default function App() {
   const activeCount = Object.values(workspace.panes).filter(
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
+  const startBoardTask = (card: KanbanCard, project: Project) => {
+    if (allBoards) { selectProject(project); setView('board'); }
+    const kind = settings?.defaultAgent ?? 'codex';
+    const cwd = card.worktreePath || project.launchPath || project.path || '';
+    if (!card.worktreePath && (!project.exists || !cwd)) {
+      setPathDialog({ project, path: cwd, launch: { kind, card } });
+    } else setLauncher({ kind, cwd, profileId: settings?.defaultProfileId ?? '', card });
+  };
   const activities: ActivityContribution[] = [
     { id: 'sessions', label: t('History sessions'), icon: History, shortcut: conflicts.has('toggle-project-sessions') ? '' : effectiveShortcuts['toggle-project-sessions'],
       renderSidebar: () => <div className="activity-sessions-panel" ref={setHistorySidebarHost} /> },
@@ -1474,6 +1492,10 @@ export default function App() {
     { id: 'git', label: 'Git', icon: GitBranch, shortcut: conflicts.has('toggle-project-git') ? '' : effectiveShortcuts['toggle-project-git'], buttonRef: gitToggle,
       available: filesAvailable,
       renderSidebar: () => <div className="project-git-sidebar-host" ref={setGitSidebarHost} /> },
+    createBoardActivity({ project: current, data: boardData,
+      shortcut: conflicts.has('toggle-project-board') ? '' : effectiveShortcuts['toggle-project-board'],
+      onOpenBoard: () => { setAllBoards(false); setWorkspaceOverview(false); setView('board'); setMaximizedId(null); },
+      onStart: startBoardTask, onResume: resume, onHistoryChanged: refresh }),
   ];
   const projectNavigation = <ProjectNavigation hidden={!sidebarOpen || compactWorkspace}
     preferredWidth={sidebar.width} onWidthChange={width => updateSidebar({ width })}>
@@ -1593,7 +1615,7 @@ export default function App() {
             )}
           </ProjectNavigation>;
   return (
-    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} soundEnabled={settings?.attentionSound === true} soundVolume={settings?.attentionSoundVolume ?? 70} workspace={workspace} projects={projects} /><UpdateNotice enabled={!!settings && settings.updateChecks !== false} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
+    <><AttentionNotifier enabled={settings?.systemNotifications !== false} soundEnabled={settings?.attentionSound === true} soundVolume={settings?.attentionSoundVolume ?? 70} workspace={workspace} projects={projects} /><UpdateNotice enabled={!!settings && settings.updateChecks !== false} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">{t('Skip to main workspace')}</a>
       <header className="app-topbar">
         <div className="brand">
@@ -1778,7 +1800,10 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar"><div className="workspace-tabs">
+              {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar">
+                {boardAvailable && <button type="button" className={`history-tab pinned-board-tab ${view === 'board' ? 'active' : ''}`} aria-pressed={view === 'board'}
+                  onClick={() => { setView('board'); setMaximizedId(null); }}><Columns3 size={14} aria-hidden="true" />{t('Board')}{boardData.attentionCount > 0 && <span className="board-tab-badge">{boardData.attentionCount}</span>}</button>}
+                {boardAvailable && <span className="workspace-tab-divider" aria-hidden="true" />}<div className="workspace-tabs">
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   mixedBadges={(tab) => tabProjectIds(tab, workspace.panes).map(projectBadge)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
@@ -1790,8 +1815,7 @@ export default function App() {
                   onRename={(tab) => setRenameTarget({ kind: 'tab', id: tab.id, name: tab.name })}
                   onClose={(tab) => removePanes(paneIds(tab.layout))}
                   onReorder={(id, targetId, after) => setWorkspace((w) => reorderWorkspaceTab(w, id, targetId, after))} />
-                {current?.curated && !current.workspaceOnly && <button type="button" className={`history-tab ${view === 'board' ? 'active' : ''}`} aria-pressed={view === 'board'}
-                  onClick={() => { setView('board'); setMaximizedId(null); }}><Columns3 size={14} aria-hidden="true" />{t('Board')}</button>}
+
                 <div className="project-file-tabs-host" ref={setFileTabsHost} />
                 <div className="project-file-tabs-host" ref={setGitTabsHost} />
                 {(current || temporaryWorkspace) && (
@@ -1819,14 +1843,7 @@ export default function App() {
                 {(allBoards || (view === 'board' && current?.curated && !workspaceOverview)) && <ProjectBoard
                   key={allBoards ? 'all-boards' : current!.id} {...(allBoards ? { projects } : { project: current! })}
                   workspace={workspace} refreshToken={refreshToken}
-                  onStart={(card, project) => {
-                    if (allBoards) { selectProject(project); setView('board'); }
-                    const kind = settings?.defaultAgent ?? 'codex';
-                    const cwd = card.worktreePath || project.launchPath || project.path || '';
-                    if (!card.worktreePath && (!project.exists || !cwd)) {
-                      setPathDialog({ project, path: cwd, launch: { kind, card } });
-                    } else setLauncher({ kind, cwd, profileId: settings?.defaultProfileId ?? '', card });
-                  }}
+                  model={allBoards ? undefined : boardData} onStart={startBoardTask}
                   onResume={resume} onHistoryChanged={refresh} />}
                 <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
                 <div className="project-file-document-host" ref={setGitDocumentHost} hidden={view !== 'git'} />
@@ -2367,6 +2384,6 @@ export default function App() {
             ]} />}
         </Dialog>
       )}
-    </div></RuntimeActivityProvider>
+    </div></>
   );
 }

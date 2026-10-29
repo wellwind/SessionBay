@@ -69,7 +69,7 @@ test('git workbench', async ({ page, request }) => {
 test('project board', async ({ page }) => {
   await open(page);
   await page.locator('.directory-card-main').first().click();
-  await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+  await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
   await expect(page.locator('.kanban-card').first()).toBeVisible();
   await shot(page, 'board');
 });

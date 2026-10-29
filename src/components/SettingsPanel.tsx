@@ -58,6 +58,7 @@ const shortcutNames: Record<string, string> = {
   'project-quick-open': t('Quick open project tabs, sessions and files'),
   'toggle-project-sessions': t('Show / hide project sessions'),
   'toggle-project-files': t('Show / hide project files'),
+  'toggle-project-board': t('Show / hide project board'),
   'toggle-project-git': t('Show / hide project Git'),
   'toggle-workspace-overview': t('Open / leave the all-workspaces overview'),
   'new-terminal': t('Open a terminal'),
