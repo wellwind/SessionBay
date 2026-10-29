@@ -122,8 +122,10 @@ test('lifted source cannot hide the real Focus Exit control from drop validation
   expect(x).toBeGreaterThan((await strip.boundingBox())!.x + (await strip.boundingBox())!.width);
   expect(await exit.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); })).toBe(true);
   const from = (await tabs.first().boundingBox())!;
+  // The pinned Board tab sits before the scrolling strip; grab the first tab inside the strip's visible region.
+  const grabX = Math.max(from.x, (await strip.boundingBox())!.x) + 10;
   const saved = await page.evaluate(() => localStorage.getItem('workspace-test'));
-  await page.mouse.move(from.x + 10, from.y + 10); await page.mouse.down();
+  await page.mouse.move(grabX, from.y + 10); await page.mouse.down();
   await page.mouse.move(x, y, { steps: 12 });
   await expect(page.locator('.reorder-dragging')).toHaveCount(1);
   await page.screenshot({ path: info.outputPath('workspace-tabs-real-focus-exit-covered.png') });

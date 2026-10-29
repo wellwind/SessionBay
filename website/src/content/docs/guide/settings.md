@@ -48,3 +48,5 @@ Background and minimized sound playback has not been verified in the native WebV
 ## Keyboard shortcuts
 
 Change the shortcuts for common commands. `Mod` means <kbd>⌘</kbd> on macOS.
+
+**Mod+Shift+K** shows or hides the project Board activity panel. It appears in the command palette and can be rebound in this shortcut list.

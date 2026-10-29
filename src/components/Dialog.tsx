@@ -14,11 +14,17 @@ export function Dialog({
   children,
   onClose,
   wide = false,
+  drawer = false,
+  headerActions,
+  headerEnd,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  drawer?: boolean;
+  headerActions?: ReactNode;
+  headerEnd?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Capture before descendant autoFocus runs during commit, never the modal's own input.
@@ -31,6 +37,7 @@ export function Dialog({
     const start = (event: CompositionEvent) => { if (event.target instanceof Node && root?.contains(event.target)) composing = true; };
     const end = () => { composing = false; };
     (
+      root?.querySelector<HTMLElement>('[data-dialog-initial-focus]:not(:disabled)') ??
       root?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') ??
       root?.querySelector<HTMLElement>('[data-dialog-confirm]:not(:disabled)') ??
       root?.querySelector<HTMLElement>('button:not(:disabled)')
@@ -84,7 +91,7 @@ export function Dialog({
   }, [previous]);
   return (
     <div
-      className="dialog-backdrop"
+      className={`dialog-backdrop${drawer ? ' dialog-drawer-backdrop' : ''}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -94,10 +101,12 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`dialog ${wide ? 'wide' : ''}`}
+        className={`dialog ${wide ? 'wide' : ''}${drawer ? ' dialog-drawer' : ''}`}
       >
         <header>
           <h2>{title}</h2>
+          {headerActions}
+          {headerEnd}
           <button className="icon-button" onClick={onClose} aria-label={t('Close dialog')}>
             <X size={18} />
           </button>

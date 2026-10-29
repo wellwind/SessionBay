@@ -119,8 +119,12 @@ links. Index clear itself never detaches.
 Task details edit title/notes, resume individual sessions, split sessions, attach
 explicitly selected project history and offer a keyboard-accessible merge target.
 Pointer drops on the middle 40% of a card request a merge confirmation; its edges
-retain ordering. Unsaved edits require saving before task actions or confirmation
-before discarding. Done-stage tasks offer archive, delete with an explicit
+retain ordering. The right-side task drawer retains explicit title/notes saving and discard
+confirmation. The header contains Stage, task actions, then Close in DOM/tab order;
+initial focus goes to the title. A single Save button after Notes saves both fields,
+before the Sessions section. Save and start saves first and opens the existing launcher only
+after a successful save. Its Stage selector provides a pointer alternative to
+dragging; Position in the task actions menu also reorders without dragging. Done-stage tasks offer archive, delete with an explicit
 Unsorted/detach choice, and recycling through one existing identity-checked
 trash_session confirmation per visible session. No card action moves agent files
 to the system trash. Archived tasks have a separate recoverable project view.
@@ -175,15 +179,73 @@ The shared ProjectBoard component reads list_kanban_boards() for the overview.
 Only enabled boards belonging to curated projects are displayed, with archived
 cards hidden. Columns are grouped by their stage into five fixed columns,
 independent of project-specific names and ordering. Project identity uses the
-existing palette and initials. Project, text (title, notes and session titles),
+existing palette and initials. Group by Project renders one swimlane per project
+and shows its name once, with the same five stage columns. Project, text (title, notes and session titles),
 agent and live needs-attention filters combine.
 
 Overview moves resolve the card's owning board first, sort that board's columns
 by position and select the first column for the target stage. The UI calls the
 existing move_kanban_card command with that column's ID and the full destination
 card count, including archived/filtered cards, to append the task. A missing stage
-is disabled in the move menu and ignored for pointer/keyboard moves. There is no
+is ignored for pointer/keyboard moves and absent from the owning board’s drawer
+column selector. There is no
 cross-project destination or overview reorder command. Pointer drops over another
 card change stage only; merging remains an explicit same-project details action
 or a confirmed project-board drop. Shared details resolve the owning project for
 history, start and worktree actions.
+
+## Board activity and interaction
+
+The Board activity is contributed through `createBoardActivity`; ActivityShell
+continues to know only generic contribution IDs, labels, availability, badges,
+shortcuts and panel renderers. Badge accessibility text uses a translated
+`{{label}}: {{badge}}` template. Project availability and shortcut registration
+remain the app owner's responsibility. Activity selection is retained in memory
+per project and normal/Zen mode, not serialized into the workspace.
+
+The app owns one `useKanbanBoards` instance for the current project and shares
+it with the pinned Board tab and compact activity panel. The hook owns catalog
+snapshots, live session identity/status matching, five-second polling, window
+focus refresh, stale-read generations and the mutation lock. The All boards view
+uses the same hook implementation with the list command. No IPC shapes change.
+
+The compact panel groups active cards by column order, starts Done groups
+collapsed, accepts whole-card pointer drops on collapsed headers, and offers
+Todo quick-add. Alt+Up/Down reorders and Alt+Left/Right changes columns, using
+catalog positions even when archived cards are hidden. Moves announce the same
+translated message on both surfaces. Clicks open the shared accessible drawer.
+
+The project toolbar combines search, a filter popover with removable chips,
+needs-attention count, Board/Archived segmentation, overflow actions and New task.
+The system Unsorted column is an inbox strip with Todo and Merge shortcuts.
+Columns provide inline quick-add and Done columns initially show five cards.
+Card drags use a four-pixel movement threshold and an explicit center-merge
+preview. Drop/reorder animations last 180 ms and respect reduced motion.
+
+Moves and manual archives offer one six-second Undo action. Undo reissues the
+existing move command with the original column/position, or restores the archived
+card; it is not a transaction history. Errors retain the board and allow retry.
+Delete and merge retain confirmation and do not offer Undo. Board-local N and /
+shortcuts ignore text fields, terminals and IME composition. Mod+Shift+K toggles
+the Board activity through the regular configurable command/shortcut registry.
+
+The drawer is 420 px wide at desktop sizes and full width below 1024 px. It reuses
+Dialog's focus trap, Escape, IME handling and focus restoration with a transparent
+backdrop. Worktree binding retries, delete disposition and identity-checked
+per-session recycling retain their existing command paths and confirmations.
+
+### Board scrolling
+
+The board is constrained to the work area's height. Toolbar and compact inbox sit
+above a shrinking grid; each column owns its vertical card scrolling. The inbox
+has one header and a horizontal card row capped at 140 px overall. Project
+swimlanes each use the available lane viewport and scroll their card lists
+internally; the lane container scrolls between projects. The activity panel keeps
+its header visible while its groups scroll.
+
+Whole column bodies, empty hints and collapsed activity group headers remain drop
+targets. The shared card drag hook auto-scrolls the innermost scrollable ancestor
+on each axis within 48 px of a visible edge, with proportional speed. It
+recalculates the drop target after scrolling without requiring another pointer
+move. Drop, Escape, pointer cancellation/capture loss, blur, resize, data changes
+and unmount stop the animation loop.

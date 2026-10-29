@@ -1,5 +1,5 @@
 import '../viewport-layout.css';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 
 /** Preserve controls and their DOM while making secondary chrome explicit on small surfaces. */
@@ -10,7 +10,12 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const focusExpanded = useRef(false);
+  const focusExpanded = useRef<HTMLButtonElement | null>(null);
+  const setTrigger = useCallback((element: HTMLButtonElement | null) => {
+    // Observe focus when React removes the trigger, not at an earlier resize measurement.
+    if (!element && trigger.current === document.activeElement) focusExpanded.current = trigger.current;
+    trigger.current = element;
+  }, []);
   const [measuredCompact, setCompact] = useState(false);
   const compact = forceCompact || measuredCompact;
   const [open, setOpen] = useState(false);
@@ -19,7 +24,6 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
     if (!parent) return;
     const measure = () => {
       const next = forceCompact || window.innerHeight <= 640 || (parent.clientWidth > 0 && parent.clientWidth < narrowWidth);
-      if (!next && document.activeElement === trigger.current) focusExpanded.current = true;
       // Keep a focused control reachable when its group becomes collapsed.
       if (next && content.current?.contains(document.activeElement)) setOpen(true);
       setCompact(next);
@@ -32,8 +36,11 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
   }, [narrowWidth, forceCompact]);
   useLayoutEffect(() => {
     if (!compact && focusExpanded.current) {
-      focusExpanded.current = false;
-      content.current?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')?.focus();
+      const owner = focusExpanded.current;
+      focusExpanded.current = null;
+      if (document.activeElement === owner || document.activeElement === document.body) {
+        content.current?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')?.focus();
+      }
     }
   }, [compact]);
   // Fixed popovers anchor to their own trigger, so pane menus open beside the pane's ⋯
@@ -100,7 +107,7 @@ export function ResponsiveControls({ label, summary, children, narrowWidth = 600
 >
     {compact && <div className="compact-control-heading">
       {summary && <strong className="compact-control-title">{summary}</strong>}
-      <button ref={trigger} type="button" className="icon-button" aria-label={label} title={label}
+      <button ref={setTrigger} type="button" className="icon-button" aria-label={label} title={label}
         aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}><MoreHorizontal size={18} aria-hidden="true" /></button>
     </div>}
     <div ref={content} id={id} className="responsive-control-content" hidden={compact && !open}

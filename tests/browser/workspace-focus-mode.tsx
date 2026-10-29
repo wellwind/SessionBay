@@ -124,6 +124,8 @@ mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
   calls.push({ command, ...(command === 'resolve_terminal_file' ? { projectId: args.projectId as string, paneId: args.paneId as string, runtimeId: args.runtimeId as string, path: args.path as string } : {}), ...(['inspect_workspace_file', 'read_workspace_file_chunk'].includes(command) ? { path: args.path as string, version: args.version as string | undefined, offset: args.offset as number | undefined, maxBytes: args.maxBytes as number | undefined } : {}), ...(command === 'query_sessions' ? { query: args.query as SessionQuery } : {}), ...(command === 'read_transcript' ? { sessionId: args.sessionId as string } : {}), ...(command === 'list_workspace_files' ? { showHidden: args.showHidden as boolean } : {}), ...(command === 'write_runtime' ? { data: args.data as string } : {}), ...(edgeFixture ? { runtimeId: args.runtimeId as string | undefined, paneId: (args.request as LaunchRequest | undefined)?.paneId } : {}), ...(command === 'resize_runtime' ? { cols: args.cols as number, rows: args.rows as number } : {}) });
   switch (command) {
+    case 'kanban_board': return null;
+    case 'list_kanban_boards': return [];
     case 'bootstrap': return bootstrap;
     case 'start_index': case 'index_status': return bootstrap.index;
     case 'list_projects': return bootstrap.projects;

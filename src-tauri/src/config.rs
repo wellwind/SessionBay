@@ -909,11 +909,28 @@ pub fn detect(settings: &Settings) -> Vec<Installation> {
 }
 
 fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
-    use crate::runtime::{LaunchSpec, RuntimeManager, TerminalEvent};
+    run_version_probe(path, kind, |runtime, receiver| {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        collect_version_output(
+            || version_event_before_deadline(receiver, deadline, Instant::now()),
+            |id, sequence| runtime.ack(id, sequence),
+        )
+    })
+}
+
+fn run_version_probe(
+    path: &Path,
+    kind: AgentKind,
+    read: impl FnOnce(
+        &crate::runtime::RuntimeManager,
+        &std::sync::mpsc::Receiver<crate::runtime::TerminalEvent>,
+    ) -> Result<String, String>,
+) -> Result<String, String> {
+    use crate::runtime::{LaunchSpec, RuntimeManager};
     use std::sync::{mpsc, Arc};
     let runtime = RuntimeManager::new();
     let (sender, receiver) = mpsc::channel();
-    let info = runtime.launch(
+    runtime.launch(
         LaunchSpec {
             executable: path.to_string_lossy().into_owned(),
             args: providers::definition(kind).launch.version_args.clone(),
@@ -937,29 +954,45 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
                 .map_err(|_| "Version probe receiver closed".to_string())
         }),
     )?;
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let result = read(&runtime, &receiver);
+    runtime.shutdown()?;
+    result
+}
+
+fn version_event_before_deadline(
+    receiver: &std::sync::mpsc::Receiver<crate::runtime::TerminalEvent>,
+    deadline: Instant,
+    now: Instant,
+) -> Result<crate::runtime::TerminalEvent, String> {
+    // Check even when output is queued: readable output cannot renew the deadline.
+    if now >= deadline {
+        return Err(tr!(
+            "The tool version check timed out; you can still try launching"
+        ));
+    }
+    receiver
+        .recv_timeout(deadline - now)
+        .map_err(|_| tr!("The tool version check timed out; you can still try launching"))
+}
+
+fn collect_version_output(
+    mut receive: impl FnMut() -> Result<crate::runtime::TerminalEvent, String>,
+    mut ack: impl FnMut(&str, u64) -> Result<(), String>,
+) -> Result<String, String> {
+    use crate::runtime::TerminalEvent;
     let mut bytes = Vec::new();
     loop {
-        // A continuously readable output channel must not postpone the deadline.
-        if Instant::now() >= deadline {
-            runtime.stop(&info.id)?;
-            return Err(tr!(
-                "The tool version check timed out; you can still try launching"
-            ));
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        match receiver.recv_timeout(remaining) {
-            Ok(TerminalEvent::Output {
+        match receive()? {
+            TerminalEvent::Output {
                 runtime_id,
                 sequence,
                 data,
-            }) => {
+            } => {
                 let remaining = 4096usize.saturating_sub(bytes.len());
                 bytes.extend_from_slice(&data[..data.len().min(remaining)]);
-                runtime.ack(&runtime_id, sequence)?;
+                ack(&runtime_id, sequence)?;
             }
-            Ok(TerminalEvent::Exit { exit_code, .. }) => {
-                runtime.shutdown()?;
+            TerminalEvent::Exit { exit_code, .. } => {
                 let value = version_text(&bytes);
                 return if exit_code == Some(0) && !value.is_empty() {
                     Ok(value)
@@ -969,16 +1002,7 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
                     ))
                 };
             }
-            Ok(TerminalEvent::Error { message, .. }) => {
-                let _ = runtime.stop(&info.id);
-                return Err(message);
-            }
-            Err(_) => {
-                runtime.stop(&info.id)?;
-                return Err(tr!(
-                    "The tool version check timed out; you can still try launching"
-                ));
-            }
+            TerminalEvent::Error { message, .. } => return Err(message),
         }
     }
 }
@@ -1458,33 +1482,128 @@ mod tests {
             fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
         }
         assert_eq!(
-            version(&executable, AgentKind::Codex).unwrap(),
+            run_version_probe(&executable, AgentKind::Codex, |runtime, receiver| {
+                // Check interpreter resolution independently of scheduler speed.
+                // Deadline policy is covered below with a controlled clock.
+                collect_version_output(
+                    || receiver.recv().map_err(|error| error.to_string()),
+                    |id, sequence| runtime.ack(id, sequence),
+                )
+            })
+            .unwrap(),
             "codex-cli 0.163.0"
         );
     }
-    #[cfg(unix)]
+    #[test]
+    fn version_output_is_bounded_and_excess_chunks_are_acknowledged() {
+        use crate::runtime::TerminalEvent;
+        let mut events = [
+            TerminalEvent::Output {
+                runtime_id: "synthetic".into(),
+                sequence: 1,
+                data: vec![b'x'; 5000],
+            },
+            TerminalEvent::Output {
+                runtime_id: "synthetic".into(),
+                sequence: 2,
+                data: vec![b'y'; 5000],
+            },
+            TerminalEvent::Exit {
+                runtime_id: "synthetic".into(),
+                exit_code: Some(0),
+            },
+        ]
+        .into_iter();
+        let mut acknowledged = Vec::new();
+        let result = collect_version_output(
+            || Ok(events.next().expect("collector must finish on Exit")),
+            |id, sequence| {
+                acknowledged.push((id.to_string(), sequence));
+                Ok(())
+            },
+        );
+        assert_eq!(result.unwrap(), "x".repeat(4096));
+        assert_eq!(
+            acknowledged,
+            [("synthetic".into(), 1), ("synthetic".into(), 2)]
+        );
+    }
+
     #[test]
     fn version_output_is_bounded_and_continuous_output_cannot_extend_deadline() {
+        use crate::runtime::TerminalEvent;
+        use std::sync::mpsc;
+        let (sender, receiver) = mpsc::channel();
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(2);
+        let mut now = start;
+        let mut received = 0;
+        let mut acknowledged = 0;
+        let result = collect_version_output(
+            || {
+                // Output stays readable even at the exact deadline; no child or sleep is needed.
+                sender
+                    .send(TerminalEvent::Output {
+                        runtime_id: "synthetic".into(),
+                        sequence: received,
+                        data: vec![b'x'; 5000],
+                    })
+                    .unwrap();
+                received += 1;
+                let event = version_event_before_deadline(&receiver, deadline, now);
+                now += Duration::from_millis(250);
+                event
+            },
+            |_, _| {
+                acknowledged += 1;
+                Ok(())
+            },
+        );
+        assert!(result.unwrap_err().contains("timed out"));
+        assert_eq!(acknowledged, 8);
+        assert_eq!(received, 9);
+        assert!(
+            receiver.try_recv().is_ok(),
+            "deadline must win over queued output"
+        );
+    }
+
+    #[cfg(unix)]
+    fn version_expiring_after_output(path: &Path) -> Result<String, String> {
+        run_version_probe(path, AgentKind::Codex, |runtime, receiver| {
+            let deadline = Instant::now();
+            let mut output_received = false;
+            let result = collect_version_output(
+                || {
+                    if output_received {
+                        return version_event_before_deadline(receiver, deadline, deadline);
+                    }
+                    let event = receiver.recv().map_err(|error| error.to_string())?;
+                    output_received = matches!(event, crate::runtime::TerminalEvent::Output { .. });
+                    Ok(event)
+                },
+                |id, sequence| runtime.ack(id, sequence),
+            );
+            assert!(output_received, "synthetic child must run before expiry");
+            result
+        })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn version_timeout_stops_a_continuously_writing_child() {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let executable = temp.path().join("synthetic version output");
         fs::write(
             &executable,
-            "#!/bin/sh\ni=0; while [ \"$i\" -lt 5000 ]; do printf x; i=$((i + 1)); done\n",
-        )
-        .unwrap();
-        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
-        assert_eq!(version(&executable, AgentKind::Codex).unwrap().len(), 4096);
-        fs::write(
-            &executable,
             "#!/bin/sh\nwhile :; do printf 'synthetic continuous version output'; done\n",
         )
         .unwrap();
-        let started = Instant::now();
-        assert!(version(&executable, AgentKind::Codex)
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(version_expiring_after_output(&executable)
             .unwrap_err()
             .contains("timed out"));
-        assert!(started.elapsed() < Duration::from_secs(6));
     }
     #[cfg(unix)]
     #[test]
@@ -1516,17 +1635,17 @@ mod tests {
         fs::write(
             &executable,
             format!(
-                "#!/bin/sh\nsleep 60 &\necho $! > '{}'\nwait\n",
+                "#!/bin/sh\nsleep 60 &\necho $! > '{}'\nprintf ready\nwait\n",
                 pidfile.display()
             ),
         )
         .unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
-        let start = Instant::now();
-        assert!(version(&executable, AgentKind::Codex)
+        // Expire only after the child reports readiness, so process startup cannot
+        // race the pidfile. The same shutdown path must still clean its descendant.
+        assert!(version_expiring_after_output(&executable)
             .unwrap_err()
             .contains("timed out"));
-        assert!(start.elapsed() < Duration::from_secs(6));
         let pid = fs::read_to_string(pidfile).unwrap();
         let path = PathBuf::from(format!("/proc/{}/status", pid.trim()));
         let state = fs::read_to_string(path).unwrap_or_default();

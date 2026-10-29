@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { gitApi } from './git/git-api';
@@ -104,11 +103,12 @@ describe('project board', () => {
     expect(titles('待辦')).toEqual([]);
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Session 0' } });
     expect(titles('未分類')).toEqual(['Task title']);
+    if (!screen.queryByRole('combobox', { name: 'Agent' })) fireEvent.click(screen.getByRole('button', { name: '篩選' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), { target: { value: 'codex' } });
     expect(screen.getByText('沒有符合篩選條件的工作。')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
     expect(titles('未分類')).toEqual(['Session 5']);
-    fireEvent.click(screen.getByRole('checkbox', { name: '需要處理' }));
+    fireEvent.click(screen.getByRole('button', { name: /^需要處理/ }));
     expect(titles('未分類')).toEqual([]);
   });
   it('subscribes to RuntimeActivity by session identity, including child sessions, without moving cards', async () => {
@@ -120,7 +120,7 @@ describe('project board', () => {
     function Capture() { store = useRuntimeActivity()!; return null; }
     render(<RuntimeActivityProvider><Capture /><ProjectBoard project={project} workspace={workspace} /></RuntimeActivityProvider>);
     await screen.findByRole('heading', { name: '未分類' });
-    fireEvent.click(screen.getByRole('checkbox', { name: '需要處理' }));
+    fireEvent.click(screen.getByRole('button', { name: /^需要處理/ }));
     expect(titles('未分類')).toEqual([]);
     act(() => {
       store.begin('child', 'lease', 'child-runtime', false, false);
@@ -128,26 +128,25 @@ describe('project board', () => {
         observation: 'awaitingPermission', validForMs: 30_000 });
     });
     await waitFor(() => expect(titles('未分類')).toEqual(['Session 0']));
-    expect(within(list('未分類')).getByText('Claude Code · 等待權限確認')).toBeInTheDocument();
+    expect(within(list('未分類')).getByTitle('Claude Code · 等待權限確認')).toBeInTheDocument();
     act(() => store.observe('child', 'lease', { type: 'agentActivity', runtimeId: 'child-runtime', generation: 'test', revision: 2,
       observation: 'busy', validForMs: 30_000 }));
     await waitFor(() => expect(titles('未分類')).toEqual([]));
-    fireEvent.click(screen.getByRole('checkbox', { name: '需要處理' }));
+    fireEvent.click(screen.getByRole('button', { name: /^需要處理/ }));
     expect(within(list('未分類')).getByText('Claude Code · 工作中')).toBeInTheDocument();
     expect(api.moveKanbanCard).not.toHaveBeenCalled();
   });
-  it('supports the Move to menu with arrows, Escape, focus return and explicit destinations', async () => {
-    await show(); const user = userEvent.setup();
-    const opener = screen.getByRole('button', { name: '移動「Session 0」…' });
-    await user.click(opener);
-    expect(screen.getByRole('menuitem', { name: '往下移' })).toHaveFocus();
-    await user.keyboard('{Escape}');
-    expect(opener).toHaveFocus(); expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    await user.keyboard('{ArrowDown}{End}{Enter}');
+  it('moves through the drawer column selector and retains focus inside the dialog', async () => {
+    await show();
+    fireEvent.click(screen.getByRole('button', { name: 'Session 0' }));
+    const selector = within(screen.getByRole('dialog')).getByRole('combobox', { name: '階段' });
+    selector.focus();
+    fireEvent.change(selector, { target: { value: 'column-4' } });
     await waitFor(() => expect(api.moveKanbanCard).toHaveBeenCalledExactlyOnceWith('card-0', 'column-4', 1));
     await waitFor(() => expect(titles('完成')).toContain('Session 0'));
-    await waitFor(() => expect(screen.getByRole('button', { name: '移動工作「Session 0」' })).toHaveFocus());
-    expect(screen.getByRole('status')).toHaveTextContent('已將「Session 0」移至完成，第 2 個位置。');
+    expect(selector).toHaveFocus();
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: '復原' })).toBeEnabled();
+    expect(document.querySelector('.kanban-selected')).toHaveAttribute('data-kanban-card', 'card-0');
   });
   it('reorders using Alt arrows with the full catalog order even under filters and with archived tasks', async () => {
     board.cards.push({ ...board.cards[0], id: 'archived', title: 'Archived', archived: true, position: 1 });
@@ -176,7 +175,7 @@ describe('project board', () => {
     workspace.panes.a = { id: 'a', projectId: 'p', title: 'Other session', kind: 'claude', state: 'failed',
       cwd: sessions[0].cwd!, sessionId: 'different-session', resumeId: sessions[0].externalId, runtimeId: 'r' };
     await show(workspace);
-    fireEvent.click(screen.getByRole('checkbox', { name: '需要處理' }));
+    fireEvent.click(screen.getByRole('button', { name: /^需要處理/ }));
     expect(titles('未分類')).toEqual([]);
   });
   it('finds failed attached sessions through the attention filter without moving their tasks', async () => {
@@ -184,9 +183,9 @@ describe('project board', () => {
     workspace.panes.a = { id: 'a', projectId: 'p', title: 'Failed session', kind: 'claude', state: 'failed',
       cwd: sessions[0].cwd!, sessionId: sessions[0].id, runtimeId: 'r' };
     await show(workspace);
-    fireEvent.click(screen.getByRole('checkbox', { name: '需要處理' }));
+    fireEvent.click(screen.getByRole('button', { name: /^需要處理/ }));
     expect(titles('未分類')).toEqual(['Session 0']);
-    expect(within(list('未分類')).getByText('Claude Code · 啟動／執行失敗')).toBeInTheDocument();
+    expect(within(list('未分類')).getByText('Claude Code · 需要處理')).toBeInTheDocument();
     expect(api.moveKanbanCard).not.toHaveBeenCalled();
   });
   it('reorders columns using keyboard and announces the persisted position', async () => {
@@ -196,7 +195,7 @@ describe('project board', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已將「待辦」欄位移至第 3 個位置。'));
   });
   it('adds a column with doing as its default stage', async () => {
-    await show(); fireEvent.click(screen.getByRole('button', { name: '新增欄位' }));
+    await show(); fireEvent.click(screen.getByRole('button', { name: '看板操作' })); fireEvent.click(screen.getByRole('button', { name: '新增欄位…' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('combobox', { name: '階段' })).toHaveValue('doing');
     fireEvent.change(within(dialog).getByRole('textbox', { name: '欄位名稱' }), { target: { value: 'Quality' } });
@@ -205,7 +204,7 @@ describe('project board', () => {
     expect(api.createKanbanColumn).toHaveBeenCalledExactlyOnceWith('p', 'Quality', 'doing');
   });
   it('renames columns, sets stages and requires a deletion target', async () => {
-    await show(); fireEvent.click(screen.getByRole('button', { name: '欄位設定：待辦' }));
+    await show(); fireEvent.click(screen.getByRole('button', { name: '欄位設定：待辦' })); fireEvent.click(screen.getByRole('button', { name: '重新命名…' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox', { name: '欄位名稱' }), { target: { value: 'Custom queue' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '重新命名欄位' }));
@@ -221,7 +220,7 @@ describe('project board', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
   it.each(['未分類', '完成'])('protects system column %s while allowing renaming and ordering', async name => {
-    await show(); fireEvent.click(screen.getByRole('button', { name: `欄位設定：${name}` }));
+    await show(); fireEvent.click(screen.getByRole('button', { name: `欄位設定：${name}` })); fireEvent.click(screen.getByRole('button', { name: '重新命名…' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('combobox', { name: '階段' })).toBeDisabled();
     expect(within(dialog).queryByRole('button', { name: '刪除欄位' })).not.toBeInTheDocument();
@@ -267,13 +266,14 @@ describe('project board', () => {
       await waitFor(() => expect(api.moveKanbanCard).toHaveBeenCalledWith('card-0', 'column-0', 1));
     } finally { Reflect.deleteProperty(document, 'elementFromPoint'); }
   });
-  it.each(['card', 'empty'])('drops across columns onto a %s target and rejects outside or covered targets', async kind => {
-    if (kind === 'empty') board.cards = board.cards.filter(card => card.columnId !== 'column-3');
+  it.each(['card', 'empty', 'hint', 'body'])('drops across columns onto a %s target and rejects outside or covered targets', async kind => {
+    if (kind !== 'card') board.cards = board.cards.filter(card => card.columnId !== 'column-3');
     await show();
     const source = screen.getByRole('button', { name: '移動工作「Session 0」' });
     source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
     const target = kind === 'card' ? document.querySelector<HTMLElement>('[data-kanban-card="card-3"]')!
-      : list('待審查');
+      : kind === 'hint' ? within(list('待審查')).getByText('將工作拖曳至此或新增工作')
+        : kind === 'body' ? list('待審查').parentElement! : list('待審查');
     vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({ top: 100, height: 100 } as DOMRect);
     let hit: Element | null = document.body;
     Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => hit });
@@ -282,7 +282,7 @@ describe('project board', () => {
       Object.assign(event, { clientX: 10, clientY: y, button: 0, pointerId, isPrimary: true }); fireEvent(source, event);
     };
     try {
-      for (const outside of [null, document.body, document.querySelector('.kanban-column-header')]) {
+      for (const outside of [null, document.body]) {
         hit = outside;
         pointer('pointerdown', 5); pointer('pointermove', 180); pointer('pointerup', 180);
         expect(api.moveKanbanCard).not.toHaveBeenCalled();
@@ -298,25 +298,48 @@ describe('project board', () => {
 
 describe('task details and actions', () => {
   const open = async (index = 0) => { await show(); fireEvent.click(screen.getByRole('button', { name: 'Session ' + index })); return screen.getByRole('dialog'); };
-  it('edits title and notes, retains a draft during background refresh, and blocks start until saved', async () => {
+  it('edits title and notes explicitly before starting work', async () => {
     const onStart = vi.fn();
     render(<ProjectBoard project={project} workspace={emptyWorkspace()} onStart={onStart} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Session 0' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox', { name: '工作標題' }), { target: { value: 'New task title' } });
     fireEvent.change(within(dialog).getByRole('textbox', { name: '備註' }), { target: { value: 'Draft notes' } });
-    expect(within(dialog).getByRole('button', { name: '開始工作' })).toBeDisabled();
-    fireEvent.click(within(dialog).getByRole('button', { name: '儲存變更' }));
+    expect(within(dialog).getByRole('button', { name: '儲存並開始' })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole('button', { name: '儲存' }));
     await waitFor(() => expect(api.editKanbanCard).toHaveBeenCalledWith('card-0', 'New task title', 'Draft notes'));
     await waitFor(() => expect(within(dialog).getByRole('button', { name: '開始工作' })).toBeEnabled());
     fireEvent.click(within(dialog).getByRole('button', { name: '開始工作' }));
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ id: 'card-0', title: 'New task title', notes: 'Draft notes' }), project);
   });
+  it('focuses the title, follows visual header order, and traps focus at the real final control', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);
+    const dialog = await open();
+    const field = within(dialog).getByRole('textbox', { name: '工作標題' });
+    const stage = within(dialog).getByRole('combobox', { name: '階段' });
+    const menu = within(dialog).getByRole('button', { name: '工作操作' });
+    const close = within(dialog).getByRole('button', { name: '關閉對話框' });
+    expect(field).toHaveFocus();
+    expect([...dialog.querySelectorAll('header select, header button')]).toEqual([stage, menu, close]);
+    const save = within(dialog).getByRole('button', { name: '儲存' });
+    expect(within(dialog).queryByRole('button', { name: '儲存變更' })).not.toBeInTheDocument();
+    const notes = within(dialog).getByRole('textbox', { name: '備註' });
+    const sessions = within(dialog).getByRole('heading', { name: '附加的 Sessions' });
+    expect(notes.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(save.compareDocumentPosition(sessions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const last = dialog.querySelector('details > summary') as HTMLElement;
+    stage.focus(); fireEvent.keyDown(stage, { key: 'Tab', shiftKey: true }); expect(last).toHaveFocus();
+    fireEvent.keyDown(last, { key: 'Tab' }); expect(stage).toHaveFocus();
+    fireEvent.change(notes, { target: { value: 'Draft' } });
+    expect(stage).toBeDisabled();
+    menu.focus(); fireEvent.keyDown(menu, { key: 'Tab', shiftKey: true }); expect(last).toHaveFocus();
+    fireEvent.keyDown(last, { key: 'Tab' }); expect(menu).toHaveFocus();
+  });
   it('reports save failures without discarding the draft', async () => {
     vi.mocked(api.editKanbanCard).mockRejectedValueOnce('Synthetic save failed');
     const dialog = await open();
     fireEvent.change(within(dialog).getByRole('textbox', { name: '備註' }), { target: { value: 'Keep this draft' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '儲存變更' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '儲存' }));
     await waitFor(() => expect(within(dialog).getByRole('alert')).toHaveTextContent('Synthetic save failed'));
     expect(within(dialog).getByRole('textbox', { name: '備註' })).toHaveValue('Keep this draft');
   });
@@ -334,7 +357,7 @@ describe('task details and actions', () => {
   });
   it('creates a planning task with no sessions', async () => {
     await show();
-    fireEvent.click(screen.getByRole('button', { name: '新增工作卡片' }));
+    fireEvent.click(within(document.querySelector('.kanban-toolbar') as HTMLElement).getByRole('button', { name: '新增工作卡片' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox', { name: '工作標題' }), { target: { value: 'Plan first' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '建立工作卡片' }));
@@ -343,10 +366,11 @@ describe('task details and actions', () => {
   });
   it('archives Done tasks and restores from the Archived view without touching sessions', async () => {
     const dialog = await open(4);
+    fireEvent.click(within(dialog).getByRole('button', { name: '工作操作' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '封存工作' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.queryByRole('heading', { name: 'Session 4' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '已封存工作' }));
+    fireEvent.click(screen.getByRole('button', { name: /^已封存（/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Session 4' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '還原工作' }));
     await waitFor(() => expect(api.archiveKanbanCard).toHaveBeenLastCalledWith('card-4', false));
@@ -355,6 +379,7 @@ describe('task details and actions', () => {
   });
   it.each(['unsorted', 'detach'] as const)('requires confirmation and an explicit %s disposition before deleting a task', async disposition => {
     const dialog = await open(4);
+    fireEvent.click(within(dialog).getByRole('button', { name: '工作操作' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '刪除工作' }));
     expect(api.deleteKanbanCard).not.toHaveBeenCalled();
     const confirm = screen.getByRole('dialog', { name: '刪除工作？' });
@@ -366,6 +391,7 @@ describe('task details and actions', () => {
   it('confirms recycling individually, keeps the task, and permits cancelling remaining sessions', async () => {
     board.cards[4].sessions.push(board.cards[3].sessions[0]);
     const dialog = await open(4);
+    fireEvent.click(within(dialog).getByRole('button', { name: '工作操作' }));
     fireEvent.click(within(dialog).getByRole('button', { name: '將附加的 Sessions 移至資源回收筒…' }));
     expect(api.trashSession).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '確認移入資源回收筒' }));
@@ -381,7 +407,7 @@ describe('task details and actions', () => {
     expect(within(dialog).queryByRole('button', { name: '封存工作' })).not.toBeInTheDocument();
   });
   it('offers an off-by-default auto-archive policy and saves days', async () => {
-    await show(); fireEvent.click(screen.getByRole('button', { name: '自動封存' }));
+    await show(); fireEvent.click(screen.getByRole('button', { name: '看板操作' })); fireEvent.click(screen.getByRole('button', { name: '自動封存…' }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByRole('checkbox')).not.toBeChecked();
     fireEvent.click(within(dialog).getByRole('checkbox'));
@@ -431,6 +457,7 @@ describe('task worktree and recovery', () => {
     vi.mocked(gitApi.worktreeAdd).mockResolvedValue({ path: '/synthetic/worktree', branch: 'task/testing' });
     vi.mocked(api.bindKanbanWorktree).mockRejectedValueOnce('Synthetic binding failed').mockImplementation(async (_, path) => { board.cards[0].worktreePath = path; });
     await open();
+    fireEvent.click(screen.getByRole('button', { name: '工作操作' }));
     fireEvent.click(screen.getByRole('button', { name: '為工作建立 worktree' }));
     await waitFor(() => expect(screen.getByRole('combobox', { name: '儲存庫' })).toHaveValue('repo'));
     fireEvent.change(screen.getByRole('textbox', { name: 'Branch 名稱' }), { target: { value: 'task/testing' } });
@@ -504,14 +531,17 @@ describe('all boards', () => {
     workspace.panes.failed = { id: 'failed', projectId: second.id, title: 'Other', kind: 'claude', state: 'failed', cwd: '/synthetic/project', sessionId: 'other-s-0' };
     other.cards[0].title = 'Task';
     await showAll(workspace);
+    fireEvent.click(screen.getByRole('button', { name: '篩選' }));
     fireEvent.change(screen.getByRole('combobox', { name: '專案' }), { target: { value: 'second' } });
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Session 0' } });
     await waitFor(() => expect(titles('未分類')).toEqual(['Task']));
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'TOKEN BUCKET' } });
     await waitFor(() => expect(titles('未分類')).toEqual(['Task']));
+    if (!screen.queryByRole('combobox', { name: 'Agent' })) fireEvent.click(screen.getByRole('button', { name: '篩選' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), { target: { value: 'claude' } });
-    fireEvent.click(screen.getByRole('checkbox', { name: '需要處理' }));
+    fireEvent.click(screen.getByRole('button', { name: /^需要處理/ }));
     expect(titles('未分類')).toEqual(['Task']);
+    if (!screen.queryByRole('combobox', { name: 'Agent' })) fireEvent.click(screen.getByRole('button', { name: '篩選' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), { target: { value: 'codex' } });
     expect(screen.getByText('沒有符合篩選條件的工作。')).toBeInTheDocument();
     expect(api.moveKanbanCard).not.toHaveBeenCalled();
@@ -530,24 +560,25 @@ describe('all boards', () => {
     expect(other.cards[0].projectId).toBe('second');
     await waitFor(() => expect(screen.getByRole('button', { name: '移動工作「Other Session 0」' })).toHaveFocus());
     expect(titles('待辦')).toContain('Other Session 0');
-    fireEvent.click(screen.getByRole('button', { name: '移動「Other Session 0」…' }));
-    expect(screen.queryByRole('menuitem', { name: '往上移' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('menuitem', { name: '完成' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Other Session 0' }));
+    fireEvent.change(within(screen.getByRole('dialog')).getByRole('combobox', { name: '階段' }), { target: { value: 'other-column-4' } });
     await waitFor(() => expect(api.moveKanbanCard).toHaveBeenLastCalledWith('other-card-0', 'other-column-4', 0));
   });
   it('disables missing stage destinations and retains cards on a failed move', async () => {
     other.columns = other.columns.filter(column => column.stage !== 'review');
     await showAll();
-    fireEvent.click(screen.getByRole('button', { name: '移動「Other Session 0」…' }));
-    expect(screen.getByRole('menuitem', { name: '待審查' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Other Session 0' }));
+    const selector = within(screen.getByRole('dialog')).getByRole('combobox', { name: '階段' });
+    expect(within(selector).queryByRole('option', { name: '待審查' })).not.toBeInTheDocument();
     vi.mocked(api.moveKanbanCard).mockRejectedValueOnce('Synthetic overview move failed');
-    fireEvent.click(screen.getByRole('menuitem', { name: '完成' }));
-    await screen.findByRole('alert');
+    fireEvent.change(selector, { target: { value: 'other-column-4' } });
+    await screen.findAllByRole('alert');
     expect(titles('未分類')).toContain('Other Session 0');
     expect(other.cards[0].projectId).toBe('second');
   });
-  it('dropping on another project’s card changes stage without merging or changing project; Escape cancels', async () => {
+  it.each(['none', 'project'])('dropping in %s grouping changes only the owning project stage; Escape cancels', async grouping => {
     await showAll();
+    fireEvent.change(screen.getByRole('combobox', { name: '分組依據' }), { target: { value: grouping } });
     const source = screen.getByRole('button', { name: '移動工作「Session 0」' });
     source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
     const target = document.querySelector<HTMLElement>('[data-kanban-card="other-card-1"]')!;
@@ -577,6 +608,28 @@ describe('all boards', () => {
     fireEvent.click(screen.getByRole('button', { name: '開始工作' }));
     expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ id: 'other-card-0', projectId: 'second', columnId: 'other-column-0' }), second);
   });
+  it('groups projects into swimlanes with the project name once and all five stages', async () => {
+    await showAll();
+    fireEvent.change(screen.getByRole('combobox', { name: '分組依據' }), { target: { value: 'project' } });
+    const lanes = document.querySelectorAll<HTMLElement>('.kanban-swimlane');
+    expect(lanes).toHaveLength(2);
+    expect(within(lanes[0]).getAllByRole('heading', { level: 3 }).map(el => el.textContent)).toEqual(['Synthetic', '未分類', '待辦', '進行中', '待審查', '完成']);
+    expect(document.querySelectorAll('.kanban-project')).toHaveLength(0);
+    expect(within(lanes[0]).getAllByRole('listitem')).toHaveLength(board.cards.length);
+    expect(within(lanes[1]).getAllByRole('listitem')).toHaveLength(other.cards.length);
+  });
+  it('creates a task from the overview with project-qualified column choices and the N shortcut', async () => {
+    await showAll();
+    const boardRoot = screen.getByRole('region', { name: '全部看板' }); boardRoot.focus();
+    fireEvent.keyDown(boardRoot, { key: 'n' });
+    const dialog = screen.getByRole('dialog', { name: '新增工作卡片' });
+    expect(within(dialog).getByRole('option', { name: 'Synthetic · 待辦' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('option', { name: 'Other Project · 待辦' })).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: '工作標題' }), { target: { value: 'Plan from overview' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '建立工作卡片' }));
+    await waitFor(() => expect(api.createKanbanCard).toHaveBeenCalledExactlyOnceWith('column-1', 'Plan from overview', ''));
+    expect(screen.getByRole('dialog', { name: '工作詳情' })).toBeInTheDocument();
+  });
   it('offers an empty overview and retries a failed read', async () => {
     vi.mocked(api.listKanbanBoards).mockRejectedValueOnce('Synthetic read failed').mockResolvedValue([]);
     render(<ProjectBoard projects={[project]} workspace={emptyWorkspace()} />);
@@ -591,5 +644,69 @@ describe('all boards', () => {
     render(<ProjectBoard projects={[project, second]} workspace={emptyWorkspace()} />);
     await screen.findByRole('heading', { name: 'Unsorted' });
     expect(screen.getByRole('heading', { name: 'In progress' })).toBeInTheDocument();
+  });
+});
+
+describe('board interaction refinements', () => {
+  it('undoes a move using the original catalog column and position', async () => {
+    await show();
+    fireEvent.keyDown(screen.getByRole('button', { name: '移動工作「Session 0」' }), { key: 'ArrowRight', altKey: true });
+    const undo = await screen.findByRole('button', { name: '復原' });
+    expect(undo.closest('[role="status"]')).toHaveTextContent('已移至待辦');
+    fireEvent.click(undo);
+    await waitFor(() => expect(api.moveKanbanCard).toHaveBeenLastCalledWith('card-0', 'column-0', 0));
+    await waitFor(() => expect(screen.queryByRole('button', { name: '復原' })).not.toBeInTheDocument());
+    expect(titles('未分類')).toContain('Session 0');
+  });
+  it('undoes a manual archive without restoring or deleting sessions', async () => {
+    await show(); fireEvent.click(screen.getByRole('button', { name: 'Session 4' }));
+    fireEvent.click(screen.getByRole('button', { name: '工作操作' }));
+    fireEvent.click(screen.getByRole('button', { name: '封存工作' }));
+    const undo = await screen.findByRole('button', { name: '復原' });
+    expect(undo.closest('[role="status"]')).toHaveTextContent('已封存'); fireEvent.click(undo);
+    await waitFor(() => expect(api.archiveKanbanCard).toHaveBeenLastCalledWith('card-4', false));
+    expect(api.trashSession).not.toHaveBeenCalled(); expect(board.cards[4].sessions).toHaveLength(1);
+  });
+  it('dismisses the Undo action after six seconds', async () => {
+    await show(); vi.useFakeTimers();
+    try {
+      await act(async () => { fireEvent.keyDown(screen.getByRole('button', { name: '移動工作「Session 0」' }), { key: 'ArrowRight', altKey: true }); });
+      expect(screen.getByRole('button', { name: '復原' })).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(screen.queryByRole('button', { name: '復原' })).not.toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
+  });
+  it('provides pointer reordering through Position in the drawer actions', async () => {
+    await show(); fireEvent.click(screen.getByRole('button', { name: 'Session 0' }));
+    fireEvent.click(screen.getByRole('button', { name: '工作操作' }));
+    fireEvent.change(screen.getByRole('combobox', { name: '位置' }), { target: { value: '1' } });
+    await waitFor(() => expect(api.moveKanbanCard).toHaveBeenCalledExactlyOnceWith('card-0', 'column-0', 1));
+  });
+  it('limits Done tasks to five and explains the auto-archive policy', async () => {
+    board.autoArchiveDays = 7;
+    for (let i = 0; i < 7; i++) board.cards.push({ ...board.cards[4], id: `done-${i}`, title: `Done ${i}`, position: i + 1 });
+    await show(); expect(titles('完成')).toHaveLength(5);
+    expect(screen.getByText('7 天後自動封存')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '再顯示 3 個' })); expect(titles('完成')).toHaveLength(8);
+    fireEvent.click(screen.getByRole('button', { name: '顯示較少' })); expect(titles('完成')).toHaveLength(5);
+  });
+  it('quick-adds in any regular column and supports the inbox Todo shortcut', async () => {
+    await show();
+    const review = document.querySelector<HTMLElement>('[data-kanban-column="column-3"]')!;
+    fireEvent.click(within(review).getByRole('button', { name: '新增工作卡片' }));
+    fireEvent.change(within(review).getByRole('textbox'), { target: { value: 'Check the review' } });
+    fireEvent.submit(review.querySelector('form')!);
+    await waitFor(() => expect(api.createKanbanCard).toHaveBeenCalledExactlyOnceWith('column-3', 'Check the review', ''));
+    const inboxCard = document.querySelector<HTMLElement>('[data-kanban-card="card-0"]')!;
+    fireEvent.click(within(inboxCard).getByRole('button', { name: '→ 待辦' }));
+    await waitFor(() => expect(api.moveKanbanCard).toHaveBeenCalledWith('card-0', 'column-1', 3));
+  });
+  it('scopes N and / to board focus and preserves text entry and composition', async () => {
+    await show();
+    const opener = screen.getByRole('button', { name: 'Session 0' }); opener.focus();
+    fireEvent.keyDown(opener, { key: '/', isComposing: true }); expect(opener).toHaveFocus();
+    fireEvent.keyDown(opener, { key: '/' }); expect(screen.getByRole('searchbox')).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole('searchbox'), { key: 'n' }); expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    opener.focus(); fireEvent.keyDown(opener, { key: 'n' }); expect(screen.getByRole('dialog', { name: '新增工作卡片' })).toBeInTheDocument();
   });
 });

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setLocale } from './i18n';
 import { Folder } from 'lucide-react';
 import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); setLocale('zh-TW'); });
 const ids = ['sessions', 'files', 'search', 'synthetic'];
 function Harness({ entries }: { entries: ActivityContribution[] }) {
   const [active, setActive] = useState<string | null>('sessions');
@@ -15,6 +16,13 @@ const entries = (): ActivityContribution[] => ids.map(id => ({ id, label: id, ic
   renderSidebar: () => <input aria-label={`${id} value`} defaultValue={id} /> }));
 
 describe('generic activity contributions', () => {
+  it('localizes badge punctuation without knowing the feature', () => {
+    setLocale('en');
+    const contributions = entries(); contributions[3].badge = 2;
+    render(<Harness entries={contributions} />);
+    expect(screen.getByLabelText('synthetic: 2')).toHaveTextContent('2');
+  });
+
   it('registers a fourth feature without shell changes and lazily retains panel state', () => {
     const mounted = vi.fn(); const unmounted = vi.fn();
     function StatefulPanel() {

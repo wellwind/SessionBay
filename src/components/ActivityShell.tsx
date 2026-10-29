@@ -184,7 +184,7 @@ export function ActivityShell({ contributions, activeId, onActiveChange, scopeKe
           aria-expanded={selected === entry.id} aria-controls={`activity-${entry.id}-panel`}
           disabled={entry.available === false} onClick={() => activate(entry)}>
           <Icon size={21} aria-hidden="true" />
-          {entry.badge !== undefined && <span className="activity-badge" aria-label={`${entry.label}：${entry.badge}`}>{entry.badge}</span>}
+          {entry.badge !== undefined && <span className="activity-badge" aria-label={t('{{label}}: {{badge}}', { label: entry.label, badge: entry.badge })}>{entry.badge}</span>}
         </ActivityRailButton>;
       })}
       {hasOverflow && <ActivityRailButton buttonRef={moreButton} className="workspace-activity" label={t('More tools')}
