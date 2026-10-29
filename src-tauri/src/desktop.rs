@@ -405,13 +405,19 @@ fn show_notification(
     title: String,
     body: String,
     target: Option<String>,
+    suppress_sound: Option<bool>,
 ) -> Result<(), String> {
     crate::notifications::show(
         app,
         crate::adapters::short_text(&title, 80),
         crate::adapters::short_text(&body, 160),
         target.filter(|t| t.len() <= 128),
+        suppress_sound.unwrap_or(false),
     )
+}
+#[tauri::command]
+async fn attention_sound_muted() -> Result<bool, String> {
+    blocking(|| Ok(crate::attention_dnd::muted())).await
 }
 #[tauri::command]
 async fn read_transcript(
@@ -884,6 +890,7 @@ pub fn run() {
             trash_session,
             restore_session,
             show_notification,
+            attention_sound_muted,
             prepare_session_os_trash,
             list_os_trashed_sessions,
             restore_os_trashed_session,

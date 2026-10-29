@@ -399,6 +399,16 @@
   line-height: 1.7;
   margin: 7px 0 0;
 }
+.settings-sound-tests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-field input[type='range'] {
+  accent-color: var(--settings-accent);
+  padding: 0;
+  cursor: pointer;
+}
 .settings-detected-path {
   font-family: var(--mono);
   color: var(--settings-muted);

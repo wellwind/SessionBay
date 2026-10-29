@@ -1,4 +1,5 @@
 import { isDevBuild } from '../app-identity';
+import { playAttentionSound } from '../attention-sound';
 import { DirectoryPathField } from './DirectoryPathField';
 import { workspaceZoomShortcutHelp } from '../workspace-zoom';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -196,6 +197,8 @@ export function validateSettings(settings: Settings): ValidationErrors {
     errors.fontSize = t('Font size must be a whole number from 9 to 32.');
   if (!Number.isInteger(settings.appZoom ?? 100) || (settings.appZoom ?? 100) < 50 || (settings.appZoom ?? 100) > 200)
     errors.appZoom = t('Enter a workbench zoom as a whole percentage from 50 to 200.');
+  if (!Number.isInteger(settings.attentionSoundVolume ?? 70) || (settings.attentionSoundVolume ?? 70) < 0 || (settings.attentionSoundVolume ?? 70) > 100)
+    errors.attentionSoundVolume = t('Attention sound volume must be a whole percentage from 0 to 100');
   if (!agentKinds.includes(settings.defaultAgent))
     errors.defaultAgent = t('Choose a default agent.');
   if (!settings.profiles.length || settings.profiles.length > 32)
@@ -1238,6 +1241,25 @@ export function SettingsPanel({
                       <span>{t('Send a system notification when an agent needs attention')}</span>
                       <small>{t('Only notifies when the work is not on screen or the window is in the background: when it waits for input or permission, finishes or fails.')}</small>
                     </label>
+                    <label className="settings-check">
+                      <input type="checkbox" className="checkbox" checked={draft.attentionSound === true} disabled={locked}
+                        onChange={(event) => update('attentionSound', event.currentTarget.checked)} />
+                      <span>{t('Play a sound when an agent needs attention')}</span>
+                      <small>{t('Independent of system notifications. Uses the same background rules and 5-second pane cooldown; bursts play one tone, prioritizing waiting, failure, then completion.')}</small>
+                    </label>
+                    <label className="settings-field">
+                      <span>{t('Attention sound volume')} · {draft.attentionSoundVolume ?? 70}%</span>
+                      <input type="range" min="0" max="100" step="1" value={draft.attentionSoundVolume ?? 70} disabled={locked}
+                        aria-label={t('Attention sound volume')} aria-invalid={Boolean(errors.attentionSoundVolume)} aria-describedby="attention-sound-volume-error"
+                        onChange={(event) => update('attentionSoundVolume', Number(event.currentTarget.value))} />
+                      <FieldError id="attention-sound-volume-error" message={errors.attentionSoundVolume} />
+                    </label>
+                    <div className="settings-sound-tests" role="group" aria-label={t('Test attention sounds')}>
+                      <button type="button" className="settings-button secondary compact" disabled={locked} onClick={() => void playAttentionSound('waiting', draft.attentionSoundVolume ?? 70)}>{t('Test waiting sound')}</button>
+                      <button type="button" className="settings-button secondary compact" disabled={locked} onClick={() => void playAttentionSound('done', draft.attentionSoundVolume ?? 70)}>{t('Test completion sound')}</button>
+                      <button type="button" className="settings-button secondary compact" disabled={locked} onClick={() => void playAttentionSound('failed', draft.attentionSoundVolume ?? 70)}>{t('Test failure sound')}</button>
+                    </div>
+                    <p className="settings-help">{t('Tests use the draft volume and skip cooldowns, even with sounds off. Detected Do Not Disturb mutes all tones. Focus detection is unavailable on macOS; Windows and Linux detection is partial and unverified. If detection fails, sounds still play.')}</p>
                     <div className="settings-section-heading settings-section-space">
                       <div>
                         <h3>{t('Updates')}</h3>

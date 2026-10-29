@@ -132,7 +132,8 @@ export const api = {
   stop: (runtimeId: string) => call<void>('stop_runtime', { runtimeId }),
   runtimes: () => call<RuntimeRecord[]>('list_runtimes'),
   close: () => call<void>('close_application'),
-  notify: (title: string, body: string, target?: string) => call<void>('show_notification', { title, body, target }),
+  notify: (title: string, body: string, target?: string, suppressSound = false) => call<void>('show_notification', { title, body, target, suppressSound }),
+  attentionSoundMuted: () => call<boolean>('attention_sound_muted'),
   checkForUpdate: () => call<UpdateInfo | null>('check_for_update'),
   openReleasePage: (url: string) => call<void>('open_release_page', { url }),
 };

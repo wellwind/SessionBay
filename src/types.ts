@@ -126,6 +126,10 @@ export interface Settings {
   /** "Always use a dark terminal". Absent/false: the terminal follows the UI light/dark mode. */
   terminalAlwaysDark?: boolean;
   systemNotifications?: boolean;
+  /** Synthesized attention tones; absent means off. */
+  attentionSound?: boolean;
+  /** Whole percentage from 0 to 100; absent means 70. */
+  attentionSoundVolume?: number;
   /** Ask GitHub Releases for newer versions; absent means on. */
   updateChecks?: boolean;
   fontFamily: string;

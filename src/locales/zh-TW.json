@@ -2177,5 +2177,14 @@
   "The development and production data folders must be separate.": "開發版與正式版的資料夾必須分開。",
   "The dev identity requires a debug build.": "開發版身分必須使用偵錯組建。",
   "The app data path must be valid UTF-8.": "App 資料路徑必須是有效的 UTF-8。",
-  "Could not read the Session Bay catalog. Open Session Bay once, then try importing again: {{error}}": "無法讀取 Session Bay 目錄。請先開啟 Session Bay 一次，再重新匯入：{{error}}"
+  "Could not read the Session Bay catalog. Open Session Bay once, then try importing again: {{error}}": "無法讀取 Session Bay 目錄。請先開啟 Session Bay 一次，再重新匯入：{{error}}",
+  "Play a sound when an agent needs attention": "Agent 需要注意時播放音效",
+  "Independent of system notifications. Uses the same background rules and 5-second pane cooldown; bursts play one tone, prioritizing waiting, failure, then completion.": "可獨立於系統通知啟用。沿用相同的背景條件與每個面板 5 秒冷卻；短時間內的事件合併播放一個音效，優先順序為等待、失敗、完成。",
+  "Attention sound volume": "提醒音效音量",
+  "Attention sound volume must be a whole percentage from 0 to 100": "提醒音效音量必須是 0 到 100 的整數百分比",
+  "Test attention sounds": "測試提醒音效",
+  "Test waiting sound": "測試等待音效",
+  "Test completion sound": "測試完成音效",
+  "Test failure sound": "測試失敗音效",
+  "Tests use the draft volume and skip cooldowns, even with sounds off. Detected Do Not Disturb mutes all tones. Focus detection is unavailable on macOS; Windows and Linux detection is partial and unverified. If detection fails, sounds still play.": "測試使用尚未儲存的音量並略過冷卻，即使音效關閉也能試聽。偵測到勿擾時會靜音所有音效。macOS 不支援專注模式偵測；Windows 與 Linux 僅有部分偵測且尚未驗證。偵測失敗時仍會播放。"
 }
