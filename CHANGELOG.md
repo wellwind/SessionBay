@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- Terminals keep 10,000 lines of scrollback, and a reattached terminal restores up to 1 MiB of the newest output. Before, reattaching restored about 200 lines.
 - The local catalog is upgraded to schema v8 to store boards. After the upgrade, 0.2.0 can no longer open it.
 
 ### Fixed
