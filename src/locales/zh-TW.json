@@ -134,6 +134,7 @@
   "Adds {{flag}} by default; the launch preview shows custom permission options. The agent may run commands and read, write or delete files without asking.": "啟用預設加入 {{flag}}；自訂權限選項以啟動預覽為準。Agent 可能不再詢問就執行命令、讀寫或刪除檔案。",
   "Adjusts the size of the interface and terminals. ": "調整介面與 Terminal 顯示大小。",
   "After changing settings, save first, then detect or scan again.": "變更設定後，請先儲存，再重新偵測或掃描。",
+  "Agent": "Agent",
   "Agent arguments cannot contain empty strings.": "Agent 參數不可包含空字串。",
   "Agent disabled · scanning paused": "Agent 已停用 · 暫停掃描",
   "Agent enable settings must be on/off values.": "Agent 啟用設定必須為開關值。",
