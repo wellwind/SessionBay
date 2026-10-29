@@ -178,3 +178,39 @@ describe('workspace filename search IPC contract', () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 });
+
+describe('Kanban IPC contract', () => {
+  const cases: [string, () => Promise<unknown>, Record<string, unknown> | undefined][] = [
+    ['kanban_board', () => api.kanbanBoard('project'), { projectId: 'project' }],
+    ['list_kanban_boards', () => api.listKanbanBoards(), undefined],
+    ['set_kanban_board_enabled', () => api.setKanbanBoardEnabled('project', false), { projectId: 'project', enabled: false }],
+    ['create_kanban_column', () => api.createKanbanColumn('project', 'Blocked', undefined), { projectId: 'project', name: 'Blocked', stage: undefined }],
+    ['rename_kanban_column', () => api.renameKanbanColumn('column', 'Inbox'), { columnId: 'column', name: 'Inbox' }],
+    ['set_kanban_column_stage', () => api.setKanbanColumnStage('column', 'review'), { columnId: 'column', stage: 'review' }],
+    ['reorder_kanban_columns', () => api.reorderKanbanColumns('project', ['b', 'a']), { projectId: 'project', columnIds: ['b', 'a'] }],
+    ['delete_kanban_column', () => api.deleteKanbanColumn('column', 'target'), { columnId: 'column', targetColumnId: 'target' }],
+    ['create_kanban_card', () => api.createKanbanCard('column', '', 'Draft'), { columnId: 'column', title: '', notes: 'Draft' }],
+    ['edit_kanban_card', () => api.editKanbanCard('card', 'Plan', 'Notes'), { cardId: 'card', title: 'Plan', notes: 'Notes' }],
+    ['move_kanban_card', () => api.moveKanbanCard('card', 'column', 0), { cardId: 'card', columnId: 'column', position: 0 }],
+    ['archive_kanban_card', () => api.archiveKanbanCard('card', false), { cardId: 'card', archived: false }],
+    ['delete_kanban_card', () => api.deleteKanbanCard('card', 'unsorted'), { cardId: 'card', sessions: 'unsorted' }],
+    ['attach_kanban_session', () => api.attachKanbanSession('card', 'session'), { cardId: 'card', sessionId: 'session' }],
+    ['detach_kanban_session', () => api.detachKanbanSession('card', 'session'), { cardId: 'card', sessionId: 'session' }],
+    ['merge_kanban_cards', () => api.mergeKanbanCards('source', 'target'), { sourceCardId: 'source', targetCardId: 'target' }],
+    ['split_kanban_session', () => api.splitKanbanSession('card', 'session'), { cardId: 'card', sessionId: 'session' }],
+    ['add_kanban_session', () => api.addKanbanSession('session'), { sessionId: 'session' }],
+    ['kanban_session_card', () => api.kanbanSessionCard('session'), { sessionId: 'session' }],
+  ];
+  it.each(cases)('calls %s with camelCase arguments and returns the native result', async (command, run, args) => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    const result = { synthetic: command };
+    vi.mocked(invoke).mockResolvedValue(result);
+    await expect(run()).resolves.toEqual(result);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith(command, args);
+    expect(native.channels).not.toHaveBeenCalled();
+  });
+  it('requires a desktop connection before mutating a board', async () => {
+    await expect(api.createKanbanCard('column', 'Task', '')).rejects.toThrow('桌面執行環境未連線');
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});

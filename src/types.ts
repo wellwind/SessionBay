@@ -311,3 +311,41 @@ export interface UpdateInfo {
   prerelease: boolean;
   publishedAt: string | null;
 }
+
+export type KanbanStage = 'unsorted' | 'todo' | 'doing' | 'review' | 'done';
+export type KanbanSessionDisposition = 'unsorted' | 'detach';
+export interface KanbanColumn {
+  id: string;
+  projectId: string;
+  /** Null names use defaultName as a translation key in the current UI language. */
+  name: string | null;
+  defaultName: 'Unsorted' | 'Todo' | 'In progress' | 'Review' | 'Done' | null;
+  stage: KanbanStage;
+  position: number;
+  systemRole: 'unsorted' | 'done' | null;
+}
+export interface KanbanSession {
+  session: Session;
+  branch: string | null;
+}
+export interface KanbanCard {
+  id: string;
+  projectId: string;
+  columnId: string;
+  /** Empty titles render as the translated Untitled task until a session is attached. */
+  title: string;
+  notes: string;
+  position: number;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  sessions: KanbanSession[];
+}
+export interface KanbanBoard {
+  projectId: string;
+  enabled: boolean;
+  enabledAt: string;
+  columns: KanbanColumn[];
+  /** Includes archived cards. Recycled sessions are omitted without losing links. */
+  cards: KanbanCard[];
+}
