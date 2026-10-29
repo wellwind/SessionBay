@@ -1,3 +1,5 @@
+import { isDevBuild } from '../app-identity';
+import { playAttentionSound } from '../attention-sound';
 import { DirectoryPathField } from './DirectoryPathField';
 import { workspaceZoomShortcutHelp } from '../workspace-zoom';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +40,7 @@ export interface SettingsPanelProps {
   onboarding?: boolean;
   busy?: boolean;
   onSave: (settings: Settings) => Promise<void>;
+  onImportProduction?: () => Promise<void>;
   onClose: () => void;
   onPreviewAppearance?: (appearance: Appearance | null) => void;
   onScan: (rebuild: boolean) => Promise<void>;
@@ -194,6 +197,8 @@ export function validateSettings(settings: Settings): ValidationErrors {
     errors.fontSize = t('Font size must be a whole number from 9 to 32.');
   if (!Number.isInteger(settings.appZoom ?? 100) || (settings.appZoom ?? 100) < 50 || (settings.appZoom ?? 100) > 200)
     errors.appZoom = t('Enter a workbench zoom as a whole percentage from 50 to 200.');
+  if (!Number.isInteger(settings.attentionSoundVolume ?? 70) || (settings.attentionSoundVolume ?? 70) < 0 || (settings.attentionSoundVolume ?? 70) > 100)
+    errors.attentionSoundVolume = t('Attention sound volume must be a whole percentage from 0 to 100');
   if (!agentKinds.includes(settings.defaultAgent))
     errors.defaultAgent = t('Choose a default agent.');
   if (!settings.profiles.length || settings.profiles.length > 32)
@@ -330,6 +335,7 @@ export function SettingsPanel({
   onboarding = false,
   busy = false,
   onSave,
+  onImportProduction,
   onClose,
   onPreviewAppearance,
   onScan,
@@ -352,7 +358,7 @@ export function SettingsPanel({
   const [sourceDiscoveries, setSourceDiscoveries] = useState<Partial<Record<AgentKind, HistorySourceDiscovery>>>({});
   const [operationError, setOperationError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
-  const [confirmation, setConfirmation] = useState<'clear' | 'discard' | null>(null);
+  const [confirmation, setConfirmation] = useState<'clear' | 'discard' | 'import' | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const operationInFlight = useRef(false);
   const composing = useRef(false);
@@ -630,6 +636,12 @@ export function SettingsPanel({
                           }))} />
                       </label>
                     </div>
+                    {onImportProduction && <div className="settings-section-heading">
+                      <div><h3>{t('Development profile')}</h3>
+                        <p>{t('Import saved settings and curated projects from the production app. The production profile is read-only.')}</p></div>
+                      <button type="button" className="settings-button secondary" disabled={locked || index.running}
+                        onClick={() => setConfirmation('import')}>{t('Import from Session Bay')}</button>
+                    </div>}
                     <div className="settings-section-heading"><div><h3>{t('Enabled and install status')}</h3><p>{t('Settings apply only after you save.')}</p></div></div>
                     <div className="settings-agent-enabled">
                       <label className="settings-toggle-label">
@@ -1229,16 +1241,35 @@ export function SettingsPanel({
                       <span>{t('Send a system notification when an agent needs attention')}</span>
                       <small>{t('Only notifies when the work is not on screen or the window is in the background: when it waits for input or permission, finishes or fails.')}</small>
                     </label>
+                    <label className="settings-check">
+                      <input type="checkbox" className="checkbox" checked={draft.attentionSound === true} disabled={locked}
+                        onChange={(event) => update('attentionSound', event.currentTarget.checked)} />
+                      <span>{t('Play a sound when an agent needs attention')}</span>
+                      <small>{t('Independent of system notifications. Uses the same background rules and 5-second pane cooldown; bursts play one tone, prioritizing waiting, failure, then completion.')}</small>
+                    </label>
+                    <label className="settings-field">
+                      <span>{t('Attention sound volume')} · {draft.attentionSoundVolume ?? 70}%</span>
+                      <input type="range" min="0" max="100" step="1" value={draft.attentionSoundVolume ?? 70} disabled={locked}
+                        aria-label={t('Attention sound volume')} aria-invalid={Boolean(errors.attentionSoundVolume)} aria-describedby="attention-sound-volume-error"
+                        onChange={(event) => update('attentionSoundVolume', Number(event.currentTarget.value))} />
+                      <FieldError id="attention-sound-volume-error" message={errors.attentionSoundVolume} />
+                    </label>
+                    <div className="settings-sound-tests" role="group" aria-label={t('Test attention sounds')}>
+                      <button type="button" className="settings-button secondary compact" disabled={locked} onClick={() => void playAttentionSound('waiting', draft.attentionSoundVolume ?? 70)}>{t('Test waiting sound')}</button>
+                      <button type="button" className="settings-button secondary compact" disabled={locked} onClick={() => void playAttentionSound('done', draft.attentionSoundVolume ?? 70)}>{t('Test completion sound')}</button>
+                      <button type="button" className="settings-button secondary compact" disabled={locked} onClick={() => void playAttentionSound('failed', draft.attentionSoundVolume ?? 70)}>{t('Test failure sound')}</button>
+                    </div>
+                    <p className="settings-help">{t('Tests use the draft volume and skip cooldowns, even with sounds off. Detected Do Not Disturb mutes all tones. Focus detection is unavailable on macOS; Windows and Linux detection is partial and unverified. If detection fails, sounds still play.')}</p>
                     <div className="settings-section-heading settings-section-space">
                       <div>
                         <h3>{t('Updates')}</h3>
                       </div>
                     </div>
                     <label className="settings-check">
-                      <input type="checkbox" className="checkbox" checked={draft.updateChecks !== false} disabled={locked}
+                      <input type="checkbox" className="checkbox" checked={!isDevBuild && draft.updateChecks !== false} disabled={locked || isDevBuild}
                         onChange={(event) => update('updateChecks', event.currentTarget.checked)} />
                       <span>{t('Check GitHub for new versions')}</span>
-                      <small>{t('Asks GitHub Releases for the newest version at startup and once a day, and shows a notice when one is available. No personal data is sent; updates are never installed automatically.')}</small>
+                      <small>{isDevBuild ? t('Update checks are disabled in development builds.') : t('Asks GitHub Releases for the newest version at startup and once a day, and shows a notice when one is available. No personal data is sent; updates are never installed automatically.')}</small>
                     </label>
                   </>
                 )}
@@ -1352,11 +1383,13 @@ export function SettingsPanel({
                 <CircleAlert size={24} />
               </div>
               <h3 id="settings-confirm-title">
-                {confirmation === 'clear' ? t('Clear the local search index?') : t('Discard unsaved changes?')}
+                {confirmation === 'clear' ? t('Clear the local search index?') : confirmation === 'import' ? t('Import from Session Bay?') : t('Discard unsaved changes?')}
               </h3>
               <p id="settings-confirm-description">
                 {confirmation === 'clear'
                   ? t('Only the index that Session Bay built is deleted. Original agent conversations, source files, projects and settings are not modified, and the recycle bin is kept. You can rescan to rebuild the index.')
+                  : confirmation === 'import'
+                    ? t('Replace saved and unsaved development settings and merge the production curated project list? The index, workspace layout, recycle bin and Git host tokens are kept. The production app is never modified.')
                   : t('The settings you just edited will not be kept. You can go back and keep editing.')}
               </p>
               <div className="settings-confirm-actions">
@@ -1371,19 +1404,22 @@ export function SettingsPanel({
                   type="button"
                   className="settings-button danger-fill"
                   data-dialog-confirm
-                  disabled={locked || (confirmation === 'clear' && index.running)}
+                  disabled={locked || (confirmation !== 'discard' && index.running)}
                   onClick={() => {
                     if (locked || operationInFlight.current) return;
                     if (confirmation === 'discard') {
                       setConfirmation(null);
                       onClose();
+                    } else if (confirmation === 'import') {
+                      setConfirmation(null);
+                      if (onImportProduction) void run(onImportProduction);
                     } else if (!index.running) {
                       setConfirmation(null);
                       void run(onClearIndex);
                     }
                   }}
                 >
-                  {confirmation === 'clear' ? t('Yes, clear index') : t('Discard changes')}
+                  {confirmation === 'clear' ? t('Yes, clear index') : confirmation === 'import' ? t('Import settings and projects') : t('Discard changes')}
                 </button>
               </div>
             </div>

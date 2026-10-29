@@ -19,7 +19,7 @@ function ordered(state, work) {
   state.queue = result.catch(() => {
     // A lost source transition breaks continuity. Stop all refreshes so the
     // broker lease expires, rather than continuing to assert stale activity.
-    state.disabled = true
+    // The next main turn.start is authoritative again and resumes reporting.
     state.snapshot = null
     cancelTimer(state)
   })

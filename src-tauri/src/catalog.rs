@@ -211,6 +211,14 @@ fn validate_absolute_directory(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub struct CuratedProject {
+    pub id: String,
+    pub name: String,
+    pub path: Option<String>,
+    pub launch_path: Option<String>,
+    pub pinned: bool,
+}
+
 impl Catalog {
     pub fn open(path: &Path) -> Result<Self, String> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -442,6 +450,25 @@ impl Catalog {
         let conn = self.connect()?;
         let tx = conn.unchecked_transaction().map_err(error)?;
         load_projects(&tx, None)
+    }
+
+    pub fn import_curated_projects(&self, projects: &[CuratedProject]) -> Result<(), String> {
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(error)?;
+        for project in projects {
+            tx.execute(
+                "INSERT INTO projects(id,name,path,launch_path,pinned,manual) VALUES(?1,?2,?3,?4,?5,1)
+                 ON CONFLICT(id) DO UPDATE SET name=excluded.name,path=excluded.path,
+                 launch_path=excluded.launch_path,pinned=excluded.pinned,manual=1",
+                params![project.id, project.name, project.path, project.launch_path, project.pinned],
+            ).map_err(error)?;
+            if let Some(path) = &project.path {
+                remember_directory(&tx, path, &project.id)?;
+            }
+        }
+        tx.commit().map_err(error)
     }
 
     /// Resolve preview authorization from catalog identity, never from a UI root

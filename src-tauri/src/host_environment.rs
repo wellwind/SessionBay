@@ -71,9 +71,30 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Result<Command, String> {
     Ok(command)
 }
 
+/// Session state of whatever started this process: the shell's Node version
+/// manager or an `npm run` script. A terminal is a new session and must not
+/// inherit it, or e.g. fish nvm skips activation while PATH lacks its Node.
+fn launcher_state(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<OsString> {
+    let vars: Vec<_> = vars.into_iter().collect();
+    let npm_script = vars.iter().any(|(key, _)| key == "npm_lifecycle_event");
+    vars.into_iter()
+        .map(|(key, _)| key)
+        .filter(|key| {
+            key == "nvm_current_version"
+                || (npm_script
+                    && (key == "INIT_CWD"
+                        || key == "NODE"
+                        || key.to_str().is_some_and(|key| key.starts_with("npm_"))))
+        })
+        .collect()
+}
+
 /// Isolated PTYs already clear all inherited environment and do not call this.
 pub(crate) fn pty(command: &mut CommandBuilder) -> Result<(), String> {
     restore_pty(command, restore_values(|key| std::env::var_os(key))?);
+    for key in launcher_state(std::env::vars_os()) {
+        command.env_remove(key);
+    }
     Ok(())
 }
 
@@ -120,6 +141,41 @@ mod tests {
         }
         assert_eq!(actual[OsStr::new(VERSION)], None);
         assert_eq!(pty.get_env(VERSION), None);
+    }
+
+    #[test]
+    fn launcher_session_state_is_not_inherited() {
+        let env = |pairs: &[&str]| -> Vec<(OsString, OsString)> {
+            pairs
+                .iter()
+                .map(|key| (key.into(), "synthetic".into()))
+                .collect()
+        };
+        let mut removed = launcher_state(env(&[
+            "PATH",
+            "HOME",
+            "nvm_current_version",
+            "npm_lifecycle_event",
+            "npm_config_prefix",
+            "INIT_CWD",
+            "NODE",
+        ]));
+        removed.sort();
+        assert_eq!(
+            removed,
+            [
+                "INIT_CWD",
+                "NODE",
+                "npm_config_prefix",
+                "npm_lifecycle_event",
+                "nvm_current_version"
+            ]
+        );
+        // Without an npm script these may be the user's own settings.
+        assert_eq!(
+            launcher_state(env(&["npm_config_prefix", "NODE", "INIT_CWD"])),
+            Vec::<OsString>::new()
+        );
     }
 
     #[test]

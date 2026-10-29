@@ -26,6 +26,23 @@ npm run dev:web    # UI only in a browser; no history and no terminals
 
 `npm run tauri` is a small Node launcher that puts rustup's `cargo` first on `PATH`, so a Homebrew Rust does not shadow the pinned toolchain.
 
+### Development identity
+
+`npm run dev` applies `src-tauri/tauri.dev.conf.json` only to the `dev` subcommand. It requires a debug build and uses **Session Bay Dev** (`dev.fullstackladder.sessionbay.dev`). Local `tauri build` and the release workflow use **Session Bay** (`dev.fullstackladder.sessionbay`). Versions are unchanged by the overlay.
+
+All worktrees share the dev profile, separate from production settings, layout, catalog, Git host tokens and broker. On macOS the folders are `~/Library/Application Support/dev.fullstackladder.sessionbay.dev` and `~/Library/Application Support/dev.fullstackladder.sessionbay`; Linux uses `~/.local/share/<identifier>`, and Windows uses `%APPDATA%/<identifier>`.
+
+When dev has no settings yet, it imports saved production settings (including history sources, tools, shell profiles and appearance) and curated projects. **Settings → Sources and tools → Import from Session Bay** repeats this after confirmation: it replaces saved and unsaved dev settings and merges production curated project metadata, keeping dev-only projects. No index rows, workspace layout, recycle bin or Git host tokens are imported. Production files are only read. The importer opens the production catalog and WAL shared memory read-only, without migrations or an index copy. Checkpointed catalogs are read without creating sidecars, with file stamps checked for concurrent changes. A catalog that changes while being read can require retrying the import. If an uncheckpointed WAL has no readable shared-memory file, open production once to recover it before retrying; dev never repairs production.
+
+The orange DEV badge appears on the app icon and beside the top-bar logo. Its tooltip shows the branch and commit captured by the launcher, with an explicit unknown fallback outside a Git checkout. Update checks are disabled in both the dev UI and native command.
+
+Regenerate dev icons after changing the production artwork:
+
+```bash
+node scripts/generate-dev-icons.mjs
+python3 scripts/validate-macos-icon.py src-tauri/icons/dev/icon.icns
+```
+
 ## Test
 
 ```bash
@@ -78,7 +95,8 @@ Bundles are written to `src-tauri/target/release/bundle/` and are unsigned.
 1. Update the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, and add a section to `CHANGELOG.md`.
 2. Merge to `main`, then tag: `git tag v0.1.0 && git push origin v0.1.0`.
 3. `release.yml` builds the bundles and creates a **draft** release with SHA-256 checksums.
-4. Install the downloaded `.dmg` on a clean account, smoke-test it, then publish the draft.
+4. For the next identity-changing release, explain that **Open Anyway** and notification permission are needed again and that data from 0.1.0 does not carry over. Mark the 0.1.0 GitHub release as superseded when its successor is published.
+5. Install the downloaded `.dmg` on a clean account, smoke-test it, then publish the draft.
 
 ## Website
 
@@ -110,3 +128,4 @@ python3 scripts/validate-macos-icon.py src-tauri/icons/icon.icns
 - **`Port 1420 is already in use`**: another `npm run dev` is still running. Stop it with Ctrl+C.
 - **Tauri CLI panics in `interface/rust.rs`**: `rustc -vV` is broken on your `PATH`, often a Homebrew Rust that is missing LLVM libraries. Use the rustup toolchain.
 - **An agent CLI is not found**: GUI apps on macOS do not inherit your shell's `PATH`. Set the absolute executable path in **Settings → Agents**.
+- **`node` or `npm` is missing in a terminal pane**: terminals do not inherit the session state of whatever started the runtime broker (`nvm_current_version`, or `npm_*` variables when it was started by `npm run`), and shell `PATH` fallbacks leave Node versions to your version manager. A broker started before this fix keeps the old environment until it restarts.

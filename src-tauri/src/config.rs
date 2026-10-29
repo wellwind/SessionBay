@@ -122,6 +122,10 @@ pub struct Settings {
     /// OS notifications when a background Agent waits, finishes or fails.
     #[serde(default = "default_true")]
     pub system_notifications: bool,
+    #[serde(default)]
+    pub attention_sound: bool,
+    #[serde(default = "default_attention_sound_volume")]
+    pub attention_sound_volume: u8,
     /// Ask GitHub Releases for newer versions at startup and once a day.
     #[serde(default = "default_true")]
     pub update_checks: bool,
@@ -173,6 +177,8 @@ impl Default for Settings {
             terminal_theme: "bay".into(),
             terminal_always_dark: false,
             system_notifications: true,
+            attention_sound: false,
+            attention_sound_volume: default_attention_sound_volume(),
             update_checks: true,
             font_family: DEFAULT_FONT_FAMILY.into(),
             font_size: 14,
@@ -223,6 +229,10 @@ fn default_theme_palette() -> String {
     "bay".into()
 }
 
+fn default_attention_sound_volume() -> u8 {
+    70
+}
+
 fn default_agent_hooks() -> HashMap<String, bool> {
     AgentKind::ALL
         .into_iter()
@@ -267,6 +277,11 @@ impl Settings {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.attention_sound_volume > 100 {
+            return Err(tr!(
+                "Attention sound volume must be a whole percentage from 0 to 100"
+            ));
+        }
         if self.version != 1 {
             return Err(tr!(
                 "Unsupported settings version; keep the original file and update the app"
@@ -532,6 +547,16 @@ pub fn validate_workspace(value: &serde_json::Value) -> Result<(), String> {
 /// Only absolute paths participate: an empty/relative PATH entry never opts in
 /// to searching an untrusted working directory.
 pub fn executable_fallback_directories() -> Vec<PathBuf> {
+    fallback_directories(true)
+}
+
+/// Shells select their own Node version; every installed version's bin on PATH
+/// would let stale global CLIs shadow the selected ones.
+pub fn shell_fallback_directories() -> Vec<PathBuf> {
+    fallback_directories(false)
+}
+
+fn fallback_directories(node_managers: bool) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(home) = dirs::home_dir() {
         paths.push(home.join(".local/bin"));
@@ -539,7 +564,14 @@ pub fn executable_fallback_directories() -> Vec<PathBuf> {
         paths.push(home.join(".opencode/bin"));
         #[cfg(windows)]
         paths.push(home.join(".grok/bin"));
+        // npm-installed CLIs live beside Node, which a GUI launch never puts on PATH.
+        #[cfg(unix)]
+        if node_managers {
+            paths.extend(node_manager_directories(&home));
+        }
     }
+    #[cfg(not(unix))]
+    let _ = node_managers;
     #[cfg(windows)]
     {
         for (key, suffixes) in [
@@ -706,6 +738,83 @@ pub(crate) fn executable_file(path: &Path) -> bool {
     false
 }
 
+/// User-level Node install directories, newest version first within each manager.
+#[cfg(unix)]
+fn node_manager_directories(home: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for (root, suffix) in [
+        (".nvm/versions/node", "bin"),
+        (".local/share/nvm", "bin"),
+        (".local/share/fnm/node-versions", "installation/bin"),
+        (
+            "Library/Application Support/fnm/node-versions",
+            "installation/bin",
+        ),
+    ] {
+        paths.extend(versioned_directories(&home.join(root), Path::new(suffix)));
+    }
+    for directory in [
+        ".volta/bin",
+        ".local/share/mise/shims",
+        ".asdf/shims",
+        ".bun/bin",
+        ".npm-global/bin",
+    ] {
+        paths.push(home.join(directory));
+    }
+    paths
+}
+
+#[cfg(unix)]
+fn versioned_directories(root: &Path, suffix: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    let mut versions: Vec<(Vec<u32>, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let version = name
+                .to_str()?
+                .strip_prefix('v')?
+                .split('.')
+                .map(|part| part.parse::<u32>().ok())
+                .collect::<Option<Vec<_>>>()?;
+            Some((version, entry.path().join(suffix)))
+        })
+        .collect();
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    versions.into_iter().map(|(_, path)| path).collect()
+}
+
+/// PATH for running a resolved executable: its own directory first so script
+/// shebangs such as `#!/usr/bin/env node` find their sibling interpreter.
+pub fn launch_path(executable: &Path, inherited: Option<&std::ffi::OsStr>) -> Option<String> {
+    launch_path_with(executable, inherited, &executable_fallback_directories())
+}
+
+pub fn launch_path_with(
+    executable: &Path,
+    inherited: Option<&std::ffi::OsStr>,
+    fallbacks: &[PathBuf],
+) -> Option<String> {
+    let mut paths: Vec<PathBuf> = std::env::split_paths(inherited.unwrap_or_default())
+        .filter(|p| p.is_absolute())
+        .collect();
+    if let Some(parent) = executable.parent().filter(|p| p.is_absolute()) {
+        paths.retain(|p| p != parent);
+        paths.insert(0, parent.to_path_buf());
+    }
+    for path in fallbacks {
+        if !paths.contains(path) {
+            paths.push(path.clone());
+        }
+    }
+    std::env::join_paths(paths)
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
 pub fn resolve_executable(value: &str) -> Result<PathBuf, String> {
     resolve_executable_with_paths(
         value,
@@ -813,7 +922,9 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
                 .or_else(|| std::env::current_dir().ok())
                 .or_else(|| path.parent().map(Path::to_owned))
                 .ok_or(tr!("Cannot get a working directory for the version check"))?,
-            env: HashMap::new(),
+            env: launch_path(path, std::env::var_os("PATH").as_deref())
+                .map(|path| HashMap::from([("PATH".to_string(), path)]))
+                .unwrap_or_default(),
             session_id: None,
             resume_key: None,
             pane_id: "version-probe".into(),
@@ -1193,6 +1304,46 @@ mod tests {
         assert!(migrated.system_notifications);
     }
     #[test]
+    fn attention_sound_defaults_migrate_and_preserve_saved_preferences() {
+        let defaults = Settings::default();
+        assert!(!defaults.attention_sound);
+        assert_eq!(defaults.attention_sound_volume, 70);
+        let temp = tempfile::tempdir().unwrap();
+        let store = ConfigStore::open(temp.path().join("app")).unwrap();
+        let mut old = serde_json::to_value(&defaults).unwrap();
+        old.as_object_mut().unwrap().remove("attentionSound");
+        old.as_object_mut().unwrap().remove("attentionSoundVolume");
+        fs::write(
+            store.directory.join("settings.json"),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        let (mut migrated, warnings) = store.load_settings();
+        assert!(warnings.is_empty());
+        assert!(!migrated.attention_sound);
+        assert_eq!(migrated.attention_sound_volume, 70);
+        migrated.attention_sound = true;
+        for volume in [0, 70, 100] {
+            migrated.attention_sound_volume = volume;
+            store.save_settings(&migrated).unwrap();
+            let (saved, warnings) = store.load_settings();
+            assert!(warnings.is_empty());
+            assert!(saved.attention_sound);
+            assert_eq!(saved.attention_sound_volume, volume);
+        }
+        migrated.attention_sound_volume = 101;
+        assert!(migrated.validate().is_err());
+        for volume in [
+            serde_json::json!(-1),
+            serde_json::json!(0.5),
+            serde_json::json!(256),
+        ] {
+            let mut value = serde_json::to_value(&defaults).unwrap();
+            value["attentionSoundVolume"] = volume;
+            assert!(serde_json::from_value::<Settings>(value).is_err());
+        }
+    }
+    #[test]
     fn future_theme_ids_roundtrip_without_resetting_settings() {
         let dir = tempfile::tempdir().unwrap();
         let store = ConfigStore::open(dir.path().join("app")).unwrap();
@@ -1246,6 +1397,70 @@ mod tests {
         assert!(resolve_executable("/bin/sh").is_ok());
         #[cfg(windows)]
         assert!(resolve_executable("cmd.exe").is_ok());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn node_version_directories_are_newest_first_and_skip_other_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["v9.1.0", "v22.22.3", "v22.3.0", "system", ".cache"] {
+            fs::create_dir(temp.path().join(name)).unwrap();
+        }
+        assert_eq!(
+            versioned_directories(temp.path(), Path::new("bin")),
+            ["v22.22.3", "v22.3.0", "v9.1.0"].map(|v| temp.path().join(v).join("bin"))
+        );
+        assert!(versioned_directories(&temp.path().join("missing"), Path::new("bin")).is_empty());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn shell_fallbacks_leave_node_version_selection_to_the_shell() {
+        let home = dirs::home_dir().unwrap();
+        let shell = shell_fallback_directories();
+        let all = executable_fallback_directories();
+        for directory in node_manager_directories(&home) {
+            assert!(!shell.contains(&directory));
+            assert!(all.contains(&directory));
+        }
+        assert!(shell.contains(&home.join(".local/bin")));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn launch_path_puts_executable_directory_first_once() {
+        let path = launch_path(
+            Path::new("/synthetic/node/bin/codex"),
+            Some(std::ffi::OsStr::new(
+                "relative:/usr/bin:/synthetic/node/bin",
+            )),
+        )
+        .unwrap();
+        let entries: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        assert_eq!(entries[0], Path::new("/synthetic/node/bin"));
+        assert_eq!(entries[1], Path::new("/usr/bin"));
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|p| *p == Path::new("/synthetic/node/bin"))
+                .count(),
+            1
+        );
+        assert!(entries.iter().all(|p| p.is_absolute()));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn version_probe_finds_a_shebang_interpreter_beside_the_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let interpreter = temp.path().join("sessionbay-synthetic-node");
+        let executable = temp.path().join("codex");
+        fs::write(&interpreter, "#!/bin/sh\nprintf 'codex-cli 0.163.0\\n'\n").unwrap();
+        fs::write(&executable, "#!/usr/bin/env sessionbay-synthetic-node\n").unwrap();
+        for path in [&interpreter, &executable] {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert_eq!(
+            version(&executable, AgentKind::Codex).unwrap(),
+            "codex-cli 0.163.0"
+        );
     }
     #[cfg(unix)]
     #[test]

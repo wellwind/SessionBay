@@ -54,10 +54,13 @@ export function WorkspaceTabs({ tabs, activeId, onSelect, onRename, onClose, onR
           if (reorder.consumeClick(event.detail)) return;
           onSelect(tab);
         }}>
-        {panes && <RuntimeActivityIndicator id={`${helpId}-activity-${index}`} tab={tab} panes={panes} />}
-        {tab.mixed && mixedBadges ? <span className="mixed-chip" role="img" aria-label={t('Mixed: {{names}}', { names: mixedBadges(tab).map((badge) => badge.name).join(t(', ')) })}>
-          {mixedBadges(tab).map((badge) => <span key={badge.name} className="project-initials" style={{ ['--pane-project' as string]: badge.color }}>{badge.initials}</span>)}
-        </span> : <TerminalSquare size={13} />}<span className="workspace-tab-name">{tab.name}</span>
+        {/* The lead groups status and tab icon so an unread-only dot badges the icon, not the button corner. */}
+        <span className="workspace-tab-lead">
+          {panes && <RuntimeActivityIndicator id={`${helpId}-activity-${index}`} tab={tab} panes={panes} />}
+          {tab.mixed && mixedBadges ? <span className="mixed-chip" role="img" aria-label={t('Mixed: {{names}}', { names: mixedBadges(tab).map((badge) => badge.name).join(t(', ')) })}>
+            {mixedBadges(tab).map((badge) => <span key={badge.name} className="project-initials" style={{ ['--pane-project' as string]: badge.color }}>{badge.initials}</span>)}
+          </span> : <TerminalSquare size={13} />}
+        </span><span className="workspace-tab-name">{tab.name}</span>
         <span>{paneIds(tab.layout).length}</span>
       </button>
       <button aria-label={t('Rename tab {{name}}', { name: tab.name })} title={t('Rename tab')} onClick={(event) => { event.currentTarget.focus(); onRename(tab); }}><Pencil size={13} /></button>

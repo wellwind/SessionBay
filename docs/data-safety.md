@@ -3,7 +3,7 @@
 ## What Session Bay reads and writes
 
 - **Agent history is read-only.** Adapters only open history files and databases for reading. OpenCode's SQLite database is copied and validated before it is read.
-- **Session Bay's own data** lives in the app data directory (`~/Library/Application Support/dev.sessionbay.desktop` on macOS, `~/.local/share/dev.sessionbay.desktop` on Linux):
+- **Session Bay's own data** lives in the app data directory (`~/Library/Application Support/dev.fullstackladder.sessionbay` on macOS, `~/.local/share/dev.fullstackladder.sessionbay` on Linux):
   - `catalog.sqlite`, the search index;
   - `settings.json`;
   - `workspace.json`, the open tabs and layout.
@@ -13,6 +13,10 @@
 - **Update checks** fetch the public release list from `api.github.com` at startup and once a day, without any identifying data beyond the app version in the User-Agent. They can be turned off in Settings, and nothing is ever installed automatically.
 - Transcripts are rendered as plain text, so HTML never runs and remote images are never fetched. The OSC 52 clipboard escape sequence is blocked in terminals.
 - Settings are stored in plain text. Do not put passwords or API keys in custom arguments or environment variables.
+
+## Development profile
+
+Development uses the separate `dev.fullstackladder.sessionbay.dev` folder and broker. Its first launch, and the confirmed **Import from Session Bay** action in Settings, read only production settings and curated project metadata. Index rows, workspace layout, recycle bin and Git host tokens are not imported. Production is never modified; the previous app identity is not migrated.
 
 ## Deleting sessions
 

@@ -14,6 +14,7 @@ pub fn show(
     title: String,
     body: String,
     target: Option<String>,
+    suppress_sound: bool,
 ) -> Result<(), String> {
     let wait = target.is_some() && WAITING.fetch_add(1, Ordering::SeqCst) < MAX_WAITING;
     if target.is_some() && !wait {
@@ -23,7 +24,7 @@ pub fn show(
     std::thread::Builder::new()
         .name("notification".into())
         .spawn(move || {
-            let clicked = deliver(&identifier, &title, &body, wait);
+            let clicked = deliver(&identifier, &title, &body, wait, suppress_sound);
             if wait {
                 WAITING.fetch_sub(1, Ordering::SeqCst);
             }
@@ -41,7 +42,7 @@ pub fn show(
 }
 
 #[cfg(target_os = "macos")]
-fn deliver(identifier: &str, title: &str, body: &str, wait: bool) -> bool {
+fn deliver(identifier: &str, title: &str, body: &str, wait: bool, _suppress_sound: bool) -> bool {
     use mac_notification_sys::{Notification, NotificationResponse};
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
@@ -61,9 +62,17 @@ fn deliver(identifier: &str, title: &str, body: &str, wait: bool) -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn deliver(identifier: &str, title: &str, body: &str, wait: bool) -> bool {
+fn deliver(identifier: &str, title: &str, body: &str, wait: bool, suppress_sound: bool) -> bool {
     let mut notification = notify_rust::Notification::new();
     notification.summary(title).body(body);
+    // Windows toasts are already silent: notify-rust passes Toast::sound(None)
+    // unless a sound name is set.
+    #[cfg(not(windows))]
+    if suppress_sound {
+        notification.hint(notify_rust::Hint::SuppressSound(true));
+    }
+    #[cfg(windows)]
+    let _ = suppress_sound;
     #[cfg(windows)]
     {
         // Dev builds have no registered AppUserModelID.

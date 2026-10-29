@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowUpCircle, X } from 'lucide-react';
 import { api, isDesktop } from '../api';
+import { isDevBuild } from '../app-identity';
 import { t } from '../i18n';
 import type { UpdateInfo } from '../types';
 
@@ -16,7 +17,7 @@ function dismissedVersion() {
 export function UpdateNotice({ enabled }: { enabled: boolean }) {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   useEffect(() => {
-    if (!enabled || !isDesktop()) { setUpdate(null); return; }
+    if (isDevBuild || !enabled || !isDesktop()) { setUpdate(null); return; }
     let cancelled = false;
     const check = () => void Promise.resolve().then(() => api.checkForUpdate()).then(found => {
       if (!cancelled) setUpdate(found && found.latest !== dismissedVersion() ? found : null);

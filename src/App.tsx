@@ -99,6 +99,8 @@ import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DirectoryOverview } from './components/DirectoryOverview';
 import { agentName, dateLabel, HistoryView } from './components/History';
 import { SessionTrash } from './components/SessionTrash';
+import { DevBadge } from './components/DevBadge';
+import { isDevBuild } from './app-identity';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ThemeControls, TerminalPreview } from './components/ThemeControls';
 import { appearanceOf } from './themes';
@@ -1591,7 +1593,7 @@ export default function App() {
             )}
           </ProjectNavigation>;
   return (
-    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} workspace={workspace} projects={projects} /><UpdateNotice enabled={!!settings && settings.updateChecks !== false} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
+    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} soundEnabled={settings?.attentionSound === true} soundVolume={settings?.attentionSoundVolume ?? 70} workspace={workspace} projects={projects} /><UpdateNotice enabled={!!settings && settings.updateChecks !== false} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">{t('Skip to main workspace')}</a>
       <header className="app-topbar">
         <div className="brand">
@@ -1601,6 +1603,7 @@ export default function App() {
           <span>
             Session Bay<span className="brand-tag">WORKSPACE</span>
           </span>
+          <DevBadge />
         </div>
         <button className="global-search" aria-label={t('Search projects or run a command')} onClick={() => runCommand('command-palette')}>
           <Search size={15} />
@@ -2054,6 +2057,13 @@ export default function App() {
           index={index}
           onboarding={welcomeOpen}
           onSave={saveSettings}
+          onImportProduction={isDevBuild ? async () => {
+            const imported = await api.importProductionProfile();
+            setAppearancePreview(null);
+            setBoot(current => current ? { ...current, settings: imported, installations: [] } : current);
+            await refresh();
+            notify(t('Imported settings and projects from Session Bay.'));
+          } : undefined}
           onClose={() => {
             setAppearancePreview(null); setSettingsOpen(false);
             if (welcomeOpen) { markWelcomeSeen(); setWelcomeOpen(false); }

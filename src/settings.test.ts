@@ -18,6 +18,8 @@ import type { SettingsPanelProps } from './components/SettingsPanel';
 import { shortcutDefaults } from './commands';
 import type { AgentKind, Settings, ShellCandidate } from './types';
 import { defaultAgentHooks, isAgentHooksEnabled, normalizedAgentHooks } from './settings';
+import { playAttentionSound } from './attention-sound';
+vi.mock('./attention-sound', () => ({ playAttentionSound: vi.fn() }));
 
 function validSettings(): Settings {
   return {
@@ -54,6 +56,31 @@ function props(overrides: Partial<SettingsPanelProps> = {}): SettingsPanelProps 
     ...overrides,
   };
 }
+
+describe('attention sound settings', () => {
+  it('defaults to off and 70%, previews each tone with the draft volume, and saves independently', async () => {
+    vi.mocked(playAttentionSound).mockClear();
+    const config = props();
+    render(createElement(SettingsPanel, config));
+    fireEvent.click(screen.getByRole('button', { name: '外觀與預設值' }));
+    const toggle = screen.getByRole('checkbox', { name: /Agent 需要注意時播放音效/ });
+    const volume = screen.getByRole('slider', { name: '提醒音效音量' });
+    expect(toggle).not.toBeChecked();
+    expect(volume).toHaveValue('70');
+    fireEvent.change(volume, { target: { value: '35' } });
+    fireEvent.click(screen.getByRole('button', { name: '測試等待音效' }));
+    fireEvent.click(screen.getByRole('button', { name: '測試完成音效' }));
+    fireEvent.click(screen.getByRole('button', { name: '測試失敗音效' }));
+    expect(vi.mocked(playAttentionSound).mock.calls).toEqual([['waiting', 35], ['done', 35], ['failed', 35]]);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
+    await waitFor(() => expect(config.onSave).toHaveBeenCalledWith(expect.objectContaining({ attentionSound: true, attentionSoundVolume: 35 })));
+    expect(vi.mocked(config.onSave).mock.calls[0][0].systemNotifications).toBeUndefined();
+  });
+  it.each([-1, 101, 0.5, NaN])('rejects invalid volume %s', (attentionSoundVolume) => {
+    expect(validateSettings({ ...validSettings(), attentionSoundVolume }).attentionSoundVolume).toBeTruthy();
+  });
+});
 
 function selectAgent(kind: AgentKind) {
   const picker = screen.getByRole('combobox', { name: '搜尋 Agent' });
@@ -1393,5 +1420,40 @@ describe('launch-local activity hook defaults', () => {
       expect(screen.queryByText(/僅套用 SessionBay 後續啟動/)).not.toBeInTheDocument();
       expect(screen.queryByText(/只傳遞 Session／回合識別/)).not.toBeInTheDocument();
     }
+  });
+});
+
+describe('production profile import', () => {
+  it('requires confirmation, cancels without importing, and repeats only after confirmation', async () => {
+    const onImportProduction = vi.fn().mockResolvedValue(undefined);
+    render(createElement(SettingsPanel, props({ onImportProduction })));
+    fireEvent.click(screen.getByRole('button', { name: '從 Session Bay 匯入' }));
+    expect(onImportProduction).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('要取代開發版已儲存與尚未儲存的設定');
+    fireEvent.click(within(dialog).getByRole('button', { name: '返回' }));
+    expect(onImportProduction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '從 Session Bay 匯入' }));
+    fireEvent.click(screen.getByRole('button', { name: '匯入設定與專案' }));
+    await waitFor(() => expect(onImportProduction).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not offer import in production and blocks import during indexing', () => {
+    const view = render(createElement(SettingsPanel, props()));
+    expect(screen.queryByRole('button', { name: '從 Session Bay 匯入' })).not.toBeInTheDocument();
+    view.rerender(createElement(SettingsPanel, props({
+      onImportProduction: vi.fn(),
+      index: { running: true, processed: 0, total: 0, cancelled: false, errors: [], sources: [] },
+    })));
+    expect(screen.getByRole('button', { name: '從 Session Bay 匯入' })).toBeDisabled();
+  });
+
+  it('shows import failures without closing settings', async () => {
+    render(createElement(SettingsPanel, props({
+      onImportProduction: vi.fn().mockRejectedValue(new Error('Synthetic import failure')),
+    })));
+    fireEvent.click(screen.getByRole('button', { name: '從 Session Bay 匯入' }));
+    fireEvent.click(screen.getByRole('button', { name: '匯入設定與專案' }));
+    await waitFor(() => expect(screen.getByText('Synthetic import failure')).toBeInTheDocument());
   });
 });

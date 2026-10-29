@@ -91,15 +91,21 @@ pub struct Service {
 
 impl Service {
     pub fn open(directory: PathBuf) -> Result<Arc<Self>, String> {
-        Self::open_internal(directory, None)
+        Self::open_internal(directory, None, Vec::new())
     }
     pub fn open_desktop(directory: PathBuf) -> Result<Arc<Self>, String> {
+        Self::open_desktop_with_warnings(directory, Vec::new())
+    }
+    pub fn open_desktop_with_warnings(
+        directory: PathBuf,
+        warnings: Vec<String>,
+    ) -> Result<Arc<Self>, String> {
         // Establish local configuration storage before creating its private IPC child.
         let config = ConfigStore::open(directory.clone())?;
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;
         let broker = BrokerClient::connect(&config.directory, &executable)?;
         let owner = broker.start_ui_owner()?;
-        let service = Self::open_internal(directory, Some(broker))?;
+        let service = Self::open_internal(directory, Some(broker), warnings)?;
         *service
             .ui_owner
             .lock()
@@ -109,9 +115,11 @@ impl Service {
     fn open_internal(
         directory: PathBuf,
         broker: Option<BrokerClient>,
+        mut warnings: Vec<String>,
     ) -> Result<Arc<Self>, String> {
         let config = ConfigStore::open(directory)?;
-        let (settings, warnings) = config.load_settings();
+        let (settings, config_warnings) = config.load_settings();
+        warnings.extend(config_warnings);
         let catalog = Catalog::open(&config.directory.join("catalog.sqlite"))?;
         let git = crate::git::GitService::with_data_dir(config.directory.clone());
         let opencode_staging = config.directory.join("opencode-export");
@@ -589,6 +597,11 @@ impl Service {
                 "The working directory does not exist or is not absolute; relocate the project"
             ));
         }
+        let fallbacks = if agent.is_some() {
+            config::executable_fallback_directories()
+        } else {
+            config::shell_fallback_directories()
+        };
         let executable = if let Some(kind) = &agent {
             args.extend(crate::launch_options::arguments(
                 *kind,
@@ -618,20 +631,12 @@ impl Service {
                 key == "PATH"
             }
         }) {
-            let mut paths: Vec<PathBuf> =
-                std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-                    .filter(|p| p.is_absolute())
-                    .collect();
-            if let Some(parent) = executable.parent() {
-                paths.insert(0, parent.to_path_buf());
-            }
-            for path in config::executable_fallback_directories() {
-                if !paths.contains(&path) {
-                    paths.push(path);
-                }
-            }
-            if let Ok(path) = std::env::join_paths(paths) {
-                env.insert("PATH".into(), path.to_string_lossy().into_owned());
+            if let Some(path) = config::launch_path_with(
+                &executable,
+                std::env::var_os("PATH").as_deref(),
+                &fallbacks,
+            ) {
+                env.insert("PATH".into(), path);
             }
         }
         if let Some(kind) = agent {
@@ -1146,7 +1151,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         };
         let owner = client.start_ui_owner().unwrap().unwrap();
-        let service = Service::open_internal(app, Some(client.clone())).unwrap();
+        let service = Service::open_internal(app, Some(client.clone()), Vec::new()).unwrap();
         *service.ui_owner.lock().unwrap() = Some(owner);
         let request = LaunchRequest {
             kanban_card_id: None,
@@ -1220,7 +1225,7 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(5));
         };
-        let service = Service::open_internal(app, Some(client.clone())).unwrap();
+        let service = Service::open_internal(app, Some(client.clone()), Vec::new()).unwrap();
         let project = service
             .catalog
             .add_project(root.to_str().unwrap(), Some("Synthetic project"))
@@ -1326,7 +1331,7 @@ mod tests {
             assert!(Instant::now() < deadline, "test broker did not start");
             std::thread::sleep(Duration::from_millis(5));
         };
-        let service = Service::open_internal(app, Some(client.clone())).unwrap();
+        let service = Service::open_internal(app, Some(client.clone()), Vec::new()).unwrap();
         let executable = temp.path().join("synthetic sleeper");
         fs::write(&executable, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();

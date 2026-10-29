@@ -26,7 +26,9 @@ The preview is not notarized by Apple yet, so macOS blocks the first launch:
 2. Open **System Settings → Privacy & Security** and scroll to **Security**.
 3. Next to *"Session Bay" was blocked*, choose **Open Anyway** and confirm with your password or Touch ID.
 
-You only do this once. Later versions can be opened normally after you install them the same way.
+You only do this once per app identity. Later versions with the same identity can be opened normally after you install them the same way.
+
+The new app identity `dev.fullstackladder.sessionbay` starts with a fresh profile. Data from 0.1.0 is not migrated. macOS requires **Open Anyway** again on first launch and notification permission must be granted again.
 
 :::note
 Session Bay never asks you to turn off Gatekeeper or System Integrity Protection. If a download looks wrong, delete it and get it again from the release page.
@@ -39,7 +41,7 @@ Session Bay launches the agent CLIs you already use; it does not bundle them. In
 ## Update or uninstall
 
 - **Update**: Session Bay shows a notice in the bottom-left corner when a new version is on GitHub. Choose **View release**, download the new version and replace the app in Applications. Running agents keep going while you update; close Session Bay first.
-- **Uninstall**: delete the app. Session Bay's own data (index, settings, layout) is in `~/Library/Application Support/dev.sessionbay.desktop`; delete that folder too if you want. Your agents' history is never touched.
+- **Uninstall**: delete the app. Session Bay's own data (index, settings, layout) is in `~/Library/Application Support/dev.fullstackladder.sessionbay`; delete that folder too if you want. Your agents' history is never touched.
 
 ## Linux and Windows
 

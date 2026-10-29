@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Session Bay",
-  "version": "0.1.0",
-  "identifier": "dev.sessionbay.desktop",
+  "version": "0.2.0",
+  "identifier": "dev.fullstackladder.sessionbay",
   "build": {
     "beforeDevCommand": "npm run dev:web",
     "devUrl": "http://localhost:1420",
