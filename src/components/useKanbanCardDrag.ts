@@ -4,7 +4,7 @@ export interface CardDrop { columnId: string; targetId?: string; after: boolean;
 
 /** Cross-column pointer capture with the same cancellation and keyboard alternatives as tab reordering. */
 export function useKanbanCardDrag(root: RefObject<HTMLElement | null>, signature: string,
-  onMove: (id: string, drop: CardDrop) => void) {
+  onMove: (id: string, drop: CardDrop) => void, allowMerge = true) {
   const drag = useRef<{ id: string; pointerId: number; x: number; y: number; moved: boolean; button: HTMLButtonElement } | null>(null);
   const [preview, setPreview] = useState<(CardDrop & { id: string }) | null>(null);
   const cancel = useCallback(() => {
@@ -29,7 +29,7 @@ export function useKanbanCardDrag(root: RefObject<HTMLElement | null>, signature
     const card = hit.closest<HTMLElement>('[data-kanban-card]');
     const box = card?.getBoundingClientRect();
     const fraction = box ? (event.clientY - box.top) / box.height : 1;
-    return { merge: !!card && fraction >= .3 && fraction <= .7, columnId: column.dataset.kanbanColumn!, targetId: card?.dataset.kanbanCard,
+    return { merge: allowMerge && !!card && fraction >= .3 && fraction <= .7, columnId: column.dataset.kanbanColumn!, targetId: card?.dataset.kanbanCard,
       after: card ? event.clientY >= card.getBoundingClientRect().top + card.getBoundingClientRect().height / 2 : true };
   };
   return { preview, handlers: (id: string) => ({

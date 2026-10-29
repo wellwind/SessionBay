@@ -1,8 +1,7 @@
 # Kanban catalog API
 
-Issues #138–#140 provide catalog commands, the project board and task details/start
-flow. The UI consumes these commands through src/api.ts. All boards remains
-separate work for #141.
+Issues #138–#141 provide catalog commands, the project board, task details/start
+flow and the All boards overview. The UI consumes these commands through src/api.ts.
 
 ## Ownership and migration
 
@@ -167,3 +166,22 @@ tests verify safe task paste and cancellation. Rust tests additionally cover
 worktree bindings, launch/source identity and auto-archive/rebuild behavior. Synthetic browser fixtures cover project
 navigation, pointer/keyboard moves and both-language layout audits. Browser checks
 require a host that permits binding the Playwright development server ports.
+
+## All boards overview
+
+The shared ProjectBoard component reads list_kanban_boards() for the overview.
+Only enabled boards belonging to curated projects are displayed, with archived
+cards hidden. Columns are grouped by their stage into five fixed columns,
+independent of project-specific names and ordering. Project identity uses the
+existing palette and initials. Project, text (title, notes and session titles),
+agent and live needs-attention filters combine.
+
+Overview moves resolve the card's owning board first, sort that board's columns
+by position and select the first column for the target stage. The UI calls the
+existing move_kanban_card command with that column's ID and the full destination
+card count, including archived/filtered cards, to append the task. A missing stage
+is disabled in the move menu and ignored for pointer/keyboard moves. There is no
+cross-project destination or overview reorder command. Pointer drops over another
+card change stage only; merging remains an explicit same-project details action
+or a confirmed project-board drop. Shared details resolve the owning project for
+history, start and worktree actions.

@@ -223,3 +223,106 @@ test('starts a plain shell for a planned task without sending its text', async (
   expect(bytes.startsWith('\x1b[200~')).toBe(true);
   expect(bytes.endsWith('\x1b[201~')).toBe(true);
 });
+
+async function openAllBoards(page: Page) {
+  await page.goto('/tests/browser/showcase.html');
+  await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+  await expect(card(page, 'web-task')).toBeVisible();
+}
+const stage = (page: Page, name: string) => page.locator(`[data-kanban-column="${name}"]`);
+
+test('all boards groups enabled projects by stage, combines filters and keeps terminals mounted', async ({ page }, info) => {
+  await openAllBoards(page);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(L('All boards', '全部看板'));
+  await expect(page.locator('.kanban-column')).toHaveCount(5);
+  await expect(card(page, 'web-archived')).toHaveCount(0);
+  await expect(card(page, 'web-task').locator('.project-initials')).toHaveText('WD');
+  await expect(stage(page, 'todo')).toContainText(L('Polish the dashboard filters', '改善儀表板篩選功能'));
+  const project = page.getByRole('combobox', { name: L('Project', '專案'), exact: true });
+  await expect(project.locator('option')).toHaveCount(3);
+  await project.selectOption('p-web');
+  await expect(page.locator('.kanban-card')).toHaveCount(1);
+  const search = page.getByRole('searchbox', { name: L('Search board', '搜尋看板') });
+  await search.fill('dashboard planning');
+  await expect(card(page, 'web-task')).toBeVisible();
+  await project.selectOption('p-harbor');
+  await expect(page.getByText(L('No tasks match the filters.', '沒有符合篩選條件的工作。'))).toBeVisible();
+  await search.fill('token bucket');
+  await expect(card(page, 'card-0')).toBeVisible();
+  await page.getByRole('combobox', { name: 'Agent', exact: true }).selectOption('codex');
+  await expect(page.locator('.kanban-card')).toHaveCount(0);
+  await search.fill('');
+  await expect(page.locator('.kanban-card')).toHaveCount(2);
+  await page.getByRole('checkbox', { name: L('Needs attention', '需要處理') }).check();
+  await expect(page.locator('.kanban-card')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('all-boards-filters.png') });
+  await page.locator('.sidebar-global', { hasText: L('All workspaces', '全部工作區') }).click();
+  await expect(page.locator('.overview-card').first()).toBeVisible();
+  await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+  await expect(card(page, 'web-task')).toBeVisible();
+  await page.getByRole('button', { name: L('Open workspace harbor-api Rate limiting', '開啟工作區 harbor-api 速率限制') }).click();
+  await expect(page.locator('.xterm-screen').first()).toBeVisible();
+});
+
+test('all boards moves through keyboard and menu into the project’s first matching column', async ({ page }) => {
+  await openAllBoards(page);
+  const handle = card(page, 'web-task').locator('.kanban-card-handle');
+  await handle.focus();
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(stage(page, 'doing').locator('[data-kanban-card="web-task"]')).toBeVisible();
+  await expect(handle).toBeFocused();
+  await card(page, 'web-task').locator('.kanban-move-menu button').click();
+  await expect(page.getByRole('menuitem', { name: L('Move up', '往上移'), exact: true })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: L('Todo', '待辦'), exact: true }).click();
+  await expect(stage(page, 'todo').locator('[data-kanban-card="web-task"]')).toBeVisible();
+  const calls = await page.evaluate(() => (window as unknown as { kanbanCalls: { command: string; args: Record<string, unknown> }[] }).kanbanCalls);
+  expect(calls.filter(call => call.command === 'move_kanban_card').map(call => call.args)).toEqual([
+    { cardId: 'web-task', columnId: 'web-column-2', position: 0 },
+    { cardId: 'web-task', columnId: 'web-column-1', position: 1 },
+  ]);
+  // Inspect the project board to verify the persisted column and unchanged project.
+  await page.locator('#navigation-projects').click();
+  await page.locator('.directory-card-main').filter({ hasText: 'web-dashboard' }).click();
+  await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+  await expect(page.locator('[data-kanban-column="web-column-1"] [data-kanban-card="web-task"]')).toBeVisible();
+});
+
+test('all boards pointer drop on another project changes only stage; Escape cancels', async ({ page }) => {
+  await openAllBoards(page);
+  const source = card(page, 'card-0').locator('.kanban-card-handle'), target = card(page, 'web-task');
+  const drag = async (cancel: boolean) => {
+    // Taller zh-TW cards can push the target below its column's scroll viewport.
+    await target.scrollIntoViewIfNeeded();
+    const start = (await source.boundingBox())!, end = (await target.boundingBox())!;
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
+    if (cancel) await page.keyboard.press('Escape');
+    await page.mouse.up();
+  };
+  await drag(true);
+  await expect(stage(page, 'unsorted').locator('[data-kanban-card="card-0"]')).toBeVisible();
+  await drag(false);
+  await expect(stage(page, 'todo').locator('[data-kanban-card="card-0"]')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(card(page, 'card-0').locator('.kanban-project')).toContainText('harbor-api');
+  const calls = await page.evaluate(() => (window as unknown as { kanbanCalls: { command: string; args: Record<string, unknown> }[] }).kanbanCalls);
+  expect(calls.filter(call => call.command === 'move_kanban_card').map(call => call.args)).toEqual([
+    { cardId: 'card-0', columnId: 'column-1', position: 3 },
+  ]);
+  expect(calls.some(call => call.command === 'merge_kanban_cards')).toBe(false);
+});
+
+test('all boards reuses task details and starts work in the owning project', async ({ page }) => {
+  await openAllBoards(page);
+  await card(page, 'web-task').locator('.kanban-card-open').click();
+  await page.getByRole('dialog').getByRole('button', { name: L('Start work', '開始工作'), exact: true }).click();
+  const launcher = page.getByRole('dialog', { name: L('Start a new task', '開始新的工作') });
+  await launcher.getByRole('button', { name: L('Start work', '開始工作'), exact: true }).click();
+  await expect.poll(async () => page.evaluate(() => (window as unknown as {
+    kanbanCalls: { command: string; args: { request?: Record<string, unknown> } }[];
+  }).kanbanCalls.find(call => call.command === 'launch_fresh_runtime')?.args.request)).toMatchObject({
+    kanbanCardId: 'web-task', projectId: 'p-web', cwd: '/Users/you/code/web-dashboard',
+  });
+});
