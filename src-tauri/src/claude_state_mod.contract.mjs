@@ -175,8 +175,26 @@ test('reporting failures preserve next and stop refreshes after lost continuity'
   await start(h, 'turn-a')
   await complete(h, 'turn-a')
   await h.tick()
-  assert.deepEqual(h.reports.map(r => r.observation), ['unknown'])
-  assert.equal(h.timers.length, 0)
+  assert.deepEqual(h.reports.map(r => r.observation), ['unknown', 'busy'])
+  assert(h.timers.every(timer => timer.cancelled))
+})
+
+test('a lost report resumes at the next main turn without resurrecting the old one', async () => {
+  let fail = false
+  const h = harness({ run: async () => { if (fail) throw new Error('synthetic helper rebuilt') } })
+  await start(h, 'turn-a')
+  fail = true
+  await h.tick()
+  fail = false
+  await h.tick()
+  await complete(h, 'turn-a')
+  assert.deepEqual(h.reports.map(r => [r.turn, r.observation]), [['turn-a', 'busy'], ['turn-a', 'busy']])
+  await start(h, 'turn-b')
+  await h.tick()
+  await complete(h, 'turn-b')
+  assert.deepEqual(h.reports.slice(2).map(r => [r.turn, r.observation]),
+    [['turn-b', 'busy'], ['turn-b', 'busy'], ['turn-b', 'idle']])
+  assert.deepEqual(h.reports.map(r => r.sequence), [1, 2, 3, 4, 5])
 })
 
 test('reload preserves source sequence and does not resurrect an unobserved turn', async () => {

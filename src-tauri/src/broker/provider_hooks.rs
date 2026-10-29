@@ -173,8 +173,10 @@ impl Host {
         if !lease.live || lease.terminal {
             return Err("State source is not registered for this launch".into());
         }
-        if lease.source_sequence.checked_add(1) != Some(report.sequence) {
-            return Err("Provider state sequence replay or gap".into());
+        // Reports are full snapshots and sources stop refreshing after a lost
+        // report, so a gap only means a later authoritative restart.
+        if report.sequence <= lease.source_sequence {
+            return Err("Provider state sequence replay".into());
         }
         if lease.source_sequence == 0
             && lease
@@ -371,7 +373,7 @@ mod opencode_tests {
         assert_eq!(lock(&host.provider_hooks)[&launch].source_sequence, 0);
         state(&host, &launch, "ses_indexedRoot", 1, Observation::Busy).unwrap();
         assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
-        for sequence in [0, 1, 3] {
+        for sequence in [0, 1] {
             assert!(state(
                 &host,
                 &launch,
@@ -400,6 +402,11 @@ mod opencode_tests {
         assert_eq!(observation(&host, &info.id), None);
         state(&host, &launch, "ses_nextRoot", 5, Observation::Idle).unwrap();
         assert_eq!(observation(&host, &info.id), Some(Observation::Idle));
+        // A source restarting after a lost report skips sequence numbers.
+        state(&host, &launch, "ses_nextRoot", 7, Observation::Busy).unwrap();
+        assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
+        assert!(state(&host, &launch, "ses_nextRoot", 6, Observation::Idle).is_err());
+        assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
         let expired = host
             .poll_activity(
                 &info.id,
@@ -418,7 +425,7 @@ mod opencode_tests {
         assert!(lock(&host.provider_hooks).is_empty());
         assert!(!path.exists());
         assert_eq!(observation(&host, &info.id), None);
-        assert!(state(&host, &launch, "ses_nextRoot", 6, Observation::Busy).is_err());
+        assert!(state(&host, &launch, "ses_nextRoot", 8, Observation::Busy).is_err());
         assert_eq!(host.runtime.list()[0].state, "running");
         host.runtime.shutdown().unwrap();
     }
