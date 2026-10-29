@@ -203,6 +203,7 @@ fn setup() -> (
         .items
         .remove(0);
     let request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "indexed".into(),
         kind: "opencode".into(),
         project_id: Some(session.project_id),

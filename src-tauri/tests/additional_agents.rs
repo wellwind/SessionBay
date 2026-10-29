@@ -10,6 +10,7 @@ use std::fs;
 
 fn request(kind: &str, cwd: &std::path::Path) -> LaunchRequest {
     LaunchRequest {
+        kanban_card_id: None,
         pane_id: "additional-agent-test".into(),
         kind: kind.into(),
         project_id: None,

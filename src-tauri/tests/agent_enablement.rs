@@ -14,6 +14,7 @@ use std::{
 
 fn request(kind: AgentKind, cwd: &Path) -> LaunchRequest {
     LaunchRequest {
+        kanban_card_id: None,
         pane_id: "synthetic-agent-pane".into(),
         kind: kind.as_str().into(),
         project_id: None,

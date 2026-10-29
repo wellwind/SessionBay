@@ -594,6 +594,7 @@ mod live {
         let lease = Uuid::new_v4().to_string();
         let (tx, rx) = mpsc::channel();
         let request = LaunchRequest {
+            kanban_card_id: None,
             pane_id: "synthetic-activity-pane".into(),
             kind: "opencode".into(),
             project_id: None,

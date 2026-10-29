@@ -84,6 +84,7 @@ fn hello(capabilities: Option<serde_json::Value>) -> Response {
 }
 fn launch() -> (LaunchSpec, LaunchRequest) {
     let request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "synthetic-pane".into(),
         kind: "shell".into(),
         project_id: None,

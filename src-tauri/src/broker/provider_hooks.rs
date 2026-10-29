@@ -150,6 +150,12 @@ impl Host {
         if callback.event == "SessionEnd" {
             lease.ended = true;
         }
+        let bound = self.bind_provider_session(&lease.runtime_id, lease.session.as_deref());
+        drop(activity);
+        drop(leases);
+        if bound {
+            self.persist()?;
+        }
         Ok(Response::Ok)
     }
     pub(super) fn receive_provider_state(
@@ -202,7 +208,25 @@ impl Host {
         }
         state.publish_source(report.observation, Instant::now());
         lease.source_sequence = report.sequence;
+        let bound = self.bind_provider_session(&lease.runtime_id, lease.session.as_deref());
+        drop(activity);
+        drop(leases);
+        if bound {
+            self.persist()?;
+        }
         Ok(Response::Ok)
+    }
+    /// Records the first provider session for a runtime. Returns whether the
+    /// record changed, so hook traffic does not rewrite runtime state each time.
+    fn bind_provider_session(&self, runtime_id: &str, session: Option<&str>) -> bool {
+        let Some(session) = session else { return false };
+        match lock(&self.entries).get_mut(runtime_id) {
+            Some(entry) if entry.record.provider_session_id.is_none() => {
+                entry.record.provider_session_id = Some(session.to_owned());
+                true
+            }
+            _ => false,
+        }
     }
     pub(super) fn fail_provider_hook(&self, launch: &str) {
         if let Some(lease) = lock(&self.provider_hooks).remove(launch) {
@@ -399,6 +423,16 @@ mod opencode_tests {
         state(&host, &launch, "ses_indexedRoot", 4, Observation::Unknown).unwrap();
         assert_eq!(observation(&host, &info.id), None);
         state(&host, &launch, "ses_nextRoot", 5, Observation::Idle).unwrap();
+        assert_eq!(
+            host.records()
+                .iter()
+                .find(|record| record.info.id == info.id)
+                .unwrap()
+                .provider_session_id
+                .as_deref(),
+            Some("ses_indexedRoot")
+        );
+
         assert_eq!(observation(&host, &info.id), Some(Observation::Idle));
         let expired = host
             .poll_activity(

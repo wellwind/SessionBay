@@ -59,6 +59,7 @@ fn detached_conpty_reopens_the_same_runtime_and_replays_background_output() {
         .join("System32/WindowsPowerShell/v1.0/powershell.exe");
     let spec=LaunchSpec{executable:executable.to_string_lossy().into(),args:vec!["-NoLogo".into(),"-NoProfile".into(),"-Command".into(),"Write-Output \"original:$PID\"; Start-Sleep -Milliseconds 1000; Write-Output 'while-ui-closed'; $line=Read-Host; Write-Output \"received:$line\"; Start-Sleep -Seconds 60".into()],cwd:temp.path().into(),env:HashMap::new(),session_id:None,resume_key:None,pane_id:"windows-pane".into()};
     let request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "windows-pane".into(),
         kind: "shell".into(),
         project_id: Some("windows-project".into()),
