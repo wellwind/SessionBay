@@ -46,5 +46,7 @@
   "{{count}} sessions_one": "{{count}} session",
   "{{count}} source problems_one": "{{count}} source problem",
   "{{count}} staged files_one": "{{count}} staged file",
-  "{{count}} tabs_one": "{{count}} tab"
+  "{{count}} tabs_one": "{{count}} tab",
+  "{{count}} new sessions_one": "{{count}} new session",
+  "Archived automatically after {{count}} days_one": "Archived automatically after {{count}} day"
 }

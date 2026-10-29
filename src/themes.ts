@@ -100,6 +100,7 @@ export function uiTokens(paletteId = 'bay', mode: ColorMode = 'dark'): Record<st
     'accent-strong': mix(accent, dark ? '#ffffff' : '#000000', 0.14),
     'accent-bg': mix(background, accent, dark ? 0.12 : 0.07),
     'on-accent': dark ? '#12222a' : '#ffffff',
+    info: themePalettes.find(entry => entry.id === 'ocean')?.[mode].accent ?? accent,
     warning: dark ? '#f2cc8d' : '#75500f',
     danger: dark ? '#f0a2a7' : '#a12c3f',
     'danger-bg': dark ? '#452b32' : '#fbe8eb',
