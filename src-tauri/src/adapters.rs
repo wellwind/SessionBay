@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-pub const PARSER_VERSION: i64 = 4;
+pub const PARSER_VERSION: i64 = 5;
 pub const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_TITLE_INDEX_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -119,6 +119,9 @@ fn task_title(text: &str) -> Option<String> {
             ("<turn_aborted>", "</turn_aborted>"),
             ("<local-command-caveat>", "</local-command-caveat>"),
             ("<local-command-stdout>", "</local-command-stdout>"),
+            ("<system-reminder>", "</system-reminder>"),
+            ("<recommended_plugins>", "</recommended_plugins>"),
+            ("<subagent_notification>", "</subagent_notification>"),
         ]
         .into_iter()
         .find(|(open, _)| remaining.starts_with(open));
@@ -126,10 +129,35 @@ fn task_title(text: &str) -> Option<String> {
         let (_, after) = remaining.split_once(close)?;
         remaining = after.trim_start();
     }
-    if remaining.is_empty() || remaining.starts_with("<command-name>") {
+    if remaining.starts_with("<command-name>") || remaining.starts_with("<command-message>") {
+        return command_title(remaining);
+    }
+    while let Some(rest) = remaining
+        .strip_prefix("[Image #")
+        .and_then(|rest| rest.split_once(']'))
+        .filter(|(number, _)| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+        .map(|(_, rest)| rest.trim_start())
+    {
+        remaining = rest;
+    }
+    if remaining.is_empty() {
         return None;
     }
     Some(short_text(remaining, 100))
+}
+
+// Slash commands without arguments are setup noise; skills with arguments carry the task.
+fn command_title(text: &str) -> Option<String> {
+    let tag = |name: &str| {
+        let (_, after) = text.split_once(&format!("<{name}>"))?;
+        let (inner, _) = after.split_once(&format!("</{name}>"))?;
+        Some(inner.trim())
+    };
+    let args = tag("command-args").filter(|args| !args.is_empty())?;
+    match tag("command-name").filter(|name| !name.is_empty()) {
+        Some(name) => Some(short_text(&format!("{name} {args}"), 100)),
+        None => Some(short_text(args, 100)),
+    }
 }
 
 pub fn display_title(state: &ParsedState, kind: AgentKind, external_id: &str) -> String {
@@ -481,6 +509,10 @@ fn parse_codex(
                 "function_call_output" | "custom_tool_call_output" => {
                     Some(placeholder("[Tool output omitted from search]", timestamp))
                 }
+                "web_search_call" | "image_generation_call" => {
+                    Some(placeholder("[Tool call; arguments omitted]", timestamp))
+                }
+                "additional_tools" => None,
                 "reasoning" => Some(placeholder("[Internal reasoning omitted]", timestamp)),
                 "compaction" => Some(placeholder(
                     "[Conversation compacted; earlier context may be unavailable]",
@@ -513,13 +545,22 @@ fn parse_codex(
                     "[Conversation compacted; earlier context may be unavailable]",
                     timestamp,
                 )),
-                "token_count" | "task_started" | "task_complete" | "turn_aborted"
-                | "agent_reasoning" | "item_completed" => None,
+                "token_count"
+                | "task_started"
+                | "task_complete"
+                | "turn_aborted"
+                | "agent_reasoning"
+                | "item_completed"
+                | "thread_settings_applied" => None,
                 _ => {
                     state.unknown_events += 1;
                     Some(placeholder("[Unsupported Codex event]", timestamp))
                 }
             }
+        }
+        "token_usage_record" | "world_state" => {
+            state.recognized = true;
+            None
         }
         "compacted" => {
             state.recognized = true;
@@ -585,7 +626,23 @@ fn parse_claude(
                 .and_then(|m| m.get("content"))
                 .or_else(|| value.get("content"))
                 .unwrap_or(&Value::Null);
-            message(record_type, content, timestamp, false, state)
+            // Meta and compaction records are harness text, not the user's task.
+            let harness = ["isMeta", "isCompactSummary"]
+                .iter()
+                .any(|key| value.get(*key).and_then(Value::as_bool) == Some(true));
+            let titled = state.first_user.is_some();
+            let parsed = message(record_type, content, timestamp, false, state);
+            if harness && !titled {
+                state.first_user = None;
+            }
+            parsed
+        }
+        "ai-title" | "agent-name" => {
+            state.recognized = true;
+            if let Some(title) = string(value, "aiTitle").or_else(|| string(value, "agentName")) {
+                state.title = Some(title);
+            }
+            None
         }
         "custom-title" => {
             state.recognized = true;
@@ -615,9 +672,25 @@ fn parse_claude(
                 Some(placeholder("[System event]", timestamp))
             }
         }
-        "progress" | "file-history-snapshot" | "queue-operation" | "last-prompt" | "pr-link" => {
-            None
-        }
+        "progress"
+        | "file-history-snapshot"
+        | "file-history-delta"
+        | "queue-operation"
+        | "last-prompt"
+        | "pr-link"
+        | "frame-link"
+        | "continued-in"
+        | "attachment"
+        | "api-request"
+        | "api-request-blob"
+        | "api-request-shape"
+        | "atis-latch"
+        | "mode"
+        | "permission-mode"
+        | "tools-used"
+        | "cost-state"
+        | "artifact-comment-monitor"
+        | "artifact-autoreact-ledger" => None,
         _ => {
             state.unknown_events += 1;
             Some(placeholder("[Unsupported Claude event]", timestamp))
@@ -740,6 +813,7 @@ fn parse_grok(value: &Value, state: &mut ParsedState) -> Option<ParsedMessage> {
             }
             None
         }
+        (true, "turn_completed" | "hook_execution" | "background_tasks") => None,
         (true, "compaction_checkpoint") => Some(placeholder(
             "[Conversation compacted; earlier context may be unavailable]",
             timestamp,
@@ -971,6 +1045,122 @@ mod tests {
             path,
         );
         assert_eq!(display_title(&state, AgentKind::Claude, "s"), "驗證登入");
+    }
+
+    #[test]
+    fn claude_ai_title_names_the_session_below_a_custom_name() {
+        let mut state = ParsedState::default();
+        let path = Path::new("s.jsonl");
+        for value in [
+            json!({"type":"user","sessionId":"s","message":{"content":"[Image #1] 第三個 tab 的藍點很突兀"}}),
+            json!({"type":"ai-title","sessionId":"s","aiTitle":"第三個 tab 藍點顯示"}),
+            json!({"type":"agent-name","sessionId":"s","agentName":"第三個 tab 藍點顯示"}),
+        ] {
+            parse_value(AgentKind::Claude, &value, &mut state, path);
+        }
+        assert_eq!(state.unknown_events, 0);
+        assert_eq!(
+            display_title(&state, AgentKind::Claude, "s"),
+            "第三個 tab 藍點顯示"
+        );
+        parse_value(
+            AgentKind::Claude,
+            &json!({"type":"custom-title","sessionId":"s","customTitle":"藍點修正"}),
+            &mut state,
+            path,
+        );
+        assert_eq!(display_title(&state, AgentKind::Claude, "s"), "藍點修正");
+    }
+
+    #[test]
+    fn claude_metadata_records_are_not_unsupported_events() {
+        let mut state = ParsedState::default();
+        for record_type in [
+            "api-request",
+            "api-request-blob",
+            "api-request-shape",
+            "attachment",
+            "atis-latch",
+            "mode",
+            "permission-mode",
+            "tools-used",
+            "cost-state",
+            "file-history-delta",
+            "frame-link",
+            "continued-in",
+            "artifact-comment-monitor",
+            "artifact-autoreact-ledger",
+        ] {
+            let value = json!({"type":record_type,"sessionId":"s"});
+            assert!(
+                parse_value(AgentKind::Claude, &value, &mut state, Path::new("s.jsonl")).is_none()
+            );
+        }
+        assert_eq!(state.unknown_events, 0);
+    }
+
+    #[test]
+    fn claude_title_skips_harness_messages_and_names_skill_commands() {
+        let path = Path::new("s.jsonl");
+        let mut state = ParsedState::default();
+        for value in [
+            json!({"type":"user","sessionId":"s","isCompactSummary":true,"message":{"content":"<artifact-content-authored-by-others/>\nThe summarized conversation..."}}),
+            json!({"type":"user","sessionId":"s","isMeta":true,"message":{"content":"[Image: original 2880x1800]"}}),
+            json!({"type":"user","sessionId":"s","message":{"content":"[Image #1] [Image #2] 修正分頁標題"}}),
+        ] {
+            parse_value(AgentKind::Claude, &value, &mut state, path);
+        }
+        assert_eq!(state.first_user.as_deref(), Some("修正分頁標題"));
+        assert_eq!(
+            task_title("<command-message>grill-me</command-message>\n<command-name>/grill-me</command-name>\n<command-args>想想提示音效</command-args>"),
+            Some("/grill-me 想想提示音效".into())
+        );
+        assert!(task_title("<command-name>/reload-plugins</command-name>\n<command-message>reload-plugins</command-message>\n<command-args></command-args>").is_none());
+        assert_eq!(
+            task_title("<system-reminder>Context</system-reminder>\n真正的需求"),
+            Some("真正的需求".into())
+        );
+    }
+
+    #[test]
+    fn codex_current_records_are_not_unsupported_events() {
+        let mut state = ParsedState::default();
+        let path = Path::new("rollout.jsonl");
+        for value in [
+            json!({"type":"token_usage_record","payload":{"thread_id":"s"}}),
+            json!({"type":"world_state","payload":{"full":true}}),
+            json!({"type":"event_msg","payload":{"type":"thread_settings_applied"}}),
+            json!({"type":"response_item","payload":{"type":"additional_tools","tools":[]}}),
+            json!({"type":"response_item","payload":{"type":"web_search_call"}}),
+            json!({"type":"response_item","payload":{"type":"image_generation_call"}}),
+        ] {
+            parse_value(AgentKind::Codex, &value, &mut state, path);
+        }
+        assert_eq!(state.unknown_events, 0);
+        for text in [
+            "<recommended_plugins>Plugins you may install.</recommended_plugins>",
+            "<subagent_notification>Agent finished.</subagent_notification>",
+        ] {
+            let value = json!({"type":"response_item","payload":{"type":"message","role":"user","content":text}});
+            parse_value(AgentKind::Codex, &value, &mut state, path);
+            assert!(state.first_user.is_none());
+        }
+    }
+
+    #[test]
+    fn grok_lifecycle_extensions_are_not_unsupported_events() {
+        let mut state = ParsedState::default();
+        for tag in ["turn_completed", "hook_execution", "background_tasks"] {
+            let value = json!({"method":"_x.ai/session/update","params":{"sessionId":"g","update":{"sessionUpdate":tag}}});
+            assert!(parse_value(
+                AgentKind::Grok,
+                &value,
+                &mut state,
+                Path::new("updates.jsonl")
+            )
+            .is_none());
+        }
+        assert_eq!(state.unknown_events, 0);
     }
 
     #[test]
