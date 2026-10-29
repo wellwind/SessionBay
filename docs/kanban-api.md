@@ -1,8 +1,8 @@
 # Kanban catalog API
 
-Issue #138 provides storage and commands only. The project board, card start flow,
-worktree-to-card bindings, auto-archive policy and All boards UI follow in
-#139–#141.
+Issue #138 provides storage and commands. The project board (#139) consumes these
+commands through src/api.ts. Card details/start flow, worktree-to-card bindings,
+auto-archive policy and All boards UI follow in #140–#141.
 
 ## Ownership and migration
 
@@ -107,5 +107,8 @@ links. Index clear itself never detaches.
 Synthetic Rust tests cover commands, invalid/cross-project operations, ordering,
 concurrent writers, migration from version 6, intake, parent relationships,
 linked worktrees, recycle/restore, permanent removal and rebuild preservation.
-TypeScript tests cover the explicit IPC command names/argument shapes. UI
-rendering and interaction tests belong to the later board UI work.
+TypeScript tests cover the explicit IPC command names/argument shapes. Project
+board component tests cover translated rendering, filters, live activity, column
+settings and accessible moves. Synthetic browser fixtures cover project
+navigation, pointer/keyboard moves and both-language layout audits. Browser checks
+require a host that permits binding the Playwright development server ports.

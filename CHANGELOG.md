@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Project boards with configurable columns, manual card ordering, live agent status and filters.
+
 ### Fixed
 
 - The search box in the split dialog's **Existing work** tab drew two focus rings.

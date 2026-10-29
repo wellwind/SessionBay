@@ -24,7 +24,7 @@ export interface SelectProps {
   className?: string;
 }
 
-function FloatingPanel({ anchor, panel, width, className, children, ...attributes }: HTMLAttributes<HTMLDivElement> & {
+export function FloatingPanel({ anchor, panel, width, className, children, ...attributes }: HTMLAttributes<HTMLDivElement> & {
   anchor: RefObject<HTMLElement | null>;
   panel: RefObject<HTMLDivElement | null>;
   width?: number;
@@ -57,7 +57,7 @@ function FloatingPanel({ anchor, panel, width, className, children, ...attribute
   return createPortal(<div {...attributes} ref={panel} className={`control-popover ${className ?? ''}`} style={position}>{children}</div>, anchor.current?.closest('[role="dialog"]') ?? document.body);
 }
 
-function useDismiss(open: boolean, root: RefObject<HTMLElement | null>, panel: RefObject<HTMLElement | null>, close: (restoreFocus: boolean) => void) {
+export function useDismiss(open: boolean, root: RefObject<HTMLElement | null>, panel: RefObject<HTMLElement | null>, close: (restoreFocus: boolean) => void) {
   const latestClose = useRef(close);
   latestClose.current = close;
   useEffect(() => {

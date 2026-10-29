@@ -36,6 +36,7 @@ import {
   Compass,
   Palette,
   LayoutGrid,
+  Columns3,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { closeFocusedExplorer } from './components/explorer-focus';
@@ -113,6 +114,7 @@ import { useUiTheme } from './use-ui-theme';
 import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
+import { ProjectBoard } from './components/ProjectBoard';
 import { WorkspaceOverview } from './components/WorkspaceOverview';
 import { SplitExistingPicker } from './components/SplitExistingPicker';
 import { projectColor, projectColorSlots, projectInitials } from './project-identity';
@@ -170,7 +172,7 @@ export default function App() {
   const [fileDocumentHost, setFileDocumentHost] = useState<HTMLDivElement | null>(null);
   const [visitedFileProjects, setVisitedFileProjects] = useState<string[]>([]);
   const [projectActivities, setProjectActivities] = useState<Record<string, { normal: string | null; zen: string | null }>>({});
-  const projectViews = useRef<Record<string, 'history' | 'workspace' | 'files' | 'git'>>({});
+  const projectViews = useRef<Record<string, 'history' | 'workspace' | 'files' | 'git' | 'board'>>({});
   const initialProjectActivities = useRef<Record<string, string | null>>({});
   const [historySidebarHost, setHistorySidebarHost] = useState<HTMLDivElement | null>(null);
   const filesToggle = useRef<HTMLButtonElement>(null);
@@ -191,11 +193,11 @@ export default function App() {
   const [overviewReturn, setOverviewReturn] = useState(false);
   // A worktree opened with "start work" opens the launcher once it is the current project.
   const pendingWorktreeLaunch = useRef<string | null>(null);
-  const beforeOverview = useRef<{ selectedId: string | null | undefined; view: 'history' | 'workspace' | 'files' | 'git' } | null>(null);
+  const beforeOverview = useRef<{ selectedId: string | null | undefined; view: 'history' | 'workspace' | 'files' | 'git' | 'board' } | null>(null);
   const [navigation, setNavigation] = useState<'projects' | 'directories'>('projects');
   const [allSessionsSearch, setAllSessionsSearch] = useState(false);
   const lastHistoryProject = useRef<string | null | undefined>(undefined);
-  const [view, setView] = useState<'history' | 'workspace' | 'files' | 'git'>('history');
+  const [view, setView] = useState<'history' | 'workspace' | 'files' | 'git' | 'board'>('history');
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [index, setIndex] = useState<IndexStatus>(noIndex);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -391,10 +393,11 @@ export default function App() {
     hadProjectTabs.current[currentProjectId] = hasProjectTabs;
     if (hadTabs && !hasProjectTabs && !manuallyClosedActivities.current.has(currentProjectId)) {
       setProjectActivities(previous => ({ ...previous, [currentProjectId]: { normal: 'sessions', zen: previous[currentProjectId]?.zen ?? null } }));
-      setView('history');
+      setView(previous => previous === 'board' ? previous : 'history');
     }
   }, [currentProjectId, hasProjectTabs]);
   useEffect(() => { setQuickOpen(false); }, [currentProjectId]);
+  useEffect(() => { if (view === 'board' && !current?.curated) setView('history'); }, [view, current?.curated]);
   if (current) projectViews.current[current.id] = view;
   const historyVisible = !!toolProject || allSessionsSearch;
   const historyEnabled = historyVisible;
@@ -1767,6 +1770,8 @@ export default function App() {
                   onRename={(tab) => setRenameTarget({ kind: 'tab', id: tab.id, name: tab.name })}
                   onClose={(tab) => removePanes(paneIds(tab.layout))}
                   onReorder={(id, targetId, after) => setWorkspace((w) => reorderWorkspaceTab(w, id, targetId, after))} />
+                {current?.curated && !current.workspaceOnly && <button type="button" className={`history-tab ${view === 'board' ? 'active' : ''}`} aria-pressed={view === 'board'}
+                  onClick={() => { setView('board'); setMaximizedId(null); }}><Columns3 size={14} aria-hidden="true" />{t('Board')}</button>}
                 <div className="project-file-tabs-host" ref={setFileTabsHost} />
                 <div className="project-file-tabs-host" ref={setGitTabsHost} />
                 {(current || temporaryWorkspace) && (
@@ -1791,6 +1796,7 @@ export default function App() {
               </div>}
               <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
                 <div className="project-work-content">
+                {view === 'board' && current?.curated && !workspaceOverview && <ProjectBoard key={current.id} project={current} workspace={workspace} refreshToken={refreshToken} />}
                 <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
                 <div className="project-file-document-host" ref={setGitDocumentHost} hidden={view !== 'git'} />
                 {temporaryWorkspace && !activeTab && <div className="empty-state">
