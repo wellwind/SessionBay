@@ -106,6 +106,20 @@ const views: View[] = [
     await page.locator('.kanban-move-menu button').first().click();
     await expect(page.getByRole('menu')).toBeVisible();
   }],
+  ['all-boards', async page => {
+    await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+    await expect(page.locator('[data-kanban-card="web-task"]')).toBeVisible();
+  }],
+  ['all-boards-move-menu', async page => {
+    await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+    await page.locator('[data-kanban-card="web-task"] .kanban-move-menu button').click();
+    await expect(page.getByRole('menu')).toBeVisible();
+  }],
+  ['all-boards-details', async page => {
+    await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+    await page.locator('[data-kanban-card="web-task"] .kanban-card-open').click();
+    await expect(page.getByRole('dialog', { name: L('Task details', '工作詳情') })).toBeVisible();
+  }],
   ['overview', async page => { await page.locator('.sidebar-global', { hasText: L('All workspaces', '全部工作區') }).click(); }],
   ['settings-sources', settings(['Sources and tools', '來源與工具'])],
   ['settings-profiles', settings(['Shell Profiles', 'Shell Profiles'])],
