@@ -648,6 +648,7 @@ impl Service {
     ) -> Result<RuntimeInfo, String> {
         if let Some(key) = self.existing_resume_key(request)? {
             if let Some(existing) = self.runtime.find_running_resume(&key) {
+                self.record_kanban_resume(request)?;
                 return Ok(existing);
             }
         }
@@ -657,7 +658,11 @@ impl Service {
                 "Activity hooks require launching through the persistent broker"
             ));
         }
-        self.runtime.launch(spec, request.cols, request.rows, emit)
+        let result = self
+            .runtime
+            .launch(spec, request.cols, request.rows, emit)?;
+        self.record_kanban_resume(request)?;
+        Ok(result)
     }
 
     fn existing_resume_key(&self, request: &LaunchRequest) -> Result<Option<String>, String> {
@@ -930,16 +935,44 @@ impl Service {
         // A provider toggle must never strand a live conversation behind plan_launch.
         if let Some(key) = self.existing_resume_key(request)? {
             if let Some(existing) = self.broker()?.find_running_resume(&key)? {
-                return if existing.pane_id == request.pane_id {
+                let result = if existing.pane_id == request.pane_id {
                     self.broker()?.attach(&existing.id, attachment_id, emit)
                 } else {
                     Ok(existing)
-                };
+                }?;
+                self.record_kanban_resume(request)?;
+                return Ok(result);
             }
         }
         let spec = self.plan_launch(request)?;
-        self.broker()?.launch(spec, request, attachment_id, emit)
+        let result = self.broker()?.launch(spec, request, attachment_id, emit)?;
+        self.record_kanban_resume(request)?;
+        Ok(result)
     }
+    fn record_kanban_resume(&self, request: &LaunchRequest) -> Result<(), String> {
+        if let Some(id) = &request.session_id {
+            if self.catalog.session(id).is_ok() {
+                self.catalog.kanban_session_resumed(id)?;
+            }
+        } else if let (Ok(kind), Some(external)) = (
+            AgentKind::parse(&request.kind),
+            request.resume_id.as_deref(),
+        ) {
+            let settings = self.settings()?;
+            let Ok(root) = manual_resume_root(&settings, kind) else {
+                return Ok(());
+            };
+            if let Some(source) = settings
+                .sources
+                .iter()
+                .find(|s| s.kind == kind && s.enabled && s.root == root)
+            {
+                self.catalog.request_kanban_resume(source, external)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn is_shutdown(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }

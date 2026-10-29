@@ -78,6 +78,21 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
         })
         .unwrap();
     assert_eq!(sessions.total, 2);
+    service
+        .catalog
+        .add_project(project.to_str().unwrap(), None)
+        .unwrap();
+    service
+        .catalog
+        .set_kanban_board_enabled(&projects[0].id, true)
+        .unwrap();
+    assert!(service
+        .catalog
+        .kanban_board(&projects[0].id)
+        .unwrap()
+        .unwrap()
+        .cards
+        .is_empty());
     for session in sessions.items {
         let preview = service.catalog.transcript(&session.id, None, 40).unwrap();
         assert!(preview.messages[0].text.contains("auth_flow"));
@@ -93,6 +108,12 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
             cols: 80,
             rows: 24,
         };
+        service.plan_launch(&request).unwrap();
+        assert!(service
+            .catalog
+            .kanban_session_card(&session.id)
+            .unwrap()
+            .is_none());
         let (tx, rx) = mpsc::channel();
         service
             .launch(
@@ -100,6 +121,16 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
                 Arc::new(move |event| tx.send(event).map_err(|e| e.to_string())),
             )
             .unwrap();
+        assert_eq!(
+            service
+                .catalog
+                .kanban_session_card(&session.id)
+                .unwrap()
+                .unwrap()
+                .sessions
+                .len(),
+            1
+        );
         let mut output = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {

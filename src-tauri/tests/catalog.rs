@@ -1122,7 +1122,7 @@ fn version_one_migration_rebuilds_fts_without_losing_projects_or_content() {
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
     drop(conn);
     fts_integrity(&path);
 }
