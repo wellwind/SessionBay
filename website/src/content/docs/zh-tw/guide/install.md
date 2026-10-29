@@ -28,8 +28,6 @@ sidebar:
 
 每個 App 身分只需要做一次。之後用同樣方式安裝相同身分的新版本，就能正常打開。
 
-新的 App 身分 `dev.fullstackladder.sessionbay` 使用全新的設定檔，不會遷移 0.1.0 的資料。macOS 首次啟動需要再次選擇「強制打開」，並重新授予通知權限。
-
 :::note
 Session Bay 不會要求你關閉 Gatekeeper 或系統完整性保護（SIP）。如果下載的檔案看起來不對，請刪除後重新從發布頁下載。
 :::
@@ -40,8 +38,16 @@ Session Bay 會啟動你本來就在用的 Agent CLI，本身不附帶任何 Age
 
 ## 更新與移除
 
+### 升級至 0.3.0
+
+開啟 0.3.0 會將本機目錄資料庫升級至 **schema v8**，以儲存看板。**升級後，0.2.0 將無法再開啟這個目錄資料庫。** Agent 歷史紀錄不變。
+
+若從 **0.1.0** 升級，請留意 **0.2.0** 已將 App 身分改為 `dev.fullstackladder.sessionbay`。Session Bay 在 0.1.0 的資料不會遷移；新設定檔會重新開始，並再次讀取 Agent 歷史。macOS 需要再次選擇**強制打開**，並重新授予通知權限。
+
+### 更新或移除 App
+
 - **更新**：GitHub 有新版本時，Session Bay 會在左下角顯示提示。按**查看版本**，下載新版本並取代「應用程式」裡的 App。執行中的 Agent 不會因為更新而中斷；更新前請先關閉 Session Bay。
-- **移除**：刪除 App 即可。Session Bay 自己的資料（索引、設定、版面）在 `~/Library/Application Support/dev.fullstackladder.sessionbay`，想清乾淨也可以刪掉這個資料夾。Agent 的歷史永遠不會被動到。
+- **移除**：刪除 App 即可。Session Bay 自己的資料（目錄資料庫、看板、設定與版面）在 `~/Library/Application Support/dev.fullstackladder.sessionbay`，想清乾淨也可以刪掉這個資料夾。Agent 的歷史永遠不會被動到。
 
 ## Linux 與 Windows
 

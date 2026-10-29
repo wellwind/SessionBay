@@ -5,7 +5,7 @@ sidebar:
   order: 6
 ---
 
-Open a project and choose **Git** in the tool bar on the right. Session Bay finds every Git repository inside the project and runs your installed `git` for every action.
+Open a project and choose **Git** in the tool bar on the right. Session Bay detects the enclosing repository and scans project subfolders, using your installed `git` for every action. The subfolder scan has depth and resource limits, so deeply nested repositories may not appear until you open a file from them.
 
 ![Changes, a diff and the commit box in the Git panel](../../../assets/screenshots/en/git.png)
 
@@ -24,7 +24,9 @@ Open a project and choose **Git** in the tool bar on the right. Session Bay find
 
 ## Safe by default
 
-Risky operations (reset, discard, branch delete, force push) create a **recovery point** first. Restore it from **Recovery points** if something went wrong.
+Destructive local operations such as reset, discard and branch deletion create a **recovery point** first. Restore it from **Recovery points** if something went wrong.
+
+Force push uses **force-with-lease**, checking the remote commit you reviewed before moving the remote branch. It does not create a local recovery point for remote commits.
 
 ## Conflicts
 

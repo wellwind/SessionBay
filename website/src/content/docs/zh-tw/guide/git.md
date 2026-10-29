@@ -5,7 +5,7 @@ sidebar:
   order: 6
 ---
 
-打開專案，在右側工具列選 **Git**。Session Bay 會找出專案內的每個 Git repository，所有操作都使用你電腦上安裝的 `git`。
+打開專案，在右側工具列選 **Git**。Session Bay 會偵測包含專案的 repository，並掃描專案子資料夾，所有操作都使用你電腦上安裝的 `git`。子資料夾掃描有深度與資源上限，因此較深層的 repository 可能要等你開啟其中的檔案後才會出現。
 
 ![Git 面板中的變更清單、diff 與 commit 區塊](../../../../assets/screenshots/zh-tw/git.png)
 
@@ -24,7 +24,9 @@ sidebar:
 
 ## 預設就安全
 
-有風險的操作（reset、捨棄變更、刪除分支、強制推送）會先建立**復原點**。出問題時可以從**復原點**還原。
+Reset、捨棄變更與刪除分支等本機破壞性操作，會先建立**復原點**。出問題時可以從**復原點**還原。
+
+強制推送使用 **force-with-lease**，移動遠端分支前會檢查你已檢視的遠端 commit，不會為遠端 commits 建立本機復原點。
 
 ## 衝突
 

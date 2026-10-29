@@ -24,6 +24,8 @@ sidebar:
 
 想一次搜尋所有資料夾，到**所有目錄**按**搜尋所有工作階段**。
 
+Claude Code 的 Session 會優先使用 Claude Code 自己產生的標題；若在 Claude Code 設定了自訂標題，則以自訂標題為準。沒有標題時，才使用第一則有實際內容的提示。
+
 ## 接續
 
 **接續工作**會在 Session 原本的工作目錄啟動原來的 Agent，例如 `claude --resume <id>`。Agent 沿用它自己的登入與權限設定。

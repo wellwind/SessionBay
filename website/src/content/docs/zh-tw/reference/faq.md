@@ -9,7 +9,11 @@ description: 常見問題與解法。
 
 ### Agent 顯示「未偵測到」
 
-macOS 的 App 看不到 Shell 的 `PATH`。請在**設定 → 來源與工具 → 執行檔路徑**填入絕對路徑，例如 `which claude` 的結果。
+Session Bay 會檢查 `PATH` 與常見安裝位置，包含 macOS 的版本管理器目錄。先試試**設定 → 來源與工具 → 重新偵測**；若仍找不到 CLI，請在**執行檔路徑**填入絕對路徑，例如在 Shell 執行 `which claude` 的結果。
+
+### 終端機找不到 node 或 npm
+
+0.3.0 會避免新終端機繼承啟動來源的 nvm 與 npm 工作階段狀態。修正前已啟動的 broker 會保留舊環境，直到重新啟動。關閉視窗不會重啟 broker；重新啟動 Mac 才會。也請確認 Shell Profile 有初始化版本管理器。
 
 ### 歷史是空的
 
