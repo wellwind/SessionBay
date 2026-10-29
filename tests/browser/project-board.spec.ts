@@ -114,3 +114,112 @@ test('filters synthetic card notes and session titles with agent and attention',
   await expect(page.locator('.kanban-card')).toHaveCount(0);
   await expect(page.getByText(L('No tasks match the filters.', '沒有符合篩選條件的工作。'))).toBeVisible();
 });
+
+test('edits task details, retains notes, traps focus and restores the opener', async ({ page }, info) => {
+  await openBoard(page);
+  const opener = card(page, 'card-0').locator('.kanban-card-open');
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: L('Task details', '工作詳情') });
+  await expect(dialog.getByRole('textbox', { name: L('Task title', '工作標題') })).toBeFocused();
+  const lastControl = dialog.locator('summary');
+  await lastControl.focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: L('Close dialog', '關閉對話框') })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(lastControl).toBeFocused();
+  await dialog.getByRole('textbox', { name: L('Task title', '工作標題') }).fill('Synthetic revised task');
+  await dialog.getByRole('textbox', { name: L('Notes', '備註'), exact: true }).fill('Plan the change\n\nReview before sending');
+  await expect(dialog.getByRole('button', { name: L('Start work', '開始工作'), exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: L('Save changes', '儲存變更'), exact: true }).click();
+  await expect(dialog.getByRole('button', { name: L('Save changes', '儲存變更'), exact: true })).toBeDisabled();
+  await page.screenshot({ path: info.outputPath('task-details.png') });
+  await page.keyboard.press('Escape');
+  await expect(opener).toBeFocused();
+  await opener.click();
+  await expect(dialog.getByRole('textbox', { name: L('Notes', '備註'), exact: true })).toHaveValue('Plan the change\n\nReview before sending');
+});
+
+test('archives and restores a Done task, then deletes it without recycling sessions', async ({ page }) => {
+  await openBoard(page);
+  await card(page, 'card-4').locator('.kanban-card-open').click();
+  await page.getByRole('button', { name: L('Archive task', '封存工作'), exact: true }).click();
+  await expect(card(page, 'card-4')).toHaveCount(0);
+  await page.getByRole('button', { name: L('Archived tasks', '已封存工作'), exact: true }).click();
+  await card(page, 'card-4').locator('.kanban-card-open').click();
+  await page.getByRole('button', { name: L('Restore task', '還原工作'), exact: true }).click();
+  await page.getByRole('button', { name: L('Archived tasks', '已封存工作'), exact: true }).click();
+  await card(page, 'card-4').locator('.kanban-card-open').click();
+  await page.getByRole('button', { name: L('Delete task', '刪除工作'), exact: true }).click();
+  await page.getByRole('combobox', { name: L('Attached sessions', '附加的 Sessions') }).selectOption('detach');
+  await page.getByRole('dialog').getByRole('button', { name: L('Delete task', '刪除工作'), exact: true }).click();
+  await expect(card(page, 'card-4')).toHaveCount(0);
+});
+
+test('merges by dropping on a card center with confirmation, then splits the attached session', async ({ page }) => {
+  await openBoard(page);
+  const source = card(page, 'card-0').locator('.kanban-card-handle'), destination = card(page, 'card-5');
+  const start = (await source.boundingBox())!, end = (await destination.boundingBox())!;
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.getByRole('dialog', { name: L('Merge tasks?', '合併工作？') })).toBeVisible();
+  await expect(card(page, 'card-0')).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: L('Merge tasks', '合併工作'), exact: true }).click();
+  await expect(card(page, 'card-0')).toHaveCount(0);
+  await destination.locator('.kanban-card-open').click();
+  await expect(page.locator('.kanban-detail-sessions li')).toHaveCount(2);
+  await page.locator('.kanban-detail-sessions li').filter({ hasText: title() }).getByRole('button', { name: L('Split into new task', '拆分為新工作') }).click();
+  await expect(page.locator('.kanban-detail-sessions li')).toHaveCount(1);
+});
+
+test('recycles attached sessions only after the existing per-session confirmation', async ({ page }) => {
+  await openBoard(page);
+  await card(page, 'card-4').locator('.kanban-card-open').click();
+  await page.getByRole('button', { name: L('Recycle attached sessions…', '將附加的 Sessions 移至資源回收筒…') }).click();
+  await expect(page.getByRole('dialog', { name: L('Move to the recycle bin?', '移入資源回收筒？') })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: L('Move to recycle bin', '確認移入資源回收筒'), exact: true }).click();
+  await expect(page.getByText(L('No sessions attached. Start work to attach a new session.', '尚未附加 Session。開始工作即可附加新的 Session。'))).toBeVisible();
+});
+
+test('starts an agent from the existing launcher and pastes task text without submitting', async ({ page }) => {
+  await openBoard(page);
+  await card(page, 'card-0').locator('.kanban-card-open').click();
+  await page.getByRole('dialog').getByRole('button', { name: L('Start work', '開始工作'), exact: true }).click();
+  const launcher = page.getByRole('dialog', { name: L('Start a new task', '開始新的工作') });
+  await expect(launcher).toBeVisible();
+  await launcher.getByRole('button', { name: L('Start work', '開始工作'), exact: true }).click();
+  await expect(page.getByText(L('Task text inserted, not sent. Review it before pressing Enter.', '已插入工作內容，尚未送出。請先檢查，再按 Enter。'))).toBeVisible();
+  const calls = await page.evaluate(() => (window as unknown as { kanbanCalls: { command: string; args: Record<string, unknown> }[] }).kanbanCalls);
+  const launches = calls.filter(call => call.command === 'launch_fresh_runtime');
+  expect(launches).toHaveLength(1);
+  expect(launches[0].args.request).toMatchObject({ kanbanCardId: 'card-0', cwd: '/Users/you/code/harbor-api' });
+  const bytes = calls.filter(call => call.command === 'write_runtime').map(call => String(call.args.data)).join('');
+  expect(bytes.replace(/\r/g, '\n')).toBe('\x1b[200~' + title() + '\n\nSynthetic planning notes: token bucket' + '\x1b[201~');
+});
+
+test('resumes the selected attached session through the workbench flow', async ({ page }) => {
+  await openBoard(page);
+  await card(page, 'card-2').locator('.kanban-card-open').click();
+  await page.getByRole('dialog').getByRole('button', { name: L('Resume', '接續'), exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect.poll(async () => page.evaluate(() => {
+    const calls = (window as unknown as { kanbanCalls: { command: string; args: { request?: { sessionId?: string } } }[] }).kanbanCalls;
+    return calls.filter(call => call.command === 'launch_runtime').map(call => call.args.request?.sessionId);
+  })).toContain('s-harbor-2');
+});
+
+test('starts a plain shell for a planned task without sending its text', async ({ page }) => {
+  await openBoard(page);
+  await card(page, 'card-0').locator('.kanban-card-open').click();
+  await page.getByRole('dialog').getByRole('button', { name: L('Start work', '開始工作'), exact: true }).click();
+  const launcher = page.getByRole('dialog', { name: L('Start a new task', '開始新的工作') });
+  await launcher.getByRole('button', { name: /^Shell/ }).click();
+  await launcher.getByRole('button', { name: L('Start work', '開始工作'), exact: true }).click();
+  await expect(page.getByText(L('Task text inserted, not sent. Review it before pressing Enter.', '已插入工作內容，尚未送出。請先檢查，再按 Enter。'))).toBeVisible();
+  const calls = await page.evaluate(() => (window as unknown as { kanbanCalls: { command: string; args: Record<string, unknown> }[] }).kanbanCalls);
+  expect(calls.find(call => call.command === 'launch_runtime')?.args.request).toMatchObject({ kind: 'shell', kanbanCardId: 'card-0' });
+  const bytes = calls.filter(call => call.command === 'write_runtime').map(call => String(call.args.data)).join('');
+  expect(bytes.startsWith('\x1b[200~')).toBe(true);
+  expect(bytes.endsWith('\x1b[201~')).toBe(true);
+});

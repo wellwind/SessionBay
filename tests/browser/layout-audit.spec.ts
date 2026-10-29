@@ -63,6 +63,24 @@ const views: View[] = [
     await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
     await expect(page.locator('.kanban-card').first()).toBeVisible();
   }],
+  ['board-task-details', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.locator('.kanban-card-open').first().click();
+    await expect(page.getByRole('dialog', { name: L('Task details', '工作詳情') })).toBeVisible();
+  }],
+  ['board-done-details', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.locator('[data-kanban-card="card-4"] .kanban-card-open').click();
+    await expect(page.getByRole('heading', { name: L('Done actions', '完成後動作') })).toBeVisible();
+  }],
+  ['board-auto-archive', async page => {
+    await page.locator('.directory-card-main').first().click();
+    await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+    await page.getByRole('button', { name: L('Auto-archive', '自動封存'), exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  }],
   ['board-enable', async page => {
     await page.goto('/tests/browser/showcase.html?board=off');
     await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');

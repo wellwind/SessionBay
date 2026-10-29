@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Channel } from '@tauri-apps/api/core';
-import { kanbanFixture, moveFixtureCard } from '../fixtures/kanban';
+import { kanbanFixture, moveFixtureCard, createFixtureCard, deleteFixtureCard, mergeFixtureCards, splitFixtureSession } from '../fixtures/kanban';
 import { defaultAgentOptions } from '../../src/agents';
 import type { AgentKind, Bootstrap, Pane, Project, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
 import '../../src/styles.css';
@@ -185,11 +185,51 @@ const fileText = (path: string) => new TextEncoder().encode(path.endsWith('rateL
   '',
 ].join('\n') : `# ${path}\n\nSynthetic showcase file.\n`);
 
+const kanbanCalls: { command: string; args: Record<string, unknown> }[] = [];
+Object.assign(window, { kanbanCalls });
 mockWindows('main');
 mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
+  kanbanCalls.push({ command, args });
   switch (command) {
     case 'bootstrap': return bootstrap;
+    case 'set_kanban_auto_archive': board.autoArchiveDays = args.days as number | null; return;
+    case 'create_kanban_card': return createFixtureCard(board, String(args.columnId), String(args.title), String(args.notes));
+    case 'edit_kanban_card': {
+      const card = board.cards.find(card => card.id === args.cardId)!;
+      card.title = String(args.title); card.notes = String(args.notes); return structuredClone(card);
+    }
+    case 'archive_kanban_card': {
+      const card = board.cards.find(card => card.id === args.cardId)!;
+      card.archived = Boolean(args.archived); return structuredClone(card);
+    }
+    case 'delete_kanban_card': return deleteFixtureCard(board, String(args.cardId), String(args.sessions));
+    case 'merge_kanban_cards': return mergeFixtureCards(board, String(args.sourceCardId), String(args.targetCardId));
+    case 'split_kanban_session': return splitFixtureSession(board, String(args.cardId), String(args.sessionId));
+    case 'trash_session':
+      for (const card of board.cards) card.sessions = card.sessions.filter(link => link.session.id !== args.sessionId);
+      return 'synthetic-trash-' + String(args.sessionId);
+    case 'launch_runtime': {
+      const request = args.request as { paneId: string; kind: AgentKind | 'shell'; projectId: string; cwd: string; profileId: string; sessionId?: string };
+      const runtime: RuntimeRecord = { id: 'synthetic-runtime-' + runtimes.length, paneId: request.paneId, kind: request.kind,
+        projectId: request.projectId, profileId: request.profileId, sessionId: request.sessionId ?? null, resumeId: null,
+        cwd: request.cwd, state: 'running', exitCode: null };
+      runtimes.push(runtime);
+      const channel = args.onEvent as Channel<TerminalEvent>;
+      channel.onmessage({ type: 'snapshot', runtimeId: runtime.id, sequence: 1,
+        data: Array.from(new TextEncoder().encode('\x1b[?2004hSynthetic ready\r\n')), cols: 80, rows: 24, truncated: false });
+      return runtime;
+    }
+    case 'launch_fresh_runtime': {
+      const request = args.request as { kind: AgentKind; projectId: string; cwd: string; profileId: string; kanbanCardId?: string };
+      const id = 'synthetic-launched-' + runtimes.length;
+      const session: Session = { ...sessions[0], id, kind: request.kind, externalId: id, cwd: request.cwd, title: 'Synthetic started session' };
+      const runtime: RuntimeRecord = { id, paneId: id, sessionId: null, providerSessionId: id, kind: request.kind,
+        projectId: request.projectId, profileId: request.profileId, resumeId: null, state: 'running', cwd: request.cwd, exitCode: null };
+      runtimes.push(runtime); sessions.push(session);
+      if (request.kanbanCardId) board.cards.find(card => card.id === request.kanbanCardId)!.sessions.push({ session, branch: null });
+      return runtime;
+    }
     case 'kanban_board': return args.projectId === board.projectId ? structuredClone(board) : null;
     case 'set_kanban_board_enabled': board.enabled = Boolean(args.enabled); return structuredClone(board);
     case 'move_kanban_card': return structuredClone(moveFixtureCard(board, String(args.cardId), String(args.columnId), Number(args.position)));
@@ -275,7 +315,7 @@ mockIPC((command, payload = {}) => {
     case 'attach_runtime': {
       const target = runtimes.find(r => r.id === args.runtimeId)!;
       const channel = args.onEvent as Channel<TerminalEvent>;
-      const data = Array.from(new TextEncoder().encode(paneOutput[target.paneId] ?? '$ '));
+      const data = Array.from(new TextEncoder().encode('\x1b[?2004h' + (paneOutput[target.paneId] ?? '$ ')));
       channel.onmessage({ type: 'snapshot', runtimeId: target.id, sequence: 1, data, cols: 120, rows: 32, truncated: false });
       const status = target.paneId === 'pane-web' ? 'permission' : target.paneId === 'pane-agent' ? 'idle' : null;
       if (status) setTimeout(() => channel.onmessage({ type: 'terminalStatus', runtimeId: target.id, generation: 'showcase', revision: 1, status }), 200);
