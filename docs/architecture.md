@@ -45,7 +45,7 @@ Terminals are owned by a separate **broker** process (`src-tauri/src/bin/session
 - Only one broker can serve a data directory; it holds an OS file lock.
   - On Unix, the socket and its directory are private to the user (0700/0600).
   - On Windows, the named pipe uses a DACL that grants access only to the current user's SID.
-- The broker keeps a bounded replay of each terminal: up to 1 MiB, 200 lines of scrollback and a vt100 screen model.
+- The broker keeps a bounded replay of each terminal: up to 4 MiB or 4,096 frames of recent output, 10,000 lines of scrollback, and a vt100 screen model. Reconnect restores the current screen plus at most 1 MiB of the newest scrollback text.
 - Output reaches the UI as ordered, acknowledged frames, so a slow renderer applies backpressure instead of growing memory without bound.
 - Metadata stores runtime IDs, pane, project, agent, cwd and state. It never stores PIDs, argv, environment variables or terminal content.
 - If the broker or the machine restarts, panes show `interrupted`. The user has to explicitly start them again.
