@@ -181,6 +181,8 @@ describe('workspace filename search IPC contract', () => {
 
 describe('Kanban IPC contract', () => {
   const cases: [string, () => Promise<unknown>, Record<string, unknown> | undefined][] = [
+    ['set_kanban_auto_archive', () => api.setKanbanAutoArchive('project', 7), { projectId: 'project', days: 7 }],
+    ['bind_kanban_worktree', () => api.bindKanbanWorktree('card', '/synthetic/tree'), { cardId: 'card', path: '/synthetic/tree' }],
     ['kanban_board', () => api.kanbanBoard('project'), { projectId: 'project' }],
     ['list_kanban_boards', () => api.listKanbanBoards(), undefined],
     ['set_kanban_board_enabled', () => api.setKanbanBoardEnabled('project', false), { projectId: 'project', enabled: false }],

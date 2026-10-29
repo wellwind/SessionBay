@@ -96,6 +96,8 @@ jobs:
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/config/confirmation.config.ts
       - name: Lazy virtual session feed browser acceptance
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/config/session-feed.config.ts
+      - name: Project Kanban board browser acceptance
+        run: node node_modules/@playwright/test/cli.js test --config tests/browser/config/kanban.config.ts
       - name: WebKit layout parity (WKWebView / WebKitGTK engine family)
         run: |
           npx playwright install --with-deps webkit

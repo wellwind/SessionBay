@@ -463,6 +463,7 @@ mod tests {
             };
             if !self.suppress {
                 self.records.borrow_mut().push(RuntimeRecord {
+                    provider_session_id: None,
                     info: info.clone(),
                     kind: request.kind.clone(),
                     project_id: request.project_id.clone(),
@@ -485,6 +486,7 @@ mod tests {
     }
     fn request(kind: &str) -> LaunchRequest {
         LaunchRequest {
+            kanban_card_id: None,
             pane_id: format!(
                 "{}:{}",
                 std::time::SystemTime::now()

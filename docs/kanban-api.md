@@ -1,8 +1,7 @@
 # Kanban catalog API
 
-Issue #138 provides storage and commands only. The project board, card start flow,
-worktree-to-card bindings, auto-archive policy and All boards UI follow in
-#139–#141.
+Issues #138–#141 provide catalog commands, the project board, task details/start
+flow and the All boards overview. The UI consumes these commands through src/api.ts.
 
 ## Ownership and migration
 
@@ -15,6 +14,10 @@ tables. Clearing/rebuilding the index preserves tasks, column settings, archived
 state, session associations and explicit exclusions. Reads join links to current
 source storage identities so replacing a source root cannot reveal unrelated
 history under a reused source ID.
+
+Schema version 8 adds optional auto-archive policy, worktree bindings and pending
+launch associations. These tables also survive index rebuilds. Migrations are
+local catalog changes; they never modify agent history.
 
 Only curated projects can enable a board. Disabling preserves all its data and
 stops intake and edits. Re-enabling does not backfill sessions from the disabled
@@ -63,6 +66,13 @@ camelCase wrappers.
 - add_kanban_session(sessionId): manually include indexed older history; idempotent
   when already attached.
 - kanban_session_card(sessionId): resolve the current task for a running session.
+- set_kanban_auto_archive(projectId, days?): null disables the policy; otherwise
+  accept 1–36500 days. Board reads and reconciliation archive Done-stage cards
+  whose task updatedAt is older than the threshold. Default: off. Restoring a task
+  refreshes updatedAt, so it is not immediately archived again.
+- bind_kanban_worktree(cardId, path): canonicalize and validate an existing linked
+  worktree against the main curated project. A checkout cannot belong to two
+  tasks. Session intake also recognizes cwd subdirectories of a bound checkout.
 
 Stage values are unsorted, todo, doing, review and done. Projects cannot be changed
 by card moves, column deletion, merge or attachment. Titles may be empty for
@@ -102,10 +112,76 @@ tasks. Missing or unreadable source roots retain associations until a successful
 scan can confirm absence. Confirmed source removal/replacement detaches its
 links. Index clear itself never detaches.
 
+## Card details and start
+
+Task details edit title/notes, resume individual sessions, split sessions, attach
+explicitly selected project history and offer a keyboard-accessible merge target.
+Pointer drops on the middle 40% of a card request a merge confirmation; its edges
+retain ordering. Unsaved edits require saving before task actions or confirmation
+before discarding. Done-stage tasks offer archive, delete with an explicit
+Unsorted/detach choice, and recycling through one existing identity-checked
+trash_session confirmation per visible session. No card action moves agent files
+to the system trash. Archived tasks have a separate recoverable project view.
+
+Start opens the existing New work launcher, with the task's bound worktree or
+effective project folder. Agent/shell selection, launch preview, enablement,
+permission settings and launch-local activity hooks remain owned by that flow.
+An optional kanbanCardId travels with the launch request. Backend validation
+checks the enabled project, archive state and canonical working directory.
+
+A confirmed fresh agent launch records its runtime/card association and the
+currently indexed source storage identity in the catalog, only when the provider\nhas one enabled source. Multiple sources require explicit history attachment. The broker retains
+the first native providerSessionId received through its existing trusted
+launch-local handshake. Reconciliation matches that identity plus source ID,
+kind and storage root, preserving later explicit attachment/detachment choices,\nincluding when the transcript appears after the launch or
+an index rebuild. It never selects the newest session merely by cwd/time.
+Provider session rotations do not reassign subsequent conversations to the card.
+
+Native terminal status alone does **not** establish a provider session identity.
+In particular, reviewed native terminal-status routes (including recent Codex,
+Grok and Antigravity), hooks-disabled launches and older brokers may not supply
+the native handshake. Bound worktree intake still applies; otherwise the user
+must select the session using **Attach from history** in task details. The
+launcher explains this limitation. Plain shells have no indexed agent session.
+
+Task text uses the file-input safety boundary: the connected, focused runtime
+must enable bracketed paste; text goes through xterm and the bounded input queue
+without an appended Enter. Terminal control bytes are removed. Typing first
+cancels the pending insertion; reconnecting cannot replay a consumed paste.
+While waiting, **Copy task text** provides an explicit clipboard fallback.
+Pending text is never serialized into workspace.json. New worktree creation
+reuses the existing Git worktree command, then binds its result in the catalog;
+a failed binding retry does not recreate the checkout.
+
 ## Validation scope
 
 Synthetic Rust tests cover commands, invalid/cross-project operations, ordering,
 concurrent writers, migration from version 6, intake, parent relationships,
 linked worktrees, recycle/restore, permanent removal and rebuild preservation.
-TypeScript tests cover the explicit IPC command names/argument shapes. UI
-rendering and interaction tests belong to the later board UI work.
+TypeScript tests cover the explicit IPC command names/argument shapes. Project
+board component tests cover translated rendering, filters, live activity, column
+settings, accessible moves, task editing, merge/split, start/resume callbacks,
+archive/restore, explicit history attachment and per-session recycling. Terminal
+tests verify safe task paste and cancellation. Rust tests additionally cover
+worktree bindings, launch/source identity and auto-archive/rebuild behavior. Synthetic browser fixtures cover project
+navigation, pointer/keyboard moves and both-language layout audits. Browser checks
+require a host that permits binding the Playwright development server ports.
+
+## All boards overview
+
+The shared ProjectBoard component reads list_kanban_boards() for the overview.
+Only enabled boards belonging to curated projects are displayed, with archived
+cards hidden. Columns are grouped by their stage into five fixed columns,
+independent of project-specific names and ordering. Project identity uses the
+existing palette and initials. Project, text (title, notes and session titles),
+agent and live needs-attention filters combine.
+
+Overview moves resolve the card's owning board first, sort that board's columns
+by position and select the first column for the target stage. The UI calls the
+existing move_kanban_card command with that column's ID and the full destination
+card count, including archived/filtered cards, to append the task. A missing stage
+is disabled in the move menu and ignored for pointer/keyboard moves. There is no
+cross-project destination or overview reorder command. Pointer drops over another
+card change stage only; merging remains an explicit same-project details action
+or a confirmed project-board drop. Shared details resolve the owning project for
+history, start and worktree actions.

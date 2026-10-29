@@ -29,6 +29,7 @@ export default defineConfig({
             { slug: 'guide/find-sessions' },
             { slug: 'guide/terminals' },
             { slug: 'guide/agent-status' },
+            { slug: 'guide/kanban' },
             { slug: 'guide/git' },
             { slug: 'guide/cleanup' },
             { slug: 'guide/settings' },

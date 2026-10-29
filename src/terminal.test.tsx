@@ -1721,3 +1721,52 @@ describe('guarded terminal output activity', () => {
     expect(mocks.stop).not.toHaveBeenCalled();
   });
 });
+
+describe('task text safe paste', () => {
+  const ready = async (patch: Partial<Pane> = {}) => {
+    const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime', pendingTaskText: 'Synthetic task\n\nPlanning notes', ...patch }));
+    const view = render(<TerminalPane {...p} />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+    completeSnapshot(mocks.attach.mock.calls.at(-1)![1]);
+    return { p, view };
+  };
+  it('pastes title and notes once through xterm without writing a submit key', async () => {
+    const { p, view } = await ready();
+    await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('Synthetic task\n\nPlanning notes'));
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { pendingTaskText: undefined });
+    view.rerender(<TerminalPane {...p} focused={false} />);
+    view.rerender(<TerminalPane {...p} focused />);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    expect(mocks.termPaste).toHaveBeenCalledOnce();
+  });
+  it('waits for safe paste mode and cancels when the user types first', async () => {
+    mocks.bracketedPaste = false;
+    const { p } = await ready();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    fireEvent.input(screen.getByLabelText('Mock xterm input'), { target: { value: 'x' } });
+    await act(async () => mocks.input?.('x'));
+    mocks.bracketedPaste = true;
+    await new Promise(resolve => setTimeout(resolve, 250));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+    expect(p.onPatch).toHaveBeenCalledWith('pane', { pendingTaskText: undefined });
+  });
+  it('does not paste into an unfocused pane or an exited runtime', async () => {
+    const { p, view } = await ready({ state: 'exited' });
+    view.rerender(<TerminalPane {...p} focused={false} />);
+    await new Promise(resolve => setTimeout(resolve, 250));
+    expect(mocks.termPaste).not.toHaveBeenCalled();
+  });
+});
+
+it('does not mistake terminal protocol replies for user edits while task text awaits safe paste', async () => {
+  mocks.bracketedPaste = false;
+  const p = props(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime', pendingTaskText: 'Synthetic task' }));
+  render(<TerminalPane {...p} />);
+  await waitFor(() => expect(mocks.attach).toHaveBeenCalled());
+  completeSnapshot(mocks.attach.mock.calls.at(-1)![1]);
+  await act(async () => mocks.input?.('\x1b]11;rgb:0000/0000/0000\x1b\\'));
+  mocks.bracketedPaste = true;
+  await waitFor(() => expect(mocks.termPaste).toHaveBeenCalledExactlyOnceWith('Synthetic task'));
+});

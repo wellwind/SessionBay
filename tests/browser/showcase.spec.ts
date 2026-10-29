@@ -65,3 +65,18 @@ test('git workbench', async ({ page, request }) => {
   await expect(page.locator('.git-document').getByText('BETA').first()).toBeVisible();
   await shot(page, 'git');
 });
+
+test('project board', async ({ page }) => {
+  await open(page);
+  await page.locator('.directory-card-main').first().click();
+  await page.getByRole('button', { name: L('Board', '看板'), exact: true }).click();
+  await expect(page.locator('.kanban-card').first()).toBeVisible();
+  await shot(page, 'board');
+});
+
+test('all boards overview', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: L('All boards', '全部看板'), exact: true }).click();
+  await expect(page.locator('[data-kanban-card="web-task"]')).toBeVisible();
+  await shot(page, 'all-boards');
+});

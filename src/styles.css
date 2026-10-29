@@ -1717,3 +1717,5 @@ kbd {
 .virtual-session-list:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .session-trash-note { margin-top: 8px; }
+
+.pane-task-input { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; color: var(--muted); font-size: 12px; background: var(--surface); }

@@ -146,6 +146,7 @@ for line in sys.stdin:
     let client =
         BrokerClient::connect(root, Path::new(env!("CARGO_BIN_EXE_sessionbay-broker"))).unwrap();
     let request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "synthetic-pane".into(),
         kind: "claude".into(),
         project_id: None,

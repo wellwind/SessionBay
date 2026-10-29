@@ -63,6 +63,7 @@ pub struct KanbanCard {
     pub created_at: String,
     pub updated_at: String,
     pub sessions: Vec<KanbanSession>,
+    pub worktree_path: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +74,7 @@ pub struct KanbanBoard {
     pub columns: Vec<KanbanColumn>,
     /// Includes archived tasks so callers can offer a recoverable Archived view.
     pub cards: Vec<KanbanCard>,
+    pub auto_archive_days: Option<u32>,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -163,8 +165,16 @@ fn column(conn: &Connection, column_id: &str) -> Result<KanbanColumn, String> {
 }
 fn card(conn: &Connection, card_id: &str) -> Result<KanbanCard, String> {
     let mut card = conn.query_row("SELECT id,project_id,column_id,title,notes,position,archived,created_at,updated_at FROM kanban_cards WHERE id=?1", [card_id], |r| Ok(KanbanCard {
-        id:r.get(0)?, project_id:r.get(1)?, column_id:r.get(2)?, title:r.get(3)?, notes:r.get(4)?, position:r.get(5)?, archived:r.get(6)?, created_at:r.get(7)?, updated_at:r.get(8)?, sessions:Vec::new(),
+        id:r.get(0)?, project_id:r.get(1)?, column_id:r.get(2)?, title:r.get(3)?, notes:r.get(4)?, position:r.get(5)?, archived:r.get(6)?, created_at:r.get(7)?, updated_at:r.get(8)?, sessions:Vec::new(), worktree_path:None,
     })).optional().map_err(error)?.ok_or(tr!("Kanban card not found."))?;
+    card.worktree_path = conn
+        .query_row(
+            "SELECT path FROM kanban_worktrees WHERE card_id=?1 ORDER BY path LIMIT 1",
+            [card_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(error)?;
     card.sessions = conn.prepare(&format!("SELECT {SESSION_COLUMNS},l.branch FROM kanban_card_sessions l JOIN sessions s ON s.id=l.session_id JOIN sources src ON src.id=s.source_id AND src.storage_root=l.source_root WHERE l.card_id=?1 AND NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id AND t.source_root=l.source_root) ORDER BY l.position,l.session_id")).map_err(error)?
         .query_map([card_id], |r| Ok(KanbanSession { session:session_row(r)?, branch:r.get(15)? })).map_err(error)?.collect::<Result<Vec<_>,_>>().map_err(error)?;
     Ok(card)
@@ -267,9 +277,10 @@ impl Catalog {
         Ok(result)
     }
     pub fn kanban_board(&self, project_id: &str) -> Result<Option<KanbanBoard>, String> {
-        let conn = self.connect()?;
-        let tx = conn.unchecked_transaction().map_err(error)?;
-        board(&tx, project_id)
+        self.kanban_write(|conn| {
+            auto_archive(conn)?;
+            board(conn, project_id)
+        })
     }
     pub fn list_kanban_boards(&self) -> Result<Vec<KanbanBoard>, String> {
         let conn = self.connect()?;
@@ -616,6 +627,16 @@ impl Catalog {
                 ],
             )
             .map_err(error)?;
+            conn.execute(
+                "UPDATE kanban_launches SET card_id=?1 WHERE card_id=?2",
+                params![target_card_id, source_card_id],
+            )
+            .map_err(error)?;
+            conn.execute(
+                "UPDATE kanban_worktrees SET card_id=?1 WHERE card_id=?2",
+                params![target_card_id, source_card_id],
+            )
+            .map_err(error)?;
             conn.execute("DELETE FROM kanban_cards WHERE id=?1", [source_card_id])
                 .map_err(error)?;
             normalize(conn, &source.column_id)?;
@@ -692,6 +713,7 @@ impl Catalog {
     pub(super) fn refresh_kanban_intake(&self) -> Result<(), String> {
         self.kanban_write(|conn| {
             let enabled:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM kanban_boards b JOIN projects p ON p.id=b.project_id WHERE b.enabled=1 AND p.manual=1)",[],|r|r.get(0)).map_err(error)?;
+            auto_archive(conn)?;
             let candidates=strings(conn,"SELECT s.id FROM sessions s JOIN sources src ON src.id=s.source_id LEFT JOIN kanban_observed_sessions o ON o.session_id=s.id AND o.source_root=src.storage_root WHERE o.session_id IS NULL OR o.last_activity<>s.updated_at OR EXISTS(SELECT 1 FROM kanban_resume_requests r WHERE r.session_id=s.id AND r.source_root=src.storage_root) ORDER BY s.id", "")?;
             for session in candidates {
                 if enabled { intake(conn,&session,false,&mut HashSet::new())?; follow_children(conn,&session)?; }
@@ -737,6 +759,15 @@ fn board(conn: &Connection, project_id: &str) -> Result<Option<KanbanBoard>, Str
         enabled_at,
         columns,
         cards,
+        auto_archive_days: conn
+            .query_row(
+                "SELECT days FROM kanban_archive_policy WHERE project_id=?1",
+                [project_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(error)?
+            .flatten(),
     }))
 }
 fn move_card(
@@ -985,6 +1016,43 @@ fn intake(
     if !force && !auto_requested(conn, session_id, &root, &project)? {
         return Ok(None);
     }
+    let launches: Vec<String> = {
+        let mut query=conn.prepare("SELECT DISTINCT l.card_id FROM kanban_launches l JOIN sessions s ON s.id=?1 AND s.source_id=l.source_id AND s.kind=l.kind AND s.external_id=l.external_id JOIN sources src ON src.id=s.source_id AND src.storage_root=l.source_root").map_err(error)?;
+        let rows = query
+            .query_map([session_id], |r| r.get(0))
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        rows
+    };
+    if launches.len() == 1 {
+        attach(conn, &launches[0], session_id, false)?;
+        return Ok(Some(launches[0].clone()));
+    }
+    let cwd: Option<String> = conn
+        .query_row("SELECT cwd FROM sessions WHERE id=?1", [session_id], |r| {
+            r.get(0)
+        })
+        .map_err(error)?;
+    let cwd = cwd
+        .as_deref()
+        .and_then(|cwd| Path::new(cwd).canonicalize().ok());
+    let mut query=conn.prepare("SELECT w.path,w.card_id FROM kanban_worktrees w JOIN kanban_cards c ON c.id=w.card_id WHERE c.project_id=?1 ORDER BY length(w.path) DESC").map_err(error)?;
+    let bindings = query
+        .query_map([&project], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(error)?;
+    let bound = bindings
+        .into_iter()
+        .find(|(path, _)| cwd.as_ref().is_some_and(|cwd| cwd.starts_with(path)))
+        .map(|(_, id)| id);
+    if let Some(bound) = bound {
+        attach(conn, &bound, session_id, true)?;
+        return Ok(Some(bound));
+    }
     let id = create_card(conn, &unsorted(conn, &project)?, &title, "")?;
     attach(conn, &id, session_id, !force)?;
     Ok(Some(id))
@@ -1037,4 +1105,174 @@ pub(super) fn detach_absent(conn: &Connection, source_id: &str) -> Result<(), St
         detach_missing(conn,&id)?;
     }
     Ok(())
+}
+
+pub(super) fn migrate_actions(conn: &mut Connection) -> Result<(), String> {
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    tx.execute_batch("
+        CREATE TABLE IF NOT EXISTS kanban_archive_policy(project_id TEXT PRIMARY KEY REFERENCES kanban_boards(project_id), days INTEGER CHECK(days IS NULL OR days BETWEEN 1 AND 36500));
+        CREATE TABLE IF NOT EXISTS kanban_worktrees(path TEXT PRIMARY KEY, card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE);
+        CREATE TABLE IF NOT EXISTS kanban_launches(runtime_id TEXT NOT NULL, card_id TEXT NOT NULL REFERENCES kanban_cards(id) ON DELETE CASCADE,
+            source_id TEXT NOT NULL, source_root TEXT NOT NULL, kind TEXT NOT NULL, external_id TEXT, PRIMARY KEY(runtime_id,source_id));
+        PRAGMA user_version=8;
+    ").map_err(error)?;
+    for table in [
+        "kanban_archive_policy",
+        "kanban_worktrees",
+        "kanban_launches",
+    ] {
+        for operation in ["INSERT", "UPDATE", "DELETE"] {
+            tx.execute_batch(&format!("CREATE TRIGGER IF NOT EXISTS revision_{table}_{operation} AFTER {operation} ON {table} BEGIN UPDATE catalog_revision SET revision=revision+1 WHERE id=1; END;")).map_err(error)?;
+        }
+    }
+    tx.commit().map_err(error)
+}
+
+fn auto_archive(conn: &Connection) -> Result<(), String> {
+    conn.execute("UPDATE kanban_cards SET archived=1 WHERE archived=0
+        AND column_id IN (SELECT id FROM kanban_columns WHERE stage='done')
+        AND project_id IN (SELECT b.project_id FROM kanban_boards b JOIN projects p ON p.id=b.project_id WHERE b.enabled=1 AND p.manual=1)
+        AND julianday(updated_at) <= julianday('now') - (SELECT days FROM kanban_archive_policy WHERE project_id=kanban_cards.project_id)", []).map_err(error)?;
+    Ok(())
+}
+
+impl Catalog {
+    pub fn set_kanban_auto_archive(
+        &self,
+        project_id: &str,
+        days: Option<u32>,
+    ) -> Result<(), String> {
+        if days.is_some_and(|days| !(1..=36500).contains(&days)) {
+            return Err(tr!("Auto-archive days must be between 1 and 36500."));
+        }
+        self.kanban_write(|conn| {
+            require_enabled(conn, project_id)?;
+            conn.execute("INSERT INTO kanban_archive_policy VALUES(?1,?2) ON CONFLICT(project_id) DO UPDATE SET days=excluded.days", params![project_id,days]).map_err(error)?;
+            auto_archive(conn)
+        })
+    }
+
+    pub fn bind_kanban_worktree(&self, card_id: &str, path: &str) -> Result<(), String> {
+        let canonical = Path::new(path).canonicalize().map_err(error)?;
+        let (main, _) =
+            worktree(canonical.to_str()).ok_or(tr!("Choose a linked worktree of this project."))?;
+        self.kanban_write(|conn| {
+            let target = card(conn, card_id)?;
+            require_enabled(conn, &target.project_id)?;
+            let owner: Option<String> = conn
+                .query_row(
+                    "SELECT project_id FROM project_directories WHERE path=?1",
+                    [main],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(error)?;
+            same_project(owner.as_deref().unwrap_or(""), &target.project_id)?;
+            let path = canonical
+                .to_str()
+                .ok_or(tr!("Choose a linked worktree of this project."))?;
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT card_id FROM kanban_worktrees WHERE path=?1",
+                    [path],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(error)?;
+            if existing.as_deref().is_some_and(|id| id != card_id) {
+                return Err(tr!("This worktree is already bound to another task."));
+            }
+            conn.execute(
+                "INSERT OR IGNORE INTO kanban_worktrees VALUES(?1,?2)",
+                params![path, card_id],
+            )
+            .map_err(error)?;
+            touch(conn, card_id)
+        })
+    }
+
+    pub fn validate_kanban_launch(
+        &self,
+        card_id: &str,
+        project_id: Option<&str>,
+    ) -> Result<(), String> {
+        let conn = self.connect()?;
+        let target = card(&conn, card_id)?;
+        require_enabled(&conn, &target.project_id)?;
+        same_project(&target.project_id, project_id.unwrap_or(""))?;
+        if target.archived {
+            return Err(tr!("Restore this task before starting work."));
+        }
+        Ok(())
+    }
+
+    pub fn record_kanban_launch(
+        &self,
+        card_id: &str,
+        runtime_id: &str,
+        kind: &str,
+    ) -> Result<(), String> {
+        self.kanban_write(|conn| {
+            let target = card(conn,card_id)?;
+            require_enabled(conn,&target.project_id)?;
+            conn.execute("INSERT OR IGNORE INTO kanban_launches SELECT ?1,?2,id,storage_root,kind,NULL FROM sources WHERE kind=?3 AND enabled=1 AND (SELECT COUNT(*) FROM sources WHERE kind=?3 AND enabled=1)=1", params![runtime_id,card_id,kind]).map_err(error)?;
+            Ok(())
+        })
+    }
+
+    pub fn reconcile_kanban_launch(
+        &self,
+        runtime_id: &str,
+        external_id: &str,
+    ) -> Result<(), String> {
+        self.kanban_write(|conn| {
+            // Freeze the first native identity; later /new rotations are separate tasks.
+            conn.execute("UPDATE kanban_launches SET external_id=?2 WHERE runtime_id=?1 AND external_id IS NULL", params![runtime_id,external_id]).map_err(error)?;
+            let mut query = conn.prepare("SELECT l.card_id,s.id FROM kanban_launches l JOIN sessions s ON s.external_id=l.external_id AND s.source_id=l.source_id AND s.kind=l.kind JOIN sources src ON src.id=s.source_id AND src.storage_root=l.source_root WHERE l.runtime_id=?1").map_err(error)?;
+            let matches = query.query_map([runtime_id], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).map_err(error)?.collect::<Result<Vec<_>,_>>().map_err(error)?;
+            // Ambiguous provider IDs across configured sources must never be guessed.
+            if matches.len()==1 {
+                let (target,session)=&matches[0];
+                let explicitly_changed:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM kanban_card_sessions WHERE session_id=?1 AND card_id<>?2 AND automatic=0) OR EXISTS(SELECT 1 FROM kanban_observed_sessions o JOIN sessions s ON s.id=o.session_id JOIN sources src ON src.id=s.source_id AND src.storage_root=o.source_root WHERE s.id=?1 AND o.suppressed=1)",params![session,target],|r|r.get(0)).map_err(error)?;
+                if explicitly_changed {
+                    conn.execute("DELETE FROM kanban_launches WHERE runtime_id=?1",[runtime_id]).map_err(error)?;
+                    return Ok(());
+                }
+                if require_enabled(conn,&card(conn,target)?.project_id).is_ok() {
+                    attach(conn, target, session, false)?;
+                    follow_children(conn, session)?;
+                    conn.execute("DELETE FROM kanban_launches WHERE runtime_id=?1",[runtime_id]).map_err(error)?;
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+impl Catalog {
+    pub fn validate_kanban_launch_cwd(&self, card_id: &str, cwd: &Path) -> Result<(), String> {
+        let conn = self.connect()?;
+        let target = card(&conn, card_id)?;
+        let project: Option<String> = conn
+            .query_row(
+                "SELECT COALESCE(launch_path,path) FROM projects WHERE id=?1",
+                [&target.project_id],
+                |r| r.get(0),
+            )
+            .map_err(error)?;
+        let expected = target
+            .worktree_path
+            .or(project)
+            .ok_or(tr!("The task working directory is unavailable."))?;
+        if Path::new(&expected).canonicalize().map_err(error)?
+            != cwd.canonicalize().map_err(error)?
+        {
+            return Err(tr!(
+                "Start task work in its project folder or bound worktree."
+            ));
+        }
+        Ok(())
+    }
 }

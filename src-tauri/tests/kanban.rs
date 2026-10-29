@@ -653,7 +653,7 @@ fn migration_from_v6_retains_catalog_choices_and_does_not_intake_old_history() {
     assert_eq!(
         db.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
             .unwrap(),
-        7
+        8
     );
     assert_eq!(migrated.projects().unwrap()[0].name, "Chosen name");
     assert_eq!(migrated.trashed_sessions(0, 10).unwrap().total, 1);
@@ -740,18 +740,51 @@ fn linked_worktree_sessions_map_to_main_board_and_keep_branch_metadata() {
         ],
         None,
     );
-    h.enable();
+    let board = h.enable();
+    let planned = h
+        .catalog
+        .create_kanban_card(&board.columns[1].id, "Worktree task", "")
+        .unwrap();
+    assert!(h.catalog.bind_kanban_worktree(&planned.id, &h.cwd).is_err());
+    h.catalog
+        .bind_kanban_worktree(&planned.id, linked.to_str().unwrap())
+        .unwrap();
+    let other = h
+        .catalog
+        .create_kanban_card(&board.columns[1].id, "Other", "")
+        .unwrap();
+    assert!(h
+        .catalog
+        .bind_kanban_worktree(&other.id, linked.to_str().unwrap())
+        .is_err());
+    h.write("root", NEW, linked.to_str());
+    h.sync();
+    assert_eq!(h.card("root").unwrap().id, planned.id);
+    h.catalog.clear().unwrap();
+    assert_eq!(
+        h.board()
+            .cards
+            .iter()
+            .find(|c| c.id == planned.id)
+            .unwrap()
+            .worktree_path
+            .as_deref(),
+        linked.canonicalize().unwrap().to_str()
+    );
     let nested = linked.join("nested");
     fs::create_dir(&nested).unwrap();
     h.write("linked", NEW, nested.to_str());
     h.sync();
     let card = h.card("linked").unwrap();
     assert_eq!(card.project_id, h.project);
-    assert_eq!(
-        card.sessions[0].branch.as_deref(),
-        Some("feature/synthetic")
-    );
-    assert_eq!(card.sessions[0].session.cwd.as_deref(), nested.to_str());
+    assert_eq!(card.id, planned.id);
+    let link = card
+        .sessions
+        .iter()
+        .find(|link| link.session.id == h.session("linked"))
+        .unwrap();
+    assert_eq!(link.branch.as_deref(), Some("feature/synthetic"));
+    assert_eq!(link.session.cwd.as_deref(), nested.to_str());
 }
 
 #[test]
@@ -936,4 +969,227 @@ fn enabling_another_board_does_not_consume_pending_intake() {
         .unwrap()
         .cards
         .is_empty());
+}
+
+#[test]
+fn auto_archive_is_opt_in_stage_based_recoverable_and_survives_rebuild() {
+    let h = Harness::new();
+    let b = h.enable();
+    let done = h
+        .catalog
+        .create_kanban_card(&b.columns[4].id, "Old completed task", "Notes")
+        .unwrap();
+    let todo = h
+        .catalog
+        .create_kanban_card(&b.columns[1].id, "Old planned task", "")
+        .unwrap();
+    h.db()
+        .execute(
+            "UPDATE kanban_cards SET updated_at='2020-01-01T00:00:00Z'",
+            [],
+        )
+        .unwrap();
+    assert!(h.board().cards.iter().all(|c| !c.archived));
+    assert!(h
+        .catalog
+        .set_kanban_auto_archive(&h.project, Some(0))
+        .is_err());
+    h.catalog
+        .set_kanban_auto_archive(&h.project, Some(7))
+        .unwrap();
+    let board = h.board();
+    assert_eq!(board.auto_archive_days, Some(7));
+    assert!(
+        board
+            .cards
+            .iter()
+            .find(|c| c.id == done.id)
+            .unwrap()
+            .archived
+    );
+    assert!(
+        !board
+            .cards
+            .iter()
+            .find(|c| c.id == todo.id)
+            .unwrap()
+            .archived
+    );
+    h.catalog.archive_kanban_card(&done.id, false).unwrap();
+    assert!(
+        !h.board()
+            .cards
+            .iter()
+            .find(|c| c.id == done.id)
+            .unwrap()
+            .archived
+    );
+    h.catalog.clear().unwrap();
+    assert_eq!(h.board().auto_archive_days, Some(7));
+    assert_eq!(h.board().cards.len(), 2);
+    h.catalog.set_kanban_auto_archive(&h.project, None).unwrap();
+    assert_eq!(h.board().auto_archive_days, None);
+}
+
+#[test]
+fn launched_sessions_wait_for_exact_provider_identity_and_keep_the_planned_card() {
+    let h = Harness::new();
+    // Configure the synthetic source before launching; no real agent data is involved.
+    h.sync();
+    let b = h.enable();
+    let planned = h
+        .catalog
+        .create_kanban_card(&b.columns[1].id, "Planned work", "Keep notes")
+        .unwrap();
+    h.catalog
+        .validate_kanban_launch(&planned.id, Some(&h.project))
+        .unwrap();
+    assert!(h
+        .catalog
+        .validate_kanban_launch(&planned.id, Some("different-project"))
+        .is_err());
+    h.catalog
+        .validate_kanban_launch_cwd(&planned.id, std::path::Path::new(&h.cwd))
+        .unwrap();
+    assert!(h
+        .catalog
+        .validate_kanban_launch_cwd(&planned.id, h.temp.path())
+        .is_err());
+    h.catalog
+        .record_kanban_launch(&planned.id, "synthetic-runtime", "codex")
+        .unwrap();
+    // The handshake may arrive before the transcript. Persist it through index rebuilds.
+    h.catalog
+        .reconcile_kanban_launch("synthetic-runtime", "started")
+        .unwrap();
+    h.catalog.clear().unwrap();
+    h.write("unrelated", NEW, None);
+    h.write("started", NEW, None);
+    h.sync();
+    h.catalog
+        .reconcile_kanban_launch("synthetic-runtime", "started")
+        .unwrap();
+    assert_eq!(h.card("started").unwrap().id, planned.id);
+    assert_ne!(h.card("unrelated").unwrap().id, planned.id);
+    assert_eq!(h.card("started").unwrap().notes, "Keep notes");
+    assert_eq!(h.board().cards.len(), 2);
+    h.catalog.archive_kanban_card(&planned.id, true).unwrap();
+    assert!(h
+        .catalog
+        .validate_kanban_launch(&planned.id, Some(&h.project))
+        .is_err());
+}
+
+#[test]
+fn launch_source_replacement_never_attaches_a_reused_native_id() {
+    let h = Harness::new();
+    h.sync();
+    let b = h.enable();
+    let planned = h
+        .catalog
+        .create_kanban_card(&b.columns[1].id, "Planned", "")
+        .unwrap();
+    h.catalog
+        .record_kanban_launch(&planned.id, "synthetic-runtime", "codex")
+        .unwrap();
+    h.catalog
+        .reconcile_kanban_launch("synthetic-runtime", "reused")
+        .unwrap();
+    let replacement = h.temp.path().join("replacement");
+    fs::create_dir(&replacement).unwrap();
+    let source = HistorySource {
+        root: replacement.to_string_lossy().into_owned(),
+        ..h.source.clone()
+    };
+    let other = Harness { source, ..h };
+    other.write("reused", NEW, None);
+    other.sync();
+    other
+        .catalog
+        .reconcile_kanban_launch("synthetic-runtime", "reused")
+        .unwrap();
+    assert!(other
+        .board()
+        .cards
+        .iter()
+        .find(|c| c.id == planned.id)
+        .unwrap()
+        .sessions
+        .is_empty());
+    assert_ne!(other.card("reused").unwrap().id, planned.id);
+}
+
+#[test]
+fn delayed_launch_identity_does_not_override_explicit_attachment_or_exclusion() {
+    let h = Harness::new();
+    h.sync();
+    let b = h.enable();
+    let planned = h
+        .catalog
+        .create_kanban_card(&b.columns[1].id, "Planned", "")
+        .unwrap();
+    let chosen = h
+        .catalog
+        .create_kanban_card(&b.columns[1].id, "User choice", "")
+        .unwrap();
+    h.catalog
+        .record_kanban_launch(&planned.id, "late-runtime", "codex")
+        .unwrap();
+    h.write("late", NEW, None);
+    h.sync();
+    h.catalog
+        .attach_kanban_session(&chosen.id, &h.session("late"))
+        .unwrap();
+    h.catalog
+        .reconcile_kanban_launch("late-runtime", "late")
+        .unwrap();
+    assert_eq!(h.card("late").unwrap().id, chosen.id);
+    h.catalog
+        .record_kanban_launch(&planned.id, "excluded-runtime", "codex")
+        .unwrap();
+    h.write("excluded", NEW, None);
+    h.sync();
+    let automatic = h.card("excluded").unwrap();
+    h.catalog
+        .detach_kanban_session(&automatic.id, &h.session("excluded"))
+        .unwrap();
+    h.catalog
+        .reconcile_kanban_launch("excluded-runtime", "excluded")
+        .unwrap();
+    assert!(h.card("excluded").is_none());
+}
+
+#[test]
+fn ambiguous_configured_sources_require_explicit_attachment() {
+    let h = Harness::new();
+    let other_root = h.temp.path().join("other-history");
+    fs::create_dir(&other_root).unwrap();
+    let second = HistorySource {
+        id: "second".into(),
+        root: other_root.to_string_lossy().into_owned(),
+        ..h.source.clone()
+    };
+    h.catalog
+        .sync(
+            &[h.source.clone(), second.clone()],
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    let b = h.enable();
+    let planned = h
+        .catalog
+        .create_kanban_card(&b.columns[1].id, "Planned", "")
+        .unwrap();
+    h.catalog
+        .record_kanban_launch(&planned.id, "ambiguous-runtime", "codex")
+        .unwrap();
+    h.write("same-id", NEW, None);
+    h.catalog
+        .sync(&[h.source.clone(), second], &AtomicBool::new(false), |_| {})
+        .unwrap();
+    h.catalog
+        .reconcile_kanban_launch("ambiguous-runtime", "same-id")
+        .unwrap();
+    assert_ne!(h.card("same-id").unwrap().id, planned.id);
 }

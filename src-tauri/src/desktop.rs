@@ -314,7 +314,29 @@ async fn kanban_board(
     project_id: String,
 ) -> Result<Option<KanbanBoard>, String> {
     let s = state.inner().clone();
-    blocking(move || s.catalog.kanban_board(&project_id)).await
+    blocking(move || {
+        let _ = s.reconcile_kanban_launches();
+        s.catalog.kanban_board(&project_id)
+    })
+    .await
+}
+#[tauri::command]
+async fn set_kanban_auto_archive(
+    state: AppState<'_>,
+    project_id: String,
+    days: Option<u32>,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.set_kanban_auto_archive(&project_id, days)).await
+}
+#[tauri::command]
+async fn bind_kanban_worktree(
+    state: AppState<'_>,
+    card_id: String,
+    path: String,
+) -> Result<(), String> {
+    let s = state.inner().clone();
+    blocking(move || s.catalog.bind_kanban_worktree(&card_id, &path)).await
 }
 #[tauri::command]
 async fn list_kanban_boards(state: AppState<'_>) -> Result<Vec<KanbanBoard>, String> {
@@ -1007,6 +1029,8 @@ pub fn run() {
             create_project,
             update_project,
             kanban_board,
+            set_kanban_auto_archive,
+            bind_kanban_worktree,
             list_kanban_boards,
             set_kanban_board_enabled,
             create_kanban_column,

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Project boards with configurable columns, manual card ordering, live agent status and filters; task details, safe start/resume, merge/split, worktree binding, archive/restore, optional auto-archive and per-session recycling. All boards groups enabled project boards by stage, with project identity, project/text/agent/attention filters and stage moves that preserve project ownership.
+
 ### Fixed
 
 - The search box in the split dialog's **Existing work** tab drew two focus rings.
