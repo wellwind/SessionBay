@@ -4,9 +4,31 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-29
+
 ### Added
 
-- Project boards with configurable columns, manual card ordering, live agent status and filters; task details, safe start/resume, merge/split, worktree binding, archive/restore, optional auto-archive and per-session recycling. All boards groups enabled project boards by stage, with project identity, project/text/agent/attention filters and stage moves that preserve project ownership.
+- **Kanban boards** for curated projects ([guide](https://fullstackladder.dev/SessionBay/guide/kanban/)):
+  - boards are enabled per project, with configurable columns and stages;
+  - each card is a task that can hold several agent sessions; new and resumed sessions land in **Unsorted**;
+  - cards move by drag, keyboard or a **Move to…** menu, and show live agent status and branch;
+  - task details: notes, start or resume work (task text is pasted into the agent but never sent), merge and split, and binding a task to a worktree;
+  - Done tasks can be archived, deleted, or have their sessions sent to the recycle bin; optional auto-archive;
+  - **All boards** shows every enabled board by stage, filtered by project, text, agent or needs attention.
+
+  Board data lives in Session Bay's catalog and never touches agent history.
+- An optional sound when an agent needs attention, with a volume setting and a test button for each event. It is off by default.
+
+### Changed
+
+- The local catalog is upgraded to schema v8 to store boards. After the upgrade, 0.2.0 can no longer open it.
+
+### Fixed
+
+- Claude Code sessions show the title Claude Code generates instead of the first prompt or raw harness tags, and current sessions are no longer marked "Partially parsed".
+- Claude Code status reporting resumes at the next turn after a single lost report, instead of staying unknown for the rest of the session.
+- Terminals started by Session Bay no longer inherit the launcher's `nvm` and `npm` session state, which could hide `node`, `npm` and npm-installed CLIs.
+- Dialogs keep keyboard focus inside them when they contain a collapsed section.
 
 ## [0.2.0] - 2026-10-29
 
@@ -60,6 +82,7 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/wellwind/SessionBay/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wellwind/SessionBay/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wellwind/SessionBay/releases/tag/v0.1.0
