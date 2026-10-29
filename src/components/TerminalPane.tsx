@@ -215,7 +215,8 @@ export function TerminalPane({
     mounted.current = true;
     const queuedFrames = renderQueue.current;
     const terminal = new Terminal({
-      scrollback: 5000,
+      // Matches the broker scrollback cap in broker/screen.rs.
+      scrollback: 10000,
       // Claim every OSC8 range in the built-in priority provider, including
       // hostile schemes. Activation only reveals its real target; never navigate.
       linkHandler: {
