@@ -1395,3 +1395,38 @@ describe('launch-local activity hook defaults', () => {
     }
   });
 });
+
+describe('production profile import', () => {
+  it('requires confirmation, cancels without importing, and repeats only after confirmation', async () => {
+    const onImportProduction = vi.fn().mockResolvedValue(undefined);
+    render(createElement(SettingsPanel, props({ onImportProduction })));
+    fireEvent.click(screen.getByRole('button', { name: '從 Session Bay 匯入' }));
+    expect(onImportProduction).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('要取代開發版已儲存與尚未儲存的設定');
+    fireEvent.click(within(dialog).getByRole('button', { name: '返回' }));
+    expect(onImportProduction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '從 Session Bay 匯入' }));
+    fireEvent.click(screen.getByRole('button', { name: '匯入設定與專案' }));
+    await waitFor(() => expect(onImportProduction).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not offer import in production and blocks import during indexing', () => {
+    const view = render(createElement(SettingsPanel, props()));
+    expect(screen.queryByRole('button', { name: '從 Session Bay 匯入' })).not.toBeInTheDocument();
+    view.rerender(createElement(SettingsPanel, props({
+      onImportProduction: vi.fn(),
+      index: { running: true, processed: 0, total: 0, cancelled: false, errors: [], sources: [] },
+    })));
+    expect(screen.getByRole('button', { name: '從 Session Bay 匯入' })).toBeDisabled();
+  });
+
+  it('shows import failures without closing settings', async () => {
+    render(createElement(SettingsPanel, props({
+      onImportProduction: vi.fn().mockRejectedValue(new Error('Synthetic import failure')),
+    })));
+    fireEvent.click(screen.getByRole('button', { name: '從 Session Bay 匯入' }));
+    fireEvent.click(screen.getByRole('button', { name: '匯入設定與專案' }));
+    await waitFor(() => expect(screen.getByText('Synthetic import failure')).toBeInTheDocument());
+  });
+});

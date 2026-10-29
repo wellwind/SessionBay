@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod claude_state;
 pub mod codex_state;
 pub mod config;
+pub mod dev_profile;
 pub mod file_input;
 pub mod fresh_launch;
 pub mod git;

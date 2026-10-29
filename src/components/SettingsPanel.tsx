@@ -1,3 +1,4 @@
+import { isDevBuild } from '../app-identity';
 import { DirectoryPathField } from './DirectoryPathField';
 import { workspaceZoomShortcutHelp } from '../workspace-zoom';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +39,7 @@ export interface SettingsPanelProps {
   onboarding?: boolean;
   busy?: boolean;
   onSave: (settings: Settings) => Promise<void>;
+  onImportProduction?: () => Promise<void>;
   onClose: () => void;
   onPreviewAppearance?: (appearance: Appearance | null) => void;
   onScan: (rebuild: boolean) => Promise<void>;
@@ -330,6 +332,7 @@ export function SettingsPanel({
   onboarding = false,
   busy = false,
   onSave,
+  onImportProduction,
   onClose,
   onPreviewAppearance,
   onScan,
@@ -352,7 +355,7 @@ export function SettingsPanel({
   const [sourceDiscoveries, setSourceDiscoveries] = useState<Partial<Record<AgentKind, HistorySourceDiscovery>>>({});
   const [operationError, setOperationError] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
-  const [confirmation, setConfirmation] = useState<'clear' | 'discard' | null>(null);
+  const [confirmation, setConfirmation] = useState<'clear' | 'discard' | 'import' | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const operationInFlight = useRef(false);
   const composing = useRef(false);
@@ -630,6 +633,12 @@ export function SettingsPanel({
                           }))} />
                       </label>
                     </div>
+                    {onImportProduction && <div className="settings-section-heading">
+                      <div><h3>{t('Development profile')}</h3>
+                        <p>{t('Import saved settings and curated projects from the production app. The production profile is read-only.')}</p></div>
+                      <button type="button" className="settings-button secondary" disabled={locked || index.running}
+                        onClick={() => setConfirmation('import')}>{t('Import from Session Bay')}</button>
+                    </div>}
                     <div className="settings-section-heading"><div><h3>{t('Enabled and install status')}</h3><p>{t('Settings apply only after you save.')}</p></div></div>
                     <div className="settings-agent-enabled">
                       <label className="settings-toggle-label">
@@ -1235,10 +1244,10 @@ export function SettingsPanel({
                       </div>
                     </div>
                     <label className="settings-check">
-                      <input type="checkbox" className="checkbox" checked={draft.updateChecks !== false} disabled={locked}
+                      <input type="checkbox" className="checkbox" checked={!isDevBuild && draft.updateChecks !== false} disabled={locked || isDevBuild}
                         onChange={(event) => update('updateChecks', event.currentTarget.checked)} />
                       <span>{t('Check GitHub for new versions')}</span>
-                      <small>{t('Asks GitHub Releases for the newest version at startup and once a day, and shows a notice when one is available. No personal data is sent; updates are never installed automatically.')}</small>
+                      <small>{isDevBuild ? t('Update checks are disabled in development builds.') : t('Asks GitHub Releases for the newest version at startup and once a day, and shows a notice when one is available. No personal data is sent; updates are never installed automatically.')}</small>
                     </label>
                   </>
                 )}
@@ -1352,11 +1361,13 @@ export function SettingsPanel({
                 <CircleAlert size={24} />
               </div>
               <h3 id="settings-confirm-title">
-                {confirmation === 'clear' ? t('Clear the local search index?') : t('Discard unsaved changes?')}
+                {confirmation === 'clear' ? t('Clear the local search index?') : confirmation === 'import' ? t('Import from Session Bay?') : t('Discard unsaved changes?')}
               </h3>
               <p id="settings-confirm-description">
                 {confirmation === 'clear'
                   ? t('Only the index that Session Bay built is deleted. Original agent conversations, source files, projects and settings are not modified, and the recycle bin is kept. You can rescan to rebuild the index.')
+                  : confirmation === 'import'
+                    ? t('Replace saved and unsaved development settings and merge the production curated project list? The index, workspace layout, recycle bin and Git host tokens are kept. The production app is never modified.')
                   : t('The settings you just edited will not be kept. You can go back and keep editing.')}
               </p>
               <div className="settings-confirm-actions">
@@ -1371,19 +1382,22 @@ export function SettingsPanel({
                   type="button"
                   className="settings-button danger-fill"
                   data-dialog-confirm
-                  disabled={locked || (confirmation === 'clear' && index.running)}
+                  disabled={locked || (confirmation !== 'discard' && index.running)}
                   onClick={() => {
                     if (locked || operationInFlight.current) return;
                     if (confirmation === 'discard') {
                       setConfirmation(null);
                       onClose();
+                    } else if (confirmation === 'import') {
+                      setConfirmation(null);
+                      if (onImportProduction) void run(onImportProduction);
                     } else if (!index.running) {
                       setConfirmation(null);
                       void run(onClearIndex);
                     }
                   }}
                 >
-                  {confirmation === 'clear' ? t('Yes, clear index') : t('Discard changes')}
+                  {confirmation === 'clear' ? t('Yes, clear index') : confirmation === 'import' ? t('Import settings and projects') : t('Discard changes')}
                 </button>
               </div>
             </div>

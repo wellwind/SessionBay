@@ -51,6 +51,7 @@ export const api = {
     await getCurrentWebview().setZoom(percent / 100);
   },
   bootstrap: () => call<Bootstrap>('bootstrap'),
+  importProductionProfile: () => call<Settings>('import_production_profile'),
   detect: () => call<Installation[]>('detect_installations'),
   detectShells: () => call<ShellCandidate[]>('detect_shells'),
   detectHistorySources: (kind: AgentKind) => call<HistorySourceDiscovery>('detect_history_sources', { kind }),

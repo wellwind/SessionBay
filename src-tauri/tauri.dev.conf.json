@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Session Bay Dev",
+  "identifier": "dev.fullstackladder.sessionbay.dev",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Session Bay Dev",
+        "width": 1440,
+        "height": 940,
+        "maximized": true,
+        "fullscreen": false,
+        "minWidth": 900,
+        "minHeight": 620,
+        "zoomHotkeysEnabled": false,
+        "dragDropEnabled": false
+      }
+    ]
+  },
+  "bundle": {
+    "icon": [
+      "icons/dev/32x32.png",
+      "icons/dev/128x128.png",
+      "icons/dev/128x128@2x.png",
+      "icons/dev/icon.icns",
+      "icons/dev/icon.ico"
+    ]
+  }
+}

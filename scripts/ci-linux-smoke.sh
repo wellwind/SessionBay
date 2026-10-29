@@ -17,7 +17,7 @@ smoke_stop() {
   # Closing a GUI deliberately leaves its broker running. Explicitly stop only
   # this smoke's isolated state before deleting it; never use a saved PID.
   if [[ -n "${binary:-}" ]]; then
-    for state in "${XDG_DATA_HOME:-/nonexistent}/dev.sessionbay.desktop" "${HOME}/Library/Application Support/dev.sessionbay.desktop"; do
+    for state in "${XDG_DATA_HOME:-/nonexistent}/dev.fullstackladder.sessionbay" "${HOME}/Library/Application Support/dev.fullstackladder.sessionbay"; do
       [[ -d "$state/runtime-broker-v1" ]] || continue
       "$binary" --sessionbay-runtime-broker-stop "$state" || return 1
     done
@@ -107,7 +107,7 @@ settings = {
     'shortcuts': {}, 'onboardingComplete': False,
 }
 # Tauri uses XDG data on Linux and Application Support on macOS. Both are isolated.
-for directory in [pathlib.Path(os.environ['XDG_DATA_HOME'])/'dev.sessionbay.desktop', home/'Library/Application Support/dev.sessionbay.desktop']:
+for directory in [pathlib.Path(os.environ['XDG_DATA_HOME'])/'dev.fullstackladder.sessionbay', home/'Library/Application Support/dev.fullstackladder.sessionbay']:
     directory.mkdir(parents=True, exist_ok=True)
     (directory/'settings.json').write_text(json.dumps(settings, ensure_ascii=False))
 PY

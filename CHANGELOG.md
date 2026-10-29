@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Changed
+
+- Production now uses the app identity `dev.fullstackladder.sessionbay`. Data from the previous identity does not carry over. On macOS, use **Open Anyway** again on first launch and grant notification permission again.
+- `npm run dev` opens **Session Bay Dev**, with a separate data folder and broker, an orange DEV icon and top-bar tag, and no update checks. Its first launch imports production settings and curated projects; Settings can repeat the import after confirmation. Indexes, layouts, recycle bins and Git host tokens stay separate.
+
 ### Fixed
 
 - The search box in the split dialog's **Existing work** tab drew two focus rings.

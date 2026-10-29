@@ -24,3 +24,24 @@ test('Cargo home is honored without shell expansion or argument rewriting', () =
   assert.equal(tauriEnvironment({ CARGO_HOME: '/tmp/rust tools', PATH: '/usr/bin' }, 'darwin', '/Users/you').PATH,
     '/tmp/rust tools/bin:/usr/bin');
 });
+
+test('only dev receives the identity overlay and release dev is rejected', async () => {
+  const { tauriArguments } = await import('./tauri.mjs');
+  const dev = tauriArguments(['dev', '--no-watch']);
+  assert.equal(dev[0], 'dev');
+  assert.equal(dev[1], '--config');
+  assert.ok(dev[2].endsWith('/src-tauri/tauri.dev.conf.json'));
+  assert.equal(dev[3], '--no-watch');
+  for (const args of [['build'], ['build', '--debug'], ['icon', 'path with spaces.svg']]) {
+    assert.deepEqual(tauriArguments(args), args);
+  }
+  assert.throws(() => tauriArguments(['dev', '--release']));
+});
+
+test('dev metadata captures branch and commit with an explicit fallback', async () => {
+  const { devMetadata } = await import('./tauri.mjs');
+  assert.deepEqual(devMetadata(args => args.includes('--abbrev-ref') ? 'feature/identity' : 'abc123def456'), {
+    VITE_SESSIONBAY_DEV: '1', VITE_SESSIONBAY_BRANCH: 'feature/identity', VITE_SESSIONBAY_COMMIT: 'abc123def456',
+  });
+  assert.equal(devMetadata(() => { throw new Error('not a checkout'); }).VITE_SESSIONBAY_COMMIT, 'unknown');
+});
