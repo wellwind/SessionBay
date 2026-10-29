@@ -155,6 +155,7 @@ export interface Bootstrap {
   warnings: string[];
 }
 export interface LaunchRequest {
+  kanbanCardId?: string;
   paneId: string;
   kind: 'shell' | AgentKind;
   projectId?: string;
@@ -175,6 +176,7 @@ export interface RuntimeInfo {
   exitCode: number | null;
 }
 export interface RuntimeRecord extends RuntimeInfo {
+  providerSessionId?: string | null;
   kind: 'shell' | AgentKind;
   projectId: string | null;
   profileId: string | null;
@@ -192,6 +194,9 @@ export type TerminalEvent =
   | { type: 'error'; runtimeId: string; message: string };
 export type PaneState = 'placeholder' | 'starting' | 'running' | 'exited' | 'failed' | 'disconnected' | 'interrupted';
 export interface Pane {
+  providerSessionId?: string | null;
+  pendingTaskText?: string;
+  kanbanCardId?: string;
   id: string;
   kind: 'shell' | AgentKind;
   title: string;
@@ -329,6 +334,7 @@ export interface KanbanSession {
   branch: string | null;
 }
 export interface KanbanCard {
+  worktreePath?: string | null;
   id: string;
   projectId: string;
   columnId: string;
@@ -342,6 +348,7 @@ export interface KanbanCard {
   sessions: KanbanSession[];
 }
 export interface KanbanBoard {
+  autoArchiveDays?: number | null;
   projectId: string;
   enabled: boolean;
   enabledAt: string;

@@ -9,6 +9,7 @@ import type { AgentKind, Bootstrap, Installation, LaunchPreview, Pane, Project, 
 import { canPickDirectory, pickDirectory } from './directory-picker';
 vi.mock('./directory-picker', () => ({ canPickDirectory: vi.fn(() => false), pickDirectory: vi.fn() }));
 import { emptyWorkspace } from './workspace';
+import { kanbanFixture } from '../tests/fixtures/kanban';
 import { startup } from './startup';
 import { runSmokeInteraction } from './smoke';
 
@@ -43,6 +44,7 @@ vi.mock('./api', () => ({
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   api: {
     bootstrap: vi.fn(),
+    kanbanBoard: vi.fn(),
     listWorkspaceFiles: vi.fn(),
     searchWorkspaceFiles: vi.fn().mockResolvedValue({ paths: [], truncated: false }),
     sessions: vi.fn().mockResolvedValue({ items: [], total: 0, catalogRevision: "test" }),
@@ -3708,4 +3710,35 @@ it.each([false, true])('shows Sessions after last runtime closes, respecting exp
   if (dismissed) { fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' })); fireEvent.click(screen.getByRole('button', { name: '歷史 Sessions' })); }
   fireEvent.click(screen.getByRole('button', { name: '關閉分頁 Terminal' })); await tick();
   expect(screen.getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', String(!dismissed));
+});
+
+describe('card start through the New work launcher', () => {
+  it.each(['codex', 'shell'] as const)('retains task context and bound cwd when starting %s', async kind => {
+    const board = kanbanFixture('project-a', []);
+    Object.assign(board.cards[0], { title: 'Synthetic planned task', notes: 'Review before sending', worktreePath: '/synthetic/worktree' });
+    vi.mocked(api.kanbanBoard).mockResolvedValue(board);
+    vi.mocked(isDesktop).mockReturnValue(true);
+    render(<App />);
+    await tick();
+    selectGroup();
+    fireEvent.click(screen.getByRole('button', { name: '看板' }));
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Synthetic planned task' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '開始工作' }));
+    const launcher = screen.getByRole('dialog', { name: '開始新的工作' });
+    expect(launcher).toHaveTextContent('/synthetic/worktree');
+    if (kind === 'shell') chooseLaunchKind(launcher, kind);
+    await tick(150);
+    fireEvent.click(within(launcher).getByRole('button', { name: '開始工作' }));
+    await tick();
+    const pane = Object.values(workspaceSnapshot().panes).find(pane => pane.kanbanCardId === 'empty-task')!;
+    expect(pane).toMatchObject({ kind, cwd: '/synthetic/worktree', pendingTaskText: 'Synthetic planned task\n\nReview before sending' });
+    if (kind === 'codex') {
+      expect(api.launchFresh).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: 'codex', kanbanCardId: 'empty-task', cwd: '/synthetic/worktree' }));
+      expect(pane.runtimeId).toBeTruthy();
+    } else {
+      expect(api.launchFresh).not.toHaveBeenCalled();
+      expect(pane.startToken).toBe(1);
+    }
+  });
 });

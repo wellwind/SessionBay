@@ -70,6 +70,7 @@ fn child_cwd_report_does_not_accept_a_different_or_malformed_directory() {
 
 fn request(pane: &str) -> LaunchRequest {
     LaunchRequest {
+        kanban_card_id: None,
         pane_id: pane.into(),
         kind: "shell".into(),
         project_id: None,

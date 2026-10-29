@@ -23,6 +23,7 @@ fn launch(
     let lease = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = mpsc::channel();
     let request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: pane.into(),
         kind: "shell".into(),
         project_id: Some("synthetic-project".into()),

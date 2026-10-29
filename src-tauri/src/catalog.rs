@@ -22,7 +22,7 @@ use walkdir::WalkDir;
 #[path = "kanban.rs"]
 pub mod kanban;
 
-const SCHEMA_VERSION: i64 = 7;
+const SCHEMA_VERSION: i64 = 8;
 const SESSION_COLUMNS: &str = "s.id,s.source_id,s.kind,s.external_id,s.project_id,s.title,s.cwd,s.updated_at,s.time_source,s.archived,s.parent_id,s.partial,(SELECT root FROM sources WHERE id=s.source_id),(SELECT identity FROM files WHERE session_id=s.id LIMIT 1),(SELECT storage_root FROM sources WHERE id=s.source_id)";
 const MAX_ERRORS: usize = 100;
 const MAX_PREVIEW_MESSAGE_BYTES: usize = 64 * 1024;
@@ -400,6 +400,9 @@ impl Catalog {
         }
         if version < 7 {
             kanban::migrate(&mut conn)?;
+        }
+        if version < 8 {
+            kanban::migrate_actions(&mut conn)?;
         }
         #[cfg(unix)]
         {

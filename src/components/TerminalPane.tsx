@@ -34,6 +34,7 @@ import { api, errorMessage } from '../api';
 import { confirmAction } from '../confirmation';
 import { TerminalInputQueue } from '../terminal-queue';
 import { workspaceZoomEvent } from '../workspace-zoom';
+import { taskInputText } from '../task-input';
 import { fileInputChangesPrompt, fileLimits, fileProvider, fileUnsupportedReason, fileInputGuidance, insertFiles, hasDirectory, FileInputError, clipboardFileName, displayFileName } from '../file-input';
 import { embeddedLinkLabel, fileLinkModifier, terminalFileLinkProvider, type TerminalFileOpen } from '../terminal-file-links';
 import { handleTerminalKey } from '../terminal-keyboard';
@@ -143,6 +144,10 @@ export function TerminalPane({
   const mounted = useRef(false);
   const latest = useRef({ pane, onPatch, onAlreadyOpen, visible, focused, activityVisible, onOpenFileLink, projectAvailable });
   latest.current = { pane, onPatch, onAlreadyOpen, visible, focused, activityVisible, onOpenFileLink, projectAvailable };
+  const taskPasteConsumed = useRef(false);
+  const taskPasteRuntime = useRef(pane.runtimeId);
+  const cancelTaskPaste = useRef<() => void>(() => {});
+  const taskPasteAttempt = useRef<() => void>(() => {});
   const inputQueue = useRef<TerminalInputQueue | null>(null);
   const resizePending = useRef<{ id: string; cols: number; rows: number } | null>(null);
   const resizing = useRef(false);
@@ -239,13 +244,19 @@ export function TerminalPane({
       if (event.target === terminal.textarea && ime.compositionEnd(event)) event.stopImmediatePropagation();
     };
     const imeInput = (event: Event) => {
+      if (event.target === terminal.textarea) cancelTaskPaste.current();
       if (event.target === terminal.textarea && ime.input(event as InputEvent)) event.stopImmediatePropagation();
     };
+    const userKey = (event: KeyboardEvent) => {
+      if (event.target === terminal.textarea && !['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(event.key)) cancelTaskPaste.current();
+    };
+    element.addEventListener('keydown', userKey, true);
     element.addEventListener('compositionstart', compositionStart, true);
     element.addEventListener('compositionend', compositionEnd, true);
     element.addEventListener('input', imeInput, true);
     const pasteFiles = (event: ClipboardEvent) => {
       if (event.target !== terminal.textarea || !event.clipboardData) return;
+      cancelTaskPaste.current();
       if (hasDirectory(event.clipboardData.items)) {
         event.preventDefault(); event.stopImmediatePropagation(); setNotice(t('Folders are not supported and nothing was inserted; choose individual files.')); return;
       }
@@ -262,6 +273,7 @@ export function TerminalPane({
       event.dataTransfer.dropEffect = canDropFiles.current() ? 'copy' : 'none';
     };
     const dropFiles = (event: DragEvent) => {
+      cancelTaskPaste.current();
       if (!event.dataTransfer?.types.includes('Files')) return;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -339,6 +351,7 @@ export function TerminalPane({
       element.removeEventListener('compositionstart', compositionStart, true);
       element.removeEventListener('compositionend', compositionEnd, true);
       element.removeEventListener('input', imeInput, true);
+      element.removeEventListener('keydown', userKey, true);
       element.removeEventListener('paste', pasteFiles, true);
       element.removeEventListener('dragover', dragFiles, true);
       element.removeEventListener('drop', dropFiles, true);
@@ -532,7 +545,7 @@ export function TerminalPane({
     }
     const task = starting
       ? api.launch({ paneId: pane.id, kind: pane.kind,
-        projectId: projectAvailable ? pane.projectId ?? undefined : undefined, sessionId: pane.sessionId,
+        kanbanCardId: pane.kanbanCardId, projectId: projectAvailable ? pane.projectId ?? undefined : undefined, sessionId: pane.sessionId,
         resumeId: pane.resumeId, cwd: pane.projectId === null && pane.kind === 'shell' && pane.homeDirectory === true ? undefined : pane.cwd || undefined, profileId: pane.profileId,
         cols: Math.min(320, Math.max(2, terminal.cols)), rows: Math.min(120, Math.max(1, terminal.rows)),
       }, onEvent, active.lease)
@@ -615,6 +628,41 @@ export function TerminalPane({
     latest.current.pane.id === target.paneId && latest.current.pane.kind === target.kind && latest.current.pane.runtimeId === target.runtimeId &&
     latest.current.pane.startToken === target.startToken && launched.current === target.launchToken &&
     actionGeneration.current === target.generation;
+  cancelTaskPaste.current = () => {
+    if (!latest.current.pane.pendingTaskText || taskPasteConsumed.current) return;
+    taskPasteConsumed.current = true;
+    latest.current.onPatch(latest.current.pane.id, { pendingTaskText: undefined });
+    setNotice(t('Task text insertion was cancelled because terminal input changed.'));
+  };
+  taskPasteAttempt.current = () => {
+    if (taskPasteConsumed.current || !latest.current.pane.pendingTaskText || actionPending.current) return;
+    const target = captureActionTarget();
+    taskPasteRuntime.current ??= latest.current.pane.runtimeId;
+    if (taskPasteRuntime.current && latest.current.pane.runtimeId !== taskPasteRuntime.current) {
+      taskPasteConsumed.current = true;
+      latest.current.onPatch(latest.current.pane.id, { pendingTaskText: undefined });
+      return;
+    }
+    if (!target || !target.terminal.modes.bracketedPasteMode || !targetIsCurrent(target)) return;
+    taskPasteRuntime.current ??= target.runtimeId;
+    const text = taskInputText(latest.current.pane.pendingTaskText, '');
+    const queue = inputQueue.current;
+    if (!queue || queue.pending || new TextEncoder().encode(text).length + 12 > queue.limit) return;
+    // Consume before paste: output rerenders and reconnects cannot replay task text.
+    taskPasteConsumed.current = true;
+    latest.current.onPatch(target.paneId, { pendingTaskText: undefined });
+    filePasting.current = true;
+    try { target.terminal.paste(text); } catch (error) {
+      setNotice(errorMessage(error) + t(' Check the agent\'s input area to avoid adding things twice.'));
+      return;
+    } finally { filePasting.current = false; }
+    setNotice(t('Task text inserted, not sent. Review it before pressing Enter.'));
+  };
+  useEffect(() => {
+    if (!pane.pendingTaskText) return;
+    const timer = setInterval(() => taskPasteAttempt.current(), 200);
+    return () => clearInterval(timer);
+  }, [pane.pendingTaskText]);
   const finishAction = () => {
     actionPending.current = false;
     if (mounted.current) setConfirming(false);
@@ -671,6 +719,7 @@ export function TerminalPane({
     fileInput.current(files);
   };
   const paste = async () => {
+    cancelTaskPaste.current();
     const target = captureActionTarget();
     if (!target || actionPending.current) return;
     actionPending.current = true;
@@ -899,6 +948,15 @@ export function TerminalPane({
           </button>
         </form>
       )}
+      {pane.pendingTaskText && !taskPasteConsumed.current && <div className="pane-task-input" role="status">
+        <span>{t('Waiting for safe paste mode. Task text has not been sent.')}</span>
+        <button onClick={() => {
+          const text = pane.pendingTaskText ?? '';
+          taskPasteConsumed.current = true;
+          onPatch(pane.id, { pendingTaskText: undefined });
+          void navigator.clipboard.writeText(text).catch(error => setNotice(errorMessage(error)));
+        }}>{t('Copy task text')}</button>
+      </div>}
       {(pane.error || notice) && (
         <div className="pane-error" role="alert">
           {pane.error || notice}

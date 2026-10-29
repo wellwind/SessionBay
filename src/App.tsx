@@ -57,6 +57,7 @@ import type {
   IndexStatus,
   LaunchPreview,
   LaunchRequest,
+  KanbanCard,
   Pane,
   Project,
   Session,
@@ -114,6 +115,7 @@ import { useUiTheme } from './use-ui-theme';
 import { ActivityShell } from './components/ActivityShell';
 import type { ActivityContribution } from './components/ActivityShell';
 import { WorkspaceCanvas } from './components/WorkspaceCanvas';
+import { taskInputText } from './task-input';
 import { ProjectBoard } from './components/ProjectBoard';
 import { WorkspaceOverview } from './components/WorkspaceOverview';
 import { SplitExistingPicker } from './components/SplitExistingPicker';
@@ -123,6 +125,7 @@ import './project-files-workspace.css';
 import { markWelcomeSeen, shouldShowWelcome } from './welcome';
 import { t } from './i18n';
 interface Launcher {
+  card?: KanbanCard;
   resumeId?: string;
   kind: 'shell' | AgentKind;
   cwd: string;
@@ -136,7 +139,7 @@ interface PathDialog {
   project?: Project;
   resume?: Session;
   curate?: boolean;
-  launch?: { kind: Launcher['kind']; split?: Launcher['split'] };
+  launch?: { kind: Launcher['kind']; split?: Launcher['split']; card?: KanbanCard };
 }
 interface Confirmation {
   title: string;
@@ -190,6 +193,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null | undefined>();
   // The all-workspaces grid is a view over every pane; terminals stay mounted underneath.
   const [workspaceOverview, setWorkspaceOverview] = useState(false);
+  const [allBoards, setAllBoards] = useState(false);
   const [overviewReturn, setOverviewReturn] = useState(false);
   // A worktree opened with "start work" opens the launcher once it is the current project.
   const pendingWorktreeLaunch = useRef<string | null>(null);
@@ -353,7 +357,7 @@ export default function App() {
   const temporaryWorkspace = selectedId === null;
   const current = visibleProjects.find((p) => p.id === selectedId);
   // Selecting any project or the temporary workspace (including zooming into a card) leaves the grid.
-  useEffect(() => { if (selectedId !== undefined) setWorkspaceOverview(false); }, [selectedId]);
+  useEffect(() => { if (selectedId !== undefined) { setWorkspaceOverview(false); setAllBoards(false); } }, [selectedId]);
   const activeTabId = activeWorkspaceTabId(workspace, selectedId);
   const activeTab = workspace.tabs.find((t) => t.id === activeTabId);
   // Side tools follow the focused pane in a mixed tab; the page (tabs, title) stays with `current`.
@@ -410,7 +414,7 @@ export default function App() {
     let cancelled = false;
     setPreviewPending(true);
     const timer = setTimeout(() => {
-      void api.preview({ paneId: 'launch-preview', kind: launcher.kind, projectId: launchProjectId,
+      void api.preview({ ...(launcher.card ? { kanbanCardId: launcher.card.id } : {}), paneId: 'launch-preview', kind: launcher.kind, projectId: launchProjectId,
         cwd: launcher.cwd.trim(), profileId: launcher.profileId, resumeId: launcher.resumeId?.trim() || undefined,
         cols: 80, rows: 24 })
         .then((result) => { if (!cancelled) setLaunchPreview(result); })
@@ -817,6 +821,7 @@ export default function App() {
     session?: Session,
     split?: Launcher['split'],
     resumeId?: string,
+    card?: KanbanCard,
   ) => {
     if (Object.keys(stateRef.current.workspace.panes).length >= 128) {
       notify(t('You have reached the limit of 128 panes. Close panes you no longer need first.'));
@@ -840,6 +845,7 @@ export default function App() {
       resumeId,
       state: 'placeholder',
       startToken: 1,
+      ...(card ? { kanbanCardId: card.id, pendingTaskText: taskInputText(card.title, card.notes) } : {}),
     };
     const insert = (pane: Pane) => {
       const id = pane.id;
@@ -893,7 +899,7 @@ export default function App() {
         try {
           const request: LaunchRequest = { paneId: `${Date.now()}:${crypto.randomUUID()}`, kind,
             projectId: project && !project.workspaceOnly ? project.id : undefined,
-            cwd, profileId, cols: 80, rows: 24 };
+            cwd, profileId, cols: 80, rows: 24, ...(card ? { kanbanCardId: card.id } : {}) };
           let info;
           try {
             info = await api.launchFresh(request);
@@ -1144,6 +1150,7 @@ export default function App() {
   );
   const conflicts = useMemo(() => shortcutConflicts(effectiveShortcuts), [effectiveShortcuts]);
   const openWorkspaceOverview = () => {
+    setAllBoards(false);
     if (!workspaceOverview) beforeOverview.current = { selectedId, view };
     setOverviewReturn(false);
     setSelectedId(undefined);
@@ -1205,6 +1212,7 @@ export default function App() {
       label: current ? t('Search sessions in this folder') : t('Search all sessions'),
       run: () => {
         if (!current) {
+          setAllBoards(false); setWorkspaceOverview(false);
           setSelectedId(undefined);
           setNavigation('directories');
           setAllSessionsSearch(true);
@@ -1430,6 +1438,7 @@ export default function App() {
     [p.id, projectOpenCount(workspace.tabs.filter((tab) => tab.projectId === p.id), workspace.panes)]));
   const listCollapsed = navigation === 'projects' ? sidebar.projectsCollapsed : sidebar.directoriesCollapsed;
   const selectNavigation = (page: 'projects' | 'directories') => {
+    setAllBoards(false);
     setWorkspaceOverview(false);
     setOverviewReturn(false);
     setNavigation(page);
@@ -1447,7 +1456,7 @@ export default function App() {
     setMaximizedId(null);
   };
   const navigationName = navigation === 'projects' ? t('Projects') : t('All directories');
-  const pageTitle = workspaceOverview ? t('All workspaces') : temporaryWorkspace ? t('Temporary terminal')
+  const pageTitle = allBoards ? t('All boards') : workspaceOverview ? t('All workspaces') : temporaryWorkspace ? t('Temporary terminal')
     : current?.name ?? (allSessionsSearch ? t('Search all sessions') : navigationName);
   const projectCount = projects.filter((project) => project.curated).length;
   const directoryCount = projects.filter((project) => project.sessionCount > 0).length;
@@ -1503,7 +1512,7 @@ export default function App() {
               </button>
             </div>
             <button
-              className={`sidebar-global ${selectedId === undefined && !allSessionsSearch && !workspaceOverview ? 'active' : ''}`}
+              className={`sidebar-global ${selectedId === undefined && !allSessionsSearch && !workspaceOverview && !allBoards ? 'active' : ''}`}
               onClick={() => selectNavigation(navigation)}
             >
               <Compass size={17} />
@@ -1513,6 +1522,13 @@ export default function App() {
               aria-pressed={workspaceOverview} onClick={openWorkspaceOverview}
               title={effectiveShortcuts['toggle-workspace-overview'] ? t('All workspaces ({{shortcut}})', { shortcut: effectiveShortcuts['toggle-workspace-overview'] }) : t('All workspaces')}>
               <LayoutGrid size={17} />{t('All workspaces')}<span>{Object.keys(workspace.panes).length}</span>
+            </button>
+            <button className={`sidebar-global ${allBoards ? 'active' : ''}`} disabled={!boot}
+              aria-pressed={allBoards} onClick={() => {
+                setWorkspaceOverview(false); setOverviewReturn(false); setSelectedId(undefined);
+                setAllSessionsSearch(false); setView('history'); setMaximizedId(null); setAllBoards(true);
+              }}>
+              <Columns3 size={17} aria-hidden="true" />{t('All boards')}
             </button>
             <div className="sidebar-section">
               <button className="sidebar-section-toggle" aria-expanded={!listCollapsed} aria-controls="sidebar-project-content"
@@ -1632,7 +1648,8 @@ export default function App() {
                 )}
                 <span>Session Bay</span>
                 <ChevronRight size={12} />
-                {current || allSessionsSearch || temporaryWorkspace || workspaceOverview ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {current || allSessionsSearch || temporaryWorkspace || workspaceOverview || allBoards ? <button className="breadcrumb-back" onClick={() => selectNavigation(navigation)}>{navigationName}</button> : <span aria-current="page">{navigationName}</span>}
+                {allBoards && <><ChevronRight size={12} /><span aria-current="page">{t('All boards')}</span></>}
                 {workspaceOverview && <><ChevronRight size={12} /><span aria-current="page">{t('All workspaces')}</span></>}
                 {temporaryWorkspace && <><ChevronRight size={12} /><span aria-current="page">{t('Temporary terminal')}</span></>}
                 {current && <><ChevronRight size={12} /><span aria-current="page" title={current.name}>{current.name}</span></>}
@@ -1796,7 +1813,18 @@ export default function App() {
               </div>}
               <div className="main-work-area project-work-area" id="navigation-content" role="tabpanel" aria-labelledby={`navigation-${navigation}`}>
                 <div className="project-work-content">
-                {view === 'board' && current?.curated && !workspaceOverview && <ProjectBoard key={current.id} project={current} workspace={workspace} refreshToken={refreshToken} />}
+                {(allBoards || (view === 'board' && current?.curated && !workspaceOverview)) && <ProjectBoard
+                  key={allBoards ? 'all-boards' : current!.id} {...(allBoards ? { projects } : { project: current! })}
+                  workspace={workspace} refreshToken={refreshToken}
+                  onStart={(card, project) => {
+                    if (allBoards) { selectProject(project); setView('board'); }
+                    const kind = settings?.defaultAgent ?? 'codex';
+                    const cwd = card.worktreePath || project.launchPath || project.path || '';
+                    if (!card.worktreePath && (!project.exists || !cwd)) {
+                      setPathDialog({ project, path: cwd, launch: { kind, card } });
+                    } else setLauncher({ kind, cwd, profileId: settings?.defaultProfileId ?? '', card });
+                  }}
+                  onResume={resume} onHistoryChanged={refresh} />}
                 <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
                 <div className="project-file-document-host" ref={setGitDocumentHost} hidden={view !== 'git'} />
                 {temporaryWorkspace && !activeTab && <div className="empty-state">
@@ -1820,7 +1848,7 @@ export default function App() {
                   }} />}
                 <div
                   className="history-mount"
-                  style={{ display: view === 'history' && !workspaceOverview ? undefined : 'none' }}
+                  style={{ display: view === 'history' && !workspaceOverview && !allBoards ? undefined : 'none' }}
                 >
                   {lastHistoryProject.current !== undefined && <div style={{ height: '100%', display: historyVisible ? undefined : 'none' }}><HistoryView
                     openRequest={historyOpenRequest}
@@ -1850,7 +1878,7 @@ export default function App() {
                     knownProjectIds={projects.map((project) => project.id)}
                     activeTabId={activeTabId}
                     settings={visibleSettings ?? settings}
-                    visible={view === 'workspace' && !workspaceOverview}
+                    visible={view === 'workspace' && !workspaceOverview && !allBoards}
                     maximizedId={maximizedId}
                     onPatch={patchPane}
                     onOpenFileLink={(paneId, request) => {
@@ -2130,11 +2158,13 @@ export default function App() {
                   undefined,
                   launcher.split,
                   launcher.resumeId?.trim() || undefined,
+                  launcher.card,
                 );
                 if (accepted) setLauncher(null);
               }
             }}
           >
+            {launcher.card && <div className="dialog-description"><p>{t('Task text will be pasted when safe paste mode is ready, without sending. Review it before pressing Enter.')}</p><p>{t('Automatic attachment waits for the agent’s native session identity or a bound worktree. If unavailable, use Attach from history in task details.')}</p></div>}
             <div className="launch-kind-switch" role="group" aria-label={t('Work type')}>
               <button type="button" aria-pressed={!launcher.existing && launcher.kind === 'shell'}
                 onClick={() => setLauncher({ ...launcher, kind: 'shell', resumeId: undefined, existing: false })}>
@@ -2179,10 +2209,10 @@ export default function App() {
               {boot?.installations.find((item) => item.kind === launcher.kind)?.available === false &&
                 <span className="inline-warning">{t('This agent was not found; set its executable in Settings and detect again.')}</span>}
             </label>}
-            <DirectoryPathField key={`${current?.id}:${launcher.kind}`} label={t('Working directory')}
+            {launcher.card ? <p className="dialog-description">{t('Working directory: {{path}}', { path: launcher.cwd })}</p> : <DirectoryPathField key={`${current?.id}:${launcher.kind}`} label={t('Working directory')}
               required value={launcher.cwd}
-              onChange={(cwd) => setLauncher((current) => current ? { ...current, cwd } : null)} />
-            {launcher.kind !== 'shell' && agentCapabilities[launcher.kind].resume.manualId && (
+              onChange={(cwd) => setLauncher((current) => current ? { ...current, cwd } : null)} />}
+            {launcher.kind !== 'shell' && !launcher.card && agentCapabilities[launcher.kind].resume.manualId && (
               <label className="field-label">{t('Conversation ID to resume (optional)')}
                 <input value={launcher.resumeId || ''} placeholder={t('Leave empty for a new conversation, or enter the tool\'s conversation ID')}
                   onChange={(event) => setLauncher({ ...launcher, resumeId: event.target.value })} />

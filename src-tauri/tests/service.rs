@@ -98,6 +98,7 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
         assert!(preview.messages[0].text.contains("auth_flow"));
         assert!(!preview.stale);
         let request = LaunchRequest {
+            kanban_card_id: None,
             pane_id: format!("pane-{}", session.kind.as_str()),
             kind: session.kind.as_str().into(),
             project_id: Some(projects[0].id.clone()),
@@ -174,6 +175,7 @@ fn cross_agent_search_preview_resume_and_second_terminal() {
         }
     }
     let mut request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "ordinary-shell".into(),
         kind: "shell".into(),
         project_id: Some(projects[0].id.clone()),
@@ -266,6 +268,7 @@ fn uncurated_sessions_keep_their_own_cwd_and_relocation_and_live_runtimes() {
         .find(|s| s.external_id == "b-original")
         .unwrap();
     let mut request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "curation-regression".into(),
         kind: "codex".into(),
         project_id: Some(project.id.clone()),
@@ -346,6 +349,7 @@ fn provider_live_state_is_explicit_and_only_affects_future_launch_plans() {
     settings.executables.claude = "/bin/sh".into();
     service.save_settings(settings.clone()).unwrap();
     let request = LaunchRequest {
+        kanban_card_id: None,
         pane_id: "state-pane".into(),
         kind: "claude".into(),
         project_id: None,
