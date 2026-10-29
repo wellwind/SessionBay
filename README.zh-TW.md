@@ -24,10 +24,10 @@ Session Bay 會索引每個支援 Agent 的本機歷史，依專案集中起來�
 
 - **所有 Agent 一份歷史**：支援 Claude Code、Codex CLI、OpenCode、Grok Build 與 Antigravity CLI。提供全文搜尋（支援中文）與 Agent／日期篩選，接續前可以先唯讀預覽。
 - **以專案為中心**：釘選常用的資料夾；「所有目錄」頁仍列出每個跑過 Agent 的地方。
-- **真正的終端機**：分頁與分割面板都是真的 PTY，Agent、開發伺服器和測試可以並排跑。
+- **真正的終端機**：分頁與分割面板都是真的 PTY，保留 10,000 行捲動歷史，Agent、開發伺服器和測試可以並排跑。重新附接時會還原目前畫面，以及最多 1 MiB 的最新捲動歷史輸出。
 - **關掉視窗也繼續跑**：背景 broker 持有程序，重新開啟後會附接回原本還在執行的 Agent。
 - **提醒通知**：Agent 等你回覆、完成或失敗時跳出系統通知，點一下就切到那個面板。可另行啟用合成音效、調整音量及逐一試聽（預設關閉）。[音效設定與勿擾限制](https://fullstackladder.dev/SessionBay/zh-tw/guide/settings/#提醒通知與音效)。
-- **[看板](https://fullstackladder.dev/SessionBay/zh-tw/guide/kanban/)**：依專案規劃工作、附加 Agent Sessions，並在全部看板依階段追蹤所有已啟用看板。
+- **[看板](https://fullstackladder.dev/SessionBay/zh-tw/guide/kanban/)**：依專案規劃工作，加入備註與多個 Agent Sessions。可移動、合併、拆分、封存工作或綁定 worktree，並在全部看板依階段追蹤所有已啟用看板。
 - **Git 工作台**：diff 與部分暫存、commit、push／pull、歷史圖與 blame、分支、stash、worktree、三方衝突解決，以及 GitHub／自架 GitLab 的 PR。
 - **拖放檔案與圖片給 Agent**、預覽工作區檔案與圖片，不用建專案也能開臨時終端機。
 - **安全清理**：Session 先進回收筒；逐項確認要搬的檔案後，才會移到系統垃圾桶，之後也能還原。
@@ -44,13 +44,18 @@ Session Bay 會索引每個支援 Agent 的本機歷史，依專案集中起來�
 
 Linux 與 Windows 可以自行從原始碼建置，但還沒有完成發行驗證。
 
+**升級至 0.3.0**：開啟 App 會將本機目錄資料庫升級至 **schema v8**，以儲存看板。**升級後，0.2.0 將無法再開啟這個目錄資料庫。** Agent 歷史紀錄不變。
+
+**從 0.1.0 升級**：0.2.0 已將 App 身分改為 `dev.fullstackladder.sessionbay`（macOS：`~/Library/Application Support/dev.fullstackladder.sessionbay`）。Session Bay 的舊資料不會遷移；新設定檔會重新開始，並再次讀取 Agent 歷史。macOS 需要再次選擇**強制打開**，並重新授予通知權限。
+
 ## 隱私與資料安全
 
-- 全部在本機執行：沒有帳號、沒有伺服器，也不蒐集使用資料。唯一的連網是向 GitHub Releases 檢查新版本，可以關閉。
+- 索引、搜尋與預覽都在本機執行：沒有帳號、沒有伺服器，也不蒐集使用資料。Git 使用你設定的 remotes，PR 功能會連線至你加入的 GitHub／GitLab 主機，另可選擇是否向 GitHub Releases 檢查新版本。
 - Agent 歷史一律**唯讀**。唯一的例外是「移到系統垃圾桶」：你逐筆檢查所有檔案並確認後，才會搬移。
+- 看板、工作、備註與 Session 連結儲存在 Session Bay 的目錄資料庫，重建索引後仍保留，不會改動專案檔案或 Agent 歷史。
 - Agent 執行時仍沿用它自己的登入、網路與權限設定。
 
-正式版資料使用 `dev.fullstackladder.sessionbay`（macOS：`~/Library/Application Support/dev.fullstackladder.sessionbay`）。新身分不會遷移舊版資料；macOS 首次開啟需要再次選擇「強制打開」，並重新授予通知權限。
+更多細節見[資料安全](docs/data-safety.md)（英文）。
 
 ## 從原始碼建置
 
@@ -58,13 +63,24 @@ Linux 與 Windows 可以自行從原始碼建置，但還沒有完成發行驗�
 
 ```bash
 npm ci
-npm run dev                 # 啟動桌面 App
-npm run tauri -- build      # 建置目前平台的未簽章安裝包
+npm run dev                 # run the desktop app
+npm run tauri -- build      # build an unsigned bundle for this platform
 ```
 
 `npm run dev` 使用獨立的 **Session Bay Dev** 設定檔（`dev.fullstackladder.sessionbay.dev`）；首次啟動會從正式版匯入設定與精選專案，並停用更新檢查。
 
 測試與平台細節見 [Development](docs/development.md)（英文）。
+
+## 文件
+
+| | |
+| --- | --- |
+| [使用教學](https://fullstackladder.dev/SessionBay/zh-tw/guide/getting-started/) | 安裝、找回 Session、終端機、看板、Git、清理與設定 |
+| [架構](docs/architecture.md)（英文） | App、broker、索引器與 runtime 如何協作 |
+| [Agent 整合](docs/agent-integrations.md)（英文） | 各 Agent 的歷史來源與接續方式 |
+| [資料安全](docs/data-safety.md)（英文） | 唯讀保證與系統垃圾桶流程 |
+| [開發](docs/development.md)（英文） | 建置、測試與發行 |
+| [參與貢獻](CONTRIBUTING.md)（英文） | 如何提出變更 |
 
 ## 狀態
 

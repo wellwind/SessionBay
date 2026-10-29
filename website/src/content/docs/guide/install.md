@@ -28,8 +28,6 @@ The preview is not notarized by Apple yet, so macOS blocks the first launch:
 
 You only do this once per app identity. Later versions with the same identity can be opened normally after you install them the same way.
 
-The new app identity `dev.fullstackladder.sessionbay` starts with a fresh profile. Data from 0.1.0 is not migrated. macOS requires **Open Anyway** again on first launch and notification permission must be granted again.
-
 :::note
 Session Bay never asks you to turn off Gatekeeper or System Integrity Protection. If a download looks wrong, delete it and get it again from the release page.
 :::
@@ -40,8 +38,16 @@ Session Bay launches the agent CLIs you already use; it does not bundle them. In
 
 ## Update or uninstall
 
+### Upgrading to 0.3.0
+
+Opening 0.3.0 upgrades the local catalog to **schema v8** for boards. **0.2.0 can no longer open that catalog after the upgrade.** Agent history is unchanged.
+
+If you are upgrading from **0.1.0**, note that **0.2.0** changed the app identity to `dev.fullstackladder.sessionbay`. Session Bay's data from 0.1.0 is not migrated; the new profile starts fresh and reads your agents' history again. macOS requires **Open Anyway** and notification permission again.
+
+### Update or remove the app
+
 - **Update**: Session Bay shows a notice in the bottom-left corner when a new version is on GitHub. Choose **View release**, download the new version and replace the app in Applications. Running agents keep going while you update; close Session Bay first.
-- **Uninstall**: delete the app. Session Bay's own data (index, settings, layout) is in `~/Library/Application Support/dev.fullstackladder.sessionbay`; delete that folder too if you want. Your agents' history is never touched.
+- **Uninstall**: delete the app. Session Bay's own data (catalog, boards, settings and layout) is in `~/Library/Application Support/dev.fullstackladder.sessionbay`; delete that folder too if you want. Your agents' history is never touched.
 
 ## Linux and Windows
 

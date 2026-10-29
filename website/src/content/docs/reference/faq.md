@@ -9,7 +9,11 @@ The preview is not notarized yet. Use **System Settings → Privacy & Security �
 
 ### An agent is "not found"
 
-Apps on macOS do not see your shell's `PATH`. Set the absolute path in **Settings → Sources and tools → Executable path**, for example the output of `which claude`.
+Session Bay checks `PATH` and common install locations, including macOS version-manager directories. Try **Settings → Sources and tools → Detect again**. If the CLI is still missing, set **Executable path** to an absolute path, for example the output of `which claude` in your shell.
+
+### A terminal cannot find node or npm
+
+0.3.0 prevents new terminals from inheriting the launcher's nvm and npm session state. A broker started before the fix keeps its old environment until it restarts. Closing the window does not restart the broker; a Mac restart does. Also check that your shell profile initializes your version manager.
 
 ### My history is empty
 

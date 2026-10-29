@@ -24,6 +24,8 @@ Open a project, then choose **Sessions** in the tool bar on the right (or press 
 
 To search every folder at once, go to **All directories** and choose **Search all sessions**.
 
+Claude Code sessions use Claude Code's own generated title when available. A custom title from Claude Code takes priority; the first meaningful prompt is a fallback when no title is available.
+
 ## Resume
 
 **Resume work** starts the original agent in the session's working directory, for example `claude --resume <id>`. The agent uses its own login and permissions.

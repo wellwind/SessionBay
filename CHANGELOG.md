@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- A board panel in the right activity bar shows the project's tasks next to the terminals, with a needs-attention badge on its icon. Toggle it with **Mod+Shift+K**.
+
+### Changed
+
+- Boards are drag-first: whole cards drag between columns, the per-card **Move to…** menu is gone, and the stage selector in task details is the non-drag alternative. Alt+arrow keyboard moves still work.
+- The Board tab is pinned at the start of the tab bar, and task details open in a side drawer.
+- Board toolbar and cards are redesigned: Unsorted is shown as an inbox strip, columns have inline quick add, moves and archives can be undone, and All boards can group by project.
+
+### Fixed
+
+- A focused control no longer loses focus when a resize removes the compact pane menu.
+
 ## [0.3.0] - 2026-10-29
 
 ### Added

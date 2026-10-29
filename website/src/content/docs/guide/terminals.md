@@ -29,6 +29,8 @@ Before starting an agent, the dialog shows the exact command line and folder tha
 
 Terminals belong to a background process (the *broker*), not to the window. Closing Session Bay leaves your agents and dev servers running. When you reopen it, every pane reattaches to the same process with its recent output.
 
+Terminals keep up to **10,000 lines of scrollback**. Reattaching restores the current screen and up to **1 MiB of the newest scrollback output**; older output may no longer be available.
+
 - **Stop** ends a pane's process. Closing a pane asks before stopping it.
 - After a restart of your Mac, panes show **interrupted**; start them again when you are ready.
 

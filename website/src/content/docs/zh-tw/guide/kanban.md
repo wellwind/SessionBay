@@ -37,6 +37,8 @@ description: 規劃專案工作、附加 Agent Sessions，並跨看板追蹤進�
 
 **開始工作**會在專案資料夾或工作綁定的 worktree 開啟現有的 Agent／Shell 啟動介面。終端機提供安全貼上模式後，工作標題與備註會插入輸入區，**不會送出**；請先檢查再按 Enter。若無法使用安全貼上模式，可以改按**複製工作內容**。一般 Shell 不會建立可索引的 Agent Session。
 
+新啟動的 Session 要自動附加至工作，必須由 Agent 提供可信任的 Session ID，且該 Agent 只能有一個啟用的歷史來源。部分狀態整合、未啟用 hooks 的啟動方式與舊版 broker 不會提供此 ID。若未自動附加，請使用**從歷史附加**。工作綁定的 worktree 中的 Sessions，也可依工作目錄自動附加。
+
 在專案看板中，將卡片拖曳到另一張卡片中央，或在詳情中選擇目標，即可合併工作。請檢查確認內容：Sessions 與備註會移至目標工作，來源工作會刪除。附加的 Session 也能透過**拆分為新工作**再次分開。合併不會跨越專案。
 
 連結的 worktree 中的 Sessions 屬於主專案看板，並顯示分支。工作詳情的**建立 worktree**會將新 checkout 綁定至該工作，之後在其中啟動的 Sessions 會自動附加。

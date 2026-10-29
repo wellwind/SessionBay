@@ -11,6 +11,8 @@ Deleting a session is a two-step process, so you never lose history by accident.
 
 Choose the trash icon on a session. It moves to Session Bay's **recycle bin** and disappears from history and search. The agent's files are not touched. **Undo delete** brings it back immediately, or open the recycle bin from the trash icon at the top of a project later.
 
+Recycled sessions are also hidden from [board tasks](/SessionBay/guide/kanban/). Restoring a session shows it on its task again. Archiving or deleting a board task is separate from deleting its sessions.
+
 ## 2. Move to the system trash
 
 To really free the files, choose **Move to system trash…**, either in the delete dialog or on an entry in the recycle bin. Session Bay shows:

@@ -37,6 +37,8 @@ Select a card to open its right-side details drawer while keeping the board visi
 
 **Start work** opens the existing agent or shell launcher in the project's folder, or in the task's linked worktree. The task title and notes are inserted into the terminal input **without being sent**, once safe paste mode is available. Review them before pressing Enter. If safe paste mode is unavailable, use **Copy task text** instead. Plain shells do not create an indexed agent session.
 
+Automatic attachment from a new launch needs a trusted session ID from the agent and one enabled history source for that agent. Some status integrations, hooks-disabled launches and older brokers do not supply that ID. If the session does not attach automatically, use **Attach from history**. Sessions in a task's bound worktree can also attach by their working directory.
+
 You can merge tasks by dropping one on the center of another in a project board, or choosing a target in task details. Review the confirmation: sessions and notes move to the target and the source task is deleted. Use **Split into new task** on an attached session to separate it again. Merging never crosses projects.
 
 Linked worktree sessions belong to the main project's board and show their branch. **Create worktree** in task details binds the new checkout to that task so sessions started there attach automatically.

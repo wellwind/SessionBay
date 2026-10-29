@@ -78,6 +78,7 @@ const settings: Bootstrap['settings'] = {
   agentOptions: defaultAgentOptions(),
   executables: { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' },
   shortcuts: {}, onboardingComplete: true,
+  systemNotifications: true, attentionSound: false, attentionSoundVolume: 70,
 };
 
 // Terminal panes: an agent and a dev server side by side, plus work in other projects for the overview.
@@ -340,6 +341,7 @@ mockIPC((command, payload = {}) => {
       return target;
     }
     case 'save_settings': return args.settings;
+    case 'attention_sound_muted': return false;
     case 'resize_runtime': case 'ack_runtime': case 'write_runtime': case 'detach_runtime':
     case 'save_workspace': case 'plugin:webview|set_webview_zoom': return;
     default: throw new Error(`Showcase fixture has no data for ${command}`);

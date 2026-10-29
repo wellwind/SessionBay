@@ -24,10 +24,10 @@ Session Bay indexes the local history of every supported agent, brings it togeth
 
 - **One history for every agent** — Claude Code, Codex CLI, OpenCode, Grok Build and Antigravity CLI. Full-text search (including CJK), filters by agent and date, and a read-only preview before you resume anything.
 - **Project-first navigation** — pin the folders you care about; an "All directories" view still shows every place you ever ran an agent.
-- **Real terminals** — tabs and split panes backed by real PTYs. Run agents, dev servers and tests side by side.
+- **Real terminals** — tabs and split panes backed by real PTYs, with 10,000 lines of scrollback. Run agents, dev servers and tests side by side; reattaching restores the current screen and up to 1 MiB of the newest scrollback output.
 - **Keeps running when you close the window** — a background broker owns the processes; reopen Session Bay and reattach to the same running agents.
 - **Attention notifications** — get a system notification when an agent is waiting for you, finishes or fails; click it to jump to that pane. Optional synthesized sounds have separate volume and event previews (off by default). [Sound settings and DND limitations](https://fullstackladder.dev/SessionBay/guide/settings/#attention-notifications-and-sounds).
-- **[Kanban boards](https://fullstackladder.dev/SessionBay/guide/kanban/)** — plan tasks per project, attach agent sessions, and track every enabled board by stage in All boards.
+- **[Kanban boards](https://fullstackladder.dev/SessionBay/guide/kanban/)** — plan tasks per project with notes and multiple agent sessions. Move, merge, split or archive tasks, bind them to worktrees, and track every enabled board by stage in All boards.
 - **Git workbench** — diff with partial staging, commit, push/pull, history graph and blame, branches, stash, worktrees, three-way conflict resolution, and GitHub / self-hosted GitLab pull requests.
 - **Drop files and images into agents**, preview workspace files and images, and open a temporary terminal without creating a project.
 - **Safe cleanup** — sessions go to a recycle bin first; you can then move a session's files to the system trash after reviewing exactly what will move, and restore it later.
@@ -44,13 +44,16 @@ The first preview targets **macOS on Apple Silicon** (macOS 12 or later).
 
 Linux and Windows builds can be produced from source, but they have not been validated for release yet.
 
+**Upgrading to 0.3.0:** opening the app upgrades the local catalog to **schema v8** for boards. **0.2.0 can no longer open that catalog afterward.** Agent history is unchanged.
+
+**Upgrading from 0.1.0:** 0.2.0 changed the app identity to `dev.fullstackladder.sessionbay` (on macOS: `~/Library/Application Support/dev.fullstackladder.sessionbay`). Session Bay's earlier data is not migrated; the new profile starts fresh and reads your agents' history again. macOS requires **Open Anyway** and notification permission again.
+
 ## Privacy and data safety
 
-- Everything runs locally. Session Bay has no account, no server and no telemetry. It only checks GitHub Releases for new versions, which you can turn off.
+- Indexing, search and preview run locally. Session Bay has no account, no server and no telemetry. Git uses your configured remotes, pull requests contact the GitHub or GitLab hosts you add, and optional update checks contact GitHub Releases.
 - Agent history is **read-only**. The only exception is the explicit "Move to system trash" flow, which you confirm per session after reviewing every file.
+- Boards, tasks, notes and session links live in Session Bay's catalog, survive index rebuilds, and never change project files or agent history.
 - Agents still run with their own login, network access and permission settings.
-
-Production stores its data under `dev.fullstackladder.sessionbay` (on macOS: `~/Library/Application Support/dev.fullstackladder.sessionbay`). The new identity starts fresh: earlier app data is not migrated, and macOS requires **Open Anyway** and notification permission again.
 
 More detail: [Data safety](docs/data-safety.md).
 
@@ -72,7 +75,7 @@ See [Development](docs/development.md) for tests and platform notes.
 
 | | |
 | --- | --- |
-| [User guide](https://fullstackladder.dev/SessionBay/guide/getting-started/) | Install, find sessions, terminals, Git, cleanup |
+| [User guide](https://fullstackladder.dev/SessionBay/guide/getting-started/) | Install, find sessions, terminals, boards, Git, cleanup, settings |
 | [Architecture](docs/architecture.md) | How the app, broker, indexer and runtime fit together |
 | [Agent integrations](docs/agent-integrations.md) | Where each agent's history is read from and how resume works |
 | [Data safety](docs/data-safety.md) | Read-only guarantees and the system trash flow |

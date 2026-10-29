@@ -19,6 +19,8 @@ Schema version 8 adds optional auto-archive policy, worktree bindings and pendin
 launch associations. These tables also survive index rebuilds. Migrations are
 local catalog changes; they never modify agent history.
 
+0.3.0 opens catalogs at schema v8; 0.2.0 cannot open them after the upgrade.
+
 Only curated projects can enable a board. Disabling preserves all its data and
 stops intake and edits. Re-enabling does not backfill sessions from the disabled
 period. Removing a project from the curated list hides its board from the

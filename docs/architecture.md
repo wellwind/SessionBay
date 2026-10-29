@@ -16,11 +16,12 @@ flowchart LR
 
 | Path | Responsibility |
 | --- | --- |
-| `src/` | React UI: projects, history, terminals, Git, settings |
+| `src/` | React UI: projects, history, terminals, boards, Git, settings |
 | `src/agent-manifest.json` | Built-in agent registry shared by TypeScript and Rust (names, executables, resume templates) |
 | `src-tauri/src/desktop.rs` | Tauri commands (the IPC surface) |
 | `src-tauri/src/service.rs` | Application service behind the commands |
 | `src-tauri/src/catalog.rs` | SQLite catalog, migrations and search |
+| `src-tauri/src/kanban.rs` | Project boards, tasks, session links and intake |
 | `src-tauri/src/adapters.rs`, `opencode.rs`, `antigravity*.rs` | Per-agent history readers |
 | `src-tauri/src/broker/`, `runtime/` | Background broker, PTY ownership and reattach |
 | `src-tauri/src/git/` | Git workbench (runs the `git` CLI) and GitHub/GitLab hosting |
@@ -35,7 +36,8 @@ flowchart LR
 - Session identity is agent + source + external ID, never title or cwd.
 - Sessions are grouped by their recorded working directory. Scanning never adds a folder to the user's project list.
 - Search uses an FTS5 trigram index to pick candidates, then verifies exact substring matches. This handles CJK text without a tokenizer. Queries shorter than three characters fall back to a scan.
-- The catalog lives in the app data directory (`~/Library/Application Support/dev.fullstackladder.sessionbay` on macOS). It can always be rebuilt from the sources, except for Session Bay's own data: projects, display names, the recycle bin and trash records.
+- The catalog lives in the app data directory (`~/Library/Application Support/dev.fullstackladder.sessionbay` on macOS). Indexed history can be rebuilt from the sources. Session Bay's own data cannot: projects, display names, boards, tasks, notes, session links, the recycle bin and trash records. Index rebuilds preserve this data.
+- 0.3.0 upgrades the catalog to schema v8 for boards. After migration, 0.2.0 cannot open the catalog. No agent history is changed. See [Kanban catalog API](kanban-api.md) for board ownership and intake.
 
 ## Runtime and broker
 
@@ -65,3 +67,7 @@ Session Bay can show whether an agent is working, waiting for input, done or fai
 - the OSC 7501 terminal status sequence.
 
 These signals drive the tab badges and the system notifications.
+
+Notifications and optional attention sounds share off-screen/background gating and a 5-second per-pane cooldown. Sounds are off by default, with a saved volume (0–100%, default 70%) and per-event test buttons. A 1.5-second burst plays one tone, prioritizing waiting, failure, then completion. Tests use the draft volume and bypass gating and cooldowns. Both events and tests respect detected Do Not Disturb; macOS Focus detection is unavailable, Windows/Linux detection is partial and unverified, and detection failures allow playback. Native WebView background/minimized playback remains unverified.
+
+Claude Code reporting resumes at the next main turn after a lost report; it does not restore the old turn's status.

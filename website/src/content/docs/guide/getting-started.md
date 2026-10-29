@@ -17,6 +17,8 @@ Session Bay is a desktop workbench for AI coding agents. It reads the history th
 
 ![The projects overview with cards for each project](../../../assets/screenshots/en/projects.png)
 
+To plan work, open a project's **Board** tab and choose **Enable board**. A task can hold several agent sessions; **All boards** tracks work across enabled project boards. See [Kanban boards](/SessionBay/guide/kanban/).
+
 ## Words used in this guide
 
 | Term | Meaning |
@@ -25,6 +27,7 @@ Session Bay is a desktop workbench for AI coding agents. It reads the history th
 | **Session** | One conversation with an agent, read from that agent's own history. |
 | **Workspace** | The tabs and panes that are open for a project. |
 | **Pane** | One terminal running a shell or an agent. A tab can split into several panes. |
+| **Task** | A board card with a title, notes and zero or more agent sessions. |
 
 ## Supported agents
 
