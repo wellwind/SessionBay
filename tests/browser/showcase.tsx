@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Channel } from '@tauri-apps/api/core';
+import { kanbanFixture, moveFixtureCard } from '../fixtures/kanban';
 import { defaultAgentOptions } from '../../src/agents';
 import type { AgentKind, Bootstrap, Pane, Project, RuntimeRecord, Session, SessionQuery, TerminalEvent, Workspace } from '../../src/types';
 import '../../src/styles.css';
@@ -41,6 +42,9 @@ const sessions: Session[] = harborSessions.map(([kind, title, snippet, minutes],
   projectId: 'p-harbor', title, cwd: `${home}/harbor-api`, updatedAt: ago(minutes), timeSource: 'event',
   archived: false, parentId: null, partial: false, snippet,
 }));
+
+const board = kanbanFixture('p-harbor', sessions);
+board.enabled = params.get('board') !== 'off';
 
 const transcript = [
   ['user', L('Add rate limiting to POST /uploads. Limit each API key to 60 requests per minute and return 429 with a Retry-After header.', '幫 POST /uploads 加上速率限制：每個 API key 每分鐘 60 次，超過回 429 並帶 Retry-After header。')],
@@ -137,7 +141,7 @@ const panes: PaneSpec[] = [
   ['pane-scratch', null, 'shell', 'zsh'],
 ];
 const runtimes: RuntimeRecord[] = panes.map(([paneId, projectId, kind]) => ({
-  id: `runtime-${paneId}`, paneId, projectId, sessionId: null, profileId: kind === 'shell' ? 'zsh' : null,
+  id: `runtime-${paneId}`, paneId, projectId, sessionId: paneId === 'pane-agent' ? sessions[0].id : null, profileId: kind === 'shell' ? 'zsh' : null,
   resumeId: null, kind, state: 'running', exitCode: null,
   cwd: projectId ? `${home}/${projects.find(p => p.id === projectId)!.name}` : '/Users/you',
 }));
@@ -152,7 +156,7 @@ const workspace: Workspace = {
   ],
   panes: Object.fromEntries(panes.map(([id, projectId, kind, title]) => [id, {
     id, title, kind, projectId, cwd: runtimes.find(r => r.paneId === id)!.cwd, profileId: kind === 'shell' ? 'zsh' : undefined,
-    state: 'running', runtimeId: `runtime-${id}`,
+    state: 'running', runtimeId: `runtime-${id}`, sessionId: id === 'pane-agent' ? sessions[0].id : undefined,
   } as Pane])),
   activeTabByProject: { 'p-harbor': 'tab-harbor', 'p-web': 'tab-web', 'p-mobile': 'tab-mobile' },
   activeTemporaryTabId: 'tab-scratch',
@@ -186,6 +190,36 @@ mockIPC((command, payload = {}) => {
   const args = payload as Record<string, unknown>;
   switch (command) {
     case 'bootstrap': return bootstrap;
+    case 'kanban_board': return args.projectId === board.projectId ? structuredClone(board) : null;
+    case 'set_kanban_board_enabled': board.enabled = Boolean(args.enabled); return structuredClone(board);
+    case 'move_kanban_card': return structuredClone(moveFixtureCard(board, String(args.cardId), String(args.columnId), Number(args.position)));
+    case 'reorder_kanban_columns': {
+      (args.columnIds as string[]).forEach((id, position) => { board.columns.find(column => column.id === id)!.position = position; });
+      return;
+    }
+    case 'create_kanban_column': {
+      const column = { id: `column-${board.columns.length}`, projectId: board.projectId, name: String(args.name), defaultName: null,
+        stage: (args.stage ?? 'doing') as typeof board.columns[number]['stage'], position: board.columns.length, systemRole: null };
+      board.columns.push(column);
+      return structuredClone(column);
+    }
+    case 'rename_kanban_column': {
+      const column = board.columns.find(column => column.id === args.columnId)!;
+      column.name = String(args.name);
+      return structuredClone(column);
+    }
+    case 'set_kanban_column_stage': {
+      const column = board.columns.find(column => column.id === args.columnId)!;
+      column.stage = args.stage as typeof column.stage;
+      return structuredClone(column);
+    }
+    case 'delete_kanban_column': {
+      for (const card of board.cards.filter(card => card.columnId === args.columnId))
+        moveFixtureCard(board, card.id, String(args.targetColumnId), board.cards.filter(item => item.columnId === args.targetColumnId).length);
+      board.columns = board.columns.filter(column => column.id !== args.columnId);
+      board.columns.sort((a, b) => a.position - b.position).forEach((column, index) => { column.position = index; });
+      return;
+    }
     case 'set_locale': case 'frontend_diagnostic': return true;
     case 'start_index': case 'index_status': return bootstrap.index;
     case 'list_projects': return projects;
