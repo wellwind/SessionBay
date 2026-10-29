@@ -53,3 +53,5 @@
 .project-runtime-tabs button, .workspace-tab-select { position: relative; }
 .runtime-activity.output-only { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; pointer-events: none; }
 .runtime-activity.output-only .runtime-output-dot { top: 0; right: 0; }
+.workspace-tab .workspace-tab-lead { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 0; background: none; border-radius: 0; }
+.workspace-tab-lead .runtime-activity.output-only { top: -3px; right: -4px; }

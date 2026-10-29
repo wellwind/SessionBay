@@ -249,7 +249,7 @@ for (const width of [720, 1200]) {
         '.project-runtime-tabs button .project-runtime-name',
         '.project-runtime-tabs button .project-runtime-pane-count',
         '.workspace-tab',
-        '.workspace-tab-select > svg',
+        '.workspace-tab-lead > svg',
         '.workspace-tab-name',
       ];
       return selectors.flatMap(selector => [...document.querySelectorAll(selector)].map(element => {
