@@ -122,6 +122,10 @@ pub struct Settings {
     /// OS notifications when a background Agent waits, finishes or fails.
     #[serde(default = "default_true")]
     pub system_notifications: bool,
+    #[serde(default)]
+    pub attention_sound: bool,
+    #[serde(default = "default_attention_sound_volume")]
+    pub attention_sound_volume: u8,
     /// Ask GitHub Releases for newer versions at startup and once a day.
     #[serde(default = "default_true")]
     pub update_checks: bool,
@@ -173,6 +177,8 @@ impl Default for Settings {
             terminal_theme: "bay".into(),
             terminal_always_dark: false,
             system_notifications: true,
+            attention_sound: false,
+            attention_sound_volume: default_attention_sound_volume(),
             update_checks: true,
             font_family: DEFAULT_FONT_FAMILY.into(),
             font_size: 14,
@@ -223,6 +229,10 @@ fn default_theme_palette() -> String {
     "bay".into()
 }
 
+fn default_attention_sound_volume() -> u8 {
+    70
+}
+
 fn default_agent_hooks() -> HashMap<String, bool> {
     AgentKind::ALL
         .into_iter()
@@ -267,6 +277,11 @@ impl Settings {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.attention_sound_volume > 100 {
+            return Err(tr!(
+                "Attention sound volume must be a whole percentage from 0 to 100"
+            ));
+        }
         if self.version != 1 {
             return Err(tr!(
                 "Unsupported settings version; keep the original file and update the app"
@@ -1287,6 +1302,46 @@ mod tests {
         old.as_object_mut().unwrap().remove("systemNotifications");
         let migrated: Settings = serde_json::from_value(old).unwrap();
         assert!(migrated.system_notifications);
+    }
+    #[test]
+    fn attention_sound_defaults_migrate_and_preserve_saved_preferences() {
+        let defaults = Settings::default();
+        assert!(!defaults.attention_sound);
+        assert_eq!(defaults.attention_sound_volume, 70);
+        let temp = tempfile::tempdir().unwrap();
+        let store = ConfigStore::open(temp.path().join("app")).unwrap();
+        let mut old = serde_json::to_value(&defaults).unwrap();
+        old.as_object_mut().unwrap().remove("attentionSound");
+        old.as_object_mut().unwrap().remove("attentionSoundVolume");
+        fs::write(
+            store.directory.join("settings.json"),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        let (mut migrated, warnings) = store.load_settings();
+        assert!(warnings.is_empty());
+        assert!(!migrated.attention_sound);
+        assert_eq!(migrated.attention_sound_volume, 70);
+        migrated.attention_sound = true;
+        for volume in [0, 70, 100] {
+            migrated.attention_sound_volume = volume;
+            store.save_settings(&migrated).unwrap();
+            let (saved, warnings) = store.load_settings();
+            assert!(warnings.is_empty());
+            assert!(saved.attention_sound);
+            assert_eq!(saved.attention_sound_volume, volume);
+        }
+        migrated.attention_sound_volume = 101;
+        assert!(migrated.validate().is_err());
+        for volume in [
+            serde_json::json!(-1),
+            serde_json::json!(0.5),
+            serde_json::json!(256),
+        ] {
+            let mut value = serde_json::to_value(&defaults).unwrap();
+            value["attentionSoundVolume"] = volume;
+            assert!(serde_json::from_value::<Settings>(value).is_err());
+        }
     }
     #[test]
     fn future_theme_ids_roundtrip_without_resetting_settings() {

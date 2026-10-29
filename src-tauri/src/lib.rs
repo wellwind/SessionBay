@@ -2,6 +2,8 @@ pub mod adapters;
 pub mod agent_activity;
 pub mod antigravity;
 pub mod antigravity_metadata;
+#[cfg(feature = "desktop")]
+mod attention_dnd;
 pub mod broker;
 pub mod catalog;
 pub mod claude_state;

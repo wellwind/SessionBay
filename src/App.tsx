@@ -1574,7 +1574,7 @@ export default function App() {
             )}
           </ProjectNavigation>;
   return (
-    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} workspace={workspace} projects={projects} /><UpdateNotice enabled={!!settings && settings.updateChecks !== false} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
+    <RuntimeActivityProvider><AttentionNotifier enabled={settings?.systemNotifications !== false} soundEnabled={settings?.attentionSound === true} soundVolume={settings?.attentionSoundVolume ?? 70} workspace={workspace} projects={projects} /><UpdateNotice enabled={!!settings && settings.updateChecks !== false} /><div className={`app-shell${compactWorkspace ? ' workspace-focus' : ''}`} data-focus-mode={focusMode} data-app-shell data-backend-ready={ready && desktop}>
       <a className="skip-link" href="#main-workspace">{t('Skip to main workspace')}</a>
       <header className="app-topbar">
         <div className="brand">

@@ -26,7 +26,7 @@ Session Bay indexes the local history of every supported agent, brings it togeth
 - **Project-first navigation** — pin the folders you care about; an "All directories" view still shows every place you ever ran an agent.
 - **Real terminals** — tabs and split panes backed by real PTYs. Run agents, dev servers and tests side by side.
 - **Keeps running when you close the window** — a background broker owns the processes; reopen Session Bay and reattach to the same running agents.
-- **Attention notifications** — get a system notification when an agent is waiting for you, finishes or fails; click it to jump to that pane.
+- **Attention notifications** — get a system notification when an agent is waiting for you, finishes or fails; click it to jump to that pane. Optional synthesized sounds have separate volume and event previews (off by default). [Sound settings and DND limitations](https://fullstackladder.dev/SessionBay/guide/settings/#attention-notifications-and-sounds).
 - **Git workbench** — diff with partial staging, commit, push/pull, history graph and blame, branches, stash, worktrees, three-way conflict resolution, and GitHub / self-hosted GitLab pull requests.
 - **Drop files and images into agents**, preview workspace files and images, and open a temporary terminal without creating a project.
 - **Safe cleanup** — sessions go to a recycle bin first; you can then move a session's files to the system trash after reviewing exactly what will move, and restore it later.
