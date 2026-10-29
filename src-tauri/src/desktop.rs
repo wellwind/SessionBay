@@ -60,6 +60,9 @@ fn diagnostic_line(phase: &str, message: &str) -> Result<String, String> {
 async fn check_for_update(
     app: tauri::AppHandle,
 ) -> Result<Option<crate::updates::UpdateInfo>, String> {
+    if crate::dev_profile::is_development(&app.config().identifier) {
+        return Ok(None);
+    }
     let current = app.package_info().version.to_string();
     tauri::async_runtime::spawn_blocking(move || crate::updates::check(&current))
         .await
@@ -160,6 +163,27 @@ async fn detect_shells(state: AppState<'_>) -> Result<Vec<ShellCandidate>, Strin
 async fn save_settings(state: AppState<'_>, settings: Settings) -> Result<Settings, String> {
     let s = state.inner().clone();
     blocking(move || s.save_settings(settings)).await
+}
+#[tauri::command]
+async fn import_production_profile(
+    app: tauri::AppHandle,
+    state: AppState<'_>,
+) -> Result<Settings, String> {
+    if !crate::dev_profile::is_development(&app.config().identifier)
+        || smoke_data_directory().map_err(|e| e.to_string())?.is_some()
+    {
+        return Err(tr!("Import is only available in Session Bay Dev."));
+    }
+    let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let production = directory.with_file_name(crate::dev_profile::PRODUCTION_ID);
+    let s = state.inner().clone();
+    blocking(move || {
+        let import = crate::dev_profile::ProfileImport::read(&production)?;
+        let settings = s.save_settings(import.settings)?;
+        s.catalog.import_curated_projects(&import.projects)?;
+        Ok(settings)
+    })
+    .await
 }
 #[tauri::command]
 async fn list_projects(state: AppState<'_>) -> Result<Vec<Project>, String> {
@@ -779,8 +803,33 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_menu(workspace_menu(app.handle())?)?;
-            let directory = smoke_data_directory()?.unwrap_or(app.path().app_data_dir()?);
-            let service = Service::open_desktop(directory).map_err(std::io::Error::other)?;
+            let smoke_directory = smoke_data_directory()?;
+            let directory = smoke_directory
+                .clone()
+                .unwrap_or(app.path().app_data_dir()?);
+            if app.config().identifier == crate::dev_profile::DEVELOPMENT_ID
+                && !cfg!(debug_assertions)
+            {
+                return Err(
+                    std::io::Error::other(tr!("The dev identity requires a debug build.")).into(),
+                );
+            }
+            let import_warning = if smoke_directory.is_none()
+                && crate::dev_profile::is_development(&app.config().identifier)
+            {
+                crate::dev_profile::initialize(
+                    &directory,
+                    &directory.with_file_name(crate::dev_profile::PRODUCTION_ID),
+                )
+                .err()
+            } else {
+                None
+            };
+            let service = Service::open_desktop_with_warnings(
+                directory,
+                import_warning.into_iter().collect(),
+            )
+            .map_err(std::io::Error::other)?;
             app.manage(service.clone());
             service.begin_reconcile();
             Ok(())
@@ -817,6 +866,7 @@ pub fn run() {
             detect_history_sources,
             detect_shells,
             save_settings,
+            import_production_profile,
             list_projects,
             list_workspace_files,
             resolve_terminal_file,

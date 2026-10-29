@@ -16,7 +16,7 @@ $testRoot = Assert-SessionBayChildPath $env:RUNNER_TEMP (Join-Path $env:RUNNER_T
 $install = Assert-SessionBayChildPath $testRoot (Join-Path $testRoot 'installed')
 $uninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\Session Bay'
 $productKey = 'Software\sessionbay\Session Bay'
-$bundleId = 'dev.sessionbay.desktop'
+$bundleId = 'dev.fullstackladder.sessionbay'
 
 function Get-ProductRegistration {
     # Enumerate both views/hives to detect NSIS and WiX product collisions.
@@ -134,7 +134,7 @@ try {
         if ($packages.Count -ne 1) { throw 'Expected exactly one freshly built installer.' }
         $package = $packages[0].FullName
         $nsi = Get-Content 'src-tauri/target/release/nsis/x64/installer.nsi' -Raw
-        foreach ($definition in @('!define INSTALLMODE "currentUser"', '!define ARCH "x64"', '!define BUNDLEID "dev.sessionbay.desktop"')) {
+        foreach ($definition in @('!define INSTALLMODE "currentUser"', '!define ARCH "x64"', '!define BUNDLEID "dev.fullstackladder.sessionbay"')) {
             if (!$nsi.Contains($definition)) { throw "Generated NSIS does not match expected product: $definition" }
         }
         if ((Get-SessionBayPeMachine $package) -ne 0x014c) { throw 'Unexpected NSIS loader architecture.' }
