@@ -52,6 +52,18 @@ test('settings', async ({ page }) => {
   await open(page);
   await page.getByRole('button', { name: L('Settings and sources', '設定與資料來源') }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: L('Appearance and defaults', '外觀與預設值'), exact: true }).click();
+  await page.getByRole('heading', { name: L('System notifications', '系統通知'), exact: true })
+    .evaluate(element => element.scrollIntoView({ block: 'start' }));
+  const sound = page.getByRole('checkbox', { name: L('Play a sound when an agent needs attention', 'Agent 需要注意時播放音效') });
+  const volume = page.getByRole('slider', { name: L('Attention sound volume', '提醒音效音量'), exact: true });
+  await expect(sound).toBeInViewport();
+  await expect(sound).not.toBeChecked();
+  await expect(volume).toBeInViewport();
+  await expect(volume).toHaveValue('70');
+  for (const name of [L('Test waiting sound', '測試等待音效'), L('Test completion sound', '測試完成音效'), L('Test failure sound', '測試失敗音效')]) {
+    await expect(page.getByRole('button', { name, exact: true })).toBeInViewport();
+  }
   await shot(page, 'settings');
 });
 
