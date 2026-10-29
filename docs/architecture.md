@@ -35,7 +35,7 @@ flowchart LR
 - Session identity is agent + source + external ID, never title or cwd.
 - Sessions are grouped by their recorded working directory. Scanning never adds a folder to the user's project list.
 - Search uses an FTS5 trigram index to pick candidates, then verifies exact substring matches. This handles CJK text without a tokenizer. Queries shorter than three characters fall back to a scan.
-- The catalog lives in the app data directory (`~/Library/Application Support/dev.sessionbay.desktop` on macOS). It can always be rebuilt from the sources, except for Session Bay's own data: projects, display names, the recycle bin and trash records.
+- The catalog lives in the app data directory (`~/Library/Application Support/dev.fullstackladder.sessionbay` on macOS). It can always be rebuilt from the sources, except for Session Bay's own data: projects, display names, the recycle bin and trash records.
 
 ## Runtime and broker
 

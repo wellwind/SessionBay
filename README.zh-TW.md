@@ -49,6 +49,8 @@ Linux 與 Windows 可以自行從原始碼建置，但還沒有完成發行驗�
 - Agent 歷史一律**唯讀**。唯一的例外是「移到系統垃圾桶」：你逐筆檢查所有檔案並確認後，才會搬移。
 - Agent 執行時仍沿用它自己的登入、網路與權限設定。
 
+正式版資料使用 `dev.fullstackladder.sessionbay`（macOS：`~/Library/Application Support/dev.fullstackladder.sessionbay`）。新身分不會遷移舊版資料；macOS 首次開啟需要再次選擇「強制打開」，並重新授予通知權限。
+
 ## 從原始碼建置
 
 需要 Node.js 24、Rust（版本由 `rust-toolchain.toml` 固定），以及所用平台的 [Tauri 前置需求](https://v2.tauri.app/start/prerequisites/)。
@@ -58,6 +60,8 @@ npm ci
 npm run dev                 # 啟動桌面 App
 npm run tauri -- build      # 建置目前平台的未簽章安裝包
 ```
+
+`npm run dev` 使用獨立的 **Session Bay Dev** 設定檔（`dev.fullstackladder.sessionbay.dev`）；首次啟動會從正式版匯入設定與精選專案，並停用更新檢查。
 
 測試與平台細節見 [Development](docs/development.md)（英文）。
 

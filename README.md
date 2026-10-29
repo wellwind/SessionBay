@@ -49,6 +49,8 @@ Linux and Windows builds can be produced from source, but they have not been val
 - Agent history is **read-only**. The only exception is the explicit "Move to system trash" flow, which you confirm per session after reviewing every file.
 - Agents still run with their own login, network access and permission settings.
 
+Production stores its data under `dev.fullstackladder.sessionbay` (on macOS: `~/Library/Application Support/dev.fullstackladder.sessionbay`). The new identity starts fresh: earlier app data is not migrated, and macOS requires **Open Anyway** and notification permission again.
+
 More detail: [Data safety](docs/data-safety.md).
 
 ## Build from source
@@ -60,6 +62,8 @@ npm ci
 npm run dev                 # run the desktop app
 npm run tauri -- build      # build an unsigned bundle for this platform
 ```
+
+`npm run dev` uses the separate **Session Bay Dev** profile (`dev.fullstackladder.sessionbay.dev`), imports production settings and curated projects on first launch, and disables update checks.
 
 See [Development](docs/development.md) for tests and platform notes.
 
