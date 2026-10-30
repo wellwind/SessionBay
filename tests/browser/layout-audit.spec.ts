@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openFullBoard } from './board-navigation';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 // Opens every main screen in English and Traditional Chinese at several window
@@ -60,25 +61,25 @@ const views: View[] = [
   }],
   ['project-board', async page => {
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+    await openFullBoard(page);
     await expect(page.locator('.kanban-card').first()).toBeVisible();
   }],
   ['board-task-details', async page => {
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+    await openFullBoard(page);
     await page.locator('.kanban-card-open').first().click();
     await expect(page.getByRole('dialog', { name: L('Task details', '工作詳情') })).toBeVisible();
   }],
   ['board-done-details', async page => {
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
-    await page.locator('[data-kanban-card="card-4"] .kanban-card-open').click();
+    await openFullBoard(page);
+    await page.locator('.project-board [data-kanban-card="card-4"] .kanban-card-open').click();
     await page.getByRole('button', { name: L('Task actions', '工作操作') }).click();
     await expect(page.getByRole('button', { name: L('Archive task', '封存工作'), exact: true })).toBeVisible();
   }],
   ['board-auto-archive', async page => {
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+    await openFullBoard(page);
     await page.getByRole('button', { name: L('Board actions', '看板操作') }).click();
     await page.getByRole('button', { name: L('Auto-archive…', '自動封存…'), exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
@@ -87,26 +88,26 @@ const views: View[] = [
     await page.goto('/tests/browser/showcase.html?board=off');
     await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
-    await expect(page.getByRole('button', { name: L('Enable board', '啟用看板'), exact: true })).toBeVisible();
+    await page.locator('.workspace-activity[data-activity-id="board"]').click();
+    await expect(page.locator('.board-activity').getByRole('button', { name: L('Enable board', '啟用看板'), exact: true })).toBeVisible();
   }],
   ['board-add-column', async page => {
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+    await openFullBoard(page);
     await page.getByRole('button', { name: L('Board actions', '看板操作') }).click();
     await page.getByRole('button', { name: L('Add column…', '新增欄位…'), exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
   }],
   ['board-column-settings', async page => {
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+    await openFullBoard(page);
     await page.getByRole('button', { name: L('Column settings: Todo', '欄位設定：待辦') }).click();
     await page.getByRole('button', { name: L('Rename…', '重新命名…'), exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
   }],
   ['board-filter', async page => {
     await page.locator('.directory-card-main').first().click();
-    await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+    await openFullBoard(page);
     await page.locator('.kanban-toolbar').getByRole('button', { name: L('Filter', '篩選'), exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Agent' })).toBeVisible();
   }],

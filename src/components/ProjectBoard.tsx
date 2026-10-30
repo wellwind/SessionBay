@@ -205,7 +205,7 @@ export function ProjectBoard({ project, projects, workspace, refreshToken = 0, o
   if (loading) return <div className="empty-state" role="status">{t('Loading board…')}</div>;
   return <section className="project-board" ref={root} data-kanban-surface tabIndex={-1} aria-label={overview ? t('All boards') : t('Project board')} aria-busy={busy}>
     {error && <div className="kanban-error" role="alert">{error}<button disabled={busy} onClick={() => void read()}>{t('Try again')}</button></div>}
-    {overview && enabled.length === 0 ? <div className="empty-state"><Columns3 size={30} aria-hidden="true" /><h2>{t('No enabled boards')}</h2><p>{t('Enable a board from a project’s Board tab to see its tasks here.')}</p></div> : !overview && !board?.enabled ? <div className="empty-state"><Columns3 size={30} aria-hidden="true" /><h2>{t('Plan work on a board')}</h2>
+    {overview && enabled.length === 0 ? <div className="empty-state"><Columns3 size={30} aria-hidden="true" /><h2>{t('No enabled boards')}</h2><p>{t('Enable a board from a project’s Board activity panel to see its tasks here.')}</p></div> : !overview && !board?.enabled ? <div className="empty-state"><Columns3 size={30} aria-hidden="true" /><h2>{t('Plan work on a board')}</h2>
       <p>{t('Enable a board for this project. New sessions will appear in Unsorted; existing history stays as it is.')}</p>
       <button className="primary" disabled={busy} onClick={() => void mutate(() => api.setKanbanBoardEnabled(project!.id, true))}>{t('Enable board')}</button></div> : <>
       <header className="kanban-toolbar">

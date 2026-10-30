@@ -1,13 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openFullBoard } from './board-navigation';
 
 const L = (en: string, zh: string) => test.info().project.name === 'zh-tw' ? zh : en;
 const title = () => L('Add rate limiting to the upload endpoint', '為上傳 API 加上速率限制');
-async function openBoard(page: Page, off = false) {
-  await page.goto(`/tests/browser/showcase.html${off ? '?board=off' : ''}`);
+async function openBoard(page: Page) {
+  await page.goto('/tests/browser/showcase.html');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
   await page.locator('.directory-card-main').first().click();
-  await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
-  if (!off) await expect(page.locator('.kanban-card').first()).toBeVisible();
+  await openFullBoard(page);
+  await expect(page.locator('.kanban-card').first()).toBeVisible();
 }
 const column = (page: Page, index: number) => page.locator(`.project-board [data-kanban-column="column-${index}"]`);
 const card = (page: Page, id: string) => page.locator(`.project-board [data-kanban-card="${id}"]`);
@@ -29,19 +30,28 @@ async function taskAction(page: Page, label: string) {
 }
 
 test('enables only a curated project board and preserves workspace terminals across navigation', async ({ page }, info) => {
-  await openBoard(page, true);
+  await page.goto('/tests/browser/showcase.html?board=off');
+  await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
+  await page.locator('.directory-card-main').first().click();
+  const activity = page.locator('.workspace-activity[data-activity-id="board"]');
+  await expect(activity).toBeEnabled();
+  await expect(page.locator('.workspace-tab-bar').getByRole('button', { name: L('Board', '看板'), exact: true })).toHaveCount(0);
+  await activity.click();
+  await expect(page.locator('.board-activity').getByRole('button', { name: L('Enable board', '啟用看板'), exact: true })).toBeVisible();
   await page.getByRole('button', { name: L('Enable board', '啟用看板'), exact: true }).click();
+  await expect(page.locator('.board-activity [data-kanban-card="card-0"]')).toBeVisible();
+  await openFullBoard(page);
   await expect(card(page, 'card-0')).toBeVisible();
   await expect(page.getByRole('heading', { name: L('Untitled task', '未命名工作') })).toBeVisible();
   await page.screenshot({ path: info.outputPath('project-board.png') });
   await page.locator('.workspace-tab-select').first().click();
   await expect(page.locator('.xterm-screen').first()).toBeVisible();
-  await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+  await openFullBoard(page);
   await expect(card(page, 'card-0')).toBeVisible();
   await expect(page.getByRole('button', { name: L('Enable board', '啟用看板'), exact: true })).toHaveCount(0);
   await page.locator('#navigation-directories').click();
   await page.locator('.directory-card-main').filter({ hasText: 'notes-cli' }).click();
-  await expect(page.locator('.workspace-tab-bar > .pinned-board-tab')).toHaveCount(0);
+  await expect(page.locator('.workspace-activity[data-activity-id="board"]')).toBeDisabled();
 });
 
 test('moves and reorders tasks using keyboard and the drawer, restoring focus and announcing moves', async ({ page }) => {
@@ -118,12 +128,12 @@ test('filters synthetic card notes and session titles with agent and attention',
   await openBoard(page);
   const search = page.getByRole('searchbox', { name: L('Search board', '搜尋看板') });
   await search.fill('token bucket');
-  await expect(page.locator('.kanban-card')).toHaveCount(1);
+  await expect(page.locator('.project-board .kanban-card')).toHaveCount(1);
   await search.fill('');
   await filter(page, 'Agent', 'codex');
-  await expect(page.locator('.kanban-card')).toHaveCount(2);
+  await expect(page.locator('.project-board .kanban-card')).toHaveCount(2);
   await page.getByRole('button', { name: new RegExp('^' + L('Needs attention', '需要處理')) }).click();
-  await expect(page.locator('.kanban-card')).toHaveCount(0);
+  await expect(page.locator('.project-board .kanban-card')).toHaveCount(0);
   await expect(page.getByText(L('No tasks match the filters.', '沒有符合篩選條件的工作。'))).toBeVisible();
 });
 
@@ -303,8 +313,8 @@ test('all boards moves through keyboard and the drawer into the project’s firs
   // Inspect the project board to verify the persisted column and unchanged project.
   await page.locator('#navigation-projects').click();
   await page.locator('.directory-card-main').filter({ hasText: 'web-dashboard' }).click();
-  await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
-  await expect(page.locator('[data-kanban-column="web-column-1"] [data-kanban-card="web-task"]')).toBeVisible();
+  await openFullBoard(page);
+  await expect(page.locator('.project-board [data-kanban-column="web-column-1"] [data-kanban-card="web-task"]')).toBeVisible();
 });
 
 test('all boards pointer drop on another project changes only stage; Escape cancels', async ({ page }) => {

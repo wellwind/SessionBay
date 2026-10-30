@@ -17,7 +17,7 @@ Session Bay 是給 AI Coding Agent 用的桌面工作台。它讀取各 Agent �
 
 ![專案總覽，每個專案一張卡片](../../../../assets/screenshots/zh-tw/projects.png)
 
-想先規劃工作，可以開啟專案的**看板**分頁，按**啟用看板**。每項工作可以附加多個 Agent Sessions；**全部看板**可跨專案追蹤已啟用看板的工作。詳見[看板](/SessionBay/zh-tw/guide/kanban/)。
+想先規劃工作，可以開啟專案並選擇右側活動列的**看板**，按**啟用看板**。每項工作可以附加多個 Agent Sessions；**全部看板**可跨專案追蹤已啟用看板的工作。詳見[看板](/SessionBay/zh-tw/guide/kanban/)。
 
 ## 本教學用到的名詞
 

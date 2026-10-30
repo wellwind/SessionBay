@@ -2270,7 +2270,7 @@
   "Automatic attachment waits for the agent’s native session identity or a bound worktree. If unavailable, use Attach from history in task details.": "自動附加會等待代理的原生 Session 身分或綁定的 worktree。若無法取得，請從工作詳情使用「從歷史附加」。",
   "All boards": "全部看板",
   "No enabled boards": "尚未啟用任何看板",
-  "Enable a board from a project’s Board tab to see its tasks here.": "從專案的「看板」分頁啟用看板，即可在這裡查看工作。",
+  "Enable a board from a project’s Board activity panel to see its tasks here.": "從專案右側的「看板」活動面板啟用看板，即可在這裡查看工作。",
   "Session Bay has no saved settings to import.": "Session Bay 尚無可匯入的已儲存設定。",
   "The Session Bay catalog is changing. Try importing again when indexing has finished.": "Session Bay 的目錄正在變更。請在索引完成後再次匯入。",
   "Import is only available in Session Bay Dev.": "匯入功能僅適用於 Session Bay Dev。",
