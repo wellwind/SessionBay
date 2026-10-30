@@ -204,7 +204,7 @@ remain the app owner's responsibility. Activity selection is retained in memory
 per project and normal/Zen mode, not serialized into the workspace.
 
 The app owns one `useKanbanBoards` instance for the current project and shares
-it with the pinned Board tab and compact activity panel. The hook owns catalog
+it with the full board view and compact activity panel. The hook owns catalog
 snapshots, live session identity/status matching, five-second polling, window
 focus refresh, stale-read generations and the mutation lock. The All boards view
 uses the same hook implementation with the list command. No IPC shapes change.

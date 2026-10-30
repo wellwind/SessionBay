@@ -59,6 +59,7 @@ const shortcutNames: Record<string, string> = {
   'toggle-project-sessions': t('Show / hide project sessions'),
   'toggle-project-files': t('Show / hide project files'),
   'toggle-project-board': t('Show / hide project board'),
+  'open-project-board': t('Open full board'),
   'toggle-project-git': t('Show / hide project Git'),
   'toggle-workspace-overview': t('Open / leave the all-workspaces overview'),
   'new-terminal': t('Open a terminal'),

@@ -38,9 +38,11 @@ Session Bay launches the agent CLIs you already use; it does not bundle them. In
 
 ## Update or uninstall
 
-### Upgrading to 0.3.0
+### Upgrading from 0.2.0
 
-Opening 0.3.0 upgrades the local catalog to **schema v8** for boards. **0.2.0 can no longer open that catalog after the upgrade.** Agent history is unchanged.
+0.3.0 and later upgrade the local catalog to **schema v8** for boards. **0.2.0 can no longer open that catalog after the upgrade.** Agent history is unchanged.
+
+Upgrading from 0.3.0 to 0.3.1 needs no migration: install the new `.dmg` over the old app.
 
 If you are upgrading from **0.1.0**, note that **0.2.0** changed the app identity to `dev.fullstackladder.sessionbay`. Session Bay's data from 0.1.0 is not migrated; the new profile starts fresh and reads your agents' history again. macOS requires **Open Anyway** and notification permission again.
 

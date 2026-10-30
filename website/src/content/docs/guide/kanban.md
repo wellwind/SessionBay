@@ -5,7 +5,7 @@ description: Plan project tasks, attach agent sessions and track work across eve
 
 ## Enable a project board
 
-Open a project from **Projects**, select the pinned **Board** item at the start of the workspace tab bar, then choose **Enable board**. Only projects you have added to Projects can have a board; add a directory there first if it only appears in All directories.
+Open a project from **Projects**, select **Board** in the right activity bar, then choose **Enable board**. Only projects you have added to Projects can have a board; add a directory there first if it only appears in All directories.
 
 ![A project board with tasks grouped into configurable columns](../../../assets/screenshots/en/board.png)
 
@@ -27,9 +27,11 @@ With focus inside the board, **N** opens New task and **/** focuses search. Thes
 
 ## Board activity panel
 
-Choose **Board** in the right activity bar, or press **Mod+Shift+K** (⌘ on macOS, Ctrl elsewhere). It is available for curated projects and follows the current project. The activity icon and pinned Board item show the number of active tasks whose sessions need input or report an error; archived tasks are excluded.
+Choose **Board** in the right activity bar, or press **Mod+Shift+K** (⌘ on macOS, Ctrl elsewhere). It is available for curated projects and follows the current project. The activity icon shows the number of active tasks whose sessions need input or report an error; archived tasks are excluded.
 
 The compact panel shows project columns in order, with Done groups initially collapsed. Drag cards between groups, including onto a collapsed header, or use the same Alt+arrow shortcuts as the full board. Todo groups support inline New task. Select a card to open its details drawer, or choose **Open full board** for the main board. If the board is disabled, the panel offers **Enable board**.
+
+The full board has no entry in the workspace tab bar. Open it from the panel, or press **Mod+Shift+P**, search for **Open full board** and press **Enter**. You can assign this command a shortcut in Settings. Select a workspace tab to return to its terminals.
 
 ## Task details and sessions
 
