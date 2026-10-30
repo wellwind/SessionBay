@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude Code sessions launched with activity hooks now raise waiting and done notifications and sounds; before, only failures did. Provider busy-to-idle transitions also raise done alerts for OpenCode, while initial idle reports stay quiet.
+
 ## [0.3.1] - 2026-10-30
 
 ### Added
