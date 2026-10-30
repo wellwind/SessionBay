@@ -601,6 +601,9 @@ impl Host {
                                 }
                             }
                             crate::models::AgentKind::Claude => {
+                                crate::provider_hooks::configure_claude_waiting(
+                                    &mut spec, &helper,
+                                )?;
                                 crate::claude_state::prepare(&mut spec, &helper)?
                             }
                             crate::models::AgentKind::OpenCode => {

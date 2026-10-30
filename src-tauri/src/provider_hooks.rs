@@ -83,10 +83,6 @@ pub fn configure(spec: &mut LaunchSpec, kind: AgentKind, helper: &Path) -> Resul
             "Launch-local hooks are not supported for this tool or platform yet"
         ));
     }
-    let helper = helper
-        .to_str()
-        .filter(|s| !s.chars().any(char::is_control))
-        .ok_or("Hook helper path cannot be represented safely")?;
     let mut events = vec![
         "SessionStart",
         "UserPromptSubmit",
@@ -99,13 +95,36 @@ pub fn configure(spec: &mut LaunchSpec, kind: AgentKind, helper: &Path) -> Resul
         AgentKind::Claude => events.extend(["StopFailure", "Notification"]),
         _ => unreachable!(),
     }
+    configure_events(spec, kind, helper, &events)
+}
+
+/// Complements the live Claude state plugin with input/permission observations.
+pub fn configure_claude_waiting(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
+    configure_events(
+        spec,
+        AgentKind::Claude,
+        helper,
+        &["Notification", "PermissionRequest"],
+    )
+}
+
+fn configure_events(
+    spec: &mut LaunchSpec,
+    kind: AgentKind,
+    helper: &Path,
+    events: &[&str],
+) -> Result<(), String> {
+    let helper = helper
+        .to_str()
+        .filter(|s| !s.chars().any(char::is_control))
+        .ok_or("Hook helper path cannot be represented safely")?;
     if kind == AgentKind::Codex && !spec.args.iter().any(|arg| arg == "--no-daemon") {
         // A pre-existing shared app-server does not inherit this launch's ephemeral
         // callback routing environment. Keep the hook-owning process in this PTY.
         spec.args.push("--no-daemon".into());
     }
     let mut hooks = serde_json::Map::new();
-    for event in events {
+    for &event in events {
         let command = format!(
             "{} --sessionbay-provider-hook {}",
             quote(helper),
@@ -353,6 +372,60 @@ mod tests {
                 .contains("live state")
         );
         assert_eq!(serde_json::to_string(&spec).unwrap(), before);
+    }
+    #[test]
+    fn claude_live_registers_only_waiting_and_legacy_keeps_all_events() {
+        if !supported(AgentKind::Claude) {
+            return;
+        }
+        for live in [true, false] {
+            let mut spec = LaunchSpec {
+                executable: "synthetic-claude".into(),
+                args: vec!["--resume".into(), "synthetic-session".into()],
+                cwd: "/tmp".into(),
+                env: Default::default(),
+                session_id: None,
+                resume_key: None,
+                pane_id: "synthetic-pane".into(),
+            };
+            let helper = Path::new("/app path/Session'Bay");
+            if live {
+                configure_claude_waiting(&mut spec, helper).unwrap();
+            } else {
+                configure(&mut spec, AgentKind::Claude, helper).unwrap();
+            }
+            assert_eq!(
+                &spec.args[..3],
+                &["--resume", "synthetic-session", "--settings"]
+            );
+            let settings: serde_json::Value = serde_json::from_str(&spec.args[3]).unwrap();
+            let hooks = settings["hooks"].as_object().unwrap();
+            let mut expected = vec!["Notification", "PermissionRequest"];
+            if !live {
+                expected.extend([
+                    "SessionStart",
+                    "UserPromptSubmit",
+                    "Stop",
+                    "SessionEnd",
+                    "StopFailure",
+                ]);
+            }
+            assert_eq!(hooks.len(), expected.len());
+            for event in expected {
+                assert_eq!(
+                    hooks[event][0]["hooks"][0],
+                    json!({
+                        "type": "command",
+                        "command": format!("{} --sessionbay-provider-hook {}", quote(helper.to_str().unwrap()), quote(event)),
+                        "timeout": 2
+                    })
+                );
+            }
+            assert_eq!(
+                hooks["Notification"][0]["matcher"],
+                "^(idle_prompt|permission_prompt|elicitation_dialog|elicitation_url_dialog)$"
+            );
+        }
     }
     #[test]
     fn registration_is_launch_local_and_never_bypasses_trust() {

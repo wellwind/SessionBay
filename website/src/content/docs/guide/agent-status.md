@@ -28,4 +28,6 @@ You can enable an **optional attention sound** separately; it is off by default.
 
 For live status from Claude Code and OpenCode, enable **activity hooks** for that agent in **Settings → Sources and tools**. They only apply to agents started from Session Bay and never change your global agent settings.
 
+Claude Code reports waiting for input or permission through launch-local command hooks alongside its live state plugin. For Claude Code and OpenCode, a working-to-idle transition raises a completion alert; an initial idle report when opening or reattaching a pane does not. These alerts use the same visibility rules and cooldown as other attention notifications and sounds.
+
 If a Claude Code status report is lost, status may be unknown until the next main turn, when reporting resumes.
