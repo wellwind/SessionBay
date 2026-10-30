@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-30
+
 ### Added
 
 - A board panel in the right activity bar shows the project's tasks next to the terminals, with a needs-attention badge on its icon. Toggle it with **Mod+Shift+K**.
@@ -97,7 +99,8 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/wellwind/SessionBay/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wellwind/SessionBay/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wellwind/SessionBay/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wellwind/SessionBay/releases/tag/v0.1.0
