@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openFullBoard } from './board-navigation';
 import { mkdirSync } from 'node:fs';
 
 // Captures the website screenshots from the synthetic showcase fixture:
@@ -81,7 +82,7 @@ test('git workbench', async ({ page, request }) => {
 test('project board', async ({ page }) => {
   await open(page);
   await page.locator('.directory-card-main').first().click();
-  await page.locator('.workspace-tab-bar > .pinned-board-tab').click();
+  await openFullBoard(page);
   await expect(page.locator('.kanban-card').first()).toBeVisible();
   await shot(page, 'board');
 });

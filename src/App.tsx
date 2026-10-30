@@ -1178,6 +1178,9 @@ function AppContent() {
       setView(previous.view);
     }
   };
+  const openFullBoard = () => {
+    setAllBoards(false); setWorkspaceOverview(false); setView('board'); setMaximizedId(null);
+  };
   const commands: Command[] = [
     { id: 'toggle-workspace-overview', label: workspaceOverview ? t('Leave the all-workspaces overview') : t('Open the all-workspaces overview'), disabled: !boot,
       run: () => workspaceOverview ? closeWorkspaceOverview() : openWorkspaceOverview() },
@@ -1189,6 +1192,7 @@ function AppContent() {
       run: () => setActiveActivity(activeActivity === 'files' ? null : 'files') },
     { id: 'toggle-project-board', label: t('Show / hide project board'), disabled: !boardAvailable,
       run: () => setActiveActivity(activeActivity === 'board' ? null : 'board') },
+    { id: 'open-project-board', label: t('Open full board'), disabled: !boardAvailable, run: openFullBoard },
     { id: 'toggle-project-git', label: t('Show / hide project Git'), disabled: !filesAvailable,
       run: () => setActiveActivity(activeActivity === 'git' ? null : 'git') },
     {
@@ -1318,7 +1322,7 @@ function AppContent() {
     };
     // A configured focus binding must be consumed before xterm can forward it to PTY.
     const focusKey = (event: KeyboardEvent) => {
-      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git', 'toggle-project-board', 'toggle-workspace-overview'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
+      const command = commandRef.current.find((item) => ['toggle-focus-mode', 'toggle-sidebar', 'project-quick-open', 'toggle-project-sessions', 'toggle-project-files', 'toggle-project-git', 'toggle-project-board', 'open-project-board', 'toggle-workspace-overview'].includes(item.id) && item.shortcut && matchesShortcut(event, item.shortcut));
       if (command?.shortcut && !conflicts.has(command.id) && matchesShortcut(event, command.shortcut)) {
         key(event);
         if (event.defaultPrevented) event.stopPropagation();
@@ -1494,7 +1498,7 @@ function AppContent() {
       renderSidebar: () => <div className="project-git-sidebar-host" ref={setGitSidebarHost} /> },
     createBoardActivity({ project: current, data: boardData,
       shortcut: conflicts.has('toggle-project-board') ? '' : effectiveShortcuts['toggle-project-board'],
-      onOpenBoard: () => { setAllBoards(false); setWorkspaceOverview(false); setView('board'); setMaximizedId(null); },
+      onOpenBoard: openFullBoard,
       onStart: startBoardTask, onResume: resume, onHistoryChanged: refresh }),
   ];
   const projectNavigation = <ProjectNavigation hidden={!sidebarOpen || compactWorkspace}
@@ -1801,9 +1805,7 @@ function AppContent() {
                 </div>
               )}
               {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar">
-                {boardAvailable && <button type="button" className={`history-tab pinned-board-tab ${view === 'board' ? 'active' : ''}`} aria-pressed={view === 'board'}
-                  onClick={() => { setView('board'); setMaximizedId(null); }}><Columns3 size={14} aria-hidden="true" />{t('Board')}{boardData.attentionCount > 0 && <span className="board-tab-badge">{boardData.attentionCount}</span>}</button>}
-                {boardAvailable && <span className="workspace-tab-divider" aria-hidden="true" />}<div className="workspace-tabs">
+                <div className="workspace-tabs">
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   mixedBadges={(tab) => tabProjectIds(tab, workspace.panes).map(projectBadge)}
                   activeId={view === 'workspace' ? activeTabId : undefined}
