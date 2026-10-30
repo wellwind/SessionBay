@@ -13,7 +13,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 
 - Boards are drag-first: whole cards drag between columns, the per-card **Move to…** menu is gone, and the stage selector in task details is the non-drag alternative. Alt+arrow keyboard moves still work.
-- The Board tab is pinned at the start of the tab bar, and task details open in a side drawer.
+- The full board opens from the board panel or the **Open full board** command, with no tab-bar entry; task details open in a side drawer.
 - Board toolbar and cards are redesigned: Unsorted is shown as an inbox strip, columns have inline quick add, moves and archives can be undone, and All boards can group by project.
 
 ### Fixed
