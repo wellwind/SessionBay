@@ -222,9 +222,25 @@ mod tests {
         let original_args = spec.args.clone();
         let launch = spec.env[provider_hooks::LAUNCH].clone();
         let helper = std::env::current_exe().unwrap();
+        provider_hooks::configure_claude_waiting(&mut spec, &helper).unwrap();
         install(&mut spec, &helper).unwrap();
         assert_eq!(&spec.args[..original_args.len()], original_args.as_slice());
-        let path = std::path::PathBuf::from(spec.args.last().unwrap());
+        let settings_index = spec
+            .args
+            .iter()
+            .position(|arg| arg == "--settings")
+            .unwrap();
+        let settings: serde_json::Value =
+            serde_json::from_str(&spec.args[settings_index + 1]).unwrap();
+        let hooks = settings["hooks"].as_object().unwrap();
+        assert_eq!(hooks.len(), 2);
+        assert!(hooks.contains_key("Notification") && hooks.contains_key("PermissionRequest"));
+        let plugin_index = spec
+            .args
+            .iter()
+            .position(|arg| arg == "--plugin-dir")
+            .unwrap();
+        let path = std::path::PathBuf::from(&spec.args[plugin_index + 1]);
         assert_eq!(
             std::fs::read_to_string(path.join("hooks/register.js")).unwrap(),
             MODULE

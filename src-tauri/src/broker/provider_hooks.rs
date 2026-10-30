@@ -78,14 +78,37 @@ impl Host {
         {
             return Err("Hook runtime is no longer running".into());
         }
-        // Once the launch-local lifecycle observer is admitted, gateable command
-        // hooks cannot overwrite its current-state snapshots.
-        if lease.live || lease.source_sequence > 0 {
-            return Ok(Response::Ok);
-        }
         // Validate again after IPC; clients cannot smuggle state or private data.
         let payload = callback.payload(lease.provider);
         let callback = Callback::parse(&callback.event, &payload)?.ok_or("Child callback")?;
+        let live_observation = if lease.live {
+            // Live Claude uses command hooks only for waiting; lifecycle state
+            // remains owned by the plugin. Both paths share the same UI epoch.
+            if lease.terminal
+                || lease.provider != AgentKind::Claude
+                || !matches!(
+                    callback.event.as_str(),
+                    "Notification" | "PermissionRequest"
+                )
+            {
+                return Ok(Response::Ok);
+            }
+            let event =
+                crate::agent_activity::normalize(lease.provider, &callback.event, &payload)?
+                    .ok_or("Child callback")?;
+            use crate::agent_activity::Observation;
+            if !matches!(
+                event.observation,
+                Observation::WaitingInput
+                    | Observation::WaitingPermission
+                    | Observation::PermissionRequested
+            ) {
+                return Ok(Response::Ok);
+            }
+            Some(event.observation)
+        } else {
+            None
+        };
         let rotating = lease.ended && callback.event == "SessionStart";
         if rotating {
             if lease.session.as_deref() == Some(callback.session.as_str())
@@ -121,9 +144,9 @@ impl Host {
         }
         let mut activity = lock(&self.activity);
         if lease.session.is_none() {
-            // Root SessionStart is the causal binding handshake. A skipped/untrusted
-            // startup hook cannot bind from an arbitrary tool/subagent callback.
-            if callback.event != "SessionStart" {
+            // Legacy hooks require the startup handshake. Live Claude can first
+            // report waiting; the plugin will reuse this binding and UI epoch.
+            if !lease.live && callback.event != "SessionStart" {
                 return Err("Waiting for parent SessionStart hook".into());
             }
             let state = activity::State::new(&lease.runtime_id, lease.provider, &callback.session)?;
@@ -138,15 +161,19 @@ impl Host {
         if lease.activity_generation.as_deref() != Some(state.hook_generation()) {
             return Err("Hook activity generation superseded".into());
         }
-        // Without prompt/turn identity there is no fence against delayed callbacks.
-        // Older providers stay unknown rather than ordering callbacks by arrival.
-        if !matches!(callback.event.as_str(), "SessionStart" | "SessionEnd")
-            && callback.turn.is_none()
-        {
-            state.invalidate_hook_observation();
-            return Ok(Response::Ok);
+        if let Some(observation) = live_observation {
+            state.publish_source(observation, Instant::now());
+        } else {
+            // Without prompt/turn identity there is no fence against delayed callbacks.
+            // Older providers stay unknown rather than ordering callbacks by arrival.
+            if !matches!(callback.event.as_str(), "SessionStart" | "SessionEnd")
+                && callback.turn.is_none()
+            {
+                state.invalidate_hook_observation();
+                return Ok(Response::Ok);
+            }
+            state.publish_hook(&callback.event, &payload, Instant::now())?;
         }
-        state.publish_hook(&callback.event, &payload, Instant::now())?;
         if callback.event == "SessionEnd" {
             lease.ended = true;
         }
@@ -184,7 +211,7 @@ impl Host {
         if report.sequence <= lease.source_sequence {
             return Err("Provider state sequence replay".into());
         }
-        if lease.source_sequence == 0
+        if lease.session.is_none()
             && lease
                 .expected_session
                 .as_ref()
@@ -195,7 +222,7 @@ impl Host {
         let mut activity = lock(&self.activity);
         // Direct snapshots come from the app-owned single ordered source, not
         // concurrent command callbacks. A new root session rotates the UI epoch.
-        if lease.source_sequence == 0 || lease.session.as_deref() != Some(&report.session) {
+        if lease.session.as_deref() != Some(&report.session) {
             let state = activity::State::new(&lease.runtime_id, lease.provider, &report.session)?;
             lease.activity_generation = Some(state.hook_generation().to_owned());
             activity.insert(lease.runtime_id.clone(), state);
@@ -506,5 +533,186 @@ mod opencode_tests {
         );
         assert!(host.runtime.list().is_empty());
         assert!(lock(&host.provider_hooks).is_empty());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod claude_tests {
+    use super::*;
+    use crate::{agent_activity::Observation, broker::UiEvent, runtime::LaunchSpec};
+    use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
+
+    fn launch(root: &Path) -> (Arc<Host>, String, String) {
+        let executable = root.join("synthetic-claude");
+        std::fs::write(&executable,
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then printf '2.1.302 (Claude Code)\\n'; exit; fi\nexec sleep 60\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let host = Host::open(root.into()).unwrap();
+        let Response::Runtime { info: Some(info) } = host
+            .handle(Request::Launch {
+                generation: host.generation.clone(),
+                spec: Box::new(LaunchSpec {
+                    executable: executable.to_str().unwrap().into(),
+                    args: vec!["--resume".into(), "synthetic-session".into()],
+                    cwd: root.into(),
+                    env: HashMap::from([(hooks::OPT_IN.into(), "live".into())]),
+                    session_id: None,
+                    resume_key: None,
+                    pane_id: "synthetic-pane".into(),
+                }),
+                kind: "claude".into(),
+                project_id: None,
+                profile_id: None,
+                resume_id: Some("synthetic-session".into()),
+                home_directory: false,
+                cols: 80,
+                rows: 24,
+            })
+            .unwrap()
+        else {
+            panic!("missing runtime")
+        };
+        let launch = lock(&host.provider_hooks).keys().next().unwrap().clone();
+        (host, launch, info.id)
+    }
+
+    fn callback(event: &str, notification: Option<&str>, session: &str) -> Callback {
+        Callback {
+            event: event.into(),
+            session: session.into(),
+            turn: None,
+            notification: notification.map(str::to_owned),
+            source: None,
+        }
+    }
+
+    fn state(
+        host: &Host,
+        launch: &str,
+        sequence: u64,
+        observation: Observation,
+    ) -> Result<Response, String> {
+        host.receive_provider_state(
+            launch,
+            hooks::StateReport {
+                session: "synthetic-session".into(),
+                turn: Some("synthetic-turn".into()),
+                sequence,
+                observation,
+            },
+        )
+    }
+
+    fn snapshot(host: &Host, runtime: &str) -> (String, u64, Option<Observation>) {
+        let UiEvent::AgentActivity {
+            generation,
+            revision,
+            observation,
+            ..
+        } = host.poll_activity(runtime, None, Instant::now()).unwrap()
+        else {
+            panic!("missing activity")
+        };
+        (generation, revision, observation)
+    }
+
+    #[test]
+    fn live_waiting_hooks_and_state_reports_share_epoch_and_keep_source_sequence() {
+        let root = tempfile::tempdir().unwrap();
+        let (host, launch, runtime) = launch(root.path());
+        // A waiting hook can arrive before the first plugin snapshot, without a prompt ID.
+        host.receive_provider_hook(
+            &launch,
+            callback("Notification", Some("idle_prompt"), "synthetic-session"),
+        )
+        .unwrap();
+        let first = snapshot(&host, &runtime);
+        assert_eq!(first.2, Some(Observation::WaitingInput));
+        assert_eq!(lock(&host.provider_hooks)[&launch].source_sequence, 0);
+        state(&host, &launch, 1, Observation::Busy).unwrap();
+        let busy = snapshot(&host, &runtime);
+        assert_eq!(busy.0, first.0);
+        assert!(busy.1 > first.1);
+        assert_eq!(busy.2, Some(Observation::Busy));
+        let cases = [
+            (
+                "Notification",
+                Some("idle_prompt"),
+                Observation::WaitingInput,
+            ),
+            (
+                "Notification",
+                Some("permission_prompt"),
+                Observation::WaitingPermission,
+            ),
+            (
+                "Notification",
+                Some("elicitation_dialog"),
+                Observation::WaitingInput,
+            ),
+            (
+                "Notification",
+                Some("elicitation_url_dialog"),
+                Observation::WaitingInput,
+            ),
+            ("PermissionRequest", None, Observation::PermissionRequested),
+        ];
+        for (index, (event, notification, expected)) in cases.into_iter().enumerate() {
+            let sequence = index as u64 + 1;
+            host.receive_provider_hook(&launch, callback(event, notification, "synthetic-session"))
+                .unwrap();
+            let waiting = snapshot(&host, &runtime);
+            assert_eq!(waiting.0, first.0);
+            assert_eq!(waiting.2, Some(expected));
+            assert_eq!(
+                lock(&host.provider_hooks)[&launch].source_sequence,
+                sequence
+            );
+            assert!(state(&host, &launch, sequence, Observation::Idle).is_err());
+            assert_eq!(snapshot(&host, &runtime), waiting);
+            let next = if index % 2 == 0 {
+                Observation::Idle
+            } else {
+                Observation::Busy
+            };
+            state(&host, &launch, sequence + 1, next).unwrap();
+            let updated = snapshot(&host, &runtime);
+            assert_eq!(updated.0, first.0);
+            assert!(updated.1 > waiting.1);
+            assert_eq!(updated.2, Some(next));
+        }
+        host.runtime.shutdown().unwrap();
+    }
+
+    #[test]
+    fn live_hooks_reject_wrong_sessions_and_ignore_unregistered_events() {
+        let root = tempfile::tempdir().unwrap();
+        let (host, launch, runtime) = launch(root.path());
+        assert!(host
+            .receive_provider_hook(
+                &launch,
+                callback("PermissionRequest", None, "wrong-session")
+            )
+            .is_err());
+        assert!(lock(&host.provider_hooks)[&launch].session.is_none());
+        state(&host, &launch, 1, Observation::Busy).unwrap();
+        let busy = snapshot(&host, &runtime);
+        assert!(host
+            .receive_provider_hook(
+                &launch,
+                callback("Notification", Some("idle_prompt"), "wrong-session")
+            )
+            .is_err());
+        for (event, notification) in [
+            ("Stop", None),
+            ("SessionEnd", None),
+            ("UserPromptSubmit", None),
+            ("Notification", Some("unrecognized")),
+        ] {
+            host.receive_provider_hook(&launch, callback(event, notification, "synthetic-session"))
+                .unwrap();
+            assert_eq!(snapshot(&host, &runtime), busy);
+        }
+        host.runtime.shutdown().unwrap();
     }
 }

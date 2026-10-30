@@ -100,18 +100,24 @@ fn start_mode(root: &Path, live: bool) -> Running {
     let script = root.join("synthetic_provider.py");
     std::fs::write(&script,r#"
 import sys,json,subprocess,shlex,os
-if '--settings' in sys.argv:
-    hooks=json.loads(sys.argv[sys.argv.index('--settings')+1])['hooks']
+hooks=json.loads(sys.argv[sys.argv.index('--settings')+1])['hooks']
+live='--plugin-dir' in sys.argv
+if live:
+    assert set(hooks)=={'Notification','PermissionRequest'}
+    plugin=sys.argv[sys.argv.index('--plugin-dir')+1]
+    assert os.path.isfile(os.path.join(plugin,'hooks','register.js'))
 else:
-    hooks={event:[{'hooks':[{'command':shlex.join([os.environ['SESSIONBAY_CLAUDE_STATE_HELPER'],'--sessionbay-provider-hook',event])}]}] for event in ['SessionStart','UserPromptSubmit','PermissionRequest','Stop','Notification','SessionEnd']}
+    assert set(hooks)=={'SessionStart','UserPromptSubmit','PermissionRequest','Stop','SessionEnd','StopFailure','Notification'}
+assert hooks['Notification'][0]['matcher']=='^(idle_prompt|permission_prompt|elicitation_dialog|elicitation_url_dialog)$'
+helper=shlex.split(hooks['PermissionRequest'][0]['hooks'][0]['command'])[0]
 def emit(event,turn=None,notification=None,session='synthetic-session',child=False):
     payload={'hook_event_name':event,'session_id':session,'prompt_id':turn,'notification_type':notification,'prompt':'SYNTHETIC_PRIVATE_PROMPT','transcript_path':'/never/read/this','source':'startup'}
     if child: payload['agent_id']='synthetic-child'
-    command=hooks[event][0]['hooks'][0]['command']
+    # Unregistered events exercise the broker's live-mode allowlist.
+    command=hooks[event][0]['hooks'][0]['command'] if event in hooks else shlex.join([helper,'--sessionbay-provider-hook',event])
     result=subprocess.run(command,shell=True,input=json.dumps(payload),text=True,capture_output=True,timeout=4)
     assert result.returncode==0 and result.stdout.strip()=='{}'
 state_sequence=0
-helper=shlex.split(hooks['SessionStart'][0]['hooks'][0]['command'])[0]
 def state(observation,session='synthetic-session'):
     global state_sequence
     state_sequence+=1
@@ -128,9 +134,9 @@ for line in sys.stdin:
     elif cmd=='unknown': state('unknown')
     elif cmd=='newroot': state('busy','new-root')
     elif cmd=='prompt': emit('UserPromptSubmit','turn-one')
-    elif cmd=='permission': emit('PermissionRequest','turn-one')
+    elif cmd=='permission': emit('PermissionRequest',None if live else 'turn-one')
     elif cmd=='stop': emit('Stop','turn-one')
-    elif cmd=='wait': emit('Notification','turn-one','idle_prompt')
+    elif cmd=='wait': emit('Notification',None if live else 'turn-one','idle_prompt')
     elif cmd=='second': emit('UserPromptSubmit','turn-two')
     elif cmd=='stale': emit('Notification','turn-one','idle_prompt')
     elif cmd=='child': emit('Stop','turn-two',child=True)
@@ -241,9 +247,17 @@ fn clear_can_bind_a_new_session_without_restarting_the_process() {
 }
 
 #[test]
-fn ordered_real_state_helper_overrides_gateable_hooks_and_invalidates_on_disconnect() {
+fn live_waiting_callbacks_and_state_reports_reach_subscriber_and_revoke_together() {
     let root = tempfile::tempdir().unwrap();
     let run = start_mode(root.path(), true);
+    run.send("wait");
+    run.observation(Some(Observation::WaitingInput));
+    run.send("busy");
+    run.observation(Some(Observation::Busy));
+    run.send("permission");
+    run.observation(Some(Observation::PermissionRequested));
+    run.send("idle");
+    run.observation(Some(Observation::Idle));
     run.send("busy");
     run.observation(Some(Observation::Busy));
     run.send("stop");
