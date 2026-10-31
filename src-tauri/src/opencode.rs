@@ -1,7 +1,10 @@
 //! Read-only, bounded OpenCode SQLite reader. Official v1.19.2 source contract
 //! (v1.19.3 through v1.19.5 change no database, migration, or session schema files):
 //! https://github.com/anomalyco/opencode/tree/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session
-//! Both v1 message/part and v2 session_message projections are supported. SQLite
+//! CLI 2.2.3 session/sql.ts, session/history.ts and schema/session-message.ts
+//! were also reviewed: session_v2 wins over retained v1 rows, and session_part
+//! replaces assistant inline content when present. Both CLI generations share
+//! the private mirror and bounded reader below. SQLite
 //! only sees a private, persistent, owner-only mirror: the main database is
 //! refreshed block-by-block (only changed blocks are written) when its identity
 //! stamp changes, and the WAL is re-copied and hashed every read. Source
@@ -52,7 +55,10 @@ const MAX_ERROR_BYTES: usize = 2048;
 /// Revision 1: v1 fallback for empty v2 projections and the 1.19.3 version gate.
 /// Revision 2: persistent block mirror, per-session fingerprints/budgets.
 /// Revision 3: the version gate accepts 1.19.4 and 1.19.5.
-pub const READER_REVISION: i64 = 3;
+/// Revision 4: CLI 2.2.x through 2.2.5, session_v2 precedence and session_part.
+/// 2.2.4 and 2.2.5 change no session tables or stored message shapes (one new
+/// unrelated `job` table), so they share the 2.2.3 contract.
+pub const READER_REVISION: i64 = 4;
 const LEGACY_FRESHNESS_MS: i64 = 60_000;
 
 #[derive(Debug, Clone)]
@@ -1010,6 +1016,15 @@ fn columns(connection: &Connection, table: &str) -> Result<HashSet<String>, Stri
     }
     Ok(fields.into_iter().map(|(name, _)| name).collect())
 }
+fn has_table(connection: &Connection, table: &str) -> Result<bool, String> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name=?1)",
+            [table],
+            |row| row.get(0),
+        )
+        .map_err(sql_error)
+}
 fn require_columns(
     connection: &Connection,
     table: &str,
@@ -1033,13 +1048,16 @@ pub fn valid_session_id(id: &str) -> bool {
         && id.len() <= 256
         && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
 }
-fn reviewed_version(version: &str) -> bool {
+fn reviewed_version(version: &str, session_v2: bool) -> bool {
     let parts: Vec<_> = version.split('.').collect();
     if parts.len() != 3 {
         return false;
     }
     let parsed: Option<Vec<u32>> = parts.into_iter().map(|p| p.parse().ok()).collect();
-    parsed.is_some_and(|p| p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 5)))
+    parsed.is_some_and(|p| {
+        (p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 5)))
+            || (session_v2 && p[0] == 2 && p[1] == 2 && p[2] <= 5)
+    })
 }
 #[allow(clippy::too_many_arguments)]
 fn read_connection(
@@ -1068,59 +1086,105 @@ fn read_connection(
             return Err("OpenCode snapshot failed SQLite integrity checking".into());
         }
     }
-    require_columns(
-        connection,
-        "session",
-        &[
-            "id",
-            "directory",
-            "title",
-            "version",
-            "time_updated",
-            "parent_id",
-            "time_archived",
-            "revert",
-        ],
-    )?;
-    let has_v2: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='session_message')",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(sql_error)?;
-    if has_v2 {
+    let has_legacy = has_table(connection, "session")?;
+    let has_sessions_v2 = has_table(connection, "session_v2")?;
+    if !has_legacy && !has_sessions_v2 {
+        return Err(crate::tr!("Unsupported OpenCode schema: no session table"));
+    }
+    for table in ["session", "session_v2"] {
+        if (table == "session" && has_legacy) || (table == "session_v2" && has_sessions_v2) {
+            require_columns(
+                connection,
+                table,
+                &[
+                    "id",
+                    "directory",
+                    "title",
+                    "version",
+                    "time_updated",
+                    "parent_id",
+                    "time_archived",
+                    "revert",
+                ],
+            )?;
+        }
+    }
+    let has_v2 = has_table(connection, "session_message")?;
+    if has_v2 || has_sessions_v2 {
         require_columns(
             connection,
             "session_message",
-            &["id", "session_id", "type", "seq", "time_created", "data"],
+            &[
+                "id",
+                "session_id",
+                "type",
+                "seq",
+                "time_created",
+                "time_updated",
+                "data",
+            ],
         )?;
     }
-    require_columns(
-        connection,
-        "message",
-        &["id", "session_id", "time_created", "time_updated", "data"],
-    )?;
-    require_columns(
-        connection,
-        "part",
-        &["id", "session_id", "message_id", "time_updated", "data"],
-    )?;
+    if has_legacy {
+        require_columns(
+            connection,
+            "message",
+            &["id", "session_id", "time_created", "time_updated", "data"],
+        )?;
+        require_columns(
+            connection,
+            "part",
+            &["id", "session_id", "message_id", "time_updated", "data"],
+        )?;
+    }
+    let has_parts = has_sessions_v2 && has_table(connection, "session_part")?;
+    if has_parts {
+        require_columns(
+            connection,
+            "session_part",
+            &[
+                "session_id",
+                "message_id",
+                "ordinal",
+                "type",
+                "time_created",
+                "time_updated",
+                "data",
+            ],
+        )?;
+    }
     let mut seen = HashSet::new();
     let mut warnings: Vec<String> = Vec::new();
     let only = match mode {
         Mode::Only(id) => Some(id),
         Mode::Full(_) => None,
     };
-    let mut statement = connection.prepare(
-        "SELECT id,directory,title,version,time_updated,parent_id,time_archived,revert IS NOT NULL FROM session WHERE ?2 IS NULL OR id=?2 LIMIT ?1"
-    ).map_err(sql_error)?;
-    let counts_sql = if has_v2 {
-        "SELECT (SELECT count(*) FROM message WHERE session_id=?1),(SELECT max(time_created) FROM message WHERE session_id=?1),(SELECT max(time_updated) FROM message WHERE session_id=?1),(SELECT count(*) FROM part WHERE session_id=?1),(SELECT count(*) FROM session_message WHERE session_id=?1),(SELECT max(seq) FROM session_message WHERE session_id=?1)"
-    } else {
-        "SELECT (SELECT count(*) FROM message WHERE session_id=?1),(SELECT max(time_created) FROM message WHERE session_id=?1),(SELECT max(time_updated) FROM message WHERE session_id=?1),(SELECT count(*) FROM part WHERE session_id=?1),0,NULL"
+    // A migrated ID belongs exclusively to session_v2, even if it has no messages.
+    let fields =
+        "id,directory,title,version,time_updated,parent_id,time_archived,revert IS NOT NULL";
+    let sessions_sql = match (has_legacy, has_sessions_v2) {
+        (true, true) => format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 UNION ALL SELECT {fields},0 FROM session WHERE (?2 IS NULL OR id=?2) AND NOT EXISTS(SELECT 1 FROM session_v2 WHERE session_v2.id=session.id) LIMIT ?1"),
+        (false, true) => format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 LIMIT ?1"),
+        _ => format!("SELECT {fields},0 FROM session WHERE ?2 IS NULL OR id=?2 LIMIT ?1"),
     };
-    let mut counts = connection.prepare(counts_sql).map_err(sql_error)?;
+    let mut statement = connection.prepare(&sessions_sql).map_err(sql_error)?;
+    let legacy_counts = if has_legacy {
+        "(SELECT count(*) FROM message WHERE session_id=?1),(SELECT max(time_created) FROM message WHERE session_id=?1),(SELECT max(time_updated) FROM message WHERE session_id=?1),(SELECT count(*) FROM part WHERE session_id=?1)"
+    } else {
+        "0,NULL,NULL,0"
+    };
+    let message_counts = if has_v2 {
+        "(SELECT count(*) FROM session_message WHERE session_id=?1),(SELECT max(seq) FROM session_message WHERE session_id=?1),(SELECT max(time_updated) FROM session_message WHERE session_id=?1)"
+    } else {
+        "0,NULL,NULL"
+    };
+    let part_counts = if has_parts {
+        "(SELECT count(*) FROM session_part WHERE session_id=?1),(SELECT max(time_updated) FROM session_part WHERE session_id=?1)"
+    } else {
+        "0,NULL"
+    };
+    let counts_sql = format!("SELECT {legacy_counts},{message_counts},{part_counts}");
+    let mut counts = connection.prepare(&counts_sql).map_err(sql_error)?;
     let mut rows = statement
         .query(rusqlite::params![limits.rows + 1, only])
         .map_err(sql_error)?;
@@ -1134,15 +1198,18 @@ fn read_connection(
             return Err("OpenCode session has an unsafe identity".into());
         }
         let cwd: String = row.get(1).map_err(sql_error)?;
-        let title: String = row.get(2).map_err(sql_error)?;
+        let title: Option<String> = row.get(2).map_err(sql_error)?;
         let version: String = row.get(3).map_err(sql_error)?;
         let updated_raw: i64 = row.get(4).map_err(sql_error)?;
         let updated_at = millis(updated_raw);
         let parent_id: Option<String> = row.get(5).map_err(sql_error)?;
         let archived = row.get::<_, Option<i64>>(6).map_err(sql_error)?.is_some();
         let reverted: bool = row.get(7).map_err(sql_error)?;
+        let session_v2: bool = row.get(8).map_err(sql_error)?;
         if cwd.len() > MAX_PATH_BYTES
-            || title.len() > MAX_TITLE_BYTES
+            || title
+                .as_ref()
+                .is_some_and(|title| title.len() > MAX_TITLE_BYTES)
             || version.len() > 64
             || parent_id.as_ref().is_some_and(|id| !valid_session_id(id))
         {
@@ -1153,22 +1220,13 @@ fn read_connection(
         }
         // Index-only counts plus small message rows; large part payloads
         // (tool output) are never touched to fingerprint a session.
-        let projection: (i64, Option<i64>, Option<i64>, i64, i64, Option<i64>) = counts
-            .query_row([&id], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                ))
-            })
+        let projection: Vec<Option<i64>> = counts
+            .query_row([&id], |row| (0..9).map(|index| row.get(index)).collect())
             .map_err(sql_error)?;
         let mut digest = Sha256::new();
         digest.update(
             format!(
-                "opencode-session-v{READER_REVISION}\0{identity}\0{id}\0{cwd}\0{title}\0{version}\0{updated_raw}\0{parent_id:?}\0{archived}\0{reverted}\0{projection:?}"
+                "opencode-session-v{READER_REVISION}\0{identity}\0{id}\0{cwd}\0{title:?}\0{version}\0{updated_raw}\0{parent_id:?}\0{archived}\0{reverted}\0{session_v2}\0{projection:?}"
             )
             .as_bytes(),
         );
@@ -1179,12 +1237,12 @@ fn read_connection(
         };
         let mut record = ConversationMetadata {
             id: id.clone(),
-            title: Some(title),
+            title,
             cwd: (!cwd.is_empty()).then_some(cwd),
             updated_at,
             parent_id,
             archived,
-            partial: !reviewed_version(&version) || reverted,
+            partial: !reviewed_version(&version, session_v2) || reverted,
             messages: vec![],
             fingerprint,
             identity: identity.to_owned(),
@@ -1211,8 +1269,16 @@ fn read_connection(
                         |row| row.get(0),
                     )
                     .map_err(sql_error)?;
-            if v2 {
-                read_v2(connection, &mut record, cancel, &mut output_bytes, limits)?;
+            if session_v2 || v2 {
+                read_v2(
+                    connection,
+                    &mut record,
+                    cancel,
+                    &mut output_bytes,
+                    limits,
+                    session_v2 && has_parts,
+                    session_v2,
+                )?;
             } else if has_v2 {
                 // The stable 1.19.x CLI writes only the v1 message/part
                 // projection, so an empty v2 projection alone is not a
@@ -1296,8 +1362,10 @@ fn read_v2(
     cancel: &AtomicBool,
     output: &mut usize,
     limits: Limits,
+    has_parts: bool,
+    session_v2: bool,
 ) -> Result<(), String> {
-    let mut statement = connection.prepare("SELECT type,seq,time_created,CASE WHEN length(CAST(data AS BLOB))<=8388608 THEN data END FROM session_message WHERE session_id=?1 ORDER BY seq,id LIMIT 100001").map_err(sql_error)?;
+    let mut statement = connection.prepare("SELECT type,seq,time_created,CASE WHEN length(CAST(data AS BLOB))<=8388608 THEN data END,id FROM session_message WHERE session_id=?1 ORDER BY seq,id LIMIT 100001").map_err(sql_error)?;
     let mut rows = statement.query([&record.id]).map_err(sql_error)?;
     let mut count = 0;
     let mut previous = None;
@@ -1313,6 +1381,9 @@ fn read_v2(
             return Err("Conflicting OpenCode message sequence".into());
         }
         previous = Some(sequence);
+        if session_v2 && kind == "system" {
+            continue;
+        }
         let timestamp = millis(row.get(2).map_err(sql_error)?);
         let data: Option<String> = row.get(3).map_err(sql_error)?;
         let Some(value) = data.and_then(|raw| serde_json::from_str::<Value>(&raw).ok()) else {
@@ -1321,28 +1392,34 @@ fn read_v2(
         };
         let text = match kind.as_str() {
             "user" => value.get("text").and_then(Value::as_str).map(str::to_owned),
-            "assistant" => value
-                .get("content")
-                .and_then(Value::as_array)
-                .map(|content| {
-                    let mut text = Vec::new();
-                    for part in content {
-                        match part.get("type").and_then(Value::as_str) {
-                            Some("text") => {
-                                if let Some(value) = part.get("text").and_then(Value::as_str) {
-                                    text.push(value);
-                                } else {
-                                    record.partial = true;
-                                }
-                            }
-                            Some("reasoning" | "tool") => {}
-                            _ => record.partial = true,
-                        }
+            "assistant" => {
+                let message_id: String = row.get(4).map_err(sql_error)?;
+                let parts = if has_parts {
+                    read_v2_parts(connection, record, &message_id, cancel, limits)?
+                } else {
+                    None
+                };
+                if let Some(text) = parts {
+                    if value.get("content").and_then(Value::as_array).is_none() {
+                        record.partial = true;
+                        None
+                    } else {
+                        Some(text)
                     }
-                    text.join("\n\n")
-                }),
+                } else if let Some(content) = value.get("content").and_then(Value::as_array) {
+                    let mut text = String::new();
+                    let mut text_parts = 0;
+                    for part in content {
+                        append_v2_text(record, part, &mut text, &mut text_parts, limits)?;
+                    }
+                    Some(text)
+                } else {
+                    None
+                }
+            }
             "compaction" | "synthetic" | "system" | "shell" | "agent-switched"
             | "model-switched" => continue,
+            "location-switched" | "skill" | "idle" if session_v2 => continue,
             _ => {
                 record.partial = true;
                 continue;
@@ -1355,6 +1432,79 @@ fn read_v2(
         }
     }
     Ok(())
+}
+// Only assistant text is searchable. Parts replace inline content per message,
+// never supplement it, including when all parts are hidden or malformed.
+fn append_v2_text(
+    record: &mut ConversationMetadata,
+    part: &Value,
+    text: &mut String,
+    text_parts: &mut usize,
+    limits: Limits,
+) -> Result<(), String> {
+    match part.get("type").and_then(Value::as_str) {
+        Some("text") => {
+            if let Some(value) = part.get("text").and_then(Value::as_str) {
+                let separator = if *text_parts == 0 { "" } else { "\n\n" };
+                if text
+                    .len()
+                    .saturating_add(separator.len())
+                    .saturating_add(value.len())
+                    > limits.output_bytes
+                {
+                    return Err(BUDGET_ERROR.into());
+                }
+                text.push_str(separator);
+                text.push_str(value);
+                *text_parts += 1;
+            } else {
+                record.partial = true;
+            }
+        }
+        Some("reasoning" | "tool") => {}
+        _ => record.partial = true,
+    }
+    Ok(())
+}
+fn read_v2_parts(
+    connection: &Connection,
+    record: &mut ConversationMetadata,
+    message_id: &str,
+    cancel: &AtomicBool,
+    limits: Limits,
+) -> Result<Option<String>, String> {
+    let mut statement = connection.prepare("SELECT ordinal,type,CASE WHEN length(CAST(data AS BLOB))<=8388608 THEN data END FROM session_part WHERE session_id=?1 AND message_id=?2 ORDER BY ordinal LIMIT 10001").map_err(sql_error)?;
+    let mut rows = statement
+        .query([&record.id, message_id])
+        .map_err(sql_error)?;
+    let mut text = String::new();
+    let mut text_parts = 0;
+    let mut count = 0;
+    let mut previous = None;
+    while let Some(row) = rows.next().map_err(sql_error)? {
+        check_cancel(cancel)?;
+        count += 1;
+        if count > 10_000 {
+            return Err(BUDGET_ERROR.into());
+        }
+        let ordinal: i64 = row.get(0).map_err(sql_error)?;
+        if ordinal < 0 || previous.is_some_and(|old| ordinal <= old) {
+            return Err(crate::tr!("Conflicting OpenCode part ordinal"));
+        }
+        previous = Some(ordinal);
+        let kind: String = row.get(1).map_err(sql_error)?;
+        let data: Option<String> = row.get(2).map_err(sql_error)?;
+        let Some(value) = data.and_then(|raw| serde_json::from_str::<Value>(&raw).ok()) else {
+            record.partial = true;
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) != Some(kind.as_str()) {
+            record.partial = true;
+            continue;
+        }
+        append_v2_text(record, &value, &mut text, &mut text_parts, limits)?;
+    }
+    Ok((count > 0).then_some(text))
 }
 fn read_v1(
     connection: &Connection,

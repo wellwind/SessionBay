@@ -1,0 +1,143 @@
+{
+  "info": {
+    "id": "ses_cliSynthetic1193",
+    "projectID": "global",
+    "agent": "build",
+    "model": {
+      "id": "synthetic-free",
+      "providerID": "opencode",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 12,
+      "output": 8,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1792000000000,
+      "updated": 1792000010016
+    },
+    "title": "Synthetic CLI title 1.19.5",
+    "location": {
+      "directory": "/synthetic/cli demo"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_cliUser0",
+      "time": {
+        "created": 1792000000080
+      },
+      "text": "Synthetic CLI question 1.19.5",
+      "type": "user"
+    },
+    {
+      "id": "msg_cliStep0",
+      "time": {
+        "created": 1792000000100,
+        "completed": 1792000005000
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "synthetic-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Synthetic hidden reasoning",
+          "time": {
+            "created": 1,
+            "completed": 2
+          }
+        },
+        {
+          "type": "tool",
+          "id": "call_synthetic",
+          "name": "edit",
+          "state": {
+            "status": "completed",
+            "input": {
+              "filePath": "/synthetic/cli demo/index.js"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Synthetic tool output"
+              }
+            ],
+            "metadata": {}
+          },
+          "time": {
+            "created": 1,
+            "completed": 2
+          }
+        }
+      ],
+      "snapshot": {
+        "start": "0000000000000000000000000000000000000000",
+        "end": "1111111111111111111111111111111111111111",
+        "files": [
+          "/synthetic/cli demo/index.js"
+        ]
+      },
+      "finish": "stop",
+      "cost": 0,
+      "tokens": {
+        "input": 6,
+        "output": 4,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_cliReply0",
+      "time": {
+        "created": 1792000006000,
+        "completed": 1792000010000
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "synthetic-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Synthetic CLI answer 1.19.5"
+        }
+      ],
+      "finish": "stop",
+      "cost": 0,
+      "tokens": {
+        "input": 6,
+        "output": 4,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_cliReply0SOxMF8VJlR2n3W",
+      "time": {
+        "created": 1792000006000
+      },
+      "type": "system",
+      "text": "The available tools have changed.\n\nThe `edit` tool now takes `path` instead of `filePath`."
+    }
+  ]
+}

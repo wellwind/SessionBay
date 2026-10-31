@@ -1,4 +1,6 @@
 // OpenCode >=1.19.2,<2. Passive, launch-local plugin; no prompts or model calls.
+// CLI 2.2.3 uses { id, setup/effect } and event.subscribe, not this hook API.
+// opencode_state.rs deliberately rejects 2.x for live state.
 // Official outward v1 plugin events use {type, properties}, even when the
 // provider's internal event bus uses v2. Never inspect message/tool contents.
 import childProcess from 'node:child_process'
