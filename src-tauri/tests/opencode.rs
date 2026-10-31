@@ -877,6 +877,9 @@ struct FakeCli {
     calls: std::cell::RefCell<Vec<String>>,
 }
 impl sessionbay_lib::os_trash::OpenCodeCli for FakeCli {
+    fn major(&self) -> Result<u32, String> {
+        Ok(1)
+    }
     fn export(
         &self,
         _: &std::path::Path,
@@ -999,6 +1002,9 @@ fn opencode_never_deletes_when_the_export_is_wrong() {
     use sessionbay_lib::os_trash::PlanStore;
     struct BadExport(FakeCli);
     impl sessionbay_lib::os_trash::OpenCodeCli for BadExport {
+        fn major(&self) -> Result<u32, String> {
+            self.0.major()
+        }
         fn export(
             &self,
             _: &std::path::Path,
@@ -1327,4 +1333,401 @@ fn cli_2_parts_keep_budgets_and_malformed_content_partial_without_inline_leakage
     let native = &index.records["ses_nativeTwo"];
     assert!(native.partial);
     assert_eq!(native.messages.len(), 1);
+}
+
+/// Synthetic 2.x CLI with controllable failures and changes during export.
+struct V2Cli {
+    db: PathBuf,
+    major: std::cell::Cell<u32>,
+    calls: std::cell::RefCell<Vec<String>>,
+    fail_export: Option<&'static str>,
+    mutate_export: bool,
+    wrong_export: bool,
+    fail_delete: bool,
+}
+impl sessionbay_lib::os_trash::OpenCodeCli for V2Cli {
+    fn major(&self) -> Result<u32, String> {
+        Ok(self.major.get())
+    }
+    fn export(
+        &self,
+        _: &std::path::Path,
+        id: &str,
+        target: &std::path::Path,
+    ) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("export {id}"));
+        if self.fail_export == Some(id) {
+            return Err("synthetic descendant export failure".into());
+        }
+        if self.mutate_export {
+            Connection::open(&self.db)
+                .unwrap()
+                .execute(
+                    "UPDATE session_v2 SET title='changed during export' WHERE id='ses_grandchild'",
+                    [],
+                )
+                .unwrap();
+        }
+        let exported_id = if self.wrong_export && id == "ses_grandchild" {
+            "ses_wrong"
+        } else {
+            id
+        };
+        fs::write(
+            target,
+            json!({"info":{"id":exported_id},"messages":[]}).to_string(),
+        )
+        .map_err(|e| e.to_string())
+    }
+    fn delete(&self, _: &std::path::Path, id: &str) -> Result<(), String> {
+        self.calls.borrow_mut().push(format!("delete {id}"));
+        if self.fail_delete {
+            return Err("synthetic recursive delete failure".into());
+        }
+        Connection::open(&self.db).unwrap().execute(
+            "WITH RECURSIVE subtree(id) AS (SELECT ?1 UNION ALL SELECT s.id FROM session_v2 s JOIN subtree t ON s.parent_id=t.id) DELETE FROM session_v2 WHERE id IN subtree", [id],
+        ).unwrap();
+        Ok(())
+    }
+    fn import(
+        &self,
+        _: &std::path::Path,
+        file: &std::path::Path,
+        cwd: &std::path::Path,
+    ) -> Result<(), String> {
+        let value: Value = serde_json::from_slice(&fs::read(file).unwrap()).unwrap();
+        self.calls.borrow_mut().push(format!(
+            "import {} {}",
+            value["info"]["id"].as_str().unwrap(),
+            cwd.display()
+        ));
+        Ok(())
+    }
+}
+fn v2_removal_harness() -> (Harness, String, V2Cli, FakeTrash) {
+    let h = Harness::named("xdg/opencode");
+    fs::remove_file(h.root.join("opencode.db")).unwrap();
+    let db = h.db();
+    db.execute_batch(include_str!(
+        "../../fixtures/opencode/cli-2.2.3-migrated-from-1.19.5.sql"
+    ))
+    .unwrap();
+    db.execute_batch("DELETE FROM session_v2; DELETE FROM session;")
+        .unwrap();
+    let work = h._temp.path().join("original project");
+    fs::create_dir(&work).unwrap();
+    for (id, parent, archived) in [
+        (ID, None, None),
+        ("ses_child", Some(ID), None),
+        ("ses_grandchild", Some("ses_child"), Some(1760000000000i64)),
+    ] {
+        db.execute("INSERT INTO session_v2(id,project_id,slug,directory,title,version,time_created,time_updated,parent_id,time_archived) VALUES(?1,'global',?1,?2,?1,'2.2.3',1760000000000,1760000001000,?3,?4)", params![id, work.to_string_lossy(), parent, archived]).unwrap();
+    }
+    h.sync();
+    let root = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|s| s.external_id == ID)
+        .unwrap();
+    let trash_id = h
+        .catalog
+        .trash_session(&root.id, root.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let cli = V2Cli {
+        db: h.root.join("opencode.db"),
+        major: std::cell::Cell::new(2),
+        calls: Default::default(),
+        fail_export: None,
+        mutate_export: false,
+        wrong_export: false,
+        fail_delete: false,
+    };
+    let bin = h._temp.path().join("trash");
+    fs::create_dir(&bin).unwrap();
+    (h, trash_id, cli, FakeTrash(bin))
+}
+
+#[test]
+fn v2_review_exports_all_descendants_including_archived_then_deletes_once() {
+    use sessionbay_lib::os_trash::{list_moved, restore_moved, PlanStore};
+    let (h, trash_id, cli, trash) = v2_removal_harness();
+    let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
+    let idle = |_: &str, _: &str| false;
+    let plan = store
+        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+        .unwrap();
+    assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
+    assert_eq!(plan.items.len(), 3);
+    for id in [ID, "ses_child", "ses_grandchild"] {
+        assert!(plan
+            .items
+            .iter()
+            .any(|item| item.relative_path.contains(id)));
+    }
+    store
+        .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
+        .unwrap();
+    assert_eq!(
+        *cli.calls.borrow(),
+        [
+            format!("export {ID}"),
+            "export ses_child".into(),
+            "export ses_grandchild".into(),
+            format!("delete {ID}")
+        ]
+    );
+    let records = h.catalog.os_trash_records().unwrap();
+    assert_eq!(records[0].items.len(), 3);
+    assert!(records[0]
+        .items
+        .iter()
+        .all(|item| item.opencode_major == Some(2)));
+    let bytes = records[0]
+        .items
+        .iter()
+        .map(|item| fs::read(item.trashed.as_ref().unwrap()).unwrap())
+        .collect::<Vec<_>>();
+    cli.major.set(1);
+    let result = restore_moved(&h.catalog, &records[0].id, &trash, Some(&cli)).unwrap();
+    assert!(result.moved.is_empty());
+    assert!(result
+        .failed
+        .iter()
+        .all(|reason| reason.contains("OpenCode 2.x")));
+    for (item, bytes) in records[0].items.iter().zip(bytes) {
+        assert_eq!(fs::read(item.trashed.as_ref().unwrap()).unwrap(), bytes);
+        assert!(!std::path::Path::new(&item.original).exists());
+    }
+    cli.major.set(2);
+    assert!(
+        restore_moved(&h.catalog, &records[0].id, &trash, Some(&cli))
+            .unwrap()
+            .failed
+            .is_empty()
+    );
+    assert!(list_moved(&h.catalog, &trash).unwrap().is_empty());
+    assert_eq!(
+        cli.calls
+            .borrow()
+            .iter()
+            .filter(|call| call.starts_with("import "))
+            .count(),
+        3
+    );
+    assert!(cli
+        .calls
+        .borrow()
+        .iter()
+        .filter(|call| call.starts_with("import "))
+        .all(|call| call.ends_with("original project")));
+}
+
+#[test]
+fn v2_blocks_unavailable_ancestry_running_recent_and_changed_descendants() {
+    use sessionbay_lib::os_trash::PlanStore;
+    for case in 0..6 {
+        let (h, trash_id, cli, trash) = v2_removal_harness();
+        let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
+        let idle = |_: &str, _: &str| false;
+        let plan = store
+            .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+            .unwrap();
+        assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
+        match case {
+            0 => {
+                h.db().execute_batch("DROP TABLE session_v2").unwrap();
+            }
+            1 => {
+                h.db()
+                    .execute(
+                        "UPDATE session_v2 SET time_updated=?1 WHERE id='ses_grandchild'",
+                        [chrono::Utc::now().timestamp_millis()],
+                    )
+                    .unwrap();
+            }
+            2 => {
+                h.db()
+                    .execute_batch(
+                        "UPDATE session_v2 SET title='changed' WHERE id='ses_grandchild'",
+                    )
+                    .unwrap();
+            }
+            3 => {
+                h.db()
+                    .execute_batch(
+                        "UPDATE session_v2 SET parent_id='ses_grandchild' WHERE id='ses_child'",
+                    )
+                    .unwrap();
+            }
+            4 => {
+                cli.major.set(1);
+            }
+            _ => {}
+        }
+        let running = |_: &str, external: &str| case == 5 && external == "ses_grandchild";
+        assert!(
+            store
+                .execute(&h.catalog, &plan.plan_id, &running, &trash, Some(&cli))
+                .is_err(),
+            "case {case}"
+        );
+        assert!(cli.calls.borrow().is_empty());
+        let blocked = store
+            .prepare(&h.catalog, &trash_id, &running, Some(&cli))
+            .unwrap();
+        if matches!(case, 0 | 1 | 5) {
+            assert!(blocked.plan_id.is_empty(), "case {case}");
+        }
+    }
+}
+
+#[test]
+fn v2_descendant_export_failure_or_change_during_export_never_deletes() {
+    use sessionbay_lib::os_trash::PlanStore;
+    for case in 0..3 {
+        let (h, trash_id, mut cli, trash) = v2_removal_harness();
+        cli.fail_export = (case == 0).then_some("ses_grandchild");
+        cli.mutate_export = case == 1;
+        cli.wrong_export = case == 2;
+        let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
+        let idle = |_: &str, _: &str| false;
+        let plan = store
+            .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+            .unwrap();
+        assert!(store
+            .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
+            .is_err());
+        assert!(!cli
+            .calls
+            .borrow()
+            .iter()
+            .any(|call| call.starts_with("delete ")));
+        assert_eq!(
+            h.db()
+                .query_row("SELECT count(*) FROM session_v2", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        assert!(h.catalog.os_trash_records().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn major_one_exports_cannot_be_restored_with_major_two() {
+    use sessionbay_lib::os_trash::{restore_moved, PlanStore};
+    let h = Harness::named("xdg/opencode");
+    h.sync();
+    let session = h.session();
+    let trash_id = h
+        .catalog
+        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
+        .unwrap();
+    let cli = FakeCli {
+        db: h.root.join("opencode.db"),
+        calls: Default::default(),
+    };
+    let bin = h._temp.path().join("trash");
+    fs::create_dir(&bin).unwrap();
+    let trash = FakeTrash(bin);
+    let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
+    let idle = |_: &str, _: &str| false;
+    let plan = store
+        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+        .unwrap();
+    store
+        .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
+        .unwrap();
+    let mut record = h.catalog.os_trash_records().unwrap().remove(0);
+    record.items[0].opencode_major = None;
+    Connection::open(h._temp.path().join("catalog.db"))
+        .unwrap()
+        .execute(
+            "UPDATE session_os_trash SET items=?1 WHERE id=?2",
+            params![serde_json::to_string(&record.items).unwrap(), record.id],
+        )
+        .unwrap();
+    let v2 = V2Cli {
+        db: cli.db,
+        major: std::cell::Cell::new(2),
+        calls: Default::default(),
+        fail_export: None,
+        mutate_export: false,
+        wrong_export: false,
+        fail_delete: false,
+    };
+    let bytes = fs::read(record.items[0].trashed.as_ref().unwrap()).unwrap();
+    let result = restore_moved(&h.catalog, &record.id, &trash, Some(&v2)).unwrap();
+    assert!(result.failed[0].contains("OpenCode 1.x"));
+    assert!(v2.calls.borrow().is_empty());
+    assert_eq!(
+        fs::read(record.items[0].trashed.as_ref().unwrap()).unwrap(),
+        bytes
+    );
+}
+
+#[test]
+fn v2_failed_recursive_delete_retains_every_verified_export_for_restore() {
+    use sessionbay_lib::os_trash::{restore_moved, PlanStore};
+    let (h, trash_id, mut cli, trash) = v2_removal_harness();
+    cli.fail_delete = true;
+    let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
+    let idle = |_: &str, _: &str| false;
+    let plan = store
+        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+        .unwrap();
+    let result = store
+        .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
+        .unwrap();
+    assert!(result.failed[0].contains("All verified exports are retained"));
+    let record = h.catalog.os_trash_records().unwrap().remove(0);
+    assert_eq!(record.items.len(), 3);
+    assert!(record
+        .items
+        .iter()
+        .all(|item| std::path::Path::new(item.trashed.as_ref().unwrap()).is_file()));
+    assert!(restore_moved(&h.catalog, &record.id, &trash, Some(&cli))
+        .unwrap()
+        .failed
+        .is_empty());
+}
+
+#[test]
+fn v2_review_blocks_cycles_missing_roots_and_missing_descendant_directories() {
+    use sessionbay_lib::os_trash::PlanStore;
+    for case in 0..3 {
+        let (h, trash_id, cli, _) = v2_removal_harness();
+        match case {
+            0 => {
+                h.db()
+                    .execute(
+                        "UPDATE session_v2 SET parent_id='ses_grandchild' WHERE id=?1",
+                        [ID],
+                    )
+                    .unwrap();
+            }
+            1 => {
+                h.db()
+                    .execute("DELETE FROM session_v2 WHERE id=?1", [ID])
+                    .unwrap();
+            }
+            _ => {
+                h.db()
+                    .execute_batch("UPDATE session_v2 SET directory='' WHERE id='ses_grandchild'")
+                    .unwrap();
+            }
+        }
+        let plan = PlanStore::default()
+            .prepare(&h.catalog, &trash_id, &|_, _| false, Some(&cli))
+            .unwrap();
+        assert!(plan.plan_id.is_empty());
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|reason| reason.contains("Cannot enumerate every OpenCode descendant")));
+        assert!(cli.calls.borrow().is_empty());
+    }
 }

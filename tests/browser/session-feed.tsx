@@ -34,10 +34,15 @@ api.trash = async (offset = 0, limit = 40) => {
     session: session(offset + i), sourceRoot: '/synthetic/source', deletedAt: '2026-10-17T12:00:00Z', unavailableReason: null })), total: 10000 };
 };
 api.osTrashed = async () => [];
-api.prepareSessionOsTrash = async trashId => ({ planId: 'synthetic-plan', trashId, sessionId: 'synthetic-0',
-  kind: 'codex', sourceRoot: '/synthetic/source',
-  items: [{ relativePath: 'sessions/2026/10/synthetic-session.jsonl', directory: false, bytes: 2048, entries: 0 }],
-  kept: ['history.jsonl（共享輸入歷史）'], blockers: [] });
+api.prepareSessionOsTrash = async trashId => {
+  const opencode = new URLSearchParams(location.search).get('agent') === 'opencode2';
+  return { planId: 'synthetic-plan', trashId, sessionId: 'synthetic-0',
+    kind: opencode ? 'opencode' : 'codex', sourceRoot: '/synthetic/source',
+    items: opencode
+      ? ['ses_root', 'ses_child', 'ses_grandchild'].map(id => ({ relativePath: `opencode-session-${id}.json`, directory: false, bytes: 0, entries: 0 }))
+      : [{ relativePath: 'sessions/2026/10/synthetic-session.jsonl', directory: false, bytes: 2048, entries: 0 }],
+    kept: [opencode ? 'opencode.db（共享資料庫）' : 'history.jsonl（共享輸入歷史）'], blockers: [] };
+};
 document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme') ?? 'dark';
 function Fixture() {
   const [project, setProject] = useState('a');

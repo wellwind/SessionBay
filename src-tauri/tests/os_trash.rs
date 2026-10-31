@@ -310,6 +310,7 @@ fn macos_system_trash_round_trip() {
         original: original.to_string_lossy().into_owned(),
         trashed: Some(trashed.to_string_lossy().into_owned()),
         import_cwd: None,
+        opencode_major: None,
     };
     assert!(SystemTrash.in_trash(&item, 0).unwrap());
     SystemTrash.restore(&item, 0).unwrap();

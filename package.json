@@ -10,7 +10,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc -b",
-    "test": "vitest run && node --test src-tauri/src/claude_state_mod.contract.mjs src-tauri/src/opencode_state_plugin.contract.mjs",
+    "test": "vitest run && node --test --test-concurrency=1 src-tauri/src/claude_state_mod.contract.mjs src-tauri/src/opencode_state_plugin.contract.mjs src-tauri/src/opencode_state_plugin_v2.contract.mjs",
     "test:watch": "vitest",
     "lint": "eslint src",
     "tauri": "node scripts/tauri.mjs",

@@ -23,8 +23,10 @@ To really free the files, choose **Move to system trash…**, either in the dele
 
 Check the box to confirm and choose **Move to system trash**. Session Bay re-checks every file right before moving it.
 
-OpenCode keeps sessions in a shared database, so Session Bay exports the session with the official `opencode` CLI first and then deletes it through the CLI.
+OpenCode keeps sessions in a shared database, so Session Bay exports and verifies each session with the official CLI before deleting. On OpenCode 2.x, deletion also removes every descendant, including archived children. The review lists all of them, and each must be exported successfully. Missing ancestry, running or recently updated descendants, or changes after review block deletion.
 
 ## Restore
 
 The recycle bin's **Moved to system trash** section lists what you moved. **Restore** puts the files back in their original location, as long as the system trash has not been emptied. Emptying the trash deletes them for good.
+
+OpenCode restores require the CLI major version that produced the export: a 1.x export needs OpenCode 1.x, and a 2.x export needs OpenCode 2.x. Older move records are treated as 1.x. Session Bay never converts or rewrites exports. It restores each export in its original working directory; on 2.x it uses `opencode session import --directory <original cwd> <file>`.
