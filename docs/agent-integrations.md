@@ -16,7 +16,7 @@ Notes:
 
 - **Claude Code**: the project folder name is a lossy encoding of the path, so the `cwd` recorded in the transcript wins. Subagent transcripts are linked to their parent session. Custom titles take priority over Claude's generated titles; the first meaningful prompt is a fallback. Current title and harness events are recognized rather than marking the session partially parsed. Activity reporting recovers at the next main turn after a lost report.
 - **Codex**: archived sessions are indexed too. `history.jsonl` is input history, not a session list, and is ignored.
-- **OpenCode**: SQLite schema v1 and v2 are supported, verified on Linux with CLI 1.19.2 and 1.19.3. The older JSON storage and custom database names are not supported.
+- **OpenCode**: SQLite schema v1 and v2 are supported, verified on Linux with CLI 1.19.2 and 1.19.3. CLI 1.19.4 and 1.19.5 are accepted after a source review: they change no database, migration or session schema files. CLI 2.x is not supported yet (#166). The older JSON storage and custom database names are not supported.
 - **Grok Build**: only user and agent text is indexed; tool output and reasoning are not. Rewind markers remove the messages they undo.
 - **Antigravity**: only the CLI is covered, not the Antigravity app or IDE. Real CLI 1.3.5 history compatibility remains unverified.
 
