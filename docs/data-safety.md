@@ -50,15 +50,20 @@ You confirm the list, and Session Bay then re-checks every item right before mov
 | Codex | the rollout file, `browser/sessions/<id>.toml`, `tui-thread-reference-capabilities/<id>` | `state_*.sqlite`, `thread_history_*.sqlite`, `history.jsonl`, `session_index.jsonl` |
 | Grok Build | `sessions/<cwd>/<id>/` | `prompt_history.jsonl`, `session_search.sqlite`, `active_sessions.json` |
 | Antigravity CLI | `brain/<id>/`, `conversations/<id>.db*`, `annotations/<id>.pbtxt` | `conversation_summaries.db` |
-| OpenCode | a JSON export made with `opencode export <id>`; the session itself is removed with `opencode session delete <id>` | the rest of `opencode.db` |
+| OpenCode 1.x | a JSON export made with `opencode export <id>`; the session itself is removed with `opencode session delete <id>` | the rest of `opencode.db` |
+| OpenCode 2.x | JSON exports made with `opencode session export <id>` for the session and every descendant; `opencode session delete <id>` recursively removes them | the rest of `opencode.db` |
 
 Shared storage (input history, summaries, search indexes) may still mention the session.
 
 **OpenCode.** Session Bay never writes OpenCode's database. It runs the official CLI instead:
 
-1. It exports the session and verifies that the export's ID matches.
-2. Only then does it delete the session.
-3. Restoring the session runs `opencode import` in the original working directory.
+1. It detects the installed CLI major version with an isolated `--version` probe.
+2. On 1.x it exports the selected session with `opencode export <id>`. On 2.x it enumerates the complete `session_v2` descendant tree through the validated private database mirror, including archived children, and shows every affected session in the confirmation list. If enumeration fails, deletion is blocked.
+3. It exports every listed session and verifies each export's `info.id` before running `opencode session delete <id>`. Any failed or mismatched export blocks deletion. An ancestry or content change since confirmation requires another review; running or recently updated descendants also block deletion. If recursive deletion fails partway, every verified export remains available for restore.
+4. Each move record stores the exporting CLI major version. Old records without that field are 1.x. Restore requires the same installed major version; a mismatch is blocked before moving or importing the export. Export formats are never converted or rewritten.
+5. On 1.x restore uses `opencode import <file>` in the original working directory. On 2.x it uses `opencode session import --directory <original cwd> <file>` for each export.
+
+OpenCode has no transactional export/delete operation. Another process can still create or update a descendant after the final check and before the CLI deletion.
 
 **Blocked when:**
 
