@@ -4,6 +4,10 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   build: {
+    // Match tsconfig and the oldest supported webview (macOS 12 / Safari 15).
+    // Lowering `||=` for older targets trips an esbuild 0.25 minifier bug that
+    // drops a declaration inside xterm's requestMode, so DECRQM throws.
+    target: 'es2022',
     rollupOptions: {
       output: {
         manualChunks: {
