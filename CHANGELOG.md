@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Read OpenCode CLI 2.2.x history through 2.2.5 alongside CLI 1.x, including migrated sessions and assistant message parts. Migrated IDs appear once using their 2.x content; system notices are omitted. Deleting OpenCode 2.x sessions is not supported yet, and live state remains limited to CLI 1.x.
+
 ### Fixed
 
 - OpenCode sessions written by CLI 1.19.4 and 1.19.5 are fully indexed, previewed and resumable. Before, they showed metadata only.
