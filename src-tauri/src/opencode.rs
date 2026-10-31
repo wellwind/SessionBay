@@ -1,5 +1,5 @@
 //! Read-only, bounded OpenCode SQLite reader. Official v1.19.2 source contract
-//! (v1.19.3 changes no database, migration, or session schema files):
+//! (v1.19.3 through v1.19.5 change no database, migration, or session schema files):
 //! https://github.com/anomalyco/opencode/tree/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session
 //! Both v1 message/part and v2 session_message projections are supported. SQLite
 //! only sees a private, persistent, owner-only mirror: the main database is
@@ -51,7 +51,8 @@ const MAX_ERROR_BYTES: usize = 2048;
 /// rows written by an older reader are re-read instead of reused by fingerprint.
 /// Revision 1: v1 fallback for empty v2 projections and the 1.19.3 version gate.
 /// Revision 2: persistent block mirror, per-session fingerprints/budgets.
-pub const READER_REVISION: i64 = 2;
+/// Revision 3: the version gate accepts 1.19.4 and 1.19.5.
+pub const READER_REVISION: i64 = 3;
 const LEGACY_FRESHNESS_MS: i64 = 60_000;
 
 #[derive(Debug, Clone)]
@@ -1038,7 +1039,7 @@ fn reviewed_version(version: &str) -> bool {
         return false;
     }
     let parsed: Option<Vec<u32>> = parts.into_iter().map(|p| p.parse().ok()).collect();
-    parsed.is_some_and(|p| p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 3)))
+    parsed.is_some_and(|p| p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 5)))
 }
 #[allow(clippy::too_many_arguments)]
 fn read_connection(

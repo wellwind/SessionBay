@@ -12,7 +12,7 @@ description: Session Bay 支援哪些 Agent、從哪裡讀取歷史，以及如�
 | Antigravity CLI | `agy` | `~/.gemini/antigravity-cli` | `agy --conversation <id>` |
 
 - 歷史格式屬於各 Agent 的內部實作，版本更新時可能改變。無法辨識的格式會讓該 Session 顯示為「解析不完整」，不會讓整個索引失敗。
-- 支援 OpenCode 資料庫 schema v1 與 v2，已在 Linux 以 CLI 1.19.2 與 1.19.3 驗證。不支援更早的 JSON 儲存格式或自訂資料庫名稱。
+- 支援 OpenCode 資料庫 schema v1 與 v2，已在 Linux 以 CLI 1.19.2 與 1.19.3 驗證。CLI 1.19.4 與 1.19.5 經原始碼審查確認未變更資料庫，因此也支援。尚未支援 CLI 2.x。不支援更早的 JSON 儲存格式或自訂資料庫名稱。
 - Antigravity 只支援 CLI，不包含 Antigravity App 或 IDE。真實 CLI 1.3.5 歷史資料的相容性尚未驗證，未知或截斷的格式會顯示警告。
 - 不包含這些 Agent 的桌面 App 或 IDE 外掛。
 

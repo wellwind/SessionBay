@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- OpenCode sessions written by CLI 1.19.4 and 1.19.5 are fully indexed, previewed and resumable. Before, they showed metadata only.
+
 ## [0.3.2] - 2026-10-30
 
 ### Fixed

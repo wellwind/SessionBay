@@ -405,6 +405,74 @@ fn removal_inspection_marks_database_shared_without_exposing_virtual_file_keys()
     );
 }
 
+/// 1.19.4 and 1.19.5 change no database, migration or session schema files, so
+/// their sessions are read like 1.19.3; an unreviewed later version stays partial.
+#[test]
+fn reviewed_1_19_4_and_1_19_5_are_fully_indexed_and_1_19_6_is_partial() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("cli source");
+    fs::create_dir(&root).unwrap();
+    #[cfg(unix)]
+    let root = root.canonicalize().unwrap();
+    let sql = include_str!("../../fixtures/opencode/cli-1.19.x-v1-only.sql")
+        .replace("1.19.3", "1.19.5")
+        .replace("1.19.2", "1.19.4");
+    Connection::open(root.join("opencode.db"))
+        .unwrap()
+        .execute_batch(&sql)
+        .unwrap();
+    let catalog = Catalog::open(&temp.path().join("catalog.db")).unwrap();
+    let source = HistorySource {
+        id: "opencode-cli".into(),
+        kind: AgentKind::OpenCode,
+        root: root.to_string_lossy().into_owned(),
+        enabled: true,
+    };
+    let sync = || {
+        let status = catalog
+            .sync(
+                std::slice::from_ref(&source),
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert!(status.errors.is_empty(), "{:?}", status.errors);
+        catalog.query(&SessionQuery::default()).unwrap().items
+    };
+    let sessions = sync();
+    assert_eq!(sessions.len(), 2);
+    for version in ["1.19.4", "1.19.5"] {
+        let session = sessions
+            .iter()
+            .find(|s| s.title.contains(version))
+            .unwrap_or_else(|| panic!("missing {version}"));
+        assert!(!session.partial, "{version} marked partial");
+        assert!(session.resume_disabled_reason.is_none());
+        let texts: Vec<_> = catalog
+            .transcript(&session.id, None, 200)
+            .unwrap()
+            .messages
+            .into_iter()
+            .map(|m| m.text)
+            .collect();
+        assert_eq!(texts.len(), 2, "{version}");
+    }
+    Connection::open(root.join("opencode.db"))
+        .unwrap()
+        .execute(
+            "UPDATE session SET version='1.19.6' WHERE version='1.19.5'",
+            [],
+        )
+        .unwrap();
+    let sessions = sync();
+    let unreviewed = sessions
+        .iter()
+        .find(|s| s.title.contains("1.19.5"))
+        .unwrap();
+    assert!(unreviewed.partial);
+    assert!(unreviewed.resume_disabled_reason.is_some());
+}
+
 /// Real 1.19.2/1.19.3 `opencode run` writes only v1 rows while the v2 table exists.
 #[test]
 fn real_cli_v1_only_databases_for_1_19_2_and_1_19_3_are_fully_indexed() {
