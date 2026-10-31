@@ -103,3 +103,21 @@ for (const theme of ['dark', 'light']) for (const width of [1440, 600]) {
     await expect(launcher).toBeFocused();
   });
 }
+
+for (const theme of ['dark', 'light']) for (const width of [1440, 600]) {
+  test(`OpenCode 2.x descendant review ${theme} ${width}`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/tests/browser/session-feed.html?theme=${theme}&agent=opencode2`);
+    await page.getByRole('button', { name: '資源回收筒', exact: true }).click();
+    await page.getByRole('button', { name: /移到系統垃圾桶 Synthetic Session 0 / }).click();
+    await expect(page.getByText(/OpenCode 2.x 也會刪除所有後代 Session/)).toBeVisible();
+    for (const id of ['ses_root', 'ses_child', 'ses_grandchild']) {
+      await expect(page.getByText(`opencode-session-${id}.json`, { exact: true })).toBeVisible();
+    }
+    const move = page.getByRole('button', { name: '移到系統垃圾桶', exact: true });
+    await expect(move).toBeDisabled();
+    await page.getByRole('checkbox').check();
+    await expect(move).toBeEnabled();
+    await page.screenshot({ path: info.outputPath(`opencode2-review-${theme}-${width}.png`), fullPage: true });
+  });
+}
