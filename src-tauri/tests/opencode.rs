@@ -54,6 +54,16 @@ impl Harness {
         db.execute("INSERT INTO session VALUES(?1,'global','/synthetic/專案 alpha','Native OpenCode title','1.19.2',1760000000000,1760000001000,NULL,NULL,NULL)",[ID]).unwrap();
         h
     }
+    fn migrated() -> Self {
+        let h = Self::new();
+        fs::remove_file(h.root.join("opencode.db")).unwrap();
+        h.db()
+            .execute_batch(include_str!(
+                "../../fixtures/opencode/cli-2.2.3-migrated-from-1.19.5.sql"
+            ))
+            .unwrap();
+        h
+    }
     fn db(&self) -> Connection {
         Connection::open(self.root.join("opencode.db")).unwrap()
     }
@@ -1048,4 +1058,273 @@ fn opencode_never_deletes_when_the_export_is_wrong() {
         1
     );
     assert_eq!(fs::read_dir(&staging).unwrap().count(), 0);
+}
+
+const MIGRATED_ID: &str = "ses_cliSynthetic1193";
+
+#[test]
+fn cli_2_migration_lists_ids_once_and_uses_current_v2_transcripts() {
+    let h = Harness::migrated();
+    let db = h.db();
+    db.execute_batch("UPDATE session SET title='Stale v1 title';
+        INSERT INTO session_message VALUES('msg_afterMigration','ses_cliSynthetic1193','user',4,1792000020000,1792000020000,'{\"text\":\"After migration question\"}');").unwrap();
+    let source_bytes = fs::read(h.root.join("opencode.db")).unwrap();
+    let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
+    assert_eq!(index.records.len(), 2);
+    assert!(index.warnings.is_empty(), "{:?}", index.warnings);
+    let record = &index.records[MIGRATED_ID];
+    assert_eq!(record.title.as_deref(), Some("Synthetic CLI title 1.19.5"));
+    assert_eq!(
+        record
+            .messages
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Synthetic CLI question 1.19.5",
+            "Synthetic CLI answer 1.19.5",
+            "After migration question",
+        ]
+    );
+    assert!(!record.partial);
+    h.sync();
+    assert_eq!(h.catalog.query(&SessionQuery::default()).unwrap().total, 2);
+    assert_eq!(h.search("After migration question"), 1);
+    for hidden in [
+        "available tools",
+        "hidden reasoning",
+        "tool output",
+        "Stale v1 title",
+    ] {
+        assert_eq!(h.search(hidden), 0, "{hidden}");
+    }
+    assert_eq!(fs::read(h.root.join("opencode.db")).unwrap(), source_bytes);
+    assert!(!h.root.join("opencode.db-shm").exists());
+    // A NULL title uses the existing catalog fallback, without reading the v1 title.
+    db.execute(
+        "UPDATE session_v2 SET title=NULL WHERE id=?1",
+        [MIGRATED_ID],
+    )
+    .unwrap();
+    h.sync();
+    let session = h
+        .catalog
+        .query(&SessionQuery::default())
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|s| s.external_id == MIGRATED_ID)
+        .unwrap();
+    assert_eq!(session.title, "opencode ses_cliSynth");
+    assert!(!session.partial);
+    // An empty v2 projection must never resurrect retained v1 content.
+    db.execute(
+        "DELETE FROM session_message WHERE session_id=?1",
+        [MIGRATED_ID],
+    )
+    .unwrap();
+    h.sync();
+    assert_eq!(h.search("Synthetic CLI question 1.19.5"), 0);
+    assert_eq!(h.catalog.query(&SessionQuery::default()).unwrap().total, 2);
+}
+
+#[test]
+fn cli_2_mixed_database_keeps_v1_only_sessions_and_enforces_combined_limit() {
+    let h = Harness::migrated();
+    // Retain one session only in v1, including its real CLI-shaped message/part rows.
+    h.db()
+        .execute_batch(
+            "DELETE FROM session_v2 WHERE id='ses_cliSynthetic1192';
+        DELETE FROM session_message WHERE session_id='ses_cliSynthetic1192';",
+        )
+        .unwrap();
+    let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
+    assert_eq!(index.records.len(), 2);
+    let legacy = &index.records["ses_cliSynthetic1192"];
+    assert!(!legacy.partial);
+    assert_eq!(
+        legacy
+            .messages
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Synthetic CLI question 1.19.2",
+            "Synthetic CLI answer 1.19.2",
+        ]
+    );
+    assert!(read_all(
+        &h.root,
+        &Default::default(),
+        opencode::Limits {
+            rows: 1,
+            ..opencode::Limits::default()
+        }
+    )
+    .unwrap_err()
+    .contains("session count"));
+}
+
+#[test]
+fn cli_2_version_gate_and_reverts_do_not_fall_back_to_v1() {
+    let h = Harness::migrated();
+    for (version, reviewed) in [
+        ("1.19.5", true),
+        ("2.2.0", true),
+        ("2.2.1", true),
+        ("2.2.2", true),
+        ("2.2.3", true),
+        ("1.19.6", false),
+        ("2.2.4", true),
+        ("2.2.5", true),
+        ("2.2.6", false),
+        ("2.3.0", false),
+        ("2.1.9", false),
+        ("2.2.3-beta", false),
+        ("3.0.0", false),
+    ] {
+        h.db()
+            .execute("UPDATE session_v2 SET version=?1", [version])
+            .unwrap();
+        let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
+        for record in index.records.values() {
+            assert_eq!(record.partial, !reviewed, "{version}");
+            assert_eq!(
+                record.messages.len(),
+                if reviewed { 2 } else { 0 },
+                "{version}"
+            );
+        }
+    }
+    h.db()
+        .execute_batch("UPDATE session_v2 SET version='2.2.3',revert='{}';")
+        .unwrap();
+    let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
+    assert!(index
+        .records
+        .values()
+        .all(|r| r.partial && r.messages.is_empty()));
+}
+
+fn native_parts_fixture(h: &Harness) {
+    // Source-shaped synthetic rows, not a native 2.x model-run capture.
+    h.db().execute_batch(r#"
+        INSERT INTO session_v2(id,project_id,slug,directory,title,version,time_created,time_updated)
+        VALUES('ses_nativeTwo','global','native-two','/synthetic/native',NULL,'2.2.3',1792000000000,1792000010000);
+        INSERT INTO session_message VALUES('msg_nativeUser','ses_nativeTwo','user',0,1792000000000,1792000000000,'{"text":"Native question"}');
+        INSERT INTO session_message VALUES('msg_nativeParts','ses_nativeTwo','assistant',1,1792000001000,1792000001000,'{"content":[{"type":"text","text":"STALE_INLINE"}]}');
+        INSERT INTO session_message VALUES('msg_nativeInline','ses_nativeTwo','assistant',2,1792000002000,1792000002000,'{"content":[{"type":"text","text":"Inline fallback"}]}');
+        INSERT INTO session_message VALUES('msg_nativeNotice','ses_nativeTwo','system',3,1792000003000,1792000003000,'not JSON');
+        INSERT INTO session_part VALUES('msg_nativeParts','ses_nativeTwo',7,'text',NULL,1792000001000,1792000001000,'{"type":"text","text":"Second part"}');
+        INSERT INTO session_part VALUES('msg_nativeParts','ses_nativeTwo',2,'text',NULL,1792000001000,1792000001000,'{"type":"text","text":"First part"}');
+        INSERT INTO session_part VALUES('msg_nativeParts','ses_nativeTwo',4,'reasoning',NULL,1792000001000,1792000001000,'{"type":"reasoning","text":"HIDDEN_REASONING"}');
+        INSERT INTO session_part VALUES('msg_nativeParts','ses_nativeTwo',5,'tool','call_synthetic',1792000001000,1792000001000,'{"type":"tool","id":"call_synthetic","name":"bash","state":{"output":"HIDDEN_TOOL"}}');
+    "#).unwrap();
+}
+
+#[test]
+fn cli_2_parts_replace_inline_content_in_ordinal_order_and_refresh_on_updates() {
+    let h = Harness::migrated();
+    native_parts_fixture(&h);
+    let (records, summary, _) = read_all(&h.root, &Default::default(), small_limits()).unwrap();
+    assert_eq!(records.len(), 3);
+    assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
+    let native = records.iter().find(|r| r.id == "ses_nativeTwo").unwrap();
+    assert!(!native.partial);
+    assert_eq!(
+        native
+            .messages
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Native question",
+            "First part\n\nSecond part",
+            "Inline fallback",
+        ]
+    );
+    let known = records
+        .iter()
+        .map(|r| (r.id.clone(), r.fingerprint.clone()))
+        .collect();
+    assert_eq!(
+        opencode::session_fingerprint(&h.root, "ses_nativeTwo")
+            .unwrap()
+            .as_ref(),
+        Some(&native.fingerprint)
+    );
+    let (_, _, stats) = read_all(&h.root, &known, small_limits()).unwrap();
+    assert_eq!(stats.sessions_skipped, 3);
+    h.sync();
+    h.db().execute_batch(r#"UPDATE session_part SET data='{"type":"text","text":"Changed part"}',time_updated=1792000020000 WHERE message_id='msg_nativeParts' AND ordinal=7;"#).unwrap();
+    let (records, _, stats) = read_all(&h.root, &known, small_limits()).unwrap();
+    assert_eq!((stats.sessions_read, stats.sessions_skipped), (1, 2));
+    assert!(
+        !records
+            .iter()
+            .find(|r| r.id == "ses_nativeTwo")
+            .unwrap()
+            .unchanged
+    );
+    h.sync();
+    assert_eq!(h.search("Changed part"), 1);
+    for hidden in ["STALE_INLINE", "HIDDEN_TOOL", "HIDDEN_REASONING"] {
+        assert_eq!(h.search(hidden), 0);
+    }
+    // Updating an inline message without changing seq/count also invalidates the fingerprint.
+    h.db().execute_batch(r#"UPDATE session_message SET data='{"content":[{"type":"text","text":"Changed inline"}]}',time_updated=1792000030000 WHERE id='msg_nativeInline';"#).unwrap();
+    h.sync();
+    assert_eq!(h.search("Changed inline"), 1);
+    assert_eq!(h.search("Inline fallback"), 0);
+    // A 2.x-only schema does not require the retained v1 tables.
+    h.db()
+        .execute_batch("DROP TABLE session; DROP TABLE message; DROP TABLE part;")
+        .unwrap();
+    let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
+    assert_eq!(index.records.len(), 3);
+    assert!(!index.records["ses_nativeTwo"].partial);
+}
+
+#[test]
+fn cli_2_parts_keep_budgets_and_malformed_content_partial_without_inline_leakage() {
+    let h = Harness::migrated();
+    native_parts_fixture(&h);
+    h.db()
+        .execute(
+            "UPDATE session_part SET data=?1 WHERE ordinal=7",
+            [json!({"type":"text","text":"z".repeat(8192)}).to_string()],
+        )
+        .unwrap();
+    let (records, summary, _) = read_all(&h.root, &Default::default(), small_limits()).unwrap();
+    let native = records.iter().find(|r| r.id == "ses_nativeTwo").unwrap();
+    assert!(native.partial);
+    assert_eq!(native.messages.len(), 1);
+    assert!(summary
+        .warnings
+        .iter()
+        .any(|w| w.contains("per-session read budget")));
+    for invalid in [
+        "not JSON",
+        r#"{"type":"future","text":"UNKNOWN"}"#,
+        r#"{"type":"text","text":false}"#,
+    ] {
+        h.db()
+            .execute("UPDATE session_part SET data=?1 WHERE ordinal=7", [invalid])
+            .unwrap();
+        let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
+        let native = &index.records["ses_nativeTwo"];
+        assert!(native.partial);
+        assert_eq!(native.messages[1].text, "First part");
+        assert!(!native
+            .messages
+            .iter()
+            .any(|m| m.text.contains("STALE_INLINE")));
+    }
+    h.db().execute_batch(r#"DELETE FROM session_part WHERE message_id='msg_nativeParts';
+        WITH RECURSIVE n(i) AS (VALUES(0) UNION ALL SELECT i+1 FROM n WHERE i<10000)
+        INSERT INTO session_part SELECT 'msg_nativeParts','ses_nativeTwo',i,'reasoning',NULL,1,1,'{"type":"reasoning","text":"hidden"}' FROM n;"#).unwrap();
+    let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
+    let native = &index.records["ses_nativeTwo"];
+    assert!(native.partial);
+    assert_eq!(native.messages.len(), 1);
 }

@@ -12,7 +12,7 @@ description: Which agents Session Bay supports, where their history is read from
 | Antigravity CLI | `agy` | `~/.gemini/antigravity-cli` | `agy --conversation <id>` |
 
 - History formats are internal to each agent and can change between versions. When a format is not recognized, those sessions show as partially parsed instead of failing the whole index.
-- OpenCode database schemas v1 and v2 are supported, verified on Linux with CLI 1.19.2 and 1.19.3. CLI 1.19.4 and 1.19.5 are accepted after a source review, because they change no database files. CLI 2.x is not supported yet. The older JSON storage and custom database names are not supported.
+- OpenCode history reading supports CLI 1.x through 1.19.5 and CLI 2.2.x through 2.2.5. The v1 format was verified on Linux with CLI 1.19.2/1.19.3; 1.19.4/1.19.5 were reviewed from source. The 2.x migration was verified with the official 2.2.3 binary on macOS using synthetic data; native 2.x message parts are tested against source-shaped synthetic rows, without a model run. Migrated sessions appear once, using the 2.x content. System notices, tool output and reasoning are omitted. Later or unreviewed versions remain partial. Live state is limited to CLI 1.x, and deleting OpenCode 2.x sessions is not supported yet. The older JSON storage and custom database names are not supported.
 - Antigravity support covers the CLI only, not the Antigravity app or IDE. Compatibility with real CLI 1.3.5 history remains unverified; unknown or truncated formats show a warning.
 - Desktop apps and IDE plugins of these agents are not covered.
 

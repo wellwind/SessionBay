@@ -30,6 +30,9 @@ fn plugins() -> &'static Mutex<HashMap<String, TempDir>> {
     PLUGINS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// CLI 2.2.3 requires a default { id, setup/effect } plugin definition
+// (core/src/plugin/module.ts), not this v1 hook factory. Keep live state gated
+// independently of history reading until a separate v2 plugin is implemented.
 fn supported_version(output: &[u8]) -> bool {
     let Ok(output) = std::str::from_utf8(output) else {
         return false;
@@ -512,6 +515,7 @@ mod tests {
             "1.19.1",
             "1.18.999",
             "2.0.0",
+            "2.2.3",
             "0.99.999",
             "1.19.2-beta",
             "1.19.2+build",
