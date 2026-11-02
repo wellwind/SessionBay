@@ -332,10 +332,22 @@ fn lock_store(directory: &Path) -> Result<File, String> {
     }
     #[cfg(windows)]
     windows_security::verify_file(&file).map_err(|e| e.to_string())?;
-    file.try_lock().map_err(|_| {
-        tr!("Another Session Bay process is using image staging; use the original window.")
-    })?;
-    Ok(file)
+    // A forked child briefly shares the descriptor until it execs, and a
+    // previous app instance may still be exiting; wait for such a holder only.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(file),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(_) => {
+                return Err(tr!(
+                    "Another Session Bay process is using image staging; use the original window."
+                ))
+            }
+        }
+    }
 }
 
 fn open_directory(path: &Path) -> Result<File, String> {
