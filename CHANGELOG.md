@@ -4,16 +4,21 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-02
+
 ### Added
 
-- Read OpenCode CLI 2.2.x history through 2.2.5 alongside CLI 1.x, including migrated sessions and assistant message parts. Migrated IDs appear once using their 2.x content; system notices are omitted.
-
-- OpenCode 2.x cleanup reviews and verifies exports for every descendant before recursive CLI deletion. Restore requires the exporting CLI major version, with no format conversion. Existing 1.x cleanup remains supported.
-- A separate launch-local state plugin for reviewed OpenCode 2.2.0–2.2.5 reports busy, idle, permission waits, and failed/interrupted executions. The API is source-checked against 2.2.3 and tested with synthetic contracts; a real 2.x live-state/model run remains unverified.
+- **OpenCode CLI 2.x** is supported alongside 1.x:
+  - history from CLI 2.2.0 to 2.2.5, including sessions that 2.x migrated from 1.x (each appears once, with its 2.x content);
+  - live status through a separate 2.x plugin. 2.x has no native "waiting for an answer" event, so alerts cover working, done, failed and permission waits;
+  - deleting a 2.x session lists and exports every child session that OpenCode removes with it, or blocks the delete;
+  - restoring an export needs the same OpenCode major version that created it; Session Bay never converts exports.
 
 ### Fixed
 
 - OpenCode sessions written by CLI 1.19.4 and 1.19.5 are fully indexed, previewed and resumable. Before, they showed metadata only.
+- Starting an Antigravity task no longer crashes the interface in the packaged app.
+- Reopening Session Bay right after it quit no longer reports that another Session Bay process is using image staging.
 
 ## [0.3.2] - 2026-10-30
 
@@ -117,7 +122,8 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/wellwind/SessionBay/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/wellwind/SessionBay/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/wellwind/SessionBay/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/wellwind/SessionBay/compare/v0.2.0...v0.3.0
