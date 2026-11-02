@@ -365,7 +365,7 @@ test('default Zen shortcut toggles symmetrically without writing to PTY', async 
   const input = page.locator('.xterm-helper-textarea');
   await input.focus();
   for (const state of ['true', 'false']) {
-    await input.press('Control+Shift+Enter');
+    await input.press('ControlOrMeta+Shift+Enter');
     await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-focus-mode', state);
     await expect(input).toBeFocused();
   }

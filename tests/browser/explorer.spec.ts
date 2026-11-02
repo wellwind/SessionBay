@@ -15,7 +15,7 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
     await expect(tabs.getByRole('tab')).toHaveCount(2);
     await expect(terminal).toBeHidden();
     const editor = page.getByLabel('唯讀內容：large.ts');
-    await editor.focus(); await page.keyboard.press('Control+f');
+    await editor.focus(); await page.keyboard.press('ControlOrMeta+f');
     const find = page.locator('.monaco-editor .find-widget .find-part textarea, .monaco-editor .find-widget .find-part input').first();
     await find.fill('END_SENTINEL');
     const mark = page.locator('.monaco-editor .currentFindMatch');
@@ -24,7 +24,7 @@ for (const theme of ['dark', 'light']) for (const width of [1280, 720]) {
       const a = await mark.boundingBox(); const b = await editor.boundingBox();
       return !!a && !!b && a.x >= b.x && a.x + a.width <= b.x + b.width;
     }).toBe(true);
-    await editor.focus(); await page.keyboard.press('Control+f'); await expect(find).toBeFocused();
+    await editor.focus(); await page.keyboard.press('ControlOrMeta+f'); await expect(find).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(page.locator('.monaco-editor .find-widget')).toHaveAttribute('aria-hidden', 'true');
     // Closing Find removes a 27px view zone synchronously; Monaco paints its
