@@ -29,4 +29,4 @@ OpenCode 把 Session 存在共用資料庫中，所以 Session Bay 會先用官�
 
 資源回收筒的**已移到系統垃圾桶**區塊會列出搬走的項目。只要系統垃圾桶還沒清空，按**還原**就能把檔案放回原位置；清空垃圾桶後就永久刪除了。
 
-OpenCode 還原需要產生匯出檔的 CLI 主版本：1.x 匯出檔需要 OpenCode 1.x，2.x 匯出檔需要 OpenCode 2.x。舊搬移紀錄視為 1.x。Session Bay 不會轉換或改寫匯出檔，並會在各 Session 原本的工作目錄還原；2.x 使用 `opencode session import --directory <original cwd> <file>`。
+OpenCode 清理與還原需要 2.x CLI。每個 2.x 匯出檔使用 `opencode session import --directory <original cwd> <file>` 還原。1.x 匯出檔與未記錄 CLI 主版本的舊搬移紀錄仍會列出，但還原會顯示不支援版本的提示並阻擋操作；還原程序絕不移動、刪除、轉換或改寫這些檔案。

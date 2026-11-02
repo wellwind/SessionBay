@@ -909,13 +909,28 @@ pub fn detect(settings: &Settings) -> Vec<Installation> {
 }
 
 fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
-    run_version_probe(path, kind, |runtime, receiver| {
+    let output = run_version_probe(path, kind, |runtime, receiver| {
         let deadline = Instant::now() + Duration::from_secs(2);
         collect_version_output(
             || version_event_before_deadline(receiver, deadline, Instant::now()),
             |id, sequence| runtime.ack(id, sequence),
         )
-    })
+    })?;
+    validate_version_output(kind, output)
+}
+
+fn validate_version_output(kind: AgentKind, output: String) -> Result<String, String> {
+    if kind == AgentKind::OpenCode
+        && matches!(
+            crate::opencode_state::parse_version(output.as_bytes()),
+            Some([1, _, _])
+        )
+    {
+        return Err(tr!(
+            "OpenCode 1.x is no longer supported. Install OpenCode 2.x and try again."
+        ));
+    }
+    Ok(output)
 }
 
 fn run_version_probe(
@@ -1054,6 +1069,23 @@ fn version_text(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn detected_opencode_one_x_is_reported_as_unsupported() {
+        for output in ["1.19.5", "opencode v1.99.0"] {
+            assert!(validate_version_output(AgentKind::OpenCode, output.into())
+                .unwrap_err()
+                .contains("OpenCode 1.x is no longer supported"));
+        }
+        assert_eq!(
+            validate_version_output(AgentKind::OpenCode, "opencode v2.2.3".into()).unwrap(),
+            "opencode v2.2.3"
+        );
+        assert_eq!(
+            validate_version_output(AgentKind::Claude, "1.19.5".into()).unwrap(),
+            "1.19.5"
+        );
+    }
+
     #[test]
     fn version_text_strips_terminal_protocol_without_losing_unicode() {
         assert_eq!(version_text(b"\x1b[?9001h\x1b[6n\x1b[?25l\x1b[0m\r\n"), "");

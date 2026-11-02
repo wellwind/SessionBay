@@ -22,7 +22,8 @@ Session Bay indexes the local history of every supported agent, brings it togeth
 
 ## Features
 
-- **One history for every agent** — Claude Code, Codex CLI, OpenCode, Grok Build and Antigravity CLI. Full-text search (including CJK), filters by agent and date, and a read-only preview before you resume anything.
+- **One history for every agent** — Claude Code, Codex CLI, OpenCode 2.x, Grok Build and Antigravity CLI. Full-text search (including CJK), filters by agent and date, and a read-only preview before you resume anything.
+  OpenCode 1.x is no longer supported. Open an old database once with OpenCode 2.x to migrate its sessions; Session Bay reads only the 2.x tables and never migrates history.
 - **Project-first navigation** — pin the folders you care about; an "All directories" view still shows every place you ever ran an agent.
 - **Real terminals** — tabs and split panes backed by real PTYs, with 10,000 lines of scrollback. Run agents, dev servers and tests side by side; reattaching restores the current screen and up to 1 MiB of the newest scrollback output.
 - **Keeps running when you close the window** — a background broker owns the processes; reopen Session Bay and reattach to the same running agents.

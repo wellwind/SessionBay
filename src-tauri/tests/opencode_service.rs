@@ -159,6 +159,13 @@ fn setup() -> (
     HistorySource,
     LaunchRequest,
 ) {
+    static MIRROR: std::sync::Once = std::sync::Once::new();
+    MIRROR.call_once(|| {
+        std::env::set_var(
+            sessionbay_lib::opencode::MIRROR_DIR_ENV,
+            std::env::temp_dir().join("sessionbay-test-opencode-service-mirror"),
+        );
+    });
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("store ; literal");
     fs::create_dir(&root).unwrap();
@@ -168,7 +175,7 @@ fn setup() -> (
     db.execute_batch(include_str!("../../fixtures/opencode/schema.sql"))
         .unwrap();
     db.execute(
-        "INSERT INTO session VALUES(?1,'global',?2,'Synthetic title','1.19.2',1,1,NULL,NULL,NULL)",
+        "INSERT INTO session_v2 VALUES(?1,'global',?2,'Synthetic title','2.2.3',1,1,NULL,NULL,NULL)",
         params![ID, cwd.to_string_lossy()],
     )
     .unwrap();
@@ -306,7 +313,8 @@ fn repeated_indexed_and_manual_resume_focus_live_runtime_even_after_database_gro
             }
         }
         let db = Connection::open(std::path::Path::new(&source.root).join("opencode.db")).unwrap();
-        db.execute("UPDATE session SET time_updated=2", []).unwrap();
+        db.execute("UPDATE session_v2 SET time_updated=2", [])
+            .unwrap();
         drop(db);
         let same = service.launch(second, Arc::new(|_| Ok(()))).unwrap();
         assert_eq!(same.id, running.id);
@@ -357,7 +365,7 @@ fn replaced_reindexed_database_does_not_focus_old_runtime() {
     fs::copy(&dbpath, &replacement).unwrap();
     let db = Connection::open(&replacement).unwrap();
     db.execute(
-        "UPDATE session SET title='DIFFERENT_CONVERSATION',time_updated=7",
+        "UPDATE session_v2 SET title='DIFFERENT_CONVERSATION',time_updated=7",
         [],
     )
     .unwrap();

@@ -1,5 +1,5 @@
 -- Synthetic OpenCode database after CLI 2.2.3 migrated a CLI 1.19.5 database.
--- Generated in an isolated HOME from fixtures/opencode/cli-1.19.x-v1-only.sql; no real history.
+-- Generated in an isolated HOME from the former synthetic 1.x seed; no real history.
 PRAGMA foreign_keys=OFF;
 BEGIN;
 CREATE TABLE `project` (
