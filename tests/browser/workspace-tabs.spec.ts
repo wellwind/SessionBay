@@ -194,10 +194,10 @@ for (const theme of ['dark', 'light']) test(`active overflow tabs and fixed rect
     if (zen) await page.getByRole('button', { name: '進入專注模式', exact: true }).click();
     for (const zoom of [1, 1.25]) {
       await bar.evaluate((el, zoom) => { (el as HTMLElement).style.zoom = String(zoom); }, zoom);
-      await page.keyboard.press('Control+9');
+      await page.keyboard.press('ControlOrMeta+9');
       await expect(page.locator('.workspace-tab.active .workspace-tab-name')).toHaveText('Tab extra-11');
       await visible();
-      await page.keyboard.press('Control+1'); await visible();
+      await page.keyboard.press('ControlOrMeta+1'); await visible();
       await page.keyboard.press('Control+Tab'); await visible();
       // Sidebar selection exercises the programmatic focus path, without
       // Playwright scrolling the tab itself before clicking it.

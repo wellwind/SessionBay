@@ -470,27 +470,27 @@ test('shared panel width survives feature/project switches and Zen, with accessi
 
 test('quick-open focuses existing runtime and opens unloaded files and out-of-page Sessions without launching', async ({ page }, info) => {
   await openWorkspace(page);
-  // Linux Ctrl+P remains shell history; invoke app quick-open from project chrome.
+  // Ctrl+P in a Linux terminal stays shell history; invoke app quick-open from project chrome.
   await filesButton(page).focus();
-  await page.keyboard.press('Control+p');
+  await page.keyboard.press('ControlOrMeta+p');
   const picker = page.getByRole('dialog', { name: /快速開啟/ });
   await expect(picker).toBeVisible();
   await picker.getByRole('option', { name: /Focus shell/ }).click();
   await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
   await filesButton(page).focus();
-  await page.keyboard.press('Control+p');
+  await page.keyboard.press('ControlOrMeta+p');
   await picker.getByRole('combobox').press('Escape');
   await expect(filesButton(page)).toBeFocused();
   await page.waitForTimeout(50);
   await expect(filesButton(page)).toBeFocused();
-  await page.keyboard.press('Control+p');
+  await page.keyboard.press('ControlOrMeta+p');
   await picker.getByRole('combobox').fill('unvisited.ts ');
   await expect(picker.getByRole('option', { name: /deep\/unvisited.ts/ })).toBeVisible();
   await page.screenshot({ path: info.outputPath('quick-open-unopened-file.png'), fullPage: true });
   await picker.getByRole('combobox').press('Enter');
   await expect(page.getByRole('tab', { name: /unvisited.ts/ })).toBeFocused();
   await expect(page.getByLabel('唯讀內容：deep/unvisited.ts')).toBeVisible();
-  await page.keyboard.press('Control+p');
+  await page.keyboard.press('ControlOrMeta+p');
   await picker.getByRole('combobox').fill('session 79');
   await expect(picker.getByRole('option', { name: /Synthetic focus session 79/ })).toBeVisible();
   await page.screenshot({ path: info.outputPath('quick-open-unopened-session.png'), fullPage: true });
