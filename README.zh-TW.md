@@ -22,7 +22,8 @@ Session Bay 會索引每個支援 Agent 的本機歷史，依專案集中起來�
 
 ## 功能
 
-- **所有 Agent 一份歷史**：支援 Claude Code、Codex CLI、OpenCode、Grok Build 與 Antigravity CLI。提供全文搜尋（支援中文）與 Agent／日期篩選，接續前可以先唯讀預覽。
+- **所有 Agent 一份歷史**：支援 Claude Code、Codex CLI、OpenCode 2.x、Grok Build 與 Antigravity CLI。提供全文搜尋（支援中文）與 Agent／日期篩選，接續前可以先唯讀預覽。
+  已不再支援 OpenCode 1.x。請用 OpenCode 2.x 開啟舊資料庫一次以遷移工作階段；Session Bay 只讀取 2.x 資料表，絕不遷移歷史。
 - **以專案為中心**：釘選常用的資料夾；「所有目錄」頁仍列出每個跑過 Agent 的地方。
 - **真正的終端機**：分頁與分割面板都是真的 PTY，保留 10,000 行捲動歷史，Agent、開發伺服器和測試可以並排跑。重新附接時會還原目前畫面，以及最多 1 MiB 的最新捲動歷史輸出。
 - **關掉視窗也繼續跑**：背景 broker 持有程序，重新開啟後會附接回原本還在執行的 Agent。

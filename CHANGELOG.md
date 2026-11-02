@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Removed
+
+- OpenCode CLI 1.x support: legacy history readers, live-state plugin, and top-level export/import cleanup paths. Install OpenCode 2.x for live state and cleanup. Existing 1.x exports (including records without a CLI major) remain listed with restore blocked; their files are preserved.
+
+### Changed
+
+- OpenCode history reads only the 2.x tables. Open a pre-2.x database once with OpenCode 2.x to migrate it; Session Bay shows a translated, non-fatal source message until then and never writes history. Migrated sessions with reviewed original 1.x producer versions remain fully readable. The reader revision is now 5 to refresh cached entries.
+
 ## [0.3.3] - 2026-11-02
 
 ### Added

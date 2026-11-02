@@ -26,7 +26,7 @@ Session Bay 會在分頁、側欄、**全部工作區**與附加的[看板工作
 
 ## 活動 hooks
 
-想取得 Claude Code 與 OpenCode 的即時狀態，請在**設定 → 來源與工具**為該 Agent 啟用**真實活動 hooks**。它只影響從 Session Bay 啟動的 Agent，不會修改 Agent 的全域設定。
+想取得 Claude Code 與 OpenCode 的即時狀態，請在**設定 → 來源與工具**為該 Agent 啟用**真實活動 hooks**。它只影響從 Session Bay 啟動的 Agent，不會修改 Agent 的全域設定。OpenCode 即時狀態需要已審查的 CLI 2.2.0 至 2.2.5；已不再支援 CLI 1.x。
 
 Claude Code 會透過僅限本次啟動的 command hooks 回報等待輸入或權限，並搭配即時狀態外掛使用。Claude Code 與 OpenCode 從工作中轉為閒置時會發出完成提醒；開啟或重新連接面板時的初始閒置回報則不會。這些提醒沿用其他通知與音效的可見性規則及冷卻時間。
 
