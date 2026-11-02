@@ -1,16 +1,8 @@
-//! Read-only, bounded OpenCode SQLite reader. Official v1.19.2 source contract
-//! (v1.19.3 through v1.19.5 change no database, migration, or session schema files):
-//! https://github.com/anomalyco/opencode/tree/7901b7d325c34852caa84fc2c325f3a08dd7a473/packages/core/src/session
-//! CLI 2.2.3 session/sql.ts, session/history.ts and schema/session-message.ts
-//! were also reviewed: session_v2 wins over retained v1 rows, and session_part
-//! replaces assistant inline content when present. Both CLI generations share
-//! the private mirror and bounded reader below. SQLite
-//! only sees a private, persistent, owner-only mirror: the main database is
-//! refreshed block-by-block (only changed blocks are written) when its identity
-//! stamp changes, and the WAL is re-copied and hashed every read. Source
-//! identity stamps are checked before and after reading, so no source file is
-//! ever opened by SQLite, locked, checkpointed, or given a `-shm` sidecar.
-//! No CLI, auth file, network request, source migration, or source write is used.
+//! Read-only, bounded OpenCode 2.x SQLite reader. The CLI 2.2.3 session/sql.ts,
+//! session/history.ts and schema/session-message.ts contracts were reviewed.
+//! Only session_v2, session_message and session_part are read, including sessions
+//! migrated by OpenCode itself. SQLite only sees a validated private mirror;
+//! source history is never opened by SQLite, migrated, locked or written.
 use chrono::{DateTime, SecondsFormat};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
@@ -47,19 +39,9 @@ const BUDGET_WARNING: &str = "Some OpenCode sessions exceed the per-session read
 const MAX_TITLE_BYTES: usize = 16 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_ERROR_BYTES: usize = 2048;
-/// A v1 projection is current only when its newest row is at least this close
-/// to `session.time_updated`. Real 1.19.2/1.19.3 CLI runs differ by <20 ms;
-/// older residue (for example after v2 rows were deleted) stays metadata-only.
-/// Bump when the reader output changes for an unchanged database, so catalog
-/// rows written by an older reader are re-read instead of reused by fingerprint.
-/// Revision 1: v1 fallback for empty v2 projections and the 1.19.3 version gate.
-/// Revision 2: persistent block mirror, per-session fingerprints/budgets.
-/// Revision 3: the version gate accepts 1.19.4 and 1.19.5.
-/// Revision 4: CLI 2.2.x through 2.2.5, session_v2 precedence and session_part.
-/// 2.2.4 and 2.2.5 change no session tables or stored message shapes (one new
-/// unrelated `job` table), so they share the 2.2.3 contract.
-pub const READER_REVISION: i64 = 4;
-const LEGACY_FRESHNESS_MS: i64 = 60_000;
+/// Bump when reader output changes for an unchanged database, so cached catalog
+/// rows are re-read. Revision 5 removes all CLI 1.x table/projection readers.
+pub const READER_REVISION: i64 = 5;
 
 #[derive(Debug, Clone)]
 pub struct ConversationMetadata {
@@ -1067,15 +1049,16 @@ pub fn valid_session_id(id: &str) -> bool {
         && id.len() <= 256
         && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
 }
-fn reviewed_version(version: &str, session_v2: bool) -> bool {
+fn reviewed_version(version: &str) -> bool {
     let parts: Vec<_> = version.split('.').collect();
     if parts.len() != 3 {
         return false;
     }
     let parsed: Option<Vec<u32>> = parts.into_iter().map(|p| p.parse().ok()).collect();
+    // Official 2.x migration preserves the reviewed original producer version.
     parsed.is_some_and(|p| {
         (p[0] == 1 && (p[1] < 19 || (p[1] == 19 && p[2] <= 5)))
-            || (session_v2 && p[0] == 2 && p[1] == 2 && p[2] <= 5)
+            || (p[0] == 2 && p[1] == 2 && p[2] <= 5)
     })
 }
 #[allow(clippy::too_many_arguments)]
@@ -1105,58 +1088,42 @@ fn read_connection(
             return Err("OpenCode snapshot failed SQLite integrity checking".into());
         }
     }
-    let has_legacy = has_table(connection, "session")?;
-    let has_sessions_v2 = has_table(connection, "session_v2")?;
-    if !has_legacy && !has_sessions_v2 {
-        return Err(crate::tr!("Unsupported OpenCode schema: no session table"));
+    if !has_table(connection, "session_v2")? {
+        return Ok(IndexSummary {
+            fingerprint: String::new(),
+            identity: String::new(),
+            sessions: 0,
+            warnings: vec![crate::tr!("OpenCode 1.x history is no longer supported. Open this database once with OpenCode 2.x to migrate its sessions; Session Bay never migrates or writes history.")],
+        });
     }
-    for table in ["session", "session_v2"] {
-        if (table == "session" && has_legacy) || (table == "session_v2" && has_sessions_v2) {
-            require_columns(
-                connection,
-                table,
-                &[
-                    "id",
-                    "directory",
-                    "title",
-                    "version",
-                    "time_updated",
-                    "parent_id",
-                    "time_archived",
-                    "revert",
-                ],
-            )?;
-        }
-    }
-    let has_v2 = has_table(connection, "session_message")?;
-    if has_v2 || has_sessions_v2 {
-        require_columns(
-            connection,
-            "session_message",
-            &[
-                "id",
-                "session_id",
-                "type",
-                "seq",
-                "time_created",
-                "time_updated",
-                "data",
-            ],
-        )?;
-    }
-    if has_legacy {
-        require_columns(
-            connection,
-            "message",
-            &["id", "session_id", "time_created", "time_updated", "data"],
-        )?;
-        require_columns(
-            connection,
-            "part",
-            &["id", "session_id", "message_id", "time_updated", "data"],
-        )?;
-    }
-    let has_parts = has_sessions_v2 && has_table(connection, "session_part")?;
+    require_columns(
+        connection,
+        "session_v2",
+        &[
+            "id",
+            "directory",
+            "title",
+            "version",
+            "time_updated",
+            "parent_id",
+            "time_archived",
+            "revert",
+        ],
+    )?;
+    require_columns(
+        connection,
+        "session_message",
+        &[
+            "id",
+            "session_id",
+            "type",
+            "seq",
+            "time_created",
+            "time_updated",
+            "data",
+        ],
+    )?;
+    let has_parts = has_table(connection, "session_part")?;
     if has_parts {
         require_columns(
             connection,
@@ -1178,39 +1145,17 @@ fn read_connection(
         Mode::Only(id) => Some(id),
         Mode::Full(_) | Mode::Removal => None,
     };
-    // A migrated ID belongs exclusively to session_v2, even if it has no messages.
     let fields =
         "id,directory,title,version,time_updated,parent_id,time_archived,revert IS NOT NULL";
-    let sessions_sql = match (has_legacy, has_sessions_v2) {
-        (true, true) => format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 UNION ALL SELECT {fields},0 FROM session WHERE (?2 IS NULL OR id=?2) AND NOT EXISTS(SELECT 1 FROM session_v2 WHERE session_v2.id=session.id) LIMIT ?1"),
-        (false, true) => format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 LIMIT ?1"),
-        _ => format!("SELECT {fields},0 FROM session WHERE ?2 IS NULL OR id=?2 LIMIT ?1"),
-    };
-    let sessions_sql = if matches!(mode, Mode::Removal) {
-        if !has_sessions_v2 {
-            return Err("OpenCode 2.x session ancestry is unavailable".into());
-        }
-        format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 LIMIT ?1")
-    } else {
-        sessions_sql
-    };
+    let sessions_sql =
+        format!("SELECT {fields} FROM session_v2 WHERE ?2 IS NULL OR id=?2 LIMIT ?1");
     let mut statement = connection.prepare(&sessions_sql).map_err(sql_error)?;
-    let legacy_counts = if has_legacy {
-        "(SELECT count(*) FROM message WHERE session_id=?1),(SELECT max(time_created) FROM message WHERE session_id=?1),(SELECT max(time_updated) FROM message WHERE session_id=?1),(SELECT count(*) FROM part WHERE session_id=?1)"
-    } else {
-        "0,NULL,NULL,0"
-    };
-    let message_counts = if has_v2 {
-        "(SELECT count(*) FROM session_message WHERE session_id=?1),(SELECT max(seq) FROM session_message WHERE session_id=?1),(SELECT max(time_updated) FROM session_message WHERE session_id=?1)"
-    } else {
-        "0,NULL,NULL"
-    };
     let part_counts = if has_parts {
         "(SELECT count(*) FROM session_part WHERE session_id=?1),(SELECT max(time_updated) FROM session_part WHERE session_id=?1)"
     } else {
         "0,NULL"
     };
-    let counts_sql = format!("SELECT {legacy_counts},{message_counts},{part_counts}");
+    let counts_sql = format!("SELECT (SELECT count(*) FROM session_message WHERE session_id=?1),(SELECT max(seq) FROM session_message WHERE session_id=?1),(SELECT max(time_updated) FROM session_message WHERE session_id=?1),{part_counts}");
     let mut counts = connection.prepare(&counts_sql).map_err(sql_error)?;
     let mut rows = statement
         .query(rusqlite::params![limits.rows + 1, only])
@@ -1232,7 +1177,6 @@ fn read_connection(
         let parent_id: Option<String> = row.get(5).map_err(sql_error)?;
         let archived = row.get::<_, Option<i64>>(6).map_err(sql_error)?.is_some();
         let reverted: bool = row.get(7).map_err(sql_error)?;
-        let session_v2: bool = row.get(8).map_err(sql_error)?;
         if cwd.len() > MAX_PATH_BYTES
             || title
                 .as_ref()
@@ -1248,12 +1192,12 @@ fn read_connection(
         // Index-only counts plus small message rows; large part payloads
         // (tool output) are never touched to fingerprint a session.
         let projection: Vec<Option<i64>> = counts
-            .query_row([&id], |row| (0..9).map(|index| row.get(index)).collect())
+            .query_row([&id], |row| (0..5).map(|index| row.get(index)).collect())
             .map_err(sql_error)?;
         let mut digest = Sha256::new();
         digest.update(
             format!(
-                "opencode-session-v{READER_REVISION}\0{identity}\0{id}\0{cwd}\0{title:?}\0{version}\0{updated_raw}\0{parent_id:?}\0{archived}\0{reverted}\0{session_v2}\0{projection:?}"
+                "opencode-session-v{READER_REVISION}\0{identity}\0{id}\0{cwd}\0{title:?}\0{version}\0{updated_raw}\0{parent_id:?}\0{archived}\0{reverted}\0{projection:?}"
             )
             .as_bytes(),
         );
@@ -1269,7 +1213,7 @@ fn read_connection(
             updated_at,
             parent_id,
             archived,
-            partial: !reviewed_version(&version, session_v2) || reverted,
+            partial: !reviewed_version(&version) || reverted,
             messages: vec![],
             fingerprint,
             identity: identity.to_owned(),
@@ -1288,40 +1232,14 @@ fn read_connection(
             if record.partial {
                 return Ok(());
             }
-            let v2: bool = has_v2
-                && connection
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM session_message WHERE session_id=?1)",
-                        [&id],
-                        |row| row.get(0),
-                    )
-                    .map_err(sql_error)?;
-            if session_v2 || v2 {
-                read_v2(
-                    connection,
-                    &mut record,
-                    cancel,
-                    &mut output_bytes,
-                    limits,
-                    session_v2 && has_parts,
-                    session_v2,
-                )?;
-            } else if has_v2 {
-                // The stable 1.19.x CLI writes only the v1 message/part
-                // projection, so an empty v2 projection alone is not a
-                // conflict. v1 is read only when it is as fresh as the
-                // session row; stale v1 residue (for example after v2 rows
-                // were deleted) is still treated as ambiguous metadata-only.
-                match latest_legacy_update(connection, &id)? {
-                    None => {}
-                    Some(latest) if latest.saturating_add(LEGACY_FRESHNESS_MS) >= updated_raw => {
-                        read_v1(connection, &mut record, cancel, &mut output_bytes, limits)?;
-                    }
-                    Some(_) => record.partial = true,
-                }
-            } else {
-                read_v1(connection, &mut record, cancel, &mut output_bytes, limits)?;
-            }
+            read_v2(
+                connection,
+                &mut record,
+                cancel,
+                &mut output_bytes,
+                limits,
+                has_parts,
+            )?;
             Ok(())
         })();
         match content {
@@ -1374,15 +1292,6 @@ fn push_message(
     });
     Ok(())
 }
-fn latest_legacy_update(connection: &Connection, id: &str) -> Result<Option<i64>, String> {
-    connection
-        .query_row(
-            "SELECT max(t) FROM (SELECT max(time_updated) AS t FROM message WHERE session_id=?1 UNION ALL SELECT max(time_updated) FROM part WHERE session_id=?1)",
-            [id],
-            |row| row.get(0),
-        )
-        .map_err(sql_error)
-}
 fn read_v2(
     connection: &Connection,
     record: &mut ConversationMetadata,
@@ -1390,7 +1299,6 @@ fn read_v2(
     output: &mut usize,
     limits: Limits,
     has_parts: bool,
-    session_v2: bool,
 ) -> Result<(), String> {
     let mut statement = connection.prepare("SELECT type,seq,time_created,CASE WHEN length(CAST(data AS BLOB))<=8388608 THEN data END,id FROM session_message WHERE session_id=?1 ORDER BY seq,id LIMIT 100001").map_err(sql_error)?;
     let mut rows = statement.query([&record.id]).map_err(sql_error)?;
@@ -1408,7 +1316,7 @@ fn read_v2(
             return Err("Conflicting OpenCode message sequence".into());
         }
         previous = Some(sequence);
-        if session_v2 && kind == "system" {
+        if kind == "system" {
             continue;
         }
         let timestamp = millis(row.get(2).map_err(sql_error)?);
@@ -1446,7 +1354,7 @@ fn read_v2(
             }
             "compaction" | "synthetic" | "system" | "shell" | "agent-switched"
             | "model-switched" => continue,
-            "location-switched" | "skill" | "idle" if session_v2 => continue,
+            "location-switched" | "skill" | "idle" => continue,
             _ => {
                 record.partial = true;
                 continue;
@@ -1533,98 +1441,6 @@ fn read_v2_parts(
     }
     Ok((count > 0).then_some(text))
 }
-fn read_v1(
-    connection: &Connection,
-    record: &mut ConversationMetadata,
-    cancel: &AtomicBool,
-    output: &mut usize,
-    limits: Limits,
-) -> Result<(), String> {
-    let mut statement = connection.prepare("SELECT id,time_created,CASE WHEN length(CAST(data AS BLOB))<=8388608 THEN data END FROM message WHERE session_id=?1 ORDER BY time_created,id LIMIT 100001").map_err(sql_error)?;
-    let mut rows = statement.query([&record.id]).map_err(sql_error)?;
-    let mut count = 0;
-    while let Some(row) = rows.next().map_err(sql_error)? {
-        check_cancel(cancel)?;
-        count += 1;
-        if count > 100_000 {
-            return Err(BUDGET_ERROR.into());
-        }
-        let id: String = row.get(0).map_err(sql_error)?;
-        let timestamp = millis(row.get(1).map_err(sql_error)?);
-        let data: Option<String> = row.get(2).map_err(sql_error)?;
-        let Some(value) = data.and_then(|raw| serde_json::from_str::<Value>(&raw).ok()) else {
-            record.partial = true;
-            continue;
-        };
-        let Some(role @ ("user" | "assistant")) = value.get("role").and_then(Value::as_str) else {
-            record.partial = true;
-            continue;
-        };
-        if role == "assistant"
-            && value
-                .get("summary")
-                .is_some_and(|value| !value.is_boolean())
-        {
-            record.partial = true;
-            continue;
-        }
-        if role == "assistant" && value.get("summary") == Some(&Value::Bool(true)) {
-            continue;
-        }
-        let mut parts = connection.prepare("SELECT CASE WHEN length(CAST(data AS BLOB))<=8388608 THEN data END FROM part WHERE session_id=?1 AND message_id=?2 ORDER BY id LIMIT 10001").map_err(sql_error)?;
-        let values = parts
-            .query_map([&record.id, &id], |row| row.get::<_, Option<String>>(0))
-            .map_err(sql_error)?;
-        let mut text = Vec::new();
-        let mut bytes = 0;
-        for (index, part) in values.enumerate() {
-            check_cancel(cancel)?;
-            if index == 10_000 {
-                return Err(BUDGET_ERROR.into());
-            }
-            let Some(value) = part
-                .map_err(sql_error)?
-                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-            else {
-                record.partial = true;
-                continue;
-            };
-            match value.get("type").and_then(Value::as_str) {
-                Some("text") => {
-                    if ["ignored", "synthetic"]
-                        .iter()
-                        .any(|field| value.get(field).is_some_and(|value| !value.is_boolean()))
-                    {
-                        record.partial = true;
-                        continue;
-                    }
-                    if value.get("ignored") == Some(&Value::Bool(true))
-                        || value.get("synthetic") == Some(&Value::Bool(true))
-                    {
-                        continue;
-                    }
-                    if let Some(value) = value.get("text").and_then(Value::as_str) {
-                        bytes += value.len();
-                        if bytes > limits.output_bytes {
-                            return Err(BUDGET_ERROR.into());
-                        }
-                        text.push(value.to_owned());
-                    } else {
-                        record.partial = true;
-                    }
-                }
-                Some(
-                    "reasoning" | "tool" | "file" | "snapshot" | "patch" | "agent" | "retry"
-                    | "step-start" | "step-finish" | "compaction" | "subtask",
-                ) => {}
-                _ => record.partial = true,
-            }
-        }
-        push_message(record, role, text.join("\n\n"), timestamp, output, limits)?;
-    }
-    Ok(())
-}
-
 fn stamp_identity(stamp: &Stamp) -> String {
     #[cfg(windows)]
     {

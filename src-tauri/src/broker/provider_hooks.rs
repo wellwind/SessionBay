@@ -348,7 +348,7 @@ mod opencode_tests {
     ) -> Result<Response, String> {
         let executable = root.join("synthetic-opencode");
         std::fs::write(&executable,
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then printf '1.19.2\\n'; exit; fi\nexec sleep 60\n").unwrap();
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then printf 'opencode v2.2.3\\n'; exit; fi\nexec sleep 60\n").unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
         host.handle(Request::Launch {
             generation: host.generation.clone(),

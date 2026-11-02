@@ -156,15 +156,16 @@ impl OpenCodeCli for OpenCodeProcess {
         crate::opencode_state::cli_major(&self.executable)
     }
     fn export(&self, root: &Path, id: &str, target: &Path) -> Result<(), String> {
-        let major = self.major()?;
-        let args: Vec<&std::ffi::OsStr> = if major == 2 {
-            vec!["session".as_ref(), "export".as_ref(), id.as_ref()]
-        } else {
-            vec!["export".as_ref(), id.as_ref()]
-        };
-        self.run(root, &args, &neutral_cwd(), Some(target))
+        self.major()?;
+        self.run(
+            root,
+            &["session".as_ref(), "export".as_ref(), id.as_ref()],
+            &neutral_cwd(),
+            Some(target),
+        )
     }
     fn delete(&self, root: &Path, id: &str) -> Result<(), String> {
+        self.major()?;
         self.run(
             root,
             &["session".as_ref(), "delete".as_ref(), id.as_ref()],
@@ -173,22 +174,19 @@ impl OpenCodeCli for OpenCodeProcess {
         )
     }
     fn import(&self, root: &Path, file: &Path, cwd: &Path) -> Result<(), String> {
-        if self.major()? == 2 {
-            self.run(
-                root,
-                &[
-                    "session".as_ref(),
-                    "import".as_ref(),
-                    "--directory".as_ref(),
-                    cwd.as_os_str(),
-                    file.as_os_str(),
-                ],
-                cwd,
-                None,
-            )
-        } else {
-            self.run(root, &["import".as_ref(), file.as_os_str()], cwd, None)
-        }
+        self.major()?;
+        self.run(
+            root,
+            &[
+                "session".as_ref(),
+                "import".as_ref(),
+                "--directory".as_ref(),
+                cwd.as_os_str(),
+                file.as_os_str(),
+            ],
+            cwd,
+            None,
+        )
     }
 }
 
@@ -401,6 +399,10 @@ pub fn restore_moved(
     };
     for item in &record.items {
         let label = relative_label(&record.source_root, &item.original);
+        if legacy_opencode_export(item) {
+            result.failed.push(tr!("{{label}}: {{e}}", label = label, e = tr!("OpenCode 1.x is no longer supported. This export cannot be restored by Session Bay; its file is preserved.")));
+            continue;
+        }
         if !available(mover, item, record.moved_at)? {
             result.failed.push(tr!(
                 "{{label}}: no longer in the trash; it may have been deleted permanently.",
@@ -426,14 +428,16 @@ pub fn restore_moved(
                 .push(tr!("{{label}}: {{e}}", label = label, e = e)),
         }
     }
-    if record
-        .items
-        .iter()
-        .all(|item| !available(mover, item, record.moved_at).unwrap_or(true))
-    {
+    if record.items.iter().all(|item| {
+        !legacy_opencode_export(item) && !available(mover, item, record.moved_at).unwrap_or(true)
+    }) {
         catalog.forget_os_trash(id)?;
     }
     Ok(result)
+}
+
+fn legacy_opencode_export(item: &MovedItem) -> bool {
+    item.import_cwd.is_some() && item.opencode_major.is_none_or(|major| major == 1)
 }
 
 /// An OpenCode export that never reached the trash stays restorable from staging.
@@ -450,10 +454,13 @@ fn restore_opencode(
     cwd: &str,
     opencode: Option<&dyn OpenCodeCli>,
 ) -> Result<(), String> {
+    if item.opencode_major.is_none_or(|major| major == 1) {
+        return Err(tr!("OpenCode 1.x is no longer supported. This export cannot be restored by Session Bay; its file is preserved."));
+    }
     let cli = opencode.ok_or(tr!(
         "OpenCode executable not found; set it in Settings, then restore."
     ))?;
-    let required = item.opencode_major.unwrap_or(1);
+    let required = item.opencode_major.expect("legacy exports were rejected");
     if cli.major()? != required {
         return Err(tr!("This export requires OpenCode {{major}}.x to restore; install that CLI major version and try again.", major = required));
     }
@@ -668,11 +675,11 @@ impl PlanStore {
                 .export(root, &entry.id, &file)
                 .and_then(|()| verify_export(&file, &entry.id).map(|_| ()));
             if let Err(e) = exported {
-                return Err(if plan.opencode_major == 2 {
-                    tr!("Cannot export and verify OpenCode session {{id}}; deletion is blocked: {{e}}", id = entry.id, e = e)
-                } else {
-                    e
-                });
+                return Err(tr!(
+                    "Cannot export and verify OpenCode session {{id}}; deletion is blocked: {{e}}",
+                    id = entry.id,
+                    e = e
+                ));
             }
             files.push(file);
         }
@@ -684,7 +691,7 @@ impl PlanStore {
                 "Source files changed after you confirmed, so nothing was moved; check again."
             ));
         }
-        if plan.opencode_major == 2 {
+        {
             let (current, _) = build(
                 catalog,
                 &plan.trash_id,
@@ -702,9 +709,6 @@ impl PlanStore {
             }
         }
         let deletion = cli.delete(root, &session.external_id);
-        if plan.opencode_major == 1 {
-            deletion.as_ref().map_err(Clone::clone)?;
-        }
         // From this point every export must survive even if moving it fails.
         let _ = staging.keep();
         let moved_at = SystemTime::now()
@@ -836,7 +840,7 @@ fn build(
         kept: kept_stores(inspection.kind),
         blockers: Vec::new(),
         opencode_sessions: Vec::new(),
-        opencode_major: 1,
+        opencode_major: 2,
     };
     let id = inspection.external_id;
     if !valid_external_id(&id) {
@@ -851,7 +855,6 @@ fn build(
         ));
     }
     if plan.kind == AgentKind::OpenCode {
-        let session = catalog.trashed_snapshot(&plan.trash_id)?;
         if opencode.is_none() {
             plan.blockers.push(tr!(
                 "OpenCode executable not found; set it in Settings, then try again."
@@ -864,14 +867,17 @@ fn build(
         }
         if let Some(cli) = opencode {
             match cli.major() {
-                Ok(major @ (1 | 2)) => plan.opencode_major = major,
+                Ok(2) => {}
+                Ok(1) => plan.blockers.push(tr!(
+                    "OpenCode 1.x is no longer supported. Install OpenCode 2.x and try again."
+                )),
                 Ok(_) => plan.blockers.push(tr!(
                     "Cannot determine a supported OpenCode CLI major version."
                 )),
                 Err(e) => plan.blockers.push(e),
             }
         }
-        plan.opencode_sessions = if plan.opencode_major == 2 {
+        plan.opencode_sessions = {
             match removal_sessions(Path::new(&plan.source_root), &id) {
                 Ok(entries) => entries,
                 Err(e) => {
@@ -882,16 +888,6 @@ fn build(
                     Vec::new()
                 }
             }
-        } else {
-            vec![RemovalSession {
-                id: id.clone(),
-                cwd: session
-                    .cwd
-                    .clone()
-                    .unwrap_or_else(|| neutral_cwd().to_string_lossy().into_owned()),
-                fingerprint: String::new(),
-                updated_at: Some(session.updated_at.clone()),
-            }]
         };
         for entry in &plan.opencode_sessions {
             let updated = entry.updated_at.as_deref();
@@ -904,9 +900,7 @@ fn build(
                 })
                 .is_none_or(|age| age < recent_write);
             if recent {
-                plan.blockers.push(if plan.opencode_major == 2 {
-                    tr!("OpenCode session {{id}} was updated in the last 2 minutes; deletion is blocked.", id = entry.id)
-                } else { tr!("It was updated in the last 2 minutes; OpenCode may still be using this session.") });
+                plan.blockers.push(tr!("OpenCode session {{id}} was updated in the last 2 minutes; deletion is blocked.", id = entry.id));
             }
             if entry.id != id && running("", &entry.id) {
                 plan.blockers.push(tr!(
@@ -1181,7 +1175,7 @@ mod tests {
         let script = temp.path().join("synthetic opencode");
         fs::write(
             &script,
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 1.19.5; exit; fi\nif [ \"$1\" = fail ]; then echo 'synthetic failure' >&2; exit 3; fi\nprintf '%s|' \"$@\" \"$XDG_DATA_HOME\"\n",
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo opencode v2.2.3; exit; fi\nif [ \"$1\" = fail ]; then echo 'synthetic failure' >&2; exit 3; fi\nprintf '%s|' \"$@\" \"$XDG_DATA_HOME\"\n",
         )
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
@@ -1191,7 +1185,10 @@ mod tests {
         cli.export(&root, "ses_a b;$(x)", &out).unwrap();
         assert_eq!(
             fs::read_to_string(&out).unwrap(),
-            format!("export|ses_a b;$(x)|{}|", temp.path().join("xdg").display())
+            format!(
+                "session|export|ses_a b;$(x)|{}|",
+                temp.path().join("xdg").display()
+            )
         );
         let error = cli
             .run(&root, &["fail".as_ref()], temp.path(), None)
@@ -1202,66 +1199,90 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn cli_generations_use_exact_export_delete_import_arguments() {
+    fn cli_two_uses_exact_export_delete_import_arguments() {
         use std::os::unix::fs::PermissionsExt;
-        for (version, major) in [("1.19.5", 1), ("opencode v2.2.3", 2)] {
-            let temp = tempfile::tempdir().unwrap();
-            let script = temp.path().join("synthetic opencode");
-            let capture = temp.path().join("args.json");
-            // Paths here are generated temp paths; arguments under test never
-            // enter shell source and include literal shell metacharacters.
-            fs::write(&script, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo '{version}'; exit; fi\n[ \"$OPENCODE_DB\" = \"$XDG_DATA_HOME/opencode/opencode.db\" ] || exit 9\nprintf '%s\\n' \"$@\" > '{}'\nprintf '{{\"info\":{{\"id\":\"ses_test\"}},\"messages\":[]}}'\n", capture.display())).unwrap();
-            fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
-            let cli = OpenCodeProcess { executable: script };
-            assert_eq!(cli.major().unwrap(), major);
-            let root = temp.path().join("xdg/opencode");
-            let file = temp.path().join("export with ' spaces;$(literal).json");
-            let args = || {
-                fs::read_to_string(&capture)
-                    .unwrap()
-                    .lines()
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            };
-            cli.export(&root, "ses_test", &file).unwrap();
-            assert_eq!(
-                args(),
-                if major == 2 {
-                    vec!["session", "export", "ses_test"]
-                } else {
-                    vec!["export", "ses_test"]
-                }
-            );
-            verify_export(&file, "ses_test").unwrap();
-            cli.delete(&root, "ses_test").unwrap();
-            assert_eq!(args(), ["session", "delete", "ses_test"]);
-            cli.import(&root, &file, temp.path()).unwrap();
-            let file = file.to_string_lossy().into_owned();
-            let cwd = temp.path().to_string_lossy().into_owned();
-            assert_eq!(
-                args(),
-                if major == 2 {
-                    vec![
-                        "session".into(),
-                        "import".into(),
-                        "--directory".into(),
-                        cwd,
-                        file,
-                    ]
-                } else {
-                    vec!["import".into(), file]
-                }
-            );
+        let version = "opencode v2.2.3";
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("synthetic opencode");
+        let capture = temp.path().join("args.json");
+        // Paths here are generated temp paths; arguments under test never
+        // enter shell source and include literal shell metacharacters.
+        fs::write(&script, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo '{version}'; exit; fi\n[ \"$OPENCODE_DB\" = \"$XDG_DATA_HOME/opencode/opencode.db\" ] || exit 9\nprintf '%s\\n' \"$@\" > '{}'\nprintf '{{\"info\":{{\"id\":\"ses_test\"}},\"messages\":[]}}'\n", capture.display())).unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+        let cli = OpenCodeProcess { executable: script };
+        assert_eq!(cli.major().unwrap(), 2);
+        let root = temp.path().join("xdg/opencode");
+        let file = temp.path().join("export with ' spaces;$(literal).json");
+        let args = || {
+            fs::read_to_string(&capture)
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        cli.export(&root, "ses_test", &file).unwrap();
+        assert_eq!(args(), vec!["session", "export", "ses_test"]);
+        verify_export(&file, "ses_test").unwrap();
+        cli.delete(&root, "ses_test").unwrap();
+        assert_eq!(args(), ["session", "delete", "ses_test"]);
+        cli.import(&root, &file, temp.path()).unwrap();
+        let file = file.to_string_lossy().into_owned();
+        let cwd = temp.path().to_string_lossy().into_owned();
+        assert_eq!(
+            args(),
+            vec![
+                "session".into(),
+                "import".into(),
+                "--directory".into(),
+                cwd,
+                file,
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn one_x_process_cannot_export_delete_or_import() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let script = temp.path().join("synthetic-opencode");
+        let invoked = temp.path().join("invoked");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 1.19.5; exit; fi\ntouch '{}'\n",
+                invoked.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+        let cli = OpenCodeProcess { executable: script };
+        let root = temp.path().join("xdg/opencode");
+        let file = temp.path().join("export.json");
+        fs::write(&file, "synthetic existing export").unwrap();
+        for result in [
+            cli.export(&root, "ses_test", &file),
+            cli.delete(&root, "ses_test"),
+            cli.import(&root, &file, temp.path()),
+        ] {
+            assert!(result
+                .unwrap_err()
+                .contains("OpenCode 1.x is no longer supported"));
         }
+        assert!(!invoked.exists());
+        assert_eq!(
+            fs::read_to_string(file).unwrap(),
+            "synthetic existing export"
+        );
     }
 
     #[test]
-    fn old_move_records_default_to_major_one() {
+    fn old_move_records_have_no_recorded_major() {
         let item: MovedItem = serde_json::from_str(
             r#"{"original":"synthetic.json","trashed":null,"importCwd":"/synthetic"}"#,
         )
         .unwrap();
-        assert_eq!(item.opencode_major.unwrap_or(1), 1);
+        assert_eq!(item.opencode_major, None);
     }
 
     #[test]

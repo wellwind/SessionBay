@@ -51,7 +51,7 @@ impl Harness {
         let db = h.db();
         db.execute_batch(include_str!("../../fixtures/opencode/schema.sql"))
             .unwrap();
-        db.execute("INSERT INTO session VALUES(?1,'global','/synthetic/專案 alpha','Native OpenCode title','1.19.2',1760000000000,1760000001000,NULL,NULL,NULL)",[ID]).unwrap();
+        db.execute("INSERT INTO session_v2 VALUES(?1,'global','/synthetic/專案 alpha','Native OpenCode title','2.2.3',1760000000000,1760000001000,NULL,NULL,NULL)",[ID]).unwrap();
         h
     }
     fn migrated() -> Self {
@@ -119,38 +119,8 @@ impl Harness {
     }
 }
 #[test]
-fn reads_both_official_projections_and_excludes_tools_reasoning_compaction() {
+fn reads_cli_two_content_and_excludes_tools_reasoning_compaction() {
     let h = Harness::new();
-    let db = h.db();
-    let v2_schema: String = db
-        .query_row(
-            "SELECT sql FROM sqlite_schema WHERE name='session_message'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    db.execute_batch("DROP TABLE session_message").unwrap();
-    db.execute(
-        "INSERT INTO message VALUES('msg_old',?1,1760000000000,1760000000000,?2)",
-        params![
-            ID,
-            json!({"role":"user","time":{"created":1760000000000_i64}}).to_string()
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO part VALUES('prt_old',?1,'msg_old',1760000000000,1760000000000,?2)",
-        params![
-            ID,
-            json!({"type":"text","text":"Legacy question"}).to_string()
-        ],
-    )
-    .unwrap();
-    drop(db);
-    h.sync();
-    assert_eq!(h.texts(), ["Legacy question"]);
-    assert_eq!(h.session().title, "Native OpenCode title");
-    h.db().execute_batch(&v2_schema).unwrap();
     h.v2(0,"user",json!({"text":"New native question","time":{"created":1760000000000_i64},"files":[],"agents":[]}));
     h.v2(1,"assistant",json!({"content":[{"type":"text","id":"a","text":"Visible answer"},{"type":"reasoning","id":"r","text":"PRIVATE_REASONING"},{"type":"tool","id":"t","name":"bash","state":{"output":"PRIVATE_TOOL"}}]}));
     h.v2(
@@ -161,55 +131,13 @@ fn reads_both_official_projections_and_excludes_tools_reasoning_compaction() {
     h.sync();
     assert_eq!(h.texts(), ["New native question", "Visible answer"]);
     assert_eq!(h.search("Visible"), 1);
-    for hidden in [
-        "Legacy question",
-        "PRIVATE_REASONING",
-        "PRIVATE_TOOL",
-        "PRIVATE_COMPACTION",
-    ] {
+    for hidden in ["PRIVATE_REASONING", "PRIVATE_TOOL", "PRIVATE_COMPACTION"] {
         assert_eq!(h.search(hidden), 0);
     }
     assert!(!h.session().partial);
     assert_eq!(h.session().cwd.as_deref(), Some("/synthetic/專案 alpha"));
 }
-#[test]
-fn v1_ignored_synthetic_and_summary_text_is_never_searchable() {
-    let h = Harness::new();
-    let db = h.db();
-    db.execute_batch("DROP TABLE session_message").unwrap();
-    for (id, role, summary) in [
-        ("msg_a", "user", false),
-        ("msg_b", "assistant", false),
-        ("msg_c", "assistant", true),
-    ] {
-        db.execute(
-            "INSERT INTO message VALUES(?1,?2,1,1,?3)",
-            params![id, ID, json!({"role":role,"summary":summary}).to_string()],
-        )
-        .unwrap();
-        for (suffix, extra) in [
-            ("a", json!({"text":"Visible","type":"text"})),
-            (
-                "b",
-                json!({"text":"HIDDEN_SYNTHETIC","type":"text","synthetic":true}),
-            ),
-            (
-                "c",
-                json!({"text":"HIDDEN_IGNORED","type":"text","ignored":true}),
-            ),
-        ] {
-            db.execute(
-                "INSERT INTO part VALUES(?1,?2,?3,1,1,?4)",
-                params![format!("prt_{id}{suffix}"), ID, id, extra.to_string()],
-            )
-            .unwrap();
-        }
-    }
-    drop(db);
-    h.sync();
-    assert_eq!(h.texts(), ["Visible", "Visible"]);
-    assert_eq!(h.search("HIDDEN"), 0);
-}
+
 #[test]
 fn unknown_versions_corrupt_json_and_reverts_fail_closed_and_reconcile() {
     let h = Harness::new();
@@ -217,7 +145,7 @@ fn unknown_versions_corrupt_json_and_reverts_fail_closed_and_reconcile() {
     h.sync();
     let id = h.session().id;
     h.db()
-        .execute("UPDATE session SET version='2.0.0'", [])
+        .execute("UPDATE session_v2 SET version='2.0.0'", [])
         .unwrap();
     assert!(h.catalog.transcript(&id, None, 20).unwrap().stale);
     assert!(h.catalog.resume_source(&id).is_err());
@@ -227,21 +155,21 @@ fn unknown_versions_corrupt_json_and_reverts_fail_closed_and_reconcile() {
     assert!(h.texts().is_empty());
     assert_eq!(h.search("Original"), 0);
     h.db()
-        .execute_batch("UPDATE session SET version='1.19.2'; UPDATE session_message SET data='{'")
+        .execute_batch("UPDATE session_v2 SET version='2.2.3'; UPDATE session_message SET data='{'")
         .unwrap();
     h.sync();
     assert!(h.session().partial);
     assert!(h.texts().is_empty());
     h.db()
         .execute(
-            "UPDATE session SET revert=?1",
+            "UPDATE session_v2 SET revert=?1",
             [json!({"messageID":"msg_synthetic0"}).to_string()],
         )
         .unwrap();
     h.sync();
     assert!(h.texts().is_empty());
     h.db()
-        .execute_batch("DELETE FROM session_message; DELETE FROM session")
+        .execute_batch("DELETE FROM session_message; DELETE FROM session_v2")
         .unwrap();
     h.sync();
     assert_eq!(h.catalog.query(&SessionQuery::default()).unwrap().total, 0);
@@ -293,10 +221,42 @@ fn legacy_json_missing_database_unknown_schema_and_cancel_are_explicit() {
     assert!(opencode::read_metadata(temp.path(), &AtomicBool::new(false)).is_err());
     let h = Harness::new();
     h.db()
-        .execute_batch("ALTER TABLE session RENAME COLUMN title TO unknown_title")
+        .execute_batch("ALTER TABLE session_v2 RENAME COLUMN title TO unknown_title")
         .unwrap();
     assert!(opencode::read_metadata(&h.root, &AtomicBool::new(false)).is_err());
 }
+#[test]
+fn pre_two_database_shows_a_non_fatal_migration_message_without_source_writes() {
+    let h = Harness::new();
+    h.v2(0, "user", json!({"text":"Old cached transcript"}));
+    h.sync();
+    h.db()
+        .execute_batch("ALTER TABLE session_v2 RENAME TO session")
+        .unwrap();
+    let database = h.root.join("opencode.db");
+    let before = fs::read(&database).unwrap();
+    let status = h
+        .catalog
+        .sync(
+            std::slice::from_ref(&h.source),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+    assert!(status.errors.is_empty(), "{:?}", status.errors);
+    let health = &status.sources[0];
+    assert_eq!(health.status, "partial");
+    assert!(health
+        .message
+        .as_ref()
+        .unwrap()
+        .contains("Open this database once with OpenCode 2.x"));
+    assert_eq!(h.catalog.query(&SessionQuery::default()).unwrap().total, 0);
+    assert_eq!(fs::read(database).unwrap(), before);
+    assert!(!h.root.join("opencode.db-shm").exists());
+    assert!(!h.root.join("opencode.db-journal").exists());
+}
+
 #[test]
 fn source_identity_duplicate_ids_pagination_and_compaction_refresh() {
     let h = Harness::new();
@@ -341,47 +301,6 @@ fn source_symlinks_are_rejected() {
 }
 
 #[test]
-fn deleting_all_v2_rows_never_restores_ambiguous_legacy_text() {
-    let h = Harness::new();
-    let db = h.db();
-    db.execute(
-        "INSERT INTO message VALUES('msg_old',?1,1,1,?2)",
-        params![ID, json!({"role":"user"}).to_string()],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO part VALUES('prt_old',?1,'msg_old',1,1,?2)",
-        params![
-            ID,
-            json!({"type":"text","text":"Legacy deleted question"}).to_string()
-        ],
-    )
-    .unwrap();
-    drop(db);
-    h.v2(
-        0,
-        "user",
-        json!({"text":"Current projection","time":{"created":1},"files":[],"agents":[]}),
-    );
-    h.sync();
-    assert_eq!(h.texts(), ["Current projection"]);
-    assert_eq!(h.search("Legacy"), 0);
-    h.db()
-        .execute("DELETE FROM session_message WHERE session_id=?1", [ID])
-        .unwrap();
-    h.sync();
-    assert!(
-        h.texts().is_empty(),
-        "Legacy text resurrected: {:?}",
-        h.texts()
-    );
-    assert_eq!(h.search("Legacy"), 0);
-    assert!(h.session().partial);
-    assert!(h.session().resume_disabled_reason.is_some());
-    assert!(h.catalog.resume_source(&h.session().id).is_err());
-}
-
-#[test]
 fn removal_inspection_marks_database_shared_without_exposing_virtual_file_keys() {
     let h = Harness::new();
     h.sync();
@@ -397,7 +316,7 @@ fn removal_inspection_marks_database_shared_without_exposing_virtual_file_keys()
         .unwrap();
     let before: i64 = h
         .db()
-        .query_row("SELECT count(*) FROM session", [], |r| r.get(0))
+        .query_row("SELECT count(*) FROM session_v2", [], |r| r.get(0))
         .unwrap();
     let inspection = h.catalog.inspect_removal(&id).unwrap();
     assert_eq!(inspection.indexed_artifacts.len(), 1);
@@ -409,181 +328,11 @@ fn removal_inspection_marks_database_shared_without_exposing_virtual_file_keys()
     assert!(inspection.blockers[0].contains("deleting the whole database is not allowed"));
     assert_eq!(
         h.db()
-            .query_row("SELECT count(*) FROM session", [], |r| r.get::<_, i64>(0))
+            .query_row("SELECT count(*) FROM session_v2", [], |r| r
+                .get::<_, i64>(0))
             .unwrap(),
         before
     );
-}
-
-/// 1.19.4 and 1.19.5 change no database, migration or session schema files, so
-/// their sessions are read like 1.19.3; an unreviewed later version stays partial.
-#[test]
-fn reviewed_1_19_4_and_1_19_5_are_fully_indexed_and_1_19_6_is_partial() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("cli source");
-    fs::create_dir(&root).unwrap();
-    #[cfg(unix)]
-    let root = root.canonicalize().unwrap();
-    let sql = include_str!("../../fixtures/opencode/cli-1.19.x-v1-only.sql")
-        .replace("1.19.3", "1.19.5")
-        .replace("1.19.2", "1.19.4");
-    Connection::open(root.join("opencode.db"))
-        .unwrap()
-        .execute_batch(&sql)
-        .unwrap();
-    let catalog = Catalog::open(&temp.path().join("catalog.db")).unwrap();
-    let source = HistorySource {
-        id: "opencode-cli".into(),
-        kind: AgentKind::OpenCode,
-        root: root.to_string_lossy().into_owned(),
-        enabled: true,
-    };
-    let sync = || {
-        let status = catalog
-            .sync(
-                std::slice::from_ref(&source),
-                &AtomicBool::new(false),
-                |_| {},
-            )
-            .unwrap();
-        assert!(status.errors.is_empty(), "{:?}", status.errors);
-        catalog.query(&SessionQuery::default()).unwrap().items
-    };
-    let sessions = sync();
-    assert_eq!(sessions.len(), 2);
-    for version in ["1.19.4", "1.19.5"] {
-        let session = sessions
-            .iter()
-            .find(|s| s.title.contains(version))
-            .unwrap_or_else(|| panic!("missing {version}"));
-        assert!(!session.partial, "{version} marked partial");
-        assert!(session.resume_disabled_reason.is_none());
-        let texts: Vec<_> = catalog
-            .transcript(&session.id, None, 200)
-            .unwrap()
-            .messages
-            .into_iter()
-            .map(|m| m.text)
-            .collect();
-        assert_eq!(texts.len(), 2, "{version}");
-    }
-    Connection::open(root.join("opencode.db"))
-        .unwrap()
-        .execute(
-            "UPDATE session SET version='1.19.6' WHERE version='1.19.5'",
-            [],
-        )
-        .unwrap();
-    let sessions = sync();
-    let unreviewed = sessions
-        .iter()
-        .find(|s| s.title.contains("1.19.5"))
-        .unwrap();
-    assert!(unreviewed.partial);
-    assert!(unreviewed.resume_disabled_reason.is_some());
-}
-
-/// Real 1.19.2/1.19.3 `opencode run` writes only v1 rows while the v2 table exists.
-#[test]
-fn real_cli_v1_only_databases_for_1_19_2_and_1_19_3_are_fully_indexed() {
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("cli source");
-    fs::create_dir(&root).unwrap();
-    #[cfg(unix)]
-    let root = root.canonicalize().unwrap();
-    Connection::open(root.join("opencode.db"))
-        .unwrap()
-        .execute_batch(include_str!(
-            "../../fixtures/opencode/cli-1.19.x-v1-only.sql"
-        ))
-        .unwrap();
-    let catalog = Catalog::open(&temp.path().join("catalog.db")).unwrap();
-    let source = HistorySource {
-        id: "opencode-cli".into(),
-        kind: AgentKind::OpenCode,
-        root: root.to_string_lossy().into_owned(),
-        enabled: true,
-    };
-    let status = catalog
-        .sync(
-            std::slice::from_ref(&source),
-            &AtomicBool::new(false),
-            |_| {},
-        )
-        .unwrap();
-    assert!(status.errors.is_empty(), "{:?}", status.errors);
-    let sessions = catalog.query(&SessionQuery::default()).unwrap().items;
-    assert_eq!(sessions.len(), 2);
-    for version in ["1.19.2", "1.19.3"] {
-        let session = sessions
-            .iter()
-            .find(|s| s.title.contains(version))
-            .unwrap_or_else(|| panic!("missing {version}"));
-        assert!(!session.partial, "{version} marked partial");
-        assert!(session.resume_disabled_reason.is_none());
-        assert!(catalog.resume_source(&session.id).is_ok());
-        let page = catalog.transcript(&session.id, None, 200).unwrap();
-        assert!(page.warning.is_none(), "{:?}", page.warning);
-        let texts: Vec<_> = page.messages.into_iter().map(|m| m.text).collect();
-        assert_eq!(
-            texts,
-            [
-                format!("Synthetic CLI question {version}"),
-                format!("Synthetic CLI answer {version}")
-            ]
-        );
-    }
-    // Rows written by an older reader for the same unchanged database must be
-    // re-read after an upgrade instead of being reused by fingerprint.
-    Connection::open(temp.path().join("catalog.db"))
-        .unwrap()
-        .execute_batch("UPDATE files SET parser_version=4; DELETE FROM messages;")
-        .unwrap();
-    let status = catalog
-        .sync(
-            std::slice::from_ref(&source),
-            &AtomicBool::new(false),
-            |_| {},
-        )
-        .unwrap();
-    assert!(status.errors.is_empty(), "{:?}", status.errors);
-    for (needle, hits) in [
-        ("Synthetic CLI answer 1.19.3", 1),
-        ("hidden reasoning", 0),
-        ("tool output", 0),
-    ] {
-        let found = catalog
-            .query(&SessionQuery {
-                query: Some(needle.into()),
-                ..Default::default()
-            })
-            .unwrap()
-            .total;
-        assert_eq!(found, hits, "{needle}");
-    }
-}
-
-#[test]
-fn fresh_v1_rows_after_v2_deletion_still_require_matching_session_time() {
-    let h = Harness::new();
-    // Legacy rows that are as fresh as session.time_updated are the current projection.
-    h.db()
-        .execute_batch(&format!(
-            "INSERT INTO message VALUES('msg_fresh','{ID}',1760000000500,1760000000900,'{{\"role\":\"user\"}}');
-             INSERT INTO part VALUES('prt_fresh','{ID}','msg_fresh',1760000000500,1760000000900,'{{\"type\":\"text\",\"text\":\"Fresh legacy question\"}}');"
-        ))
-        .unwrap();
-    h.sync();
-    assert_eq!(h.texts(), ["Fresh legacy question"]);
-    assert!(!h.session().partial);
-    // A later session update without matching v1 rows is ambiguous again.
-    h.db()
-        .execute("UPDATE session SET time_updated=1760009999000", [])
-        .unwrap();
-    h.sync();
-    assert!(h.texts().is_empty());
-    assert!(h.session().partial);
-    assert_eq!(h.search("Fresh"), 0);
 }
 
 fn large_root(sessions: usize, payload: usize) -> (tempfile::TempDir, PathBuf) {
@@ -597,34 +346,13 @@ fn large_root(sessions: usize, payload: usize) -> (tempfile::TempDir, PathBuf) {
     db.execute_batch("PRAGMA journal_mode=WAL; BEGIN;").unwrap();
     for s in 0..sessions {
         let id = format!("ses_large{s}");
-        db.execute("INSERT INTO session VALUES(?1,'global','/synthetic/large','Large','1.19.2',1,1760000001000,NULL,NULL,NULL)", [&id]).unwrap();
+        db.execute("INSERT INTO session_v2 VALUES(?1,'global','/synthetic/large','Large','2.2.3',1,1760000001000,NULL,NULL,NULL)", [&id]).unwrap();
         for m in 0..4 {
             let message = format!("msg_large{s}x{m}");
             db.execute(
-                "INSERT INTO message VALUES(?1,?2,?3,1760000001000,?4)",
-                params![message, id, m, json!({"role":"user"}).to_string()],
-            )
-            .unwrap();
-            db.execute(
-                "INSERT INTO part VALUES(?1,?2,?3,1,1760000001000,?4)",
-                params![
-                    format!("prt_large{s}x{m}a"),
-                    id,
-                    message,
-                    json!({"type":"text","text":format!("needle {s} {m}")}).to_string()
-                ],
-            )
-            .unwrap();
-            db.execute(
-                "INSERT INTO part VALUES(?1,?2,?3,1,1760000001000,?4)",
-                params![
-                    format!("prt_large{s}x{m}b"),
-                    id,
-                    message,
-                    json!({"type":"tool","state":{"output":"z".repeat(payload)}}).to_string()
-                ],
-            )
-            .unwrap();
+                "INSERT INTO session_message VALUES(?1,?2,'assistant',?3,1760000001000,1760000001000,?4)",
+                params![message, id, m, json!({"content":[{"type":"text","text":format!("needle {s} {m}")},{"type":"tool","state":{"output":"z".repeat(payload)}}]}).to_string()],
+            ).unwrap();
         }
     }
     db.execute_batch("COMMIT; PRAGMA wal_checkpoint(TRUNCATE);")
@@ -692,17 +420,11 @@ fn database_beyond_the_old_snapshot_limit_is_mirrored_incrementally() {
     // changed blocks are written and only that session is re-read.
     let db = Connection::open(root.join("opencode.db")).unwrap();
     db.execute(
-        "INSERT INTO message VALUES('msg_new','ses_large7',9,1760000002000,?1)",
-        [json!({"role":"user"}).to_string()],
-    )
-    .unwrap();
+        "INSERT INTO session_message VALUES('msg_new','ses_large7','user',9,1760000002000,1760000002000,?1)",
+        [json!({"text":"fresh needle"}).to_string()],
+    ).unwrap();
     db.execute(
-        "INSERT INTO part VALUES('prt_new','ses_large7','msg_new',9,1760000002000,?1)",
-        [json!({"type":"text","text":"fresh needle"}).to_string()],
-    )
-    .unwrap();
-    db.execute(
-        "UPDATE session SET time_updated=1760000002000 WHERE id='ses_large7'",
+        "UPDATE session_v2 SET time_updated=1760000002000 WHERE id='ses_large7'",
         [],
     )
     .unwrap();
@@ -730,15 +452,9 @@ fn per_session_budget_marks_only_the_oversized_session_partial() {
     let (_temp, root) = large_root(3, 10);
     let db = Connection::open(root.join("opencode.db")).unwrap();
     db.execute(
-        "INSERT INTO message VALUES('msg_big','ses_large1',99,1760000001000,?1)",
-        [json!({"role":"user"}).to_string()],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO part VALUES('prt_big','ses_large1','msg_big',1,1760000001000,?1)",
-        [json!({"type":"text","text":"y".repeat(8192)}).to_string()],
-    )
-    .unwrap();
+        "INSERT INTO session_message VALUES('msg_big','ses_large1','user',99,1760000001000,1760000001000,?1)",
+        [json!({"text":"y".repeat(8192)}).to_string()],
+    ).unwrap();
     let (records, summary, _) = read_all(&root, &Default::default(), small_limits()).unwrap();
     assert_eq!(records.len(), 3);
     for record in records {
@@ -768,19 +484,9 @@ fn concurrent_writer_is_never_blocked_and_reads_are_consistent_or_retryable() {
                 // Never SQLITE_BUSY: the reader holds no lock on the source.
                 db.execute_batch("BEGIN IMMEDIATE").unwrap();
                 db.execute(
-                    "INSERT INTO message VALUES(?1,'ses_large3',?2,1760000003000,?3)",
-                    params![message, 100 + n, json!({"role":"user"}).to_string()],
-                )
-                .unwrap();
-                db.execute(
-                    "INSERT INTO part VALUES(?1,'ses_large3',?2,1,1760000003000,?3)",
-                    params![
-                        format!("prt_live{n}"),
-                        message,
-                        json!({"type":"text","text":format!("live {n}")}).to_string(),
-                    ],
-                )
-                .unwrap();
+                    "INSERT INTO session_message VALUES(?1,'ses_large3','user',?2,1760000003000,1760000003000,?3)",
+                    params![message, 100+n, json!({"text":format!("live {n}")}).to_string()],
+                ).unwrap();
                 db.execute_batch("COMMIT").unwrap();
                 n += 1;
             }
@@ -838,7 +544,7 @@ fn catalog_refresh_reindexes_only_changed_sessions_and_keeps_other_previews_fres
     let h = Harness::new();
     let db = h.db();
     db.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
-    db.execute("INSERT INTO session VALUES('ses_otherBeta','global','/synthetic/b','Other','1.19.2',1,1760000001000,NULL,NULL,NULL)", []).unwrap();
+    db.execute("INSERT INTO session_v2 VALUES('ses_otherBeta','global','/synthetic/b','Other','2.2.3',1,1760000001000,NULL,NULL,NULL)", []).unwrap();
     h.v2(0, "user", json!({"text":"alpha first"}));
     db.execute(
         "INSERT INTO session_message VALUES('msg_b0','ses_otherBeta','user',0,1,1,?1)",
@@ -857,7 +563,7 @@ fn catalog_refresh_reindexes_only_changed_sessions_and_keeps_other_previews_fres
         .remove(0);
     h.v2(1, "user", json!({"text":"alpha appended"}));
     db.execute(
-        "UPDATE session SET time_updated=1760000009000 WHERE id=?1",
+        "UPDATE session_v2 SET time_updated=1760000009000 WHERE id=?1",
         [ID],
     )
     .unwrap();
@@ -870,53 +576,6 @@ fn catalog_refresh_reindexes_only_changed_sessions_and_keeps_other_previews_fres
     assert!(!h.catalog.transcript(&beta.id, None, 20).unwrap().stale);
 }
 
-/// Stands in for the official CLI: export prints the Session, delete and
-/// import edit the synthetic database like `opencode session delete`/`import`.
-struct FakeCli {
-    db: PathBuf,
-    calls: std::cell::RefCell<Vec<String>>,
-}
-impl sessionbay_lib::os_trash::OpenCodeCli for FakeCli {
-    fn major(&self) -> Result<u32, String> {
-        Ok(1)
-    }
-    fn export(
-        &self,
-        _: &std::path::Path,
-        id: &str,
-        target: &std::path::Path,
-    ) -> Result<(), String> {
-        self.calls.borrow_mut().push(format!("export {id}"));
-        fs::write(
-            target,
-            json!({"info": {"id": id}, "messages": []}).to_string(),
-        )
-        .map_err(|e| e.to_string())
-    }
-    fn delete(&self, _: &std::path::Path, id: &str) -> Result<(), String> {
-        self.calls.borrow_mut().push(format!("delete {id}"));
-        Connection::open(&self.db)
-            .unwrap()
-            .execute("DELETE FROM session WHERE id=?1", [id])
-            .unwrap();
-        Ok(())
-    }
-    fn import(
-        &self,
-        _: &std::path::Path,
-        file: &std::path::Path,
-        cwd: &std::path::Path,
-    ) -> Result<(), String> {
-        let export: Value = serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap();
-        let id = export["info"]["id"].as_str().unwrap();
-        self.calls.borrow_mut().push(format!("import {id}"));
-        Connection::open(&self.db).unwrap().execute(
-            "INSERT INTO session VALUES(?1,'global',?2,'Native OpenCode title','1.19.2',1760000000000,1760000001000,NULL,NULL,NULL)",
-            params![id, cwd.to_string_lossy()],
-        ).unwrap();
-        Ok(())
-    }
-}
 struct FakeTrash(PathBuf);
 impl sessionbay_lib::os_trash::Mover for FakeTrash {
     fn move_to_trash(&self, path: &std::path::Path) -> Result<Option<PathBuf>, String> {
@@ -936,134 +595,6 @@ impl sessionbay_lib::os_trash::Mover for FakeTrash {
             std::path::Path::new(&item.original),
         )
     }
-}
-
-#[test]
-fn opencode_session_exports_to_trash_deletes_via_cli_and_imports_back() {
-    use sessionbay_lib::os_trash::{list_moved, restore_moved, PlanStore};
-    let h = Harness::named("xdg/opencode");
-    let work = h._temp.path().join("work");
-    let bin = h._temp.path().join("bin");
-    fs::create_dir_all(&work).unwrap();
-    fs::create_dir_all(&bin).unwrap();
-    h.db()
-        .execute("UPDATE session SET directory=?1", [work.to_string_lossy()])
-        .unwrap();
-    h.sync();
-    let session = h.session();
-    let trash_id = h
-        .catalog
-        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
-        .unwrap();
-    let cli = FakeCli {
-        db: h.root.join("opencode.db"),
-        calls: Default::default(),
-    };
-    let trash = FakeTrash(bin.clone());
-    let idle = |_: &str, _: &str| false;
-    let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
-    // Without the CLI nothing can be deleted.
-    let blocked = store.prepare(&h.catalog, &trash_id, &idle, None).unwrap();
-    assert!(blocked.plan_id.is_empty());
-    assert!(blocked
-        .blockers
-        .iter()
-        .any(|b| b.contains("OpenCode executable")));
-    let plan = store
-        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
-        .unwrap();
-    assert!(plan.blockers.is_empty(), "{:?}", plan.blockers);
-    assert!(plan.kept.iter().any(|k| k.starts_with("opencode.db")));
-    store
-        .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
-        .unwrap();
-    assert_eq!(
-        *cli.calls.borrow(),
-        [format!("export {ID}"), format!("delete {ID}")]
-    );
-    assert!(bin.join(format!("opencode-session-{ID}.json")).exists());
-    let count = |db: Connection| {
-        db.query_row("SELECT count(*) FROM session", [], |r| r.get::<_, i64>(0))
-            .unwrap()
-    };
-    assert_eq!(count(h.db()), 0);
-    let records = list_moved(&h.catalog, &trash).unwrap();
-    assert!(records[0].items[0].in_trash);
-    let restored = restore_moved(&h.catalog, &records[0].id, &trash, Some(&cli)).unwrap();
-    assert!(restored.failed.is_empty(), "{:?}", restored.failed);
-    assert_eq!(count(h.db()), 1);
-    assert!(list_moved(&h.catalog, &trash).unwrap().is_empty());
-    h.sync();
-    assert_eq!(h.session().external_id, ID);
-}
-
-#[test]
-fn opencode_never_deletes_when_the_export_is_wrong() {
-    use sessionbay_lib::os_trash::PlanStore;
-    struct BadExport(FakeCli);
-    impl sessionbay_lib::os_trash::OpenCodeCli for BadExport {
-        fn major(&self) -> Result<u32, String> {
-            self.0.major()
-        }
-        fn export(
-            &self,
-            _: &std::path::Path,
-            _: &str,
-            target: &std::path::Path,
-        ) -> Result<(), String> {
-            fs::write(
-                target,
-                json!({"info": {"id": "ses_other"}, "messages": []}).to_string(),
-            )
-            .map_err(|e| e.to_string())
-        }
-        fn delete(&self, root: &std::path::Path, id: &str) -> Result<(), String> {
-            self.0.delete(root, id)
-        }
-        fn import(
-            &self,
-            root: &std::path::Path,
-            file: &std::path::Path,
-            cwd: &std::path::Path,
-        ) -> Result<(), String> {
-            self.0.import(root, file, cwd)
-        }
-    }
-    let h = Harness::named("xdg/opencode");
-    h.sync();
-    let session = h.session();
-    let trash_id = h
-        .catalog
-        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
-        .unwrap();
-    let cli = BadExport(FakeCli {
-        db: h.root.join("opencode.db"),
-        calls: Default::default(),
-    });
-    let staging = h._temp.path().join("staging");
-    let store = PlanStore::default().with_staging(staging.clone());
-    let idle = |_: &str, _: &str| false;
-    let plan = store
-        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
-        .unwrap();
-    let error = store
-        .execute(
-            &h.catalog,
-            &plan.plan_id,
-            &idle,
-            &FakeTrash(staging.clone()),
-            Some(&cli),
-        )
-        .unwrap_err();
-    assert!(error.contains("not the expected one"));
-    assert!(cli.0.calls.borrow().is_empty());
-    assert_eq!(
-        h.db()
-            .query_row("SELECT count(*) FROM session", [], |r| r.get::<_, i64>(0))
-            .unwrap(),
-        1
-    );
-    assert_eq!(fs::read_dir(&staging).unwrap().count(), 0);
 }
 
 const MIGRATED_ID: &str = "ses_cliSynthetic1193";
@@ -1135,7 +666,7 @@ fn cli_2_migration_lists_ids_once_and_uses_current_v2_transcripts() {
 }
 
 #[test]
-fn cli_2_mixed_database_keeps_v1_only_sessions_and_enforces_combined_limit() {
+fn cli_2_mixed_database_ignores_v1_only_sessions_and_enforces_limit() {
     let h = Harness::migrated();
     // Retain one session only in v1, including its real CLI-shaped message/part rows.
     h.db()
@@ -1145,25 +676,13 @@ fn cli_2_mixed_database_keeps_v1_only_sessions_and_enforces_combined_limit() {
         )
         .unwrap();
     let index = opencode::read_metadata(&h.root, &AtomicBool::new(false)).unwrap();
-    assert_eq!(index.records.len(), 2);
-    let legacy = &index.records["ses_cliSynthetic1192"];
-    assert!(!legacy.partial);
-    assert_eq!(
-        legacy
-            .messages
-            .iter()
-            .map(|m| m.text.as_str())
-            .collect::<Vec<_>>(),
-        [
-            "Synthetic CLI question 1.19.2",
-            "Synthetic CLI answer 1.19.2",
-        ]
-    );
+    assert_eq!(index.records.len(), 1);
+    assert!(!index.records.contains_key("ses_cliSynthetic1192"));
     assert!(read_all(
         &h.root,
         &Default::default(),
         opencode::Limits {
-            rows: 1,
+            rows: 0,
             ..opencode::Limits::default()
         }
     )
@@ -1617,56 +1136,66 @@ fn v2_descendant_export_failure_or_change_during_export_never_deletes() {
 }
 
 #[test]
-fn major_one_exports_cannot_be_restored_with_major_two() {
-    use sessionbay_lib::os_trash::{restore_moved, PlanStore};
-    let h = Harness::named("xdg/opencode");
-    h.sync();
-    let session = h.session();
-    let trash_id = h
-        .catalog
-        .trash_session(&session.id, session.trash_identity.as_deref().unwrap())
-        .unwrap();
-    let cli = FakeCli {
-        db: h.root.join("opencode.db"),
-        calls: Default::default(),
-    };
-    let bin = h._temp.path().join("trash");
-    fs::create_dir(&bin).unwrap();
-    let trash = FakeTrash(bin);
-    let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
-    let idle = |_: &str, _: &str| false;
-    let plan = store
-        .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
-        .unwrap();
-    store
-        .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
-        .unwrap();
-    let mut record = h.catalog.os_trash_records().unwrap().remove(0);
-    record.items[0].opencode_major = None;
-    Connection::open(h._temp.path().join("catalog.db"))
-        .unwrap()
-        .execute(
-            "UPDATE session_os_trash SET items=?1 WHERE id=?2",
-            params![serde_json::to_string(&record.items).unwrap(), record.id],
-        )
-        .unwrap();
-    let v2 = V2Cli {
-        db: cli.db,
-        major: std::cell::Cell::new(2),
-        calls: Default::default(),
-        fail_export: None,
-        mutate_export: false,
-        wrong_export: false,
-        fail_delete: false,
-    };
-    let bytes = fs::read(record.items[0].trashed.as_ref().unwrap()).unwrap();
-    let result = restore_moved(&h.catalog, &record.id, &trash, Some(&v2)).unwrap();
-    assert!(result.failed[0].contains("OpenCode 1.x"));
-    assert!(v2.calls.borrow().is_empty());
-    assert_eq!(
-        fs::read(record.items[0].trashed.as_ref().unwrap()).unwrap(),
-        bytes
-    );
+fn legacy_exports_remain_listed_and_untouched_with_or_without_a_cli() {
+    use sessionbay_lib::os_trash::{list_moved, restore_moved, PlanStore};
+    for major in [Some(1), None] {
+        for location in ["trash", "staging", "missing"] {
+            let (h, trash_id, cli, trash) = v2_removal_harness();
+            let store = PlanStore::default().with_staging(h._temp.path().join("staging"));
+            let idle = |_: &str, _: &str| false;
+            let plan = store
+                .prepare(&h.catalog, &trash_id, &idle, Some(&cli))
+                .unwrap();
+            store
+                .execute(&h.catalog, &plan.plan_id, &idle, &trash, Some(&cli))
+                .unwrap();
+            let mut record = h.catalog.os_trash_records().unwrap().remove(0);
+            for item in &mut record.items {
+                item.opencode_major = major;
+                if location == "staging" {
+                    fs::rename(item.trashed.as_ref().unwrap(), &item.original).unwrap();
+                    item.trashed = None;
+                } else if location == "missing" {
+                    fs::remove_file(item.trashed.as_ref().unwrap()).unwrap();
+                }
+            }
+            Connection::open(h._temp.path().join("catalog.db"))
+                .unwrap()
+                .execute(
+                    "UPDATE session_os_trash SET items=?1 WHERE id=?2",
+                    params![serde_json::to_string(&record.items).unwrap(), record.id],
+                )
+                .unwrap();
+            let paths: Vec<_> = record
+                .items
+                .iter()
+                .map(|item| item.trashed.as_ref().unwrap_or(&item.original))
+                .collect();
+            let bytes: Vec<_> = paths.iter().map(|path| fs::read(path).ok()).collect();
+            cli.calls.borrow_mut().clear();
+            for provider in [
+                None,
+                Some(&cli as &dyn sessionbay_lib::os_trash::OpenCodeCli),
+            ] {
+                let result = restore_moved(&h.catalog, &record.id, &trash, provider).unwrap();
+                assert!(result.moved.is_empty());
+                assert_eq!(result.failed.len(), record.items.len());
+                assert!(result
+                    .failed
+                    .iter()
+                    .all(|message| message.contains("OpenCode 1.x is no longer supported")));
+                assert!(cli.calls.borrow().is_empty());
+                for (path, expected) in paths.iter().zip(&bytes) {
+                    assert_eq!(&fs::read(path).ok(), expected);
+                }
+                assert_eq!(list_moved(&h.catalog, &trash).unwrap().len(), 1);
+                assert_eq!(
+                    serde_json::to_value(&h.catalog.os_trash_records().unwrap()[0].items).unwrap(),
+                    serde_json::to_value(&record.items).unwrap()
+                );
+            }
+        }
+    }
 }
 
 #[test]

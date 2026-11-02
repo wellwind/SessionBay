@@ -1,23 +1,20 @@
--- Synthetic subset of OpenCode v1.19.2's official Drizzle tables, NOT a captured DB.
--- See README.md for exact provenance and omitted non-reader fields.
-CREATE TABLE session (
+-- Synthetic reader subset of the reviewed OpenCode 2.2.3 tables.
+-- See README.md for provenance; no captured user history.
+CREATE TABLE session_v2 (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, directory TEXT NOT NULL,
- title TEXT NOT NULL, version TEXT NOT NULL, time_created INTEGER NOT NULL,
+ title TEXT, version TEXT NOT NULL, time_created INTEGER NOT NULL,
  time_updated INTEGER NOT NULL, parent_id TEXT, time_archived INTEGER, revert TEXT
-);
-CREATE TABLE message (
- id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL,
- time_updated INTEGER NOT NULL, data TEXT NOT NULL
-);
-CREATE TABLE part (
- id TEXT PRIMARY KEY, session_id TEXT NOT NULL, message_id TEXT NOT NULL,
- time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
 );
 CREATE TABLE session_message (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
  time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL,
  UNIQUE(session_id, seq)
 );
-CREATE INDEX message_session_idx ON message(session_id,time_created,id);
-CREATE INDEX part_message_idx ON part(session_id,message_id,id);
+CREATE TABLE session_part (
+ message_id TEXT NOT NULL, session_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+ type TEXT NOT NULL, call_id TEXT, time_created INTEGER NOT NULL,
+ time_updated INTEGER NOT NULL, data TEXT NOT NULL,
+ PRIMARY KEY(message_id, ordinal)
+);
 CREATE INDEX session_message_session_idx ON session_message(session_id,seq);
+CREATE INDEX session_part_session_idx ON session_part(session_id,message_id,ordinal);

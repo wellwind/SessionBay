@@ -15,7 +15,6 @@ use std::{
 use tempfile::TempDir;
 
 const MODULE_V2: &str = include_str!("opencode_state_plugin_v2.mjs");
-const MODULE: &str = include_str!("opencode_state_plugin.mjs");
 const CONFIG: &str = "OPENCODE_CONFIG_CONTENT";
 const HELPER: &str = "SESSIONBAY_OPENCODE_STATE_HELPER";
 pub(crate) const SESSION: &str = "SESSIONBAY_OPENCODE_STATE_SESSION";
@@ -53,8 +52,7 @@ pub(crate) fn parse_version(output: &[u8]) -> Option<[u32; 3]> {
 }
 
 fn supported_version(output: &[u8]) -> bool {
-    matches!(parse_version(output), Some([1, minor, patch]) if (minor, patch) >= (19, 2))
-        || matches!(parse_version(output), Some([2, 2, 0..=5]))
+    matches!(parse_version(output), Some([2, 2, 0..=5]))
 }
 
 pub(crate) fn cli_major(executable: &Path) -> Result<u32, String> {
@@ -68,7 +66,10 @@ pub(crate) fn cli_major(executable: &Path) -> Result<u32, String> {
         pane_id: String::new(),
     };
     match parse_version(&version(&spec)?) {
-        Some([major @ (1 | 2), _, _]) => Ok(major),
+        Some([1, _, _]) => Err(tr!(
+            "OpenCode 1.x is no longer supported. Install OpenCode 2.x and try again."
+        )),
+        Some([2, _, _]) => Ok(2),
         _ => Err(tr!(
             "Cannot determine a supported OpenCode CLI major version."
         )),
@@ -322,7 +323,7 @@ fn jsonc_tokens(text: &str) -> Result<(serde_json::Value, Vec<Token>), String> {
 
 #[cfg(test)]
 fn extend_config(original: &str, uri: &str) -> Result<String, String> {
-    extend_config_key(original, uri, "plugin")
+    extend_config_key(original, uri, "plugins")
 }
 
 fn extend_config_key(original: &str, uri: &str, key_name: &str) -> Result<String, String> {
@@ -423,27 +424,30 @@ fn effective_config(spec: &LaunchSpec) -> Result<String, String> {
 pub fn prepare(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
     expected_session(spec)?;
     let output = version(spec)?;
-    if !supported_version(&output) {
+    if matches!(parse_version(&output), Some([1, _, _])) {
         return Err(tr!(
-            "Live OpenCode status needs stable OpenCode 1.19.2 through 1.x, or 2.2.0 through 2.2.5"
+            "OpenCode 1.x is no longer supported. Install OpenCode 2.x and try again."
         ));
     }
-    let v2 = parse_version(&output).unwrap()[0] == 2;
-    if v2
-        && spec
-            .args
-            .iter()
-            .any(|arg| arg == "--server" || arg.starts_with("--server="))
+    if !supported_version(&output) {
+        return Err(tr!(
+            "Live OpenCode status needs reviewed OpenCode 2.2.0 through 2.2.5"
+        ));
+    }
+    if spec
+        .args
+        .iter()
+        .any(|arg| arg == "--server" || arg.starts_with("--server="))
     {
         return Err(
             "OpenCode --server uses another server that never loads this launch's plugin; turn off live state or remove --server"
                 .into(),
         );
     }
-    install_module(spec, helper, if v2 { MODULE_V2 } else { MODULE })?;
+    install_module(spec, helper)?;
     // A running 2.x background service was started without this launch's
     // plugin config; a private server is the only one that loads it.
-    if v2 && !spec.args.iter().any(|arg| arg == "--standalone") {
+    if !spec.args.iter().any(|arg| arg == "--standalone") {
         spec.args.insert(0, "--standalone".into());
     }
     Ok(())
@@ -451,10 +455,10 @@ pub fn prepare(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 fn install(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
-    install_module(spec, helper, MODULE)
+    install_module(spec, helper)
 }
 
-fn install_module(spec: &mut LaunchSpec, helper: &Path, module: &str) -> Result<(), String> {
+fn install_module(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
     let session = expected_session(spec)?;
     let launch = spec
         .env
@@ -491,14 +495,8 @@ fn install_module(spec: &mut LaunchSpec, helper: &Path, module: &str) -> Result<
         .tempdir()
         .map_err(|_| "Cannot create private OpenCode plugin directory")?;
     let path = directory.path().join("sessionbay-state.mjs");
-    let v2 = module == MODULE_V2;
-    let target = if v2 { directory.path() } else { &path };
-    let config = extend_config_key(
-        &original,
-        &file_uri(target)?,
-        if v2 { "plugins" } else { "plugin" },
-    )?;
-    if v2 {
+    let config = extend_config_key(&original, &file_uri(directory.path())?, "plugins")?;
+    {
         let manifest = directory.path().join("package.json");
         std::fs::write(&manifest, r#"{"name":"sessionbay-launch-state","type":"module","exports":{".":"./sessionbay-state.mjs"}}"#)
             .map_err(|_| "Cannot write launch-local OpenCode plugin manifest")?;
@@ -509,7 +507,7 @@ fn install_module(spec: &mut LaunchSpec, helper: &Path, module: &str) -> Result<
                 .map_err(|_| "Cannot protect launch-local OpenCode plugin manifest")?;
         }
     }
-    std::fs::write(&path, module).map_err(|_| "Cannot write launch-local OpenCode plugin")?;
+    std::fs::write(&path, MODULE_V2).map_err(|_| "Cannot write launch-local OpenCode plugin")?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -575,19 +573,14 @@ mod tests {
     }
 
     #[test]
-    fn gates_supported_stable_versions_for_each_plugin() {
-        for version in [
-            "1.19.2\n",
-            "1.19.3",
-            "1.20.0",
-            "1.99.999",
-            "opencode v2.2.0",
-            "opencode v2.2.3\n",
-            "opencode v2.2.5",
-        ] {
+    fn gates_reviewed_two_x_versions() {
+        for version in ["opencode v2.2.0", "opencode v2.2.3\n", "opencode v2.2.5"] {
             assert!(supported_version(version.as_bytes()), "{version}");
         }
         for version in [
+            "1.19.2",
+            "1.19.5",
+            "1.99.999",
             "1.19.1",
             "1.18.999",
             "2.0.0",
@@ -712,21 +705,21 @@ mod tests {
     fn config_preserves_every_original_setting_and_jsonc_text() {
         for original in [
             "{}",
-            r#"{"model":"provider/model","permission":{"*":"ask"},"plugin":[]}"#,
-            r#"{"plugin":["file:///existing.mjs",["existing-package",{"option":true}]],"nested":{"plugin":[]}}"#,
-            "{ // user comment\n \"plugin\": [\"original\", /* kept */], \"model\": \"unchanged\", }",
+            r#"{"model":"provider/model","permission":{"*":"ask"},"plugins":[]}"#,
+            r#"{"plugins":["file:///existing.mjs",["existing-package",{"option":true}]],"nested":{"plugins":[]}}"#,
+            "{ // user comment\n \"plugins\": [\"original\", /* kept */], \"model\": \"unchanged\", }",
             "{/* original */ \"provider\":{\"key\":\"{env:SECRET}\",},}",
-            r#"{"plugin":["a//b/*c*/\"d"],"large":123456789012345678901234567890,"duplicate":1,"duplicate":2}"#,
-            "{\"plugin\": [ /* empty */ ], // final comment\n}",
-            "{\"\\u0070lugin\": [\"old\"]}",
+            r#"{"plugins":["a//b/*c*/\"d"],"large":123456789012345678901234567890,"duplicate":1,"duplicate":2}"#,
+            "{\"plugins\": [ /* empty */ ], // final comment\n}",
+            "{\"\\u0070lugins\": [\"old\"]}",
         ] {
             let uri = "file:///new%20plugin.mjs";
             let extended = extend_config(original, uri).unwrap();
             let (before, _) = jsonc_tokens(original).unwrap();
             let (mut after, _) = jsonc_tokens(&extended).unwrap();
-            assert_eq!(after["plugin"].as_array_mut().unwrap().pop().unwrap(), uri);
-            if before.get("plugin").is_none() {
-                after.as_object_mut().unwrap().remove("plugin");
+            assert_eq!(after["plugins"].as_array_mut().unwrap().pop().unwrap(), uri);
+            if before.get("plugins").is_none() {
+                after.as_object_mut().unwrap().remove("plugins");
             }
             assert_eq!(before, after);
             // Every original byte remains, in order; only one insertion is made.
@@ -745,12 +738,12 @@ mod tests {
             "null",
             "[]",
             "{",
-            "{\"plugin\":null}",
-            "{\"plugin\":\"file:///x\"}",
-            "{\"plugin\":[],\"plugin\":[]}",
-            "{\"plugin\":[],\"\\u0070lugin\":[]}",
-            "{\"plugin\":[,]}",
-            "{\"plugin\":[,,]}",
+            "{\"plugins\":null}",
+            "{\"plugins\":\"file:///x\"}",
+            "{\"plugins\":[],\"plugins\":[]}",
+            "{\"plugins\":[],\"\\u0070lugins\":[]}",
+            "{\"plugins\":[,]}",
+            "{\"plugins\":[,,]}",
             "{,}",
             "{\"x\":1,,}",
             "{/* unclosed}",
@@ -758,7 +751,7 @@ mod tests {
             "{unquoted:1}",
             "{\"x\":NaN}",
             "{\"x\":1} garbage",
-            "{\"plugin\":[\"unterminated]}",
+            "{\"plugins\":[\"unterminated]}",
         ] {
             assert!(
                 extend_config(original, "file:///plugin.mjs").is_err(),
@@ -771,7 +764,7 @@ mod tests {
     #[test]
     fn launch_private_plugin_preserves_args_config_and_source_identity() {
         let mut spec = spec();
-        let original = r#"{"model":"unchanged/model","plugin":["original"]}"#;
+        let original = r#"{"model":"unchanged/model","plugins":["original"]}"#;
         spec.env.insert(CONFIG.into(), original.into());
         spec.env
             .insert("OPENCODE_DB".into(), "/synthetic/source/opencode.db".into());
@@ -785,7 +778,7 @@ mod tests {
         assert_eq!(spec.env[SESSION], "ses_syntheticRoot");
         assert_eq!(spec.env[DIRECTORY], spec.cwd.to_str().unwrap());
         assert_eq!(spec.env["OPENCODE_DB"], "/synthetic/source/opencode.db");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), MODULE);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), MODULE_V2);
         assert_eq!(
             std::fs::metadata(path.parent().unwrap())
                 .unwrap()
@@ -800,9 +793,12 @@ mod tests {
         );
         let config: serde_json::Value = serde_json::from_str(&spec.env[CONFIG]).unwrap();
         assert_eq!(config["model"], "unchanged/model");
-        assert_eq!(config["plugin"][0], "original");
-        assert_eq!(config["plugin"][1], file_uri(&path).unwrap());
-        assert!(!MODULE.contains(&launch));
+        assert_eq!(config["plugins"][0], "original");
+        assert_eq!(
+            config["plugins"][1],
+            file_uri(path.parent().unwrap()).unwrap()
+        );
+        assert!(!MODULE_V2.contains(&launch));
         let installed = serde_json::to_string(&spec).unwrap();
         assert!(install(&mut spec, helper).is_err());
         assert_eq!(serde_json::to_string(&spec).unwrap(), installed);
@@ -933,7 +929,7 @@ root=${{HOME%/home}}
 [ "$XDG_DATA_HOME" = "$root/data" ] && [ "$XDG_CONFIG_HOME" = "$root/config" ] && [ "$XDG_CACHE_HOME" = "$root/cache" ] && [ "$XDG_STATE_HOME" = "$root/state" ] && [ "$TMPDIR" = "$root/tmp" ] || exit 10
 for path in "$HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_STATE_HOME" "$TMPDIR"; do [ -d "$path" ] || exit 11; done
 printf '%s' "$HOME" > '{}'
-printf '1.19.2\n'
+printf 'opencode v2.2.3\n'
 "#,
                 captured.display()
             ),
@@ -951,13 +947,31 @@ printf '1.19.2\n'
         assert_eq!(spec.env["HOME"], "/synthetic-launch-home");
         assert_eq!(spec.env["XDG_CONFIG_HOME"], "/synthetic-launch-config");
         cleanup(&launch);
-        for output in ["1.19.1", "2.0.0", "1.19.2-dev"] {
+        for output in ["2.0.0", "2.2.6", "1.19.2-dev"] {
             spec.executable = fake_provider(directory.path(), &format!("printf '{output}'"));
             let before = serde_json::to_string(&spec).unwrap();
             assert!(prepare(&mut spec, Path::new("/helper"))
                 .unwrap_err()
-                .contains("1.19.2"));
+                .contains("2.2.0"));
             assert_eq!(serde_json::to_string(&spec).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn one_x_cli_is_rejected_before_staging_or_mutating_a_launch() {
+        let directory = tempfile::tempdir().unwrap();
+        for output in ["1.19.2", "1.19.5", "opencode v1.99.999"] {
+            let mut spec = spec();
+            spec.executable = fake_provider(directory.path(), &format!("printf '{output}'"));
+            let before = serde_json::to_string(&spec).unwrap();
+            assert!(prepare(&mut spec, Path::new("/helper"))
+                .unwrap_err()
+                .contains("OpenCode 1.x is no longer supported"));
+            assert_eq!(serde_json::to_string(&spec).unwrap(), before);
+            assert!(staged_path(&spec.env[provider_hooks::LAUNCH]).is_none());
+            assert!(cli_major(Path::new(&spec.executable))
+                .unwrap_err()
+                .contains("OpenCode 1.x is no longer supported"));
         }
     }
 
@@ -995,7 +1009,7 @@ printf '1.19.2\n'
             install(&mut spec, Path::new("/helper")).unwrap();
             let (config, _) = jsonc_tokens(&spec.env[CONFIG]).unwrap();
             assert_eq!(config["model"], "inherited/model");
-            assert_eq!(config["plugin"][0], "inherited-plugin");
+            assert_eq!(config["plugins"][0], "inherited-plugin");
             cleanup(&launch);
             let mut overridden = super::tests::spec();
             overridden
@@ -1011,7 +1025,7 @@ printf '1.19.2\n'
             .args(["--exact", "opencode_state::tests::inherited_config_subprocess_contract", "--nocapture"])
             .env(MARKER, "1")
             .env("OPENCODE_PURE", "true")
-            .env(CONFIG, "{ // inherited\n \"model\":\"inherited/model\",\"plugin\":[\"inherited-plugin\",],}")
+            .env(CONFIG, "{ // inherited\n \"model\":\"inherited/model\",\"plugins\":[\"inherited-plugin\",],}")
             .output().unwrap();
         assert!(
             result.status.success(),
