@@ -2331,5 +2331,14 @@
   "Release to merge": "放開以合併",
   "Drag cards to change stage within their project. Use Alt+Left/Right or the column selector in task details. Press Escape to cancel dragging.": "拖曳卡片可在所屬專案內變更階段。使用 Alt+左／右或工作詳情的欄位選擇器。按 Escape 取消拖曳。",
   "Drag cards to reorder or move between columns. Use Alt+Up/Down to reorder, Alt+Left/Right to change columns, or the column selector in task details. Drop on the center of another card to merge. Press Escape to cancel dragging.": "拖曳卡片可排序或移至其他欄位。使用 Alt+上／下排序、Alt+左／右變更欄位，或使用工作詳情的欄位選擇器。放至另一張卡片中央可合併。按 Escape 取消拖曳。",
-  "Position": "位置"
+  "Position": "位置",
+  "Cannot determine a supported OpenCode CLI major version.": "無法判定支援的 OpenCode CLI 主版本。",
+  "Cannot enumerate every OpenCode descendant; deletion is blocked: {{e}}": "無法列出所有 OpenCode 後代 Session；已阻擋刪除：{{e}}",
+  "Live OpenCode status needs stable OpenCode 1.19.2 through 1.x, or 2.2.0 through 2.2.5": "OpenCode 即時狀態需要穩定版 OpenCode 1.19.2 至 1.x，或 2.2.0 至 2.2.5",
+  "This export requires OpenCode {{major}}.x to restore; install that CLI major version and try again.": "此匯出檔需要 OpenCode {{major}}.x 才能還原；請安裝該 CLI 主版本後再試。",
+  "OpenCode exports and verifies every listed session before deleting through the official CLI. OpenCode 2.x also deletes all descendants, which are listed below. Restore requires the same CLI major version and uses each session’s original working directory.": "OpenCode 會先匯出並驗證每個列出的 Session，再透過官方 CLI 刪除。OpenCode 2.x 也會刪除所有後代 Session，清單如下。還原需要相同的 CLI 主版本，並使用各 Session 原本的工作目錄。",
+  "OpenCode deletion failed; some descendants may already have been deleted. All verified exports are retained for restore: {{e}}": "OpenCode 刪除失敗；部分後代 Session 可能已被刪除。所有已驗證的匯出檔皆已保留供還原：{{e}}",
+  "Cannot export and verify OpenCode session {{id}}; deletion is blocked: {{e}}": "無法匯出並驗證 OpenCode Session {{id}}；已阻擋刪除：{{e}}",
+  "OpenCode session {{id}} was updated in the last 2 minutes; deletion is blocked.": "OpenCode Session {{id}} 在最近 2 分鐘內更新過；已阻擋刪除。",
+  "OpenCode descendant {{id}} is running; deletion is blocked.": "OpenCode 後代 Session {{id}} 仍在執行；已阻擋刪除。"
 }

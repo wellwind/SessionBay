@@ -65,7 +65,7 @@ export function OsTrashReview({ entry, onClose, onMoved }: {
     {error && <p role="alert" className="inline-error">{error}</p>}
     {plan && <>
       <p className="session-trash-source">{agentNames[plan.kind]} · Session {entry.session.externalId}<br />{t('Source {{root}}', { root: plan.sourceRoot })}</p>
-      {plan.kind === 'opencode' && <p>{t('OpenCode keeps conversations in a shared database. Session Bay first exports the full JSON with the official ')}<code>opencode export</code>{t(' command, verifies the export, deletes the session with ')}<code>opencode session delete</code>{t(' and moves the export to the system trash. Restoring runs ')}<code>opencode import</code>{t(' in the original working directory.')}</p>}
+      {plan.kind === 'opencode' && <p>{t('OpenCode exports and verifies every listed session before deleting through the official CLI. OpenCode 2.x also deletes all descendants, which are listed below. Restore requires the same CLI major version and uses each session’s original working directory.')}</p>}
       {!!plan.items.length && <ul aria-label={t('Will move to the system trash')}>
         {plan.items.map(item => <li key={item.relativePath}>
           <span className="session-trash-source">{item.relativePath}{item.directory ? '/' : ''}</span>

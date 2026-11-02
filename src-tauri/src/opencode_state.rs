@@ -14,6 +14,7 @@ use std::{
 };
 use tempfile::TempDir;
 
+const MODULE_V2: &str = include_str!("opencode_state_plugin_v2.mjs");
 const MODULE: &str = include_str!("opencode_state_plugin.mjs");
 const CONFIG: &str = "OPENCODE_CONFIG_CONTENT";
 const HELPER: &str = "SESSIONBAY_OPENCODE_STATE_HELPER";
@@ -30,28 +31,48 @@ fn plugins() -> &'static Mutex<HashMap<String, TempDir>> {
     PLUGINS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-// CLI 2.2.3 requires a default { id, setup/effect } plugin definition
-// (core/src/plugin/module.ts), not this v1 hook factory. Keep live state gated
-// independently of history reading until a separate v2 plugin is implemented.
-fn supported_version(output: &[u8]) -> bool {
-    let Ok(output) = std::str::from_utf8(output) else {
-        return false;
-    };
-    let pieces: Vec<_> = output.trim().split('.').collect();
-    if pieces.len() != 3
-        || pieces.iter().any(|s| {
+/// Accept only the two version-output formats verified with official binaries.
+pub(crate) fn parse_version(output: &[u8]) -> Option<[u32; 3]> {
+    let text = std::str::from_utf8(output).ok()?.trim();
+    let text = text.strip_prefix("opencode v").unwrap_or(text);
+    let parts = text.split('.').collect::<Vec<_>>();
+    if parts.len() != 3
+        || parts.iter().any(|s| {
             s.is_empty()
                 || !s.bytes().all(|b| b.is_ascii_digit())
                 || (s.len() > 1 && s.starts_with('0'))
         })
     {
-        return false;
+        return None;
     }
-    let components = pieces
-        .into_iter()
-        .map(str::parse::<u32>)
-        .collect::<Result<Vec<_>, _>>();
-    matches!(components, Ok(ref v) if v[0] == 1 && v.as_slice() >= [1, 19, 2].as_slice())
+    Some([
+        parts[0].parse().ok()?,
+        parts[1].parse().ok()?,
+        parts[2].parse().ok()?,
+    ])
+}
+
+fn supported_version(output: &[u8]) -> bool {
+    matches!(parse_version(output), Some([1, minor, patch]) if (minor, patch) >= (19, 2))
+        || matches!(parse_version(output), Some([2, 2, 0..=5]))
+}
+
+pub(crate) fn cli_major(executable: &Path) -> Result<u32, String> {
+    let spec = LaunchSpec {
+        executable: executable.to_string_lossy().into_owned(),
+        args: vec![],
+        cwd: std::env::temp_dir(),
+        env: HashMap::new(),
+        session_id: None,
+        resume_key: None,
+        pane_id: String::new(),
+    };
+    match parse_version(&version(&spec)?) {
+        Some([major @ (1 | 2), _, _]) => Ok(major),
+        _ => Err(tr!(
+            "Cannot determine a supported OpenCode CLI major version."
+        )),
+    }
 }
 
 #[cfg(unix)]
@@ -299,12 +320,17 @@ fn jsonc_tokens(text: &str) -> Result<(serde_json::Value, Vec<Token>), String> {
     Ok((value, tokens))
 }
 
+#[cfg(test)]
 fn extend_config(original: &str, uri: &str) -> Result<String, String> {
+    extend_config_key(original, uri, "plugin")
+}
+
+fn extend_config_key(original: &str, uri: &str, key_name: &str) -> Result<String, String> {
     let (value, tokens) = jsonc_tokens(original)?;
     let object = value
         .as_object()
         .ok_or("OpenCode inline configuration must be an object")?;
-    if object.get("plugin").is_some_and(|value| !value.is_array()) {
+    if object.get(key_name).is_some_and(|value| !value.is_array()) {
         return Err(
             "OpenCode inline plugin setting must be an array; original settings preserved".into(),
         );
@@ -330,7 +356,7 @@ fn extend_config(original: &str, uri: &str) -> Result<String, String> {
         } else {
             i += 1;
         }
-        if key == "plugin" {
+        if key == key_name {
             if plugin_close.is_some() || tokens[first].kind != b'[' {
                 return Err(
                     "Ambiguous OpenCode inline plugin setting; original settings preserved".into(),
@@ -349,7 +375,7 @@ fn extend_config(original: &str, uri: &str) -> Result<String, String> {
     let addition = if plugin_close.is_some() {
         format!("{separator}{uri}")
     } else {
-        format!("{separator}\"plugin\":[{uri}]")
+        format!("{separator}\"{key_name}\":[{uri}]")
     };
     let mut result = original.to_owned();
     result.insert_str(tokens[close].start, &addition);
@@ -398,12 +424,37 @@ pub fn prepare(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
     expected_session(spec)?;
     let output = version(spec)?;
     if !supported_version(&output) {
-        return Err(tr!("Live OpenCode status needs a stable version from 1.19.2 up to, but not including, 2.0.0"));
+        return Err(tr!(
+            "Live OpenCode status needs stable OpenCode 1.19.2 through 1.x, or 2.2.0 through 2.2.5"
+        ));
     }
-    install(spec, helper)
+    let v2 = parse_version(&output).unwrap()[0] == 2;
+    if v2
+        && spec
+            .args
+            .iter()
+            .any(|arg| arg == "--server" || arg.starts_with("--server="))
+    {
+        return Err(
+            "OpenCode --server uses another server that never loads this launch's plugin; turn off live state or remove --server"
+                .into(),
+        );
+    }
+    install_module(spec, helper, if v2 { MODULE_V2 } else { MODULE })?;
+    // A running 2.x background service was started without this launch's
+    // plugin config; a private server is the only one that loads it.
+    if v2 && !spec.args.iter().any(|arg| arg == "--standalone") {
+        spec.args.insert(0, "--standalone".into());
+    }
+    Ok(())
 }
 
+#[cfg(test)]
 fn install(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
+    install_module(spec, helper, MODULE)
+}
+
+fn install_module(spec: &mut LaunchSpec, helper: &Path, module: &str) -> Result<(), String> {
     let session = expected_session(spec)?;
     let launch = spec
         .env
@@ -440,8 +491,25 @@ fn install(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
         .tempdir()
         .map_err(|_| "Cannot create private OpenCode plugin directory")?;
     let path = directory.path().join("sessionbay-state.mjs");
-    let config = extend_config(&original, &file_uri(&path)?)?;
-    std::fs::write(&path, MODULE).map_err(|_| "Cannot write launch-local OpenCode plugin")?;
+    let v2 = module == MODULE_V2;
+    let target = if v2 { directory.path() } else { &path };
+    let config = extend_config_key(
+        &original,
+        &file_uri(target)?,
+        if v2 { "plugins" } else { "plugin" },
+    )?;
+    if v2 {
+        let manifest = directory.path().join("package.json");
+        std::fs::write(&manifest, r#"{"name":"sessionbay-launch-state","type":"module","exports":{".":"./sessionbay-state.mjs"}}"#)
+            .map_err(|_| "Cannot write launch-local OpenCode plugin manifest")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(manifest, std::fs::Permissions::from_mode(0o600))
+                .map_err(|_| "Cannot protect launch-local OpenCode plugin manifest")?;
+        }
+    }
+    std::fs::write(&path, module).map_err(|_| "Cannot write launch-local OpenCode plugin")?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -507,15 +575,24 @@ mod tests {
     }
 
     #[test]
-    fn gates_only_supported_stable_major_one_versions() {
-        for version in ["1.19.2\n", "1.19.3", "1.20.0", "1.99.999"] {
+    fn gates_supported_stable_versions_for_each_plugin() {
+        for version in [
+            "1.19.2\n",
+            "1.19.3",
+            "1.20.0",
+            "1.99.999",
+            "opencode v2.2.0",
+            "opencode v2.2.3\n",
+            "opencode v2.2.5",
+        ] {
             assert!(supported_version(version.as_bytes()), "{version}");
         }
         for version in [
             "1.19.1",
             "1.18.999",
             "2.0.0",
-            "2.2.3",
+            "opencode v2.2.6",
+            "opencode v2.1.9",
             "0.99.999",
             "1.19.2-beta",
             "1.19.2+build",
@@ -531,6 +608,90 @@ mod tests {
             "+1.19.2",
         ] {
             assert!(!supported_version(version.as_bytes()), "{version}");
+        }
+    }
+
+    #[test]
+    fn v2_prepare_rejects_an_external_server_and_keeps_an_existing_standalone() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut spec = spec();
+        spec.executable = fake_provider(directory.path(), "printf 'opencode v2.2.3\\n'");
+        spec.args.push("--server=http://127.0.0.1:4096".into());
+        let before = (spec.args.clone(), spec.env.clone());
+        assert!(prepare(&mut spec, Path::new("/synthetic/helper")).is_err());
+        assert_eq!((spec.args.clone(), spec.env.clone()), before);
+
+        let mut spec = self::spec();
+        spec.executable = fake_provider(directory.path(), "printf 'opencode v2.2.3\\n'");
+        spec.args.push("--standalone".into());
+        let launch = spec.env[provider_hooks::LAUNCH].clone();
+        prepare(&mut spec, Path::new("/synthetic/helper")).unwrap();
+        assert_eq!(
+            spec.args
+                .iter()
+                .filter(|arg| *arg == "--standalone")
+                .count(),
+            1
+        );
+        cleanup(&launch);
+    }
+
+    #[test]
+    fn v2_prepare_uses_plural_plugins_and_a_private_package_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut spec = spec();
+        spec.executable = fake_provider(directory.path(), "printf 'opencode v2.2.3\\n'");
+        let original = "{ // retained\n \"plugins\":[\"existing\"],\"model\":\"unchanged\",}";
+        spec.env.insert(CONFIG.into(), original.into());
+        let launch = spec.env[provider_hooks::LAUNCH].clone();
+        let before = spec.args.clone();
+        prepare(&mut spec, Path::new("/synthetic/helper")).unwrap();
+        let path = plugin_path(&launch);
+        let mut expected = before.clone();
+        expected.insert(0, "--standalone".into());
+        assert_eq!(spec.args, expected);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), MODULE_V2);
+        let (config, _) = jsonc_tokens(&spec.env[CONFIG]).unwrap();
+        assert_eq!(config["plugins"][0], "existing");
+        assert_eq!(
+            config["plugins"][1],
+            file_uri(path.parent().unwrap()).unwrap()
+        );
+        assert!(config.get("plugin").is_none());
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(path.parent().unwrap().join("package.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["exports"]["."], "./sessionbay-state.mjs");
+        assert_eq!(
+            std::fs::metadata(path.parent().unwrap().join("package.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        cleanup(&launch);
+    }
+
+    #[test]
+    fn version_parser_covers_both_official_formats_and_fails_closed() {
+        assert_eq!(parse_version(b"1.19.5\n"), Some([1, 19, 5]));
+        assert_eq!(parse_version(b"opencode v2.2.3\n"), Some([2, 2, 3]));
+        for output in [
+            "opencode v2.2.3-beta",
+            "opencode v2.02.3",
+            "opencode v2.2.3\nwarning",
+            "opencode v2.2",
+            "garbage",
+        ] {
+            assert_eq!(parse_version(output.as_bytes()), None);
+        }
+        for output in ["opencode v2.2.0", "opencode v2.2.5"] {
+            assert!(supported_version(output.as_bytes()));
+        }
+        for output in ["opencode v2.1.9", "opencode v2.2.6", "opencode v3.0.0"] {
+            assert!(!supported_version(output.as_bytes()));
         }
     }
 

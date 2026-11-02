@@ -267,8 +267,27 @@ pub fn session_fingerprint(root: &Path, id: &str) -> Result<Option<String>, Stri
     Ok(found)
 }
 
+/// Removal reviews need every v2 row, including archived descendants, without transcripts.
+pub(crate) fn removal_metadata(root: &Path) -> Result<Vec<ConversationMetadata>, String> {
+    let mut records = Vec::new();
+    read_metadata_inner(
+        root,
+        &AtomicBool::new(false),
+        Limits::default(),
+        Mode::Removal,
+        &mut |_| {},
+        &mut |record| {
+            records.push(record);
+            Ok(())
+        },
+        &mut MirrorStats::default(),
+    )?;
+    Ok(records)
+}
+
 #[derive(Clone, Copy)]
 enum Mode<'a> {
+    Removal,
     Full(&'a HashMap<String, String>),
     Only(&'a str),
 }
@@ -1157,7 +1176,7 @@ fn read_connection(
     let mut warnings: Vec<String> = Vec::new();
     let only = match mode {
         Mode::Only(id) => Some(id),
-        Mode::Full(_) => None,
+        Mode::Full(_) | Mode::Removal => None,
     };
     // A migrated ID belongs exclusively to session_v2, even if it has no messages.
     let fields =
@@ -1166,6 +1185,14 @@ fn read_connection(
         (true, true) => format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 UNION ALL SELECT {fields},0 FROM session WHERE (?2 IS NULL OR id=?2) AND NOT EXISTS(SELECT 1 FROM session_v2 WHERE session_v2.id=session.id) LIMIT ?1"),
         (false, true) => format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 LIMIT ?1"),
         _ => format!("SELECT {fields},0 FROM session WHERE ?2 IS NULL OR id=?2 LIMIT ?1"),
+    };
+    let sessions_sql = if matches!(mode, Mode::Removal) {
+        if !has_sessions_v2 {
+            return Err("OpenCode 2.x session ancestry is unavailable".into());
+        }
+        format!("SELECT {fields},1 FROM session_v2 WHERE ?2 IS NULL OR id=?2 LIMIT ?1")
+    } else {
+        sessions_sql
     };
     let mut statement = connection.prepare(&sessions_sql).map_err(sql_error)?;
     let legacy_counts = if has_legacy {
@@ -1232,7 +1259,7 @@ fn read_connection(
         );
         let fingerprint = format!("{:x}", digest.finalize());
         let unchanged = match mode {
-            Mode::Only(_) => true,
+            Mode::Only(_) | Mode::Removal => true,
             Mode::Full(known) => known.get(&id) == Some(&fingerprint),
         };
         let mut record = ConversationMetadata {

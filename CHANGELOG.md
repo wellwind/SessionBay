@@ -6,7 +6,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- Read OpenCode CLI 2.2.x history through 2.2.5 alongside CLI 1.x, including migrated sessions and assistant message parts. Migrated IDs appear once using their 2.x content; system notices are omitted. Deleting OpenCode 2.x sessions is not supported yet, and live state remains limited to CLI 1.x.
+- Read OpenCode CLI 2.2.x history through 2.2.5 alongside CLI 1.x, including migrated sessions and assistant message parts. Migrated IDs appear once using their 2.x content; system notices are omitted.
+
+- OpenCode 2.x cleanup reviews and verifies exports for every descendant before recursive CLI deletion. Restore requires the exporting CLI major version, with no format conversion. Existing 1.x cleanup remains supported.
+- A separate launch-local state plugin for reviewed OpenCode 2.2.0–2.2.5 reports busy, idle, permission waits, and failed/interrupted executions. The API is source-checked against 2.2.3 and tested with synthetic contracts; a real 2.x live-state/model run remains unverified.
 
 ### Fixed
 

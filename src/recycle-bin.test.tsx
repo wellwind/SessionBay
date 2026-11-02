@@ -239,11 +239,13 @@ it('moves a Session to the OS trash in one step and keeps Undo when backing out'
 });
 it('explains the OpenCode export-then-delete path without a fake file size', async () => {
   vi.mocked(api.prepareSessionOsTrash).mockResolvedValue({ planId: 'plan-oc', trashId: entry.id, sessionId: session.id, kind: 'opencode',
-    sourceRoot: '/synthetic/xdg/opencode', items: [{ relativePath: 'opencode-session-ses_x.json（先以官方 CLI 匯出，再刪除資料庫中的 Session）', directory: false, bytes: 0, entries: 0 }],
+    sourceRoot: '/synthetic/xdg/opencode', items: ['ses_root', 'ses_child', 'ses_grandchild'].map(id => ({ relativePath: `opencode-session-${id}.json（先以官方 CLI 匯出，再刪除資料庫中的 Session）`, directory: false, bytes: 0, entries: 0 })),
     kept: ['opencode.db（共享資料庫）'], blockers: [] });
   render(<SessionTrash onClose={vi.fn()} onChanged={vi.fn()} refreshToken={0} />);
   fireEvent.click(await screen.findByRole('button', { name: '移到系統垃圾桶 Synthetic work' }));
-  expect(await screen.findByText(/opencode session delete/)).toBeInTheDocument();
+  expect(await screen.findByText(/OpenCode 2.x 也會刪除所有後代 Session/)).toBeInTheDocument();
+  expect(screen.getByText(/還原需要相同的 CLI 主版本/)).toBeInTheDocument();
+  for (const id of ['ses_root', 'ses_child', 'ses_grandchild']) expect(screen.getByText(new RegExp(`opencode-session-${id}`))).toBeInTheDocument();
   expect(screen.queryByText(/0 B/)).not.toBeInTheDocument();
 });
 it('lists OS-trashed Sessions by title and restores them before rescanning', async () => {
