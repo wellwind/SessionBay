@@ -62,12 +62,15 @@ Each agent can have saved custom arguments. High-risk permission modes are off b
 
 Session Bay can show whether an agent is working, waiting for input, done or failed. The signals come from:
 
-- an opt-in Claude Code mod and OpenCode plugin;
-- Codex's app-server state;
-- the OSC 7501 terminal status sequence.
+- the opt-in OSC 7501 terminal status sequence for Claude Code >= 2.1.295 and reviewed OpenCode 2.2.0–2.2.5, alongside existing Codex, Grok and Antigravity support;
+- Codex's existing app-server observer when its native terminal status gate is not met.
 
 These signals drive the tab badges and the system notifications.
 
 Notifications and optional attention sounds share off-screen/background gating and a 5-second per-pane cooldown. Sounds are off by default, with a saved volume (0–100%, default 70%) and per-event test buttons. A 1.5-second burst plays one tone, prioritizing waiting, failure, then completion. Tests use the draft volume and bypass gating and cooldowns. Both events and tests respect detected Do Not Disturb; macOS Focus detection is unavailable, Windows/Linux detection is partial and unverified, and detection failures allow playback. Native WebView background/minimized playback remains unverified.
 
-Claude Code reporting resumes at the next main turn after a lost report; it does not restore the old turn's status.
+OSC 7501 is terminal-reported, display-only metadata and never authorizes actions. Decoder framing, field, record and memory bounds remain enforced. Terminal working-to-idle transitions raise completion attention once in the same runtime/generation; an initial idle stays quiet. Explicit done/error reports retain their existing behavior. OpenCode reports permission and question waits, but emits neither done nor error: completion comes from working-to-idle, and failures are unavailable through OSC.
+
+Claude keeps only a launch-local SessionStart command hook for native session identity; hooks do not report waiting, permissions or completion. OpenCode installs no plugin, injects no inline configuration and adds no standalone/server arguments. Its bounded OSC record IDs are hints only. At the service/catalog boundary, an ID becomes provider_session_id only if a single indexed OpenCode 2.x session matches the ID and canonical working directory and was created strictly after the launch began. Missing, old, wrong-directory and ambiguous matches remain unbound, including while indexing catches up. Raw hints are not persisted or exposed to the UI. This validated identity supports Kanban auto-attach and running-session checks; OSC status cannot grant permission or trigger provider actions.
+
+Unsupported Claude/OpenCode status versions still launch with process state only and a clear panel notice. Per-agent opt-out is preserved. Claude Code 2.1.316's capability query and exit clear were observed in an isolated, network-blocked PTY; its normal working/waiting/completion/error behavior remains unverified in a real session.

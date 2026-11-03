@@ -1362,7 +1362,7 @@ describe('launch-local activity hook defaults', () => {
     render(createElement(SettingsPanel, config));
     for (const kind of agentKinds) {
       selectAgent(kind);
-      expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).toBeChecked();
+      expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 即時狀態` })).toBeChecked();
     }
     fireEvent.click(screen.getByRole('button', { name: '儲存設定' }));
     await waitFor(() => expect(config.onSave).toHaveBeenCalledExactlyOnceWith({ ...settings, agentHooks: defaultAgentHooks() }));
@@ -1373,7 +1373,7 @@ describe('launch-local activity hook defaults', () => {
     const config = props();
     const view = render(createElement(SettingsPanel, config));
     selectAgent(kind);
-    const toggle = screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` });
+    const toggle = screen.getByRole('checkbox', { name: `${agentNames[kind]} 即時狀態` });
     expect(toggle).toBeChecked();
     fireEvent.click(toggle);
     expect(toggle).not.toBeChecked();
@@ -1386,8 +1386,8 @@ describe('launch-local activity hook defaults', () => {
     const reopened = props({ settings: saved });
     const reopenedView = render(createElement(SettingsPanel, reopened));
     selectAgent(kind);
-    expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).not.toBeChecked();
-    fireEvent.click(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` }));
+    expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 即時狀態` })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: `${agentNames[kind]} 即時狀態` }));
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '捨棄變更' }));
     expect(reopened.onClose).toHaveBeenCalledOnce();
@@ -1396,7 +1396,7 @@ describe('launch-local activity hook defaults', () => {
     reopenedView.unmount();
     render(createElement(SettingsPanel, props({ settings: saved })));
     selectAgent(kind);
-    expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: `${agentNames[kind]} 即時狀態` })).not.toBeChecked();
   });
 
   it('preserves a partial saved opt-out while defaulting other providers on', async () => {
@@ -1404,7 +1404,7 @@ describe('launch-local activity hook defaults', () => {
     render(createElement(SettingsPanel, config));
     for (const kind of agentKinds) {
       selectAgent(kind);
-      const toggle = screen.getByRole('checkbox', { name: `${agentNames[kind]} 真實活動 hooks` });
+      const toggle = screen.getByRole('checkbox', { name: `${agentNames[kind]} 即時狀態` });
       if (kind === 'claude') expect(toggle).not.toBeChecked();
       else expect(toggle).toBeChecked();
     }
@@ -1416,7 +1416,7 @@ describe('launch-local activity hook defaults', () => {
     render(createElement(SettingsPanel, props()));
     for (const kind of ['codex', 'claude', 'opencode', 'grok', 'antigravity'] as const) {
       selectAgent(kind);
-      expect(screen.getByRole('checkbox', { name: /真實活動 hooks/ })).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: /即時狀態/ })).toBeInTheDocument();
       expect(screen.queryByText(/僅套用 SessionBay 後續啟動/)).not.toBeInTheDocument();
       expect(screen.queryByText(/只傳遞 Session／回合識別/)).not.toBeInTheDocument();
     }

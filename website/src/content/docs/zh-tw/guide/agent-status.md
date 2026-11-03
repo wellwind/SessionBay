@@ -14,7 +14,7 @@ Session Bay 會在分頁、側欄、**全部工作區**與附加的[看板工作
 | 已完成 | Agent 完成這一輪。 |
 | 失敗 | Agent 回報錯誤。 |
 
-狀態由 Agent 自己回報（活動 hooks、Codex app server 或終端狀態序列），Session Bay 不會從輸出文字去猜。如果 Agent 無法回報狀態，面板只會顯示程序是否在執行。
+狀態由 Agent 自己回報（Codex app server 或 OSC 7501 終端狀態序列），Session Bay 不會從輸出文字去猜。如果 Agent 無法回報狀態，面板只會顯示程序是否在執行。
 
 ## 系統通知
 
@@ -24,10 +24,12 @@ Session Bay 會在分頁、側欄、**全部工作區**與附加的[看板工作
 
 也可以獨立啟用**提醒音效**，預設關閉。音量與測試按鈕在同一區，詳見[音效設定與勿擾模式限制](/SessionBay/zh-tw/guide/settings/#提醒通知與音效)。
 
-## 活動 hooks
+## 即時狀態
 
-想取得 Claude Code 與 OpenCode 的即時狀態，請在**設定 → 來源與工具**為該 Agent 啟用**真實活動 hooks**。它只影響從 Session Bay 啟動的 Agent，不會修改 Agent 的全域設定。OpenCode 即時狀態需要已審查的 CLI 2.2.0 至 2.2.5；已不再支援 CLI 1.x。
+請在**設定 → 來源與工具**為各 Agent **啟用即時狀態**，原有的每個 Agent 設定值會保留。它只影響從 Session Bay 啟動的 Agent，不會修改 Agent 的全域設定。Claude Code 需要 **2.1.295 以上版本**；OpenCode 需要已審查的 **2.2.0–2.2.5**。不符合狀態版本門檻時仍會啟動，面板會清楚提示僅顯示程序狀態。已不再支援 OpenCode CLI 1.x。
 
-Claude Code 會透過僅限本次啟動的 command hooks 回報等待輸入或權限，並搭配即時狀態外掛使用。Claude Code 與 OpenCode 從工作中轉為閒置時會發出完成提醒；開啟或重新連接面板時的初始閒置回報則不會。這些提醒沿用其他通知與音效的可見性規則及冷卻時間。
+Claude Code 與 OpenCode 改用 OSC 7501 終端回報。同一 runtime 從工作中轉為閒置時會發出一次完成提醒；開啟或重新連接面板時的初始閒置不會提醒。明確的 done/error 回報沿用現有處理方式。OpenCode 能回報權限與問題等待，但目前的 OSC 序列**無法回報失敗**。提醒沿用其他通知與音效的可見性規則及冷卻時間。
 
-若 Claude Code 遺失一次狀態回報，狀態可能暫時未知，並在下一個主要回合恢復回報。
+Claude 只保留 SessionStart hook 來識別原生 Session。OpenCode 不需 Session Bay 外掛或注入設定；終端 record ID 必須經歷史索引確認為 2.x Session、工作目錄相同，且建立時間晚於本次啟動，才會作為 Session 身分。自動附加看板可能因此等待索引完成。終端狀態僅供顯示，絕不授權任何動作。
+
+Claude Code 2.1.316 的啟動 capability query 與結束 clear 已經離線驗證；正常工作、等待、完成及錯誤回報仍待真實 Session 驗證。OpenCode 的 OSC 狀態已由 2.2.3 原始碼確認；真實模型回合的端到端流程仍未驗證。

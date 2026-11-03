@@ -2344,5 +2344,9 @@
   "OpenCode 1.x history is no longer supported. Open this database once with OpenCode 2.x to migrate its sessions; Session Bay never migrates or writes history.": "已不再支援 OpenCode 1.x 歷史。請用 OpenCode 2.x 開啟此資料庫一次以遷移工作階段；Session Bay 絕不遷移或寫入歷史資料。",
   "OpenCode 1.x is no longer supported. Install OpenCode 2.x and try again.": "已不再支援 OpenCode 1.x。請安裝 OpenCode 2.x 後再試一次。",
   "OpenCode 1.x is no longer supported. This export cannot be restored by Session Bay; its file is preserved.": "已不再支援 OpenCode 1.x。Session Bay 無法還原此匯出檔；檔案會保留。",
-  "Live OpenCode status needs reviewed OpenCode 2.2.0 through 2.2.5": "OpenCode 即時狀態需要已審查的 OpenCode 2.2.0 至 2.2.5。"
+  "Live OpenCode status needs reviewed OpenCode 2.2.0 through 2.2.5": "OpenCode 即時狀態需要已審查的 OpenCode 2.2.0 至 2.2.5。",
+  "{{agent}} live status": "{{agent}} 即時狀態",
+  "Enable live status": "啟用即時狀態",
+  "Live status requires Claude Code 2.1.295 or later. Showing process state only.": "即時狀態需要 Claude Code 2.1.295 以上版本。目前僅顯示程序狀態。",
+  "Live status requires OpenCode 2.2.0–2.2.5. Showing process state only.": "即時狀態需要 OpenCode 2.2.0–2.2.5。目前僅顯示程序狀態。"
 }

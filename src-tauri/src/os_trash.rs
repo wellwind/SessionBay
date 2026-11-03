@@ -153,7 +153,7 @@ impl OpenCodeProcess {
 
 impl OpenCodeCli for OpenCodeProcess {
     fn major(&self) -> Result<u32, String> {
-        crate::opencode_state::cli_major(&self.executable)
+        crate::opencode_version::cli_major(&self.executable)
     }
     fn export(&self, root: &Path, id: &str, target: &Path) -> Result<(), String> {
         self.major()?;

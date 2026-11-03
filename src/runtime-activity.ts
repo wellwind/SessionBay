@@ -96,7 +96,10 @@ export class RuntimeActivityStore {
       if (item.generations.size >= 32) { item.agentBlocked = true; item.agent = undefined; this.changed(); return; }
       item.generations.add(event.generation);
     } else if (event.revision <= item.agent.revision) return;
-    const completedTurn = event.observation === 'idle' && item.agent?.generation === event.generation && item.agent.observation === 'busy';
+    const completedTurn = item.agent?.generation === event.generation && (
+      (event.observation === 'idle' && item.agent.observation === 'busy')
+      || (event.observation === 'terminalIdle' && item.agent.observation === 'terminalWorking')
+    );
     item.agent = { generation: event.generation, revision: event.revision, observation: event.observation, until: performance.now() + event.validForMs };
     const attention = completedTurn ? 'done' : event.observation ? ATTENTION[event.observation] : undefined;
     // Only working/progress observations re-arm; expiries and repeats of the same kind stay quiet.

@@ -922,7 +922,7 @@ fn version(path: &Path, kind: AgentKind) -> Result<String, String> {
 fn validate_version_output(kind: AgentKind, output: String) -> Result<String, String> {
     if kind == AgentKind::OpenCode
         && matches!(
-            crate::opencode_state::parse_version(output.as_bytes()),
+            crate::opencode_version::parse_version(output.as_bytes()),
             Some([1, _, _])
         )
     {

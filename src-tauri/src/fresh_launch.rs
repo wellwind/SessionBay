@@ -463,6 +463,7 @@ mod tests {
             };
             if !self.suppress {
                 self.records.borrow_mut().push(RuntimeRecord {
+                    terminal_session_hint: None,
                     provider_session_id: None,
                     info: info.clone(),
                     kind: request.kind.clone(),

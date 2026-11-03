@@ -45,6 +45,9 @@ pub type UiEmitter = Arc<dyn Fn(UiEvent) -> Result<(), String> + Send + Sync>;
 pub struct RuntimeRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_session_id: Option<String>,
+    /// Unauthenticated OSC IDs. Only the service may correlate these with the catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_session_hint: Option<TerminalSessionHint>,
     #[serde(flatten)]
     pub info: RuntimeInfo,
     pub kind: String,
@@ -57,6 +60,13 @@ pub struct RuntimeRecord {
     pub image_input: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_input: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSessionHint {
+    pub launch_started_at: i64,
+    pub ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -422,7 +432,11 @@ impl Host {
             .lock()
             .map_err(|_| "Broker admission integrity unavailable")?
             .work_attempted;
-        let bytes = storage::encode(self.storage_kind, attempted, self.records())?;
+        let mut records = self.records();
+        for record in &mut records {
+            record.terminal_session_hint = None;
+        }
+        let bytes = storage::encode(self.storage_kind, attempted, records)?;
         if bytes.len() > 1024 * 1024 {
             return Err("Runtime metadata exceeds its size limit".into());
         }
@@ -567,7 +581,8 @@ impl Host {
                 // observer wraps the executable; never trust arbitrary wrappers.
                 let image_input = crate::image_input::supports_launch(&kind, &spec);
                 let hook_mode = spec.env.remove(crate::provider_hooks::OPT_IN);
-                let mut hook_expected_session = resume_id.clone();
+                let hook_expected_session = resume_id.clone();
+                let mut status_notice = None;
                 let mut terminal_status_enabled = false;
                 let hook_launch = if matches!(hook_mode.as_deref(), Some("1" | "live")) {
                     let provider = crate::models::AgentKind::parse(&kind)?;
@@ -600,22 +615,24 @@ impl Host {
                                     return Err("This provider version does not support reviewed native terminal status".into());
                                 }
                             }
-                            crate::models::AgentKind::Claude => {
-                                crate::provider_hooks::configure_claude_waiting(
-                                    &mut spec, &helper,
-                                )?;
-                                crate::claude_state::prepare(&mut spec, &helper)?
-                            }
-                            crate::models::AgentKind::OpenCode => {
-                                let native = crate::opencode_state::expected_session(&spec)?;
-                                if resume_id
-                                    .as_ref()
-                                    .is_some_and(|id| native.as_ref() != Some(id))
-                                {
-                                    return Err("OpenCode resume metadata differs from native launch identity".into());
+                            crate::models::AgentKind::Claude
+                            | crate::models::AgentKind::OpenCode => {
+                                terminal_status_enabled =
+                                    crate::terminal_status_launch::prepare(provider, &mut spec)?;
+                                if provider == crate::models::AgentKind::Claude {
+                                    crate::provider_hooks::configure_claude_identity(
+                                        &mut spec, &helper,
+                                    )?;
                                 }
-                                hook_expected_session = native;
-                                crate::opencode_state::prepare(&mut spec, &helper)?
+                                if !terminal_status_enabled {
+                                    status_notice = Some(
+                                        if provider == crate::models::AgentKind::Claude {
+                                            crate::tr!("Live status requires Claude Code 2.1.295 or later. Showing process state only.")
+                                        } else {
+                                            crate::tr!("Live status requires OpenCode 2.2.0–2.2.5. Showing process state only.")
+                                        },
+                                    );
+                                }
                             }
                         }
                     } else {
@@ -630,6 +647,13 @@ impl Host {
                 if terminal_status_enabled {
                     lock(&screen).enable_terminal_status();
                 }
+                if let Some(notice) = status_notice {
+                    lock(&screen).event(TerminalEvent::Output {
+                        runtime_id: String::new(),
+                        sequence: 0,
+                        data: format!("[Session Bay] {notice}\r\n").into_bytes(),
+                    });
+                }
                 let terminal_status = Arc::new(Mutex::new((
                     crate::terminal_status::Decoder::default(),
                     crate::terminal_status::Records::default(),
@@ -641,88 +665,84 @@ impl Host {
                 let output = Arc::clone(&screen);
                 let manager = Arc::clone(&self.runtime);
                 let host = Arc::downgrade(self);
-                let info = self
-                    .runtime
-                    .launch(
-                        *spec,
-                        cols,
-                        rows,
-                        Arc::new(move |event| {
-                            if let TerminalEvent::Exit { runtime_id, .. } = &event {
-                                if let Some(host) = host.upgrade() {
-                                    if let Some(launch) = &status_launch {
-                                        let mut state = lock(&terminal_status);
-                                        state.1.process_exit();
-                                        host.receive_terminal_status(
-                                            launch,
-                                            runtime_id,
-                                            state.1.status(),
-                                        );
-                                    }
-                                    host.finish_runtime_hooks(runtime_id);
+                let launch_started_at = chrono::Utc::now().timestamp_millis();
+                let info = self.runtime.launch(
+                    *spec,
+                    cols,
+                    rows,
+                    Arc::new(move |event| {
+                        if let TerminalEvent::Exit { runtime_id, .. } = &event {
+                            if let Some(host) = host.upgrade() {
+                                if let Some(launch) = &status_launch {
+                                    let mut state = lock(&terminal_status);
+                                    state.1.process_exit();
+                                    host.receive_terminal_status(
+                                        launch,
+                                        runtime_id,
+                                        state.1.status(),
+                                    );
                                 }
+                                host.finish_runtime_hooks(runtime_id);
                             }
-                            if let (
-                                Some(launch),
-                                TerminalEvent::Output {
-                                    runtime_id, data, ..
-                                },
-                            ) = (&status_launch, &event)
-                            {
-                                let mut state = lock(&terminal_status);
-                                let changes = state.0.feed(data);
-                                if !changes.is_empty() {
-                                    for change in changes {
-                                        state.1.apply(change);
-                                    }
-                                    if let Some(host) = host.upgrade() {
-                                        host.receive_terminal_status(
-                                            launch,
-                                            runtime_id,
-                                            state.1.status(),
-                                        );
-                                    }
-                                }
-                            }
-                            let ack = match &event {
-                                TerminalEvent::Output {
-                                    runtime_id,
-                                    sequence,
-                                    ..
-                                } => Some((runtime_id.clone(), *sequence)),
-                                _ => None,
-                            };
-                            let replies = {
-                                let mut output = lock(&output);
-                                output.event(event);
-                                output.replies()
-                            };
-                            if !replies.is_empty() {
-                                if let Some((id, _)) = &ack {
-                                    let _ = manager.write(id, &String::from_utf8_lossy(&replies));
-                                }
-                            }
-                            // The broker, not the WebView, consumes the PTY stream. UI
-                            // detach / slow rendering must never trigger runtime ACK timeout.
-                            if let Some((id, sequence)) = ack {
-                                manager.ack(&id, sequence)?;
-                            }
-                            Ok(())
-                        }),
-                    )
-                    .inspect_err(|_| {
-                        if let Some((launch, _)) = &hook_launch {
-                            crate::claude_state::cleanup(launch);
-                            crate::opencode_state::cleanup(launch);
                         }
-                    })?;
+                        if let (
+                            Some(launch),
+                            TerminalEvent::Output {
+                                runtime_id, data, ..
+                            },
+                        ) = (&status_launch, &event)
+                        {
+                            let mut state = lock(&terminal_status);
+                            let changes = state.0.feed(data);
+                            if !changes.is_empty() {
+                                for change in changes {
+                                    if let crate::terminal_status::Change::Set { id, .. } = &change
+                                    {
+                                        if let Some(host) = host.upgrade() {
+                                            host.receive_terminal_session_hint(
+                                                launch, runtime_id, id,
+                                            );
+                                        }
+                                    }
+                                    state.1.apply(change);
+                                }
+                                if let Some(host) = host.upgrade() {
+                                    host.receive_terminal_status(
+                                        launch,
+                                        runtime_id,
+                                        state.1.status(),
+                                    );
+                                }
+                            }
+                        }
+                        let ack = match &event {
+                            TerminalEvent::Output {
+                                runtime_id,
+                                sequence,
+                                ..
+                            } => Some((runtime_id.clone(), *sequence)),
+                            _ => None,
+                        };
+                        let replies = {
+                            let mut output = lock(&output);
+                            output.event(event);
+                            output.replies()
+                        };
+                        if !replies.is_empty() {
+                            if let Some((id, _)) = &ack {
+                                let _ = manager.write(id, &String::from_utf8_lossy(&replies));
+                            }
+                        }
+                        // The broker, not the WebView, consumes the PTY stream. UI
+                        // detach / slow rendering must never trigger runtime ACK timeout.
+                        if let Some((id, sequence)) = ack {
+                            manager.ack(&id, sequence)?;
+                        }
+                        Ok(())
+                    }),
+                )?;
                 let mut entries = lock(&self.entries);
                 if entries.contains_key(&info.id) {
-                    // Runtime reuse did not spawn the newly prepared source.
-                    if let Some((launch, _)) = &hook_launch {
-                        crate::claude_state::cleanup(launch);
-                        crate::opencode_state::cleanup(launch);
-                    }
                     return Ok(Response::Runtime { info: Some(info) });
                 }
                 // An explicit restart replaces the older record for this pane.
@@ -738,7 +758,6 @@ impl Host {
                     leases.insert(
                         launch.clone(),
                         provider_hooks::Lease {
-                            launch: launch.clone(),
                             runtime_id: info.id.clone(),
                             provider: *provider,
                             expected_session: hook_expected_session,
@@ -757,6 +776,11 @@ impl Host {
                     Entry {
                         record: RuntimeRecord {
                             provider_session_id: None,
+                            terminal_session_hint: (kind == "opencode" && terminal_status_enabled)
+                                .then(|| TerminalSessionHint {
+                                    launch_started_at,
+                                    ids: Vec::new(),
+                                }),
                             info: info.clone(),
                             kind,
                             project_id,
@@ -1212,6 +1236,7 @@ mod tests {
     fn metadata_only_recovery_marks_previous_live_records_interrupted() {
         let temp = tempfile::tempdir().unwrap();
         let record = RuntimeRecord {
+            terminal_session_hint: None,
             provider_session_id: None,
             info: RuntimeInfo {
                 id: "synthetic-id".into(),

@@ -171,3 +171,31 @@ it('shows only known status icons, with a static unread badge as the unknown-sta
   expect(view.container.querySelector('.runtime-output-dot')).toBeNull();
   expect(view.container).toHaveTextContent('有新輸出');
 });
+
+it('raises done once per terminal working-to-idle transition in the same runtime and generation', () => {
+  const store = new RuntimeActivityStore();
+  const attention = vi.fn(); store.onAttention = attention;
+  store.begin('p', 'lease', 'r', false, false);
+  let revision = 0;
+  const report = (status: 'working' | 'idle' | 'done' | 'error' | null, runtimeId = 'r', generation = 'epoch') => {
+    store.observeTerminal('p', 'lease', { type: 'terminalStatus', runtimeId, generation, revision: ++revision, status });
+  };
+  report('idle'); report('idle');
+  expect(attention).not.toHaveBeenCalled();
+  report('working'); report('idle', 'other');
+  expect(attention).not.toHaveBeenCalled();
+  report('idle'); report('idle'); report('done');
+  expect(attention.mock.calls).toEqual([['p', 'done']]);
+  report('working'); report('idle');
+  expect(attention).toHaveBeenCalledTimes(2);
+  report('working'); report('idle', 'r', 'new-epoch');
+  expect(attention).toHaveBeenCalledTimes(2);
+  report('working', 'r', 'new-epoch'); report(null, 'r', 'new-epoch'); report('idle', 'r', 'new-epoch');
+  expect(attention).toHaveBeenCalledTimes(2);
+  report('error', 'r', 'new-epoch');
+  expect(attention).toHaveBeenLastCalledWith('p', 'failed');
+  store.begin('p', 'restart', 'new-runtime', false, false);
+  store.observeTerminal('p', 'restart', { type: 'terminalStatus', runtimeId: 'new-runtime', generation: 'fresh', revision: 1, status: 'idle' });
+  expect(attention).toHaveBeenCalledTimes(3);
+  store.dispose();
+});
