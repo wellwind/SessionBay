@@ -652,6 +652,25 @@ impl Catalog {
             }))
     }
 
+    /// Indexed OpenCode metadata only; never opens or writes the provider database.
+    pub(crate) fn opencode_launch_candidates(
+        &self,
+        id: &str,
+    ) -> Result<Vec<(String, ParsedState)>, String> {
+        let conn = self.connect()?;
+        let mut query = conn.prepare("SELECT s.id,f.state FROM sessions s JOIN sources src ON src.id=s.source_id JOIN files f ON f.session_id=s.id WHERE s.kind='opencode' AND s.external_id=?1 AND src.enabled=1 AND s.parent_id IS NULL AND NOT EXISTS(SELECT 1 FROM session_trash t WHERE t.session_id=s.id)").map_err(error)?;
+        let result = query
+            .query_map([id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(error)?
+            .map(|row| {
+                let (id, state) = row.map_err(error)?;
+                Ok((id, serde_json::from_str(&state).map_err(error)?))
+            })
+            .collect();
+        result
+    }
     pub fn session(&self, id: &str) -> Result<Session, String> {
         let conn = self.connect()?;
         conn.query_row(
@@ -3512,6 +3531,8 @@ fn index_opencode(
                 return Ok(());
             }
             let state = ParsedState {
+                opencode_created_at: Some(record.created_at),
+                opencode_version: Some(record.version.clone()),
                 external_id: Some(record.id.clone()),
                 cwd: record.cwd.clone(),
                 title: record.title.clone(),

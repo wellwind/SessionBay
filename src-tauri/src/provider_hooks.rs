@@ -83,29 +83,23 @@ pub fn configure(spec: &mut LaunchSpec, kind: AgentKind, helper: &Path) -> Resul
             "Launch-local hooks are not supported for this tool or platform yet"
         ));
     }
-    let mut events = vec![
+    if kind == AgentKind::Claude {
+        return configure_claude_identity(spec, helper);
+    }
+    let events = [
         "SessionStart",
         "UserPromptSubmit",
         "PermissionRequest",
         "Stop",
         "SessionEnd",
+        "Interrupt",
     ];
-    match kind {
-        AgentKind::Codex => events.push("Interrupt"),
-        AgentKind::Claude => events.extend(["StopFailure", "Notification"]),
-        _ => unreachable!(),
-    }
     configure_events(spec, kind, helper, &events)
 }
 
-/// Complements the live Claude state plugin with input/permission observations.
-pub fn configure_claude_waiting(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
-    configure_events(
-        spec,
-        AgentKind::Claude,
-        helper,
-        &["Notification", "PermissionRequest"],
-    )
+/// Reports native session identity only; OSC 7501 owns all Claude live status.
+pub fn configure_claude_identity(spec: &mut LaunchSpec, helper: &Path) -> Result<(), String> {
+    configure_events(spec, AgentKind::Claude, helper, &["SessionStart"])
 }
 
 fn configure_events(
@@ -131,11 +125,7 @@ fn configure_events(
             quote(event)
         );
         let handler = json!({"type":"command", "command":command, "timeout":2});
-        let group = if event == "Notification" {
-            json!({"matcher":"^(idle_prompt|permission_prompt|elicitation_dialog|elicitation_url_dialog)$", "hooks":[handler]})
-        } else {
-            json!({"hooks":[handler]})
-        };
+        let group = json!({"hooks":[handler]});
         if kind == AgentKind::Codex {
             // JSON string escaping is valid for these TOML basic strings.
             let command = serde_json::to_string(&command).map_err(|e| e.to_string())?;
@@ -374,7 +364,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&spec).unwrap(), before);
     }
     #[test]
-    fn claude_live_registers_only_waiting_and_legacy_keeps_all_events() {
+    fn claude_registers_only_session_start_identity() {
         if !supported(AgentKind::Claude) {
             return;
         }
@@ -390,7 +380,7 @@ mod tests {
             };
             let helper = Path::new("/app path/Session'Bay");
             if live {
-                configure_claude_waiting(&mut spec, helper).unwrap();
+                configure_claude_identity(&mut spec, helper).unwrap();
             } else {
                 configure(&mut spec, AgentKind::Claude, helper).unwrap();
             }
@@ -400,16 +390,7 @@ mod tests {
             );
             let settings: serde_json::Value = serde_json::from_str(&spec.args[3]).unwrap();
             let hooks = settings["hooks"].as_object().unwrap();
-            let mut expected = vec!["Notification", "PermissionRequest"];
-            if !live {
-                expected.extend([
-                    "SessionStart",
-                    "UserPromptSubmit",
-                    "Stop",
-                    "SessionEnd",
-                    "StopFailure",
-                ]);
-            }
+            let expected = vec!["SessionStart"];
             assert_eq!(hooks.len(), expected.len());
             for event in expected {
                 assert_eq!(
@@ -421,10 +402,6 @@ mod tests {
                     })
                 );
             }
-            assert_eq!(
-                hooks["Notification"][0]["matcher"],
-                "^(idle_prompt|permission_prompt|elicitation_dialog|elicitation_url_dialog)$"
-            );
         }
     }
     #[test]
@@ -446,7 +423,11 @@ mod tests {
             assert_eq!(&spec.args[..2], &["resume", "id"]);
             let joined = spec.args.join(" ");
             assert!(!joined.contains("bypass") && !joined.contains("async"));
-            assert!(joined.contains("SessionStart") && joined.contains("UserPromptSubmit"));
+            assert!(joined.contains("SessionStart"));
+            assert_eq!(
+                joined.contains("UserPromptSubmit"),
+                kind == AgentKind::Codex
+            );
         }
     }
 }

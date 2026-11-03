@@ -885,7 +885,7 @@ async fn stop_runtime(state: AppState<'_>, runtime_id: String) -> Result<(), Str
 #[tauri::command]
 async fn list_runtimes(state: AppState<'_>) -> Result<Vec<RuntimeRecord>, String> {
     let s = state.inner().clone();
-    blocking(move || s.broker()?.list()).await
+    blocking(move || s.list_runtimes()).await
 }
 #[tauri::command]
 async fn attach_runtime(

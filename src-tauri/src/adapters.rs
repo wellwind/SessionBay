@@ -16,6 +16,10 @@ const MAX_TITLE_INDEX_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ParsedState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opencode_created_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opencode_version: Option<String>,
     pub external_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,

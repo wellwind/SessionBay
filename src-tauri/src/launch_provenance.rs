@@ -555,6 +555,7 @@ mod tests {
         (
             Uuid::new_v4().to_string(),
             RuntimeRecord {
+                terminal_session_hint: None,
                 provider_session_id: None,
                 info: RuntimeInfo {
                     id: Uuid::new_v4().to_string(),

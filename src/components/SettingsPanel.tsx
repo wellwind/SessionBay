@@ -727,9 +727,9 @@ export function SettingsPanel({
                             {(kind === 'codex' || kind === 'claude' || kind === 'opencode' || kind === 'grok' || kind === 'antigravity') && <>
                               <label className="settings-field">
                                 <span><input className="checkbox" type="checkbox"
-                                  aria-label={t('{{agent}} activity hooks', { agent: agentNames[kind] })}
+                                  aria-label={t('{{agent}} live status', { agent: agentNames[kind] })}
                                   checked={isAgentHooksEnabled(draft, kind)}
-                                  onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> {t('Enable activity hooks')}</span>
+                                  onChange={(event) => update('agentHooks', { ...draft.agentHooks, [kind]: event.target.checked })} /> {t('Enable live status')}</span>
                               </label>
                             </>}
                             <details className="settings-agent-advanced" open={draft.agentOptions[kind].bypassPermissions || !!errors[`agentOptions.${kind}`] || undefined}>

@@ -56,7 +56,7 @@ describe('attention transitions', () => {
     expect(store.agentStates(['p'])).toBe('idle');
     store.dispose();
   });
-  it('does not infer completion from initial idle, reattachment or terminalIdle', () => {
+  it('does not infer completion from initial idle, reattachment or a mixed-source idle', () => {
     const store = new RuntimeActivityStore(), seen = vi.fn();
     store.onAttention = seen;
     store.begin('p', 'lease', 'r', false);

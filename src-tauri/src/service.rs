@@ -252,12 +252,7 @@ impl Service {
             index: self.index_status()?,
             workspace,
             warnings,
-            runtimes: self
-                .broker
-                .as_ref()
-                .map(|broker| broker.list())
-                .transpose()?
-                .unwrap_or_default(),
+            runtimes: self.list_runtimes()?,
         })
     }
     pub fn save_settings(self: &Arc<Self>, settings: Settings) -> Result<Settings, String> {
@@ -435,9 +430,83 @@ impl Service {
             let _ = self.start_index(false);
         }
     }
+    pub fn list_runtimes(&self) -> Result<Vec<RuntimeRecord>, String> {
+        let records = self
+            .broker
+            .as_ref()
+            .map(|broker| broker.list())
+            .transpose()?
+            .unwrap_or_default();
+        self.correlate_runtime_identities(records)
+    }
+
+    fn correlate_runtime_identities(
+        &self,
+        mut records: Vec<RuntimeRecord>,
+    ) -> Result<Vec<RuntimeRecord>, String> {
+        for record in &mut records {
+            if record.kind == "opencode" {
+                // Raw terminal IDs never populate provider_session_id in the broker.
+                // Re-check the catalog on every read, including after delayed indexing.
+                record.provider_session_id = self.opencode_runtime_identity(record)?;
+            }
+            record.terminal_session_hint = None;
+        }
+        Ok(records)
+    }
+
+    fn opencode_runtime_identity(&self, record: &RuntimeRecord) -> Result<Option<String>, String> {
+        if record.kind != "opencode" {
+            return Ok(None);
+        }
+        let Some(hint) = &record.terminal_session_hint else {
+            return Ok(None);
+        };
+        if hint.launch_started_at <= 0 || hint.ids.len() >= 64 {
+            return Ok(None);
+        }
+        let Ok(cwd) = std::fs::canonicalize(&record.info.cwd) else {
+            return Ok(None);
+        };
+        let mut matches = Vec::new();
+        for id in &hint.ids {
+            if id.len() > 32 || !crate::opencode::valid_session_id(id) {
+                continue;
+            }
+            let candidates = self.catalog.opencode_launch_candidates(id)?;
+            // IDs duplicated across sources are ambiguous even if one matches.
+            let [(_, state)] = candidates.as_slice() else {
+                continue;
+            };
+            if state
+                .opencode_version
+                .as_ref()
+                .and_then(|version| crate::opencode_version::parse_version(version.as_bytes()))
+                .is_some_and(|version| version[0] == 2)
+                && state
+                    .opencode_created_at
+                    .is_some_and(|created| created > hint.launch_started_at)
+                && state
+                    .cwd
+                    .as_ref()
+                    .and_then(|path| std::fs::canonicalize(path).ok())
+                    .as_ref()
+                    == Some(&cwd)
+                && !matches.contains(id)
+            {
+                matches.push(id.clone());
+            }
+        }
+        Ok(if matches.len() == 1 {
+            matches.pop()
+        } else {
+            None
+        })
+    }
+
     pub fn reconcile_kanban_launches(&self) -> Result<(), String> {
         if let Some(broker) = &self.broker {
-            for record in broker.list()? {
+            for record in self.correlate_runtime_identities(broker.list()?)? {
                 if let Some(external) = record.provider_session_id {
                     self.catalog
                         .reconcile_kanban_launch(&record.info.id, &external)?;
@@ -854,17 +923,16 @@ impl Service {
 
     /// Live Session Bay runtimes that resume or launched this Session.
     fn session_running(&self) -> Result<impl Fn(&str, &str) -> bool, String> {
-        let records = match &self.broker {
-            Some(broker) => broker.list()?,
-            None => Vec::new(),
-        };
+        let records = self.list_runtimes()?;
         Ok(move |session_id: &str, external_id: &str| {
             records.iter().any(|record| {
                 matches!(
                     record.info.state.as_str(),
                     "running" | "stopping" | "unknown"
                 ) && (record.info.session_id.as_deref() == Some(session_id)
-                    || record.resume_id.as_deref() == Some(external_id))
+                    || record.resume_id.as_deref() == Some(external_id)
+                    || (matches!(record.kind.as_str(), "claude" | "opencode")
+                        && record.provider_session_id.as_deref() == Some(external_id)))
             })
         })
     }
@@ -1562,5 +1630,158 @@ mod tests {
             .unwrap();
         assert_eq!(plan.cwd, cwd);
         assert!(!plan.args.iter().any(|a| a.contains("echo no")));
+    }
+}
+
+#[cfg(test)]
+mod terminal_identity_tests {
+    use super::*;
+    use crate::{broker::TerminalSessionHint, models::HistorySource};
+    use rusqlite::{params, Connection};
+
+    #[test]
+    fn opencode_identity_requires_catalog_version_directory_and_creation_after_launch() {
+        std::env::set_var(
+            crate::opencode::MIRROR_DIR_ENV,
+            std::env::temp_dir().join("sessionbay-test-opencode-mirror"),
+        );
+        let root = tempfile::tempdir().unwrap();
+        let source_root = root.path().join("history");
+        std::fs::create_dir(&source_root).unwrap();
+        let service = Service::open(root.path().join("app")).unwrap();
+        let source = HistorySource {
+            id: "synthetic-source".into(),
+            kind: AgentKind::OpenCode,
+            root: source_root.to_string_lossy().into_owned(),
+            enabled: true,
+        };
+        let db = Connection::open(source_root.join("opencode.db")).unwrap();
+        db.execute_batch(include_str!("../../fixtures/opencode/schema.sql"))
+            .unwrap();
+        let cwd = root
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let started = 1_790_000_000_000_i64;
+        let mut record = RuntimeRecord {
+            provider_session_id: None,
+            terminal_session_hint: Some(TerminalSessionHint {
+                launch_started_at: started,
+                ids: vec!["ses_identity".into()],
+            }),
+            info: RuntimeInfo {
+                id: "runtime".into(),
+                pane_id: "pane".into(),
+                session_id: None,
+                state: "running".into(),
+                cwd: cwd.clone(),
+                exit_code: None,
+            },
+            kind: "opencode".into(),
+            project_id: None,
+            profile_id: None,
+            resume_id: None,
+            home_directory: Some(false),
+            image_input: false,
+            file_input: Some(false),
+        };
+        let sync = || {
+            let status = service
+                .catalog
+                .sync(
+                    std::slice::from_ref(&source),
+                    &AtomicBool::new(false),
+                    |_| {},
+                )
+                .unwrap();
+            assert!(status.errors.is_empty(), "{:?}", status.errors);
+        };
+        assert!(service
+            .opencode_runtime_identity(&record)
+            .unwrap()
+            .is_none());
+        for (version, directory, created, accepted) in [
+            ("2.2.3", cwd.as_str(), started + 1, true),
+            ("2.2.3", cwd.as_str(), started, false),
+            ("2.2.3", cwd.as_str(), started - 1, false),
+            ("1.19.5", cwd.as_str(), started + 1, false),
+            ("3.0.0", cwd.as_str(), started + 1, false),
+            ("2.2.3-beta", cwd.as_str(), started + 1, false),
+            ("2.2.3", source_root.to_str().unwrap(), started + 1, false),
+        ] {
+            db.execute("INSERT OR REPLACE INTO session_v2 VALUES('ses_identity','global',?1,'Synthetic','2.2.3',?2,?2,NULL,NULL,NULL)", params![directory, created]).unwrap();
+            db.execute("UPDATE session_v2 SET version=?1", [version])
+                .unwrap();
+            sync();
+            assert_eq!(
+                service
+                    .opencode_runtime_identity(&record)
+                    .unwrap()
+                    .as_deref(),
+                accepted.then_some("ses_identity"),
+                "{version} {directory} {created}"
+            );
+        }
+        db.execute("UPDATE session_v2 SET directory=?1,version='2.2.3'", [&cwd])
+            .unwrap();
+        sync();
+        let correlated = service
+            .correlate_runtime_identities(vec![record.clone()])
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            correlated.provider_session_id.as_deref(),
+            Some("ses_identity")
+        );
+        assert!(correlated.terminal_session_hint.is_none());
+        assert!(record.provider_session_id.is_none());
+        // Multiple matching pending sessions cannot identify the launched root.
+        db.execute("INSERT INTO session_v2 SELECT 'ses_other',project_id,directory,title,version,time_created,time_updated,parent_id,time_archived,revert FROM session_v2", []).unwrap();
+        sync();
+        record
+            .terminal_session_hint
+            .as_mut()
+            .unwrap()
+            .ids
+            .push("ses_other".into());
+        assert!(service
+            .opencode_runtime_identity(&record)
+            .unwrap()
+            .is_none());
+        record.terminal_session_hint.as_mut().unwrap().ids = vec!["ses_absent".into()];
+        assert!(service
+            .opencode_runtime_identity(&record)
+            .unwrap()
+            .is_none());
+        record.terminal_session_hint.as_mut().unwrap().ids = vec!["ses_identity".into()];
+        let mut duplicate_source = source.clone();
+        duplicate_source.id = "duplicate-source".into();
+        let status = service
+            .catalog
+            .sync(
+                &[source.clone(), duplicate_source],
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+        assert!(status.errors.is_empty(), "{:?}", status.errors);
+        assert!(service
+            .opencode_runtime_identity(&record)
+            .unwrap()
+            .is_none());
+        sync();
+        // Saturated hints fail closed rather than selecting an arbitrary record.
+        record.terminal_session_hint.as_mut().unwrap().ids = vec!["ses_identity".into(); 64];
+        assert!(service
+            .opencode_runtime_identity(&record)
+            .unwrap()
+            .is_none());
+        record.terminal_session_hint = None;
+        assert!(service
+            .opencode_runtime_identity(&record)
+            .unwrap()
+            .is_none());
     }
 }

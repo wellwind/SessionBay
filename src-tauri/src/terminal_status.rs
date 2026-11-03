@@ -1,5 +1,6 @@
 //! Bounded OSC 7501 status decoder. Bytes are terminal-reported, never
-//! authenticated provider identity. No free text, app names or ids leave here.
+//! authenticated provider identity. Free text and app names are discarded;
+//! bounded record IDs may only be used as catalog correlation hints.
 use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
     Engine,

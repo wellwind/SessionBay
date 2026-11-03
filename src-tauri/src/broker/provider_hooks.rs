@@ -9,7 +9,6 @@ use crate::{
 use std::{path::PathBuf, time::Instant};
 
 pub(super) struct Lease {
-    pub launch: String,
     pub runtime_id: String,
     pub provider: AgentKind,
     pub expected_session: Option<String>,
@@ -21,15 +20,31 @@ pub(super) struct Lease {
     pub terminal: bool,
     pub retired_sessions: std::collections::HashSet<String>,
 }
-impl Drop for Lease {
-    fn drop(&mut self) {
-        // Also covers host teardown when a runtime callback can no longer
-        // upgrade its weak host reference. Never follow a callback-supplied path.
-        crate::claude_state::cleanup(&self.launch);
-        crate::opencode_state::cleanup(&self.launch);
-    }
-}
 impl Host {
+    pub(super) fn receive_terminal_session_hint(&self, launch: &str, runtime_id: &str, id: &str) {
+        if !crate::opencode::valid_session_id(id) || id.len() > 32 {
+            return;
+        }
+        let leases = lock(&self.provider_hooks);
+        if !leases.get(launch).is_some_and(|lease| {
+            lease.terminal
+                && !lease.ended
+                && lease.provider == AgentKind::OpenCode
+                && lease.runtime_id == runtime_id
+        }) {
+            return;
+        }
+        let mut entries = lock(&self.entries);
+        if let Some(hint) = entries
+            .get_mut(runtime_id)
+            .and_then(|entry| entry.record.terminal_session_hint.as_mut())
+        {
+            if hint.ids.len() < 64 && !hint.ids.iter().any(|known| known == id) {
+                hint.ids.push(id.to_owned());
+            }
+        }
+        // Hints stay ephemeral; they are never a broker-authorized identity.
+    }
     pub(super) fn receive_terminal_status(
         &self,
         launch: &str,
@@ -81,34 +96,32 @@ impl Host {
         // Validate again after IPC; clients cannot smuggle state or private data.
         let payload = callback.payload(lease.provider);
         let callback = Callback::parse(&callback.event, &payload)?.ok_or("Child callback")?;
-        let live_observation = if lease.live {
-            // Live Claude uses command hooks only for waiting; lifecycle state
-            // remains owned by the plugin. Both paths share the same UI epoch.
-            if lease.terminal
-                || lease.provider != AgentKind::Claude
-                || !matches!(
-                    callback.event.as_str(),
-                    "Notification" | "PermissionRequest"
-                )
+        if lease.provider == AgentKind::Claude {
+            if callback.event != "SessionStart" {
+                return Err("Claude hooks report session identity only".into());
+            }
+            if lease
+                .expected_session
+                .as_ref()
+                .is_some_and(|id| id != &callback.session)
+                || lease
+                    .session
+                    .as_ref()
+                    .is_some_and(|id| id != &callback.session)
             {
-                return Ok(Response::Ok);
+                return Err("Hook session differs from bound or resumed identity".into());
             }
-            let event =
-                crate::agent_activity::normalize(lease.provider, &callback.event, &payload)?
-                    .ok_or("Child callback")?;
-            use crate::agent_activity::Observation;
-            if !matches!(
-                event.observation,
-                Observation::WaitingInput
-                    | Observation::WaitingPermission
-                    | Observation::PermissionRequested
-            ) {
-                return Ok(Response::Ok);
+            lease.session = Some(callback.session);
+            let bound = self.bind_provider_session(&lease.runtime_id, lease.session.as_deref());
+            drop(leases);
+            if bound {
+                self.persist()?;
             }
-            Some(event.observation)
-        } else {
-            None
-        };
+            return Ok(Response::Ok);
+        }
+        if lease.live {
+            return Ok(Response::Ok);
+        }
         let rotating = lease.ended && callback.event == "SessionStart";
         if rotating {
             if lease.session.as_deref() == Some(callback.session.as_str())
@@ -144,8 +157,7 @@ impl Host {
         }
         let mut activity = lock(&self.activity);
         if lease.session.is_none() {
-            // Legacy hooks require the startup handshake. Live Claude can first
-            // report waiting; the plugin will reuse this binding and UI epoch.
+            // Legacy hooks require the startup handshake.
             if !lease.live && callback.event != "SessionStart" {
                 return Err("Waiting for parent SessionStart hook".into());
             }
@@ -161,19 +173,14 @@ impl Host {
         if lease.activity_generation.as_deref() != Some(state.hook_generation()) {
             return Err("Hook activity generation superseded".into());
         }
-        if let Some(observation) = live_observation {
-            state.publish_source(observation, Instant::now());
-        } else {
-            // Without prompt/turn identity there is no fence against delayed callbacks.
-            // Older providers stay unknown rather than ordering callbacks by arrival.
-            if !matches!(callback.event.as_str(), "SessionStart" | "SessionEnd")
-                && callback.turn.is_none()
-            {
-                state.invalidate_hook_observation();
-                return Ok(Response::Ok);
-            }
-            state.publish_hook(&callback.event, &payload, Instant::now())?;
+        // Without turn identity there is no fence against delayed callbacks.
+        if !matches!(callback.event.as_str(), "SessionStart" | "SessionEnd")
+            && callback.turn.is_none()
+        {
+            state.invalidate_hook_observation();
+            return Ok(Response::Ok);
         }
+        state.publish_hook(&callback.event, &payload, Instant::now())?;
         if callback.event == "SessionEnd" {
             lease.ended = true;
         }
@@ -203,7 +210,7 @@ impl Host {
         {
             return Err("State runtime is no longer running".into());
         }
-        if !lease.live || lease.terminal {
+        if !lease.live || lease.terminal || lease.provider != AgentKind::Codex {
             return Err("State source is not registered for this launch".into());
         }
         // Reports are full snapshots and sources stop refreshing after a lost
@@ -258,7 +265,15 @@ impl Host {
         }
     }
     pub(super) fn fail_provider_hook(&self, launch: &str) {
-        if let Some(lease) = lock(&self.provider_hooks).remove(launch) {
+        let mut leases = lock(&self.provider_hooks);
+        if leases
+            .get(launch)
+            .is_some_and(|lease| lease.provider == AgentKind::Claude && lease.terminal)
+        {
+            // Identity-hook transport errors must not disable terminal status.
+            return;
+        }
+        if let Some(lease) = leases.remove(launch) {
             self.close_runtime_activity(&lease.runtime_id);
         }
     }
@@ -331,388 +346,5 @@ mod tests {
                 .unwrap()
                 .unwrap();
         assert_eq!(normalized.turn_id.as_deref(), Some("t"));
-    }
-}
-
-#[cfg(all(test, unix))]
-mod opencode_tests {
-    use super::*;
-    use crate::{agent_activity::Observation, broker::UiEvent, runtime::LaunchSpec};
-    use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
-
-    fn launch(
-        host: &Arc<Host>,
-        root: &Path,
-        pane: &str,
-        resume: Option<&str>,
-    ) -> Result<Response, String> {
-        let executable = root.join("synthetic-opencode");
-        std::fs::write(&executable,
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then printf 'opencode v2.2.3\\n'; exit; fi\nexec sleep 60\n").unwrap();
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        host.handle(Request::Launch {
-            generation: host.generation.clone(),
-            spec: Box::new(LaunchSpec {
-                executable: executable.to_str().unwrap().into(),
-                args: vec!["--session".into(), "ses_indexedRoot".into()],
-                cwd: root.into(),
-                env: HashMap::from([
-                    (hooks::OPT_IN.into(), "live".into()),
-                    ("OPENCODE_CONFIG_CONTENT".into(), "{}".into()),
-                ]),
-                session_id: Some("catalog-id-not-provider-id".into()),
-                resume_key: Some("provider-opaque-database-and-session-key".into()),
-                pane_id: pane.into(),
-            }),
-            kind: "opencode".into(),
-            project_id: None,
-            profile_id: None,
-            resume_id: resume.map(str::to_owned),
-            home_directory: false,
-            cols: 80,
-            rows: 24,
-        })
-    }
-
-    fn state(
-        host: &Host,
-        launch: &str,
-        session: &str,
-        sequence: u64,
-        observation: Observation,
-    ) -> Result<Response, String> {
-        host.receive_provider_state(
-            launch,
-            hooks::StateReport {
-                session: session.into(),
-                turn: None,
-                sequence,
-                observation,
-            },
-        )
-    }
-
-    fn observation(host: &Host, runtime: &str) -> Option<Observation> {
-        let UiEvent::AgentActivity { observation, .. } =
-            host.poll_activity(runtime, None, Instant::now()).unwrap()
-        else {
-            panic!("missing activity");
-        };
-        observation
-    }
-
-    #[test]
-    fn opencode_native_root_sequence_retry_and_revoke_use_existing_state_pipeline() {
-        let root = tempfile::tempdir().unwrap();
-        let host = Host::open(root.path().into()).unwrap();
-        let Response::Runtime { info: Some(info) } =
-            launch(&host, root.path(), "live-pane", None).unwrap()
-        else {
-            panic!("missing runtime");
-        };
-        let launch = lock(&host.provider_hooks).keys().next().unwrap().clone();
-        let path = crate::opencode_state::staged_path(&launch).unwrap();
-        assert!(path.exists());
-        assert_eq!(
-            lock(&host.provider_hooks)[&launch]
-                .expected_session
-                .as_deref(),
-            Some("ses_indexedRoot")
-        );
-        assert!(lock(&host.provider_hooks)[&launch].live);
-        assert!(state(&host, &launch, "ses_wrongRoot", 1, Observation::Busy).is_err());
-        assert_eq!(lock(&host.provider_hooks)[&launch].source_sequence, 0);
-        state(&host, &launch, "ses_indexedRoot", 1, Observation::Busy).unwrap();
-        assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
-        for sequence in [0, 1] {
-            assert!(state(
-                &host,
-                &launch,
-                "ses_indexedRoot",
-                sequence,
-                Observation::Idle
-            )
-            .is_err());
-            assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
-        }
-        state(&host, &launch, "ses_indexedRoot", 2, Observation::Retry).unwrap();
-        assert_eq!(observation(&host, &info.id), Some(Observation::Retry));
-        state(
-            &host,
-            &launch,
-            "ses_indexedRoot",
-            3,
-            Observation::AwaitingInput,
-        )
-        .unwrap();
-        assert_eq!(
-            observation(&host, &info.id),
-            Some(Observation::AwaitingInput)
-        );
-        state(&host, &launch, "ses_indexedRoot", 4, Observation::Unknown).unwrap();
-        assert_eq!(observation(&host, &info.id), None);
-        state(&host, &launch, "ses_nextRoot", 5, Observation::Idle).unwrap();
-        assert_eq!(
-            host.records()
-                .iter()
-                .find(|record| record.info.id == info.id)
-                .unwrap()
-                .provider_session_id
-                .as_deref(),
-            Some("ses_indexedRoot")
-        );
-
-        assert_eq!(observation(&host, &info.id), Some(Observation::Idle));
-        // A source restarting after a lost report skips sequence numbers.
-        state(&host, &launch, "ses_nextRoot", 7, Observation::Busy).unwrap();
-        assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
-        assert!(state(&host, &launch, "ses_nextRoot", 6, Observation::Idle).is_err());
-        assert_eq!(observation(&host, &info.id), Some(Observation::Busy));
-        let expired = host
-            .poll_activity(
-                &info.id,
-                None,
-                Instant::now() + std::time::Duration::from_secs(31),
-            )
-            .unwrap();
-        assert!(matches!(
-            expired,
-            UiEvent::AgentActivity {
-                observation: None,
-                ..
-            }
-        ));
-        host.revoke_provider_hooks(AgentKind::OpenCode);
-        assert!(lock(&host.provider_hooks).is_empty());
-        assert!(!path.exists());
-        assert_eq!(observation(&host, &info.id), None);
-        assert!(state(&host, &launch, "ses_nextRoot", 8, Observation::Busy).is_err());
-        assert_eq!(host.runtime.list()[0].state, "running");
-        host.runtime.shutdown().unwrap();
-    }
-
-    #[test]
-    fn opencode_failed_callback_runtime_exit_and_host_drop_remove_staging() {
-        for cleanup_mode in 0..3 {
-            let root = tempfile::tempdir().unwrap();
-            let host = Host::open(root.path().into()).unwrap();
-            let Response::Runtime { info: Some(info) } =
-                launch(&host, root.path(), "cleanup-pane", Some("ses_indexedRoot")).unwrap()
-            else {
-                panic!("missing runtime");
-            };
-            let launch = lock(&host.provider_hooks).keys().next().unwrap().clone();
-            let path = crate::opencode_state::staged_path(&launch).unwrap();
-            if cleanup_mode == 0 {
-                host.fail_provider_hook(&launch);
-                assert!(!path.exists());
-                host.runtime.shutdown().unwrap();
-            } else if cleanup_mode == 1 {
-                host.runtime.stop(&info.id).unwrap();
-                let deadline = Instant::now() + std::time::Duration::from_secs(2);
-                while path.exists() && Instant::now() < deadline {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-                assert!(!path.exists());
-            } else {
-                // Lease-owned cleanup also works if callbacks lose their host.
-                drop(host);
-                assert!(!path.exists());
-            }
-        }
-    }
-
-    #[test]
-    fn opencode_resume_metadata_mismatch_is_rejected_before_launch() {
-        let root = tempfile::tempdir().unwrap();
-        let host = Host::open(root.path().into()).unwrap();
-        assert!(
-            launch(&host, root.path(), "mismatch-pane", Some("ses_otherRoot"))
-                .unwrap_err()
-                .contains("resume metadata")
-        );
-        assert!(host.runtime.list().is_empty());
-        assert!(lock(&host.provider_hooks).is_empty());
-    }
-}
-
-#[cfg(all(test, unix))]
-mod claude_tests {
-    use super::*;
-    use crate::{agent_activity::Observation, broker::UiEvent, runtime::LaunchSpec};
-    use std::{collections::HashMap, os::unix::fs::PermissionsExt, path::Path, sync::Arc};
-
-    fn launch(root: &Path) -> (Arc<Host>, String, String) {
-        let executable = root.join("synthetic-claude");
-        std::fs::write(&executable,
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then printf '2.1.302 (Claude Code)\\n'; exit; fi\nexec sleep 60\n").unwrap();
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let host = Host::open(root.into()).unwrap();
-        let Response::Runtime { info: Some(info) } = host
-            .handle(Request::Launch {
-                generation: host.generation.clone(),
-                spec: Box::new(LaunchSpec {
-                    executable: executable.to_str().unwrap().into(),
-                    args: vec!["--resume".into(), "synthetic-session".into()],
-                    cwd: root.into(),
-                    env: HashMap::from([(hooks::OPT_IN.into(), "live".into())]),
-                    session_id: None,
-                    resume_key: None,
-                    pane_id: "synthetic-pane".into(),
-                }),
-                kind: "claude".into(),
-                project_id: None,
-                profile_id: None,
-                resume_id: Some("synthetic-session".into()),
-                home_directory: false,
-                cols: 80,
-                rows: 24,
-            })
-            .unwrap()
-        else {
-            panic!("missing runtime")
-        };
-        let launch = lock(&host.provider_hooks).keys().next().unwrap().clone();
-        (host, launch, info.id)
-    }
-
-    fn callback(event: &str, notification: Option<&str>, session: &str) -> Callback {
-        Callback {
-            event: event.into(),
-            session: session.into(),
-            turn: None,
-            notification: notification.map(str::to_owned),
-            source: None,
-        }
-    }
-
-    fn state(
-        host: &Host,
-        launch: &str,
-        sequence: u64,
-        observation: Observation,
-    ) -> Result<Response, String> {
-        host.receive_provider_state(
-            launch,
-            hooks::StateReport {
-                session: "synthetic-session".into(),
-                turn: Some("synthetic-turn".into()),
-                sequence,
-                observation,
-            },
-        )
-    }
-
-    fn snapshot(host: &Host, runtime: &str) -> (String, u64, Option<Observation>) {
-        let UiEvent::AgentActivity {
-            generation,
-            revision,
-            observation,
-            ..
-        } = host.poll_activity(runtime, None, Instant::now()).unwrap()
-        else {
-            panic!("missing activity")
-        };
-        (generation, revision, observation)
-    }
-
-    #[test]
-    fn live_waiting_hooks_and_state_reports_share_epoch_and_keep_source_sequence() {
-        let root = tempfile::tempdir().unwrap();
-        let (host, launch, runtime) = launch(root.path());
-        // A waiting hook can arrive before the first plugin snapshot, without a prompt ID.
-        host.receive_provider_hook(
-            &launch,
-            callback("Notification", Some("idle_prompt"), "synthetic-session"),
-        )
-        .unwrap();
-        let first = snapshot(&host, &runtime);
-        assert_eq!(first.2, Some(Observation::WaitingInput));
-        assert_eq!(lock(&host.provider_hooks)[&launch].source_sequence, 0);
-        state(&host, &launch, 1, Observation::Busy).unwrap();
-        let busy = snapshot(&host, &runtime);
-        assert_eq!(busy.0, first.0);
-        assert!(busy.1 > first.1);
-        assert_eq!(busy.2, Some(Observation::Busy));
-        let cases = [
-            (
-                "Notification",
-                Some("idle_prompt"),
-                Observation::WaitingInput,
-            ),
-            (
-                "Notification",
-                Some("permission_prompt"),
-                Observation::WaitingPermission,
-            ),
-            (
-                "Notification",
-                Some("elicitation_dialog"),
-                Observation::WaitingInput,
-            ),
-            (
-                "Notification",
-                Some("elicitation_url_dialog"),
-                Observation::WaitingInput,
-            ),
-            ("PermissionRequest", None, Observation::PermissionRequested),
-        ];
-        for (index, (event, notification, expected)) in cases.into_iter().enumerate() {
-            let sequence = index as u64 + 1;
-            host.receive_provider_hook(&launch, callback(event, notification, "synthetic-session"))
-                .unwrap();
-            let waiting = snapshot(&host, &runtime);
-            assert_eq!(waiting.0, first.0);
-            assert_eq!(waiting.2, Some(expected));
-            assert_eq!(
-                lock(&host.provider_hooks)[&launch].source_sequence,
-                sequence
-            );
-            assert!(state(&host, &launch, sequence, Observation::Idle).is_err());
-            assert_eq!(snapshot(&host, &runtime), waiting);
-            let next = if index % 2 == 0 {
-                Observation::Idle
-            } else {
-                Observation::Busy
-            };
-            state(&host, &launch, sequence + 1, next).unwrap();
-            let updated = snapshot(&host, &runtime);
-            assert_eq!(updated.0, first.0);
-            assert!(updated.1 > waiting.1);
-            assert_eq!(updated.2, Some(next));
-        }
-        host.runtime.shutdown().unwrap();
-    }
-
-    #[test]
-    fn live_hooks_reject_wrong_sessions_and_ignore_unregistered_events() {
-        let root = tempfile::tempdir().unwrap();
-        let (host, launch, runtime) = launch(root.path());
-        assert!(host
-            .receive_provider_hook(
-                &launch,
-                callback("PermissionRequest", None, "wrong-session")
-            )
-            .is_err());
-        assert!(lock(&host.provider_hooks)[&launch].session.is_none());
-        state(&host, &launch, 1, Observation::Busy).unwrap();
-        let busy = snapshot(&host, &runtime);
-        assert!(host
-            .receive_provider_hook(
-                &launch,
-                callback("Notification", Some("idle_prompt"), "wrong-session")
-            )
-            .is_err());
-        for (event, notification) in [
-            ("Stop", None),
-            ("SessionEnd", None),
-            ("UserPromptSubmit", None),
-            ("Notification", Some("unrecognized")),
-        ] {
-            host.receive_provider_hook(&launch, callback(event, notification, "synthetic-session"))
-                .unwrap();
-            assert_eq!(snapshot(&host, &runtime), busy);
-        }
-        host.runtime.shutdown().unwrap();
     }
 }

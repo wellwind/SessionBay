@@ -40,8 +40,9 @@ const MAX_TITLE_BYTES: usize = 16 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_ERROR_BYTES: usize = 2048;
 /// Bump when reader output changes for an unchanged database, so cached catalog
-/// rows are re-read. Revision 5 removes all CLI 1.x table/projection readers.
-pub const READER_REVISION: i64 = 5;
+/// rows are re-read. Revision 6 retains creation time and producer version for
+/// catalog-backed launch identity correlation.
+pub const READER_REVISION: i64 = 6;
 
 #[derive(Debug, Clone)]
 pub struct ConversationMetadata {
@@ -49,6 +50,8 @@ pub struct ConversationMetadata {
     pub title: Option<String>,
     pub cwd: Option<String>,
     pub updated_at: Option<String>,
+    pub created_at: i64,
+    pub version: String,
     pub parent_id: Option<String>,
     pub archived: bool,
     pub partial: bool,
@@ -1146,7 +1149,7 @@ fn read_connection(
         Mode::Full(_) | Mode::Removal => None,
     };
     let fields =
-        "id,directory,title,version,time_updated,parent_id,time_archived,revert IS NOT NULL";
+        "id,directory,title,version,time_updated,parent_id,time_archived,revert IS NOT NULL,time_created";
     let sessions_sql =
         format!("SELECT {fields} FROM session_v2 WHERE ?2 IS NULL OR id=?2 LIMIT ?1");
     let mut statement = connection.prepare(&sessions_sql).map_err(sql_error)?;
@@ -1177,6 +1180,7 @@ fn read_connection(
         let parent_id: Option<String> = row.get(5).map_err(sql_error)?;
         let archived = row.get::<_, Option<i64>>(6).map_err(sql_error)?.is_some();
         let reverted: bool = row.get(7).map_err(sql_error)?;
+        let created_at: i64 = row.get(8).map_err(sql_error)?;
         if cwd.len() > MAX_PATH_BYTES
             || title
                 .as_ref()
@@ -1197,7 +1201,7 @@ fn read_connection(
         let mut digest = Sha256::new();
         digest.update(
             format!(
-                "opencode-session-v{READER_REVISION}\0{identity}\0{id}\0{cwd}\0{title:?}\0{version}\0{updated_raw}\0{parent_id:?}\0{archived}\0{reverted}\0{projection:?}"
+                "opencode-session-v{READER_REVISION}\0{identity}\0{id}\0{cwd}\0{title:?}\0{version}\0{created_at}\0{updated_raw}\0{parent_id:?}\0{archived}\0{reverted}\0{projection:?}"
             )
             .as_bytes(),
         );
@@ -1214,6 +1218,8 @@ fn read_connection(
             parent_id,
             archived,
             partial: !reviewed_version(&version) || reverted,
+            created_at,
+            version,
             messages: vec![],
             fingerprint,
             identity: identity.to_owned(),

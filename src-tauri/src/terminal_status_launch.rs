@@ -34,7 +34,8 @@ pub fn supported_version(kind: AgentKind, output: &[u8]) -> bool {
         AgentKind::Codex => version[0] == 0 && version.as_slice() >= [0, 163, 0].as_slice(),
         AgentKind::Grok => version[0] == 1 && version.as_slice() >= [1, 0, 52].as_slice(),
         AgentKind::Antigravity => version[0] == 1 && version.as_slice() >= [1, 4, 0].as_slice(),
-        _ => false,
+        AgentKind::Claude => version.as_slice() >= [2, 1, 295].as_slice(),
+        AgentKind::OpenCode => matches!(version.as_slice(), [2, 2, 0..=5]),
     }
 }
 #[cfg(unix)]
@@ -127,7 +128,18 @@ pub fn prepare(kind: AgentKind, spec: &mut LaunchSpec) -> Result<bool, String> {
     // process group is cleaned. Never signal a reaped or guessed PID here.
     runtime.stop(&info.id)?;
     runtime.shutdown()?;
-    let supported = supported_version(kind, &result.map_err(str::to_owned)?);
+    let output = result.map_err(str::to_owned)?;
+    if kind == AgentKind::OpenCode
+        && matches!(
+            crate::opencode_version::parse_version(&output),
+            Some([1, _, _])
+        )
+    {
+        return Err(crate::tr!(
+            "OpenCode 1.x is no longer supported. Install OpenCode 2.x and try again."
+        ));
+    }
+    let supported = supported_version(kind, &output);
     if supported && kind == AgentKind::Antigravity {
         spec.env.insert("AGY_CLI_OSC7501".into(), "on".into());
         spec.env
@@ -191,6 +203,41 @@ mod tests {
     }
     #[cfg(unix)]
     #[test]
+    fn claude_and_opencode_preparation_preserves_native_args_and_environment() {
+        for (kind, version) in [
+            (AgentKind::Claude, "2.1.295"),
+            (AgentKind::OpenCode, "2.2.3"),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let mut spec = synthetic_spec(
+                root.path(),
+                &format!("[ \"$1\" = --version ] || exit 2; printf '{version}\\n'"),
+            );
+            spec.args.extend([
+                "--server".into(),
+                "http://synthetic.invalid".into(),
+                "--pure".into(),
+            ]);
+            spec.env
+                .insert("OPENCODE_CONFIG_CONTENT".into(), "{unchanged}".into());
+            let original = serde_json::to_value(&spec).unwrap();
+            assert!(prepare(kind, &mut spec).unwrap());
+            assert_eq!(serde_json::to_value(&spec).unwrap(), original);
+        }
+    }
+    #[cfg(unix)]
+    #[test]
+    fn removed_opencode_one_x_stays_rejected_without_launch_mutation() {
+        let root = tempfile::tempdir().unwrap();
+        let mut spec = synthetic_spec(root.path(), "printf 'opencode v1.19.5\\n'");
+        let before = serde_json::to_value(&spec).unwrap();
+        assert!(prepare(AgentKind::OpenCode, &mut spec)
+            .unwrap_err()
+            .contains("OpenCode 1.x"));
+        assert_eq!(serde_json::to_value(&spec).unwrap(), before);
+    }
+    #[cfg(unix)]
+    #[test]
     fn version_probe_timeout_and_output_flood_are_bounded() {
         let root = tempfile::tempdir().unwrap();
         let mut spec = synthetic_spec(root.path(), "exec sleep 30");
@@ -206,5 +253,54 @@ mod tests {
         assert!(prepare(AgentKind::Grok, &mut spec)
             .unwrap_err()
             .contains("limit"));
+    }
+}
+
+#[cfg(test)]
+mod osc_provider_tests {
+    use super::*;
+
+    #[test]
+    fn claude_and_opencode_version_boundaries_are_explicit() {
+        for version in ["2.1.295", "2.1.316 (Claude Code)", "2.2.0", "3.0.0"] {
+            assert!(
+                supported_version(AgentKind::Claude, version.as_bytes()),
+                "{version}"
+            );
+        }
+        for version in [
+            "2.1.294",
+            "2.0.999",
+            "1.9.999",
+            "2.1.295-beta",
+            "2.01.295",
+            "2.1.295 2.1.316",
+            "unknown",
+        ] {
+            assert!(
+                !supported_version(AgentKind::Claude, version.as_bytes()),
+                "{version}"
+            );
+        }
+        for version in ["2.2.0", "opencode v2.2.3", "2.2.5"] {
+            assert!(
+                supported_version(AgentKind::OpenCode, version.as_bytes()),
+                "{version}"
+            );
+        }
+        for version in [
+            "1.19.5",
+            "2.1.999",
+            "2.2.6",
+            "2.3.0",
+            "3.0.0",
+            "2.2.3-beta",
+            "unknown",
+        ] {
+            assert!(
+                !supported_version(AgentKind::OpenCode, version.as_bytes()),
+                "{version}"
+            );
+        }
     }
 }
