@@ -4,23 +4,29 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-### Fixed
-
-- Background services now report their build identity. Mismatched services that support atomic idle retirement are safely replaced when their agents end; older services stay available with a translated notice and an explicitly confirmed restart showing the running count, including zero. Reloading after a broker dies reconnects through normal startup instead of surfacing a stale connection error (#183).
+## [0.4.0] - 2026-11-08
 
 ### Changed
 
-- Claude Code and OpenCode 2.x live status now uses OSC 7501 under the existing per-agent opt-in. Claude Code requires 2.1.295 or later; OpenCode keeps the reviewed 2.2.0–2.2.5 gate. Unsupported status versions show process state only. Codex, Grok and Antigravity behavior is unchanged.
-- OpenCode gains question waits and no longer reports failures through live status. Terminal working-to-idle raises completion attention once; initial idle stays quiet. Claude retains only its SessionStart identity hook; OpenCode session identity requires catalog confirmation of its terminal record ID, directory and creation time after launch. The Claude state mod and OpenCode state plugin/config injection are removed.
-- OpenCode history reads only the 2.x tables. Open a pre-2.x database once with OpenCode 2.x to migrate it; Session Bay shows a translated, non-fatal source message until then and never writes history. Migrated sessions with reviewed original 1.x producer versions remain fully readable. The reader revision is now 6 to refresh cached entries.
+- **Agent status uses OSC 7501**, the status sequence the agents themselves print, for Claude Code and OpenCode as it already did for Codex, Grok and Antigravity. Session Bay no longer injects a Claude Code mod or an OpenCode plugin; Claude Code keeps one small hook that only reports its session ID.
+  - Claude Code needs 2.1.295 or later and OpenCode 2.2.0 to 2.2.5 for live status; other versions show process state only.
+  - OpenCode now raises **waiting for an answer**, and no longer raises **failed**, because OpenCode does not report failures this way.
+  - A turn that ends (working → idle) raises **done**.
+- **Background service updates.** Session Bay now notices when its background service comes from another version.
+  - An idle service from 0.4.0 or later is replaced automatically.
+  - An older service, or one with agents still running, stays in use. A notice explains why, and **Restart background service** replaces it after you confirm. The first upgrade from 0.3.x needs this one confirmation.
 
 ### Removed
 
-- OpenCode CLI 1.x support: legacy history readers, live-state plugin, and top-level export/import cleanup paths. Install OpenCode 2.x for live state and cleanup. Existing 1.x exports (including records without a CLI major) remain listed with restore blocked; their files are preserved.
+- **OpenCode CLI 1.x support.** Install OpenCode 2.x.
+  - History that OpenCode 2.x has migrated stays fully readable. A database that 2.x has never opened shows a message asking you to open it once with 2.x.
+  - Session Bay never writes OpenCode history.
+  - Old 1.x exports in the recycle bin stay listed. Their files are kept, but they can no longer be restored.
 
 ### Fixed
 
-- A failed or slow agent version check no longer blocks the launch. The agent starts with process state only, and the reason is logged.
+- A failed or slow agent version check no longer blocks the launch. The agent starts with process state only.
+- Reloading the window after the background service stopped starts a new one instead of showing "Connection refused".
 
 ## [0.3.3] - 2026-11-02
 
@@ -140,7 +146,8 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/wellwind/SessionBay/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/wellwind/SessionBay/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/wellwind/SessionBay/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/wellwind/SessionBay/compare/v0.3.0...v0.3.1

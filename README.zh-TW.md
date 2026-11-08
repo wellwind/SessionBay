@@ -47,6 +47,8 @@ Linux 與 Windows 可以自行從原始碼建置，但還沒有完成發行驗�
 
 **從 0.2.0 升級**：0.3.0 起，開啟 App 會將本機目錄資料庫升級至 **schema v8**，以儲存看板。**升級後，0.2.0 將無法再開啟這個目錄資料庫。** Agent 歷史紀錄不變。在 0.3.x 之間升級不需要遷移資料。
 
+**升級至 0.4.0**：升級後請確認一次**重新啟動背景服務**（會結束正在執行的 Agent），並安裝 OpenCode 2.x：已不再支援 OpenCode 1.x。
+
 **從 0.1.0 升級**：0.2.0 已將 App 身分改為 `dev.fullstackladder.sessionbay`（macOS：`~/Library/Application Support/dev.fullstackladder.sessionbay`）。Session Bay 的舊資料不會遷移；新設定檔會重新開始，並再次讀取 Agent 歷史。macOS 需要再次選擇**強制打開**，並重新授予通知權限。
 
 ## 隱私與資料安全

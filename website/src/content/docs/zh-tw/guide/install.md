@@ -44,6 +44,11 @@ Session Bay 會啟動你本來就在用的 Agent CLI，本身不附帶任何 Age
 
 在 0.3.x 之間升級不需要遷移資料：直接用新的 `.dmg` 覆蓋安裝即可。
 
+### 升級至 0.4.0
+
+- 升級後，Session Bay 會提示背景服務是其他版本。請在沒有 Agent 正在處理重要工作時，按一次**重新啟動背景服務**：重新啟動會結束正在執行的 Agent。之後的升級，閒置的背景服務會自動更換。
+- 已不再支援 OpenCode CLI 1.x。請安裝 OpenCode 2.x，並用 2.x 開啟一次舊的 OpenCode 歷史，讓它完成遷移。
+
 若從 **0.1.0** 升級，請留意 **0.2.0** 已將 App 身分改為 `dev.fullstackladder.sessionbay`。Session Bay 在 0.1.0 的資料不會遷移；新設定檔會重新開始，並再次讀取 Agent 歷史。macOS 需要再次選擇**強制打開**，並重新授予通知權限。
 
 ### 更新或移除 App

@@ -44,6 +44,11 @@ Session Bay launches the agent CLIs you already use; it does not bundle them. In
 
 Upgrading within 0.3.x needs no migration: install the new `.dmg` over the old app.
 
+### Upgrading to 0.4.0
+
+- After the upgrade, Session Bay shows a notice that the background service is from another version. Choose **Restart background service** once, when no agent is doing work you need: the restart ends running agents. Later upgrades replace an idle service automatically.
+- OpenCode CLI 1.x is no longer supported. Install OpenCode 2.x, and open older OpenCode history once with 2.x so it is migrated.
+
 If you are upgrading from **0.1.0**, note that **0.2.0** changed the app identity to `dev.fullstackladder.sessionbay`. Session Bay's data from 0.1.0 is not migrated; the new profile starts fresh and reads your agents' history again. macOS requires **Open Anyway** and notification permission again.
 
 ### Update or remove the app
