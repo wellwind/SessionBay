@@ -149,6 +149,11 @@ export interface Settings {
   shortcuts: Record<string, string>;
   onboardingComplete: boolean;
 }
+export interface BrokerStatus {
+  generation: string;
+  buildMismatch: boolean;
+  runningCount: number;
+}
 export interface Bootstrap {
   runtimes: RuntimeRecord[];
   settings: Settings;

@@ -948,6 +948,11 @@ kbd {
   border: 1px solid #d1a85c29;
   border-radius: 6px;
 }
+.broker-notice {
+  flex-wrap: wrap;
+}
+.broker-notice > svg { flex-shrink: 0; }
+.broker-notice > span { flex: 1 1 320px; }
 .empty-state {
   flex: 1;
   display: flex;
