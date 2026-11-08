@@ -38,6 +38,16 @@ pub fn supported_version(kind: AgentKind, output: &[u8]) -> bool {
         AgentKind::OpenCode => matches!(version.as_slice(), [2, 2, 0..=5]),
     }
 }
+/// Live status is optional: a failed or slow probe must never block the launch.
+/// The agent starts with process state only, and the reason is logged.
+#[cfg(unix)]
+fn skip_live_status(kind: AgentKind, reason: &str) -> bool {
+    eprintln!(
+        "Session Bay: {kind:?} version probe failed ({reason}); launching without live status"
+    );
+    false
+}
+
 #[cfg(unix)]
 pub fn prepare(kind: AgentKind, spec: &mut LaunchSpec) -> Result<bool, String> {
     use crate::runtime::{RuntimeManager, TerminalEvent};
@@ -49,8 +59,13 @@ pub fn prepare(kind: AgentKind, spec: &mut LaunchSpec) -> Result<bool, String> {
     let directory = tempfile::Builder::new()
         .prefix("sessionbay-status-version-")
         .permissions(std::fs::Permissions::from_mode(0o700))
-        .tempdir()
-        .map_err(|_| "Cannot create isolated version probe")?;
+        .tempdir();
+    let Ok(directory) = directory else {
+        return Ok(skip_live_status(
+            kind,
+            "Cannot create isolated version probe",
+        ));
+    };
     let mut env = std::collections::HashMap::new();
     for key in [
         "HOME",
@@ -92,7 +107,11 @@ pub fn prepare(kind: AgentKind, spec: &mut LaunchSpec) -> Result<bool, String> {
                 .send(event)
                 .map_err(|_| "Version probe receiver closed".into())
         }),
-    )?;
+    );
+    let info = match info {
+        Ok(info) => info,
+        Err(error) => return Ok(skip_live_status(kind, &error)),
+    };
     let deadline = Instant::now() + Duration::from_secs(3);
     let result = (|| {
         let mut output = Vec::new();
@@ -126,9 +145,13 @@ pub fn prepare(kind: AgentKind, spec: &mut LaunchSpec) -> Result<bool, String> {
     })();
     // Shared PTY supervision retains waitable ownership until every managed
     // process group is cleaned. Never signal a reaped or guessed PID here.
-    runtime.stop(&info.id)?;
-    runtime.shutdown()?;
-    let output = result.map_err(str::to_owned)?;
+    if let Err(error) = runtime.stop(&info.id).and_then(|()| runtime.shutdown()) {
+        eprintln!("Session Bay: {kind:?} version probe cleanup failed: {error}");
+    }
+    let output = match result {
+        Ok(output) => output,
+        Err(reason) => return Ok(skip_live_status(kind, reason)),
+    };
     if kind == AgentKind::OpenCode
         && matches!(
             crate::opencode_version::parse_version(&output),
@@ -238,21 +261,24 @@ mod tests {
     }
     #[cfg(unix)]
     #[test]
-    fn version_probe_timeout_and_output_flood_are_bounded() {
+    fn version_probe_timeout_and_output_flood_launch_without_live_status() {
+        // A slow or noisy probe is bounded and never blocks the agent launch.
         let root = tempfile::tempdir().unwrap();
-        let mut spec = synthetic_spec(root.path(), "exec sleep 30");
-        let started = std::time::Instant::now();
-        assert!(prepare(AgentKind::Grok, &mut spec)
-            .unwrap_err()
-            .contains("timed out"));
-        assert!(started.elapsed() < std::time::Duration::from_secs(8));
-        let mut spec = synthetic_spec(
-            root.path(),
-            "while :; do printf '0123456789012345678901234567890123456789'; done",
-        );
-        assert!(prepare(AgentKind::Grok, &mut spec)
-            .unwrap_err()
-            .contains("limit"));
+        for (kind, script) in [
+            (AgentKind::Grok, "exec sleep 30"),
+            (AgentKind::Claude, "exec sleep 30"),
+            (
+                AgentKind::Grok,
+                "while :; do printf '0123456789012345678901234567890123456789'; done",
+            ),
+        ] {
+            let mut spec = synthetic_spec(root.path(), script);
+            let original = serde_json::to_value(&spec).unwrap();
+            let started = std::time::Instant::now();
+            assert!(!prepare(kind, &mut spec).unwrap());
+            assert!(started.elapsed() < std::time::Duration::from_secs(8));
+            assert_eq!(serde_json::to_value(&spec).unwrap(), original);
+        }
     }
 }
 

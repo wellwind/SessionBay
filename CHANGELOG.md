@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - OpenCode CLI 1.x support: legacy history readers, live-state plugin, and top-level export/import cleanup paths. Install OpenCode 2.x for live state and cleanup. Existing 1.x exports (including records without a CLI major) remain listed with restore blocked; their files are preserved.
 
+### Fixed
+
+- A failed or slow agent version check no longer blocks the launch. The agent starts with process state only, and the reason is logged.
+
 ## [0.3.3] - 2026-11-02
 
 ### Added

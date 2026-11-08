@@ -627,7 +627,10 @@ impl Host {
                                 terminal_status_enabled =
                                     crate::terminal_status_launch::prepare(provider, &mut spec)?;
                                 if !terminal_status_enabled {
-                                    return Err("This provider version does not support reviewed native terminal status".into());
+                                    status_notice = Some(crate::tr!(
+                                        "Live status needs a reviewed {{agent}} version, and this version could not be confirmed. Showing process state only.",
+                                        agent = if provider == crate::models::AgentKind::Grok { "Grok Build" } else { "Antigravity CLI" }
+                                    ));
                                 }
                             }
                             crate::models::AgentKind::Claude
@@ -642,9 +645,9 @@ impl Host {
                                 if !terminal_status_enabled {
                                     status_notice = Some(
                                         if provider == crate::models::AgentKind::Claude {
-                                            crate::tr!("Live status requires Claude Code 2.1.295 or later. Showing process state only.")
+                                            crate::tr!("Live status needs Claude Code 2.1.295 or later, and this version could not be confirmed. Showing process state only.")
                                         } else {
-                                            crate::tr!("Live status requires OpenCode 2.2.0–2.2.5. Showing process state only.")
+                                            crate::tr!("Live status needs OpenCode 2.2.0–2.2.5, and this version could not be confirmed. Showing process state only.")
                                         },
                                     );
                                 }
