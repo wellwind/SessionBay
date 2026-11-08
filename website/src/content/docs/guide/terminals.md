@@ -29,6 +29,12 @@ Before starting an agent, the dialog shows the exact command line and folder tha
 
 Terminals belong to a background process (the *broker*), not to the window. Closing Session Bay leaves your agents and dev servers running. When you reopen it, every pane reattaches to the same process with its recent output.
 
+After an app update, Session Bay checks the background service's build. If it supports safe replacement and has no running agents, it updates automatically. Otherwise, a workspace notice shows how many agents are running. You can keep working; new agents still use the old service's launch logic until it is replaced. A service that supports safe replacement updates automatically after all its running agents end.
+
+For an immediate update, choose **Restart background service**. The confirmation shows the number of running agents, including **0**, and warns that restarting ends every running agent, terminal and development server across all workspaces. They do not restart automatically. Older services (including those from 0.3.x before this feature) require this confirmed restart even when idle.
+
+If the background service has died, reloading the window starts a new service. Interrupted agents stay interrupted until you start them again.
+
 Terminals keep up to **10,000 lines of scrollback**. Reattaching restores the current screen and up to **1 MiB of the newest scrollback output**; older output may no longer be available.
 
 - **Stop** ends a pane's process. Closing a pane asks before stopping it.

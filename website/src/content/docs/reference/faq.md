@@ -13,7 +13,7 @@ Session Bay checks `PATH` and common install locations, including macOS version-
 
 ### A terminal cannot find node or npm
 
-0.3.0 prevents new terminals from inheriting the launcher's nvm and npm session state. A broker started before the fix keeps its old environment until it restarts. Closing the window does not restart the broker; a Mac restart does. Also check that your shell profile initializes your version manager.
+0.3.0 prevents new terminals from inheriting the launcher's nvm and npm session state. A broker started before the fix keeps its old environment until it restarts. Use **Restart background service** in the version-mismatch notice and confirm the running-agent count; this ends all running agents. Closing the window only detaches. Newer brokers update automatically once their running agents end. Also check that your shell profile initializes your version manager.
 
 ### My history is empty
 
