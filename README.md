@@ -47,6 +47,8 @@ Linux and Windows builds can be produced from source, but they have not been val
 
 **Upgrading from 0.2.0:** 0.3.0 and later upgrade the local catalog to **schema v8** for boards. **0.2.0 can no longer open that catalog afterward.** Agent history is unchanged. Upgrading within 0.3.x needs no migration.
 
+**Upgrading to 0.4.0:** confirm **Restart background service** once after the upgrade (it ends running agents), and install OpenCode 2.x: OpenCode 1.x is no longer supported.
+
 **Upgrading from 0.1.0:** 0.2.0 changed the app identity to `dev.fullstackladder.sessionbay` (on macOS: `~/Library/Application Support/dev.fullstackladder.sessionbay`). Session Bay's earlier data is not migrated; the new profile starts fresh and reads your agents' history again. macOS requires **Open Anyway** and notification permission again.
 
 ## Privacy and data safety
