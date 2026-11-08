@@ -2347,6 +2347,7 @@
   "Live OpenCode status needs reviewed OpenCode 2.2.0 through 2.2.5": "OpenCode 即時狀態需要已審查的 OpenCode 2.2.0 至 2.2.5。",
   "{{agent}} live status": "{{agent}} 即時狀態",
   "Enable live status": "啟用即時狀態",
-  "Live status requires Claude Code 2.1.295 or later. Showing process state only.": "即時狀態需要 Claude Code 2.1.295 以上版本。目前僅顯示程序狀態。",
-  "Live status requires OpenCode 2.2.0–2.2.5. Showing process state only.": "即時狀態需要 OpenCode 2.2.0–2.2.5。目前僅顯示程序狀態。"
+  "Live status needs Claude Code 2.1.295 or later, and this version could not be confirmed. Showing process state only.": "即時狀態需要 Claude Code 2.1.295 以上，但無法確認目前的版本。目前僅顯示程序狀態。",
+  "Live status needs OpenCode 2.2.0–2.2.5, and this version could not be confirmed. Showing process state only.": "即時狀態需要 OpenCode 2.2.0–2.2.5，但無法確認目前的版本。目前僅顯示程序狀態。",
+  "Live status needs a reviewed {{agent}} version, and this version could not be confirmed. Showing process state only.": "即時狀態需要已審查的 {{agent}} 版本，但無法確認目前的版本。目前僅顯示程序狀態。"
 }
