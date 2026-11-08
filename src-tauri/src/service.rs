@@ -67,6 +67,14 @@ pub struct Bootstrap {
     pub runtimes: Vec<RuntimeRecord>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokerStatus {
+    pub generation: String,
+    pub build_mismatch: bool,
+    pub running_count: usize,
+}
+
 pub struct Service {
     pub catalog: Catalog,
     pub config: ConfigStore,
@@ -78,7 +86,7 @@ pub struct Service {
     fresh_launches: Mutex<crate::fresh_launch::FreshLaunches>,
     fresh_launch_control: Arc<crate::fresh_launch::FreshLaunchControl>,
     launch_provenance: Mutex<Option<crate::launch_provenance::LaunchProvenance>>,
-    broker: Option<BrokerClient>,
+    broker: Mutex<Option<BrokerClient>>,
     ui_owner: Mutex<Option<crate::broker::NativeUiLease>>,
     settings: Mutex<Settings>,
     index: Mutex<IndexStatus>,
@@ -137,7 +145,7 @@ impl Service {
             )),
             fresh_launch_control,
             launch_provenance: Mutex::new(None),
-            broker,
+            broker: Mutex::new(broker),
             ui_owner: Mutex::new(None),
             settings: Mutex::new(settings),
             index: Mutex::new(empty_index()),
@@ -239,6 +247,16 @@ impl Service {
         self.git.handle_hosting(&root, request)
     }
     pub fn bootstrap(&self) -> Result<Bootstrap, String> {
+        // The native service survives WebView reloads. Revalidate its connection
+        // through the same ownership-checked connect/start path before listing.
+        if self
+            .broker
+            .lock()
+            .map_err(|_| "Broker lock unavailable")?
+            .is_some()
+        {
+            self.background_service_status()?;
+        }
         let settings = self.settings()?;
         let (workspace, warning) = self.config.load_workspace();
         let mut warnings = self.warnings.clone();
@@ -295,7 +313,12 @@ impl Service {
             })?)
         };
         settings.validate()?;
-        if let Some(broker) = &self.broker {
+        if let Some(broker) = self
+            .broker
+            .lock()
+            .map_err(|_| "Broker lock unavailable")?
+            .as_ref()
+        {
             for kind in AgentKind::ALL {
                 if !settings.is_agent_hooks_enabled(kind) {
                     broker.revoke_provider_hooks(kind)?;
@@ -433,6 +456,8 @@ impl Service {
     pub fn list_runtimes(&self) -> Result<Vec<RuntimeRecord>, String> {
         let records = self
             .broker
+            .lock()
+            .map_err(|_| "Broker lock unavailable")?
             .as_ref()
             .map(|broker| broker.list())
             .transpose()?
@@ -505,7 +530,12 @@ impl Service {
     }
 
     pub fn reconcile_kanban_launches(&self) -> Result<(), String> {
-        if let Some(broker) = &self.broker {
+        if let Some(broker) = self
+            .broker
+            .lock()
+            .map_err(|_| "Broker lock unavailable")?
+            .as_ref()
+        {
             for record in self.correlate_runtime_identities(broker.list()?)? {
                 if let Some(external) = record.provider_session_id {
                     self.catalog
@@ -851,10 +881,92 @@ impl Service {
         }
         Ok(None)
     }
-    pub fn broker(&self) -> Result<&BrokerClient, String> {
+    pub fn broker(&self) -> Result<BrokerClient, String> {
         self.broker
-            .as_ref()
+            .lock()
+            .map_err(|_| "Broker lock unavailable")?
+            .clone()
             .ok_or_else(|| "Persistent runtime broker is not connected".into())
+    }
+    fn replace_broker(&self, slot: &mut Option<BrokerClient>) -> Result<(), String> {
+        let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+        self.install_broker(
+            slot,
+            BrokerClient::connect(&self.config.directory, &executable)?,
+        )
+    }
+    fn install_broker(
+        &self,
+        slot: &mut Option<BrokerClient>,
+        client: BrokerClient,
+    ) -> Result<(), String> {
+        let owner = client.start_ui_owner()?;
+        *self
+            .ui_owner
+            .lock()
+            .map_err(|_| "UI owner lock unavailable")? = owner;
+        if let Some(old) = slot.replace(client) {
+            old.detach_all();
+        }
+        Ok(())
+    }
+    pub fn background_service_status(&self) -> Result<BrokerStatus, String> {
+        let mut slot = self.broker.lock().map_err(|_| "Broker lock unavailable")?;
+        let client = slot
+            .as_ref()
+            .ok_or("Persistent runtime broker is not connected")?;
+        let replace = match client.running_count() {
+            Ok(count) => {
+                client.build_mismatch()? && count == 0 && client.retire_if_idle().unwrap_or(true)
+            }
+            Err(_) => true,
+        };
+        if replace {
+            self.replace_broker(&mut slot)?;
+        }
+        Self::broker_status(
+            slot.as_ref()
+                .ok_or("Persistent runtime broker is not connected")?,
+        )
+    }
+    fn broker_status(client: &BrokerClient) -> Result<BrokerStatus, String> {
+        Ok(BrokerStatus {
+            generation: client.generation(),
+            build_mismatch: client.build_mismatch()?,
+            running_count: client.running_count()?,
+        })
+    }
+    /// Renderer confirmation is required, and generation fences a stale dialog.
+    pub fn restart_background_service(
+        &self,
+        generation: &str,
+        confirmed: bool,
+    ) -> Result<BrokerStatus, String> {
+        self.restart_background_service_with(generation, confirmed, |slot| {
+            self.replace_broker(slot)
+        })
+    }
+    fn restart_background_service_with(
+        &self,
+        generation: &str,
+        confirmed: bool,
+        replace: impl FnOnce(&mut Option<BrokerClient>) -> Result<(), String>,
+    ) -> Result<BrokerStatus, String> {
+        if !confirmed {
+            return Err("Background service restart requires confirmation".into());
+        }
+        let mut slot = self.broker.lock().map_err(|_| "Broker lock unavailable")?;
+        let client = slot
+            .as_ref()
+            .ok_or("Persistent runtime broker is not connected")?;
+        if client.generation() == generation {
+            client.shutdown_broker()?;
+            replace(&mut slot)?;
+        }
+        Self::broker_status(
+            slot.as_ref()
+                .ok_or("Persistent runtime broker is not connected")?,
+        )
     }
     /// Mint and validate a genuinely fresh identity without disturbing existing broker runtimes.
     pub fn launch_fresh(&self, request: &LaunchRequest) -> Result<RuntimeInfo, String> {
@@ -887,7 +999,7 @@ impl Service {
             );
             fresh.launch_with_context(
                 request,
-                broker,
+                &broker,
                 |request| self.plan_launch(request),
                 |generation, record| {
                     let mut provenance = self
@@ -1078,7 +1190,12 @@ impl Service {
     }
     pub fn shutdown(&self) -> Result<(), String> {
         self.cancel.store(true, Ordering::Release);
-        if let Some(broker) = &self.broker {
+        if let Some(broker) = self
+            .broker
+            .lock()
+            .map_err(|_| "Broker lock unavailable")?
+            .as_ref()
+        {
             broker.detach_all();
         }
         self.runtime.shutdown()?;
@@ -1783,5 +1900,105 @@ mod terminal_identity_tests {
             .opencode_runtime_identity(&record)
             .unwrap()
             .is_none());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod broker_replacement_tests {
+    use super::*;
+    use std::{thread, time::Instant};
+
+    fn start(parent: &std::path::Path) -> (BrokerClient, thread::JoinHandle<()>) {
+        let root = parent.to_path_buf();
+        let worker = thread::spawn(move || crate::broker::run(root).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Ok(client) = BrokerClient::existing_for_test(parent) {
+                return (client, worker);
+            }
+            assert!(Instant::now() < deadline, "synthetic broker did not start");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn restart_requires_confirmation_fences_stale_dialog_and_replaces_after_confirmation() {
+        for running in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let (client, old) = start(root.path());
+            let generation = client.generation();
+            if running {
+                let request = LaunchRequest {
+                    kanban_card_id: None,
+                    pane_id: "synthetic-confirmation".into(),
+                    kind: "shell".into(),
+                    project_id: None,
+                    session_id: None,
+                    resume_id: None,
+                    cwd: Some(root.path().to_string_lossy().into_owned()),
+                    profile_id: None,
+                    cols: 80,
+                    rows: 24,
+                };
+                client
+                    .launch_unattached(
+                        LaunchSpec {
+                            executable: "/bin/sh".into(),
+                            args: vec!["-c".into(), "read value".into()],
+                            cwd: root.path().into(),
+                            env: HashMap::new(),
+                            session_id: None,
+                            resume_key: None,
+                            pane_id: request.pane_id.clone(),
+                        },
+                        &request,
+                    )
+                    .unwrap();
+            }
+            let service = Service::open_internal(root.path().into(), Some(client), vec![]).unwrap();
+            assert!(service
+                .restart_background_service_with(&generation, false, |_| panic!(
+                    "unconfirmed restart"
+                ))
+                .is_err());
+            assert_eq!(service.broker().unwrap().generation(), generation);
+            let status = service
+                .restart_background_service_with("stale-dialog", true, |_| panic!("stale restart"))
+                .unwrap();
+            assert_eq!(status.generation, generation);
+            assert_eq!(status.running_count, usize::from(running));
+            let mut replacement = None;
+            let status = service
+                .restart_background_service_with(&generation, true, |slot| {
+                    old.join().unwrap();
+                    let (client, worker) = start(root.path());
+                    replacement = Some(worker);
+                    service.install_broker(slot, client)
+                })
+                .unwrap();
+            assert_ne!(status.generation, generation);
+            assert_eq!(status.running_count, 0);
+            service.broker().unwrap().shutdown_broker().unwrap();
+            replacement.unwrap().join().unwrap();
+        }
+    }
+
+    #[test]
+    fn window_reload_bootstrap_reconnects_a_native_service_with_a_dead_client() {
+        let root = tempfile::tempdir().unwrap();
+        let (dead, old) = start(root.path());
+        let service =
+            Service::open_internal(root.path().into(), Some(dead.clone()), vec![]).unwrap();
+        dead.shutdown_broker().unwrap();
+        old.join().unwrap();
+        assert!(dead.list().is_err());
+        let (replacement, worker) = start(root.path());
+        assert!(service.bootstrap().is_ok());
+        assert_eq!(
+            service.broker().unwrap().generation(),
+            replacement.generation()
+        );
+        replacement.shutdown_broker().unwrap();
+        worker.join().unwrap();
     }
 }

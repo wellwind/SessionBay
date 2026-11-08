@@ -883,6 +883,22 @@ async fn stop_runtime(state: AppState<'_>, runtime_id: String) -> Result<(), Str
     blocking(move || s.broker()?.stop(&runtime_id)).await
 }
 #[tauri::command]
+async fn background_service_status(
+    state: AppState<'_>,
+) -> Result<crate::service::BrokerStatus, String> {
+    let s = state.inner().clone();
+    blocking(move || s.background_service_status()).await
+}
+#[tauri::command]
+async fn restart_background_service(
+    state: AppState<'_>,
+    generation: String,
+    confirmed: bool,
+) -> Result<crate::service::BrokerStatus, String> {
+    let s = state.inner().clone();
+    blocking(move || s.restart_background_service(&generation, confirmed)).await
+}
+#[tauri::command]
 async fn list_runtimes(state: AppState<'_>) -> Result<Vec<RuntimeRecord>, String> {
     let s = state.inner().clone();
     blocking(move || s.list_runtimes()).await
@@ -1145,6 +1161,8 @@ pub fn run() {
             ack_runtime,
             stop_runtime,
             list_runtimes,
+            background_service_status,
+            restart_background_service,
             close_application
         ])
         .build(tauri::generate_context!())

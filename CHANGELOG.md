@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Background services now report their build identity. Mismatched services that support atomic idle retirement are safely replaced when their agents end; older services stay available with a translated notice and an explicitly confirmed restart showing the running count, including zero. Reloading after a broker dies reconnects through normal startup instead of surfacing a stale connection error (#183).
+
 ### Changed
 
 - Claude Code and OpenCode 2.x live status now uses OSC 7501 under the existing per-agent opt-in. Claude Code requires 2.1.295 or later; OpenCode keeps the reviewed 2.2.0–2.2.5 gate. Unsupported status versions show process state only. Codex, Grok and Antigravity behavior is unchanged.

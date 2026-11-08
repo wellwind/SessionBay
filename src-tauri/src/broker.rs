@@ -7,6 +7,7 @@ mod preflight;
 pub(crate) use preflight::LaunchPreflightError;
 mod provider_hooks;
 pub use provider_hooks::{send_provider_callback, send_provider_state};
+mod build_identity;
 mod retirement;
 mod screen;
 mod storage;
@@ -29,6 +30,7 @@ pub(crate) use ui_owner::NativeUiLease;
 use uuid::Uuid;
 
 pub const PROTOCOL: u32 = 1;
+const IDLE_RETIRE_CAPABILITY: &str = "idle-retire-v1";
 const ACTIVITY_CAPABILITY: &str = "orderedAgentActivity";
 const TERMINAL_STATUS_CAPABILITY: &str = "nativeTerminalStatusV1";
 const HOME_DIRECTORY_CAPABILITY: &str = "homeDirectory";
@@ -236,6 +238,9 @@ enum Request {
         generation: String,
         runtime_id: String,
     },
+    Retire {
+        generation: String,
+    },
     /// Explicit process-management action, never used by desktop close/drop.
     Shutdown {
         generation: String,
@@ -263,7 +268,8 @@ impl Request {
             | Self::Resize { generation, .. }
             | Self::Stop { generation, .. }
             | Self::Forget { generation, .. }
-            | Self::Shutdown { generation } => Some(generation),
+            | Self::Shutdown { generation }
+            | Self::Retire { generation } => Some(generation),
         }
     }
 }
@@ -285,6 +291,11 @@ enum Response {
         capabilities: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ui_lease_offer: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        build_identity: Option<String>,
+    },
+    Retired {
+        retired: bool,
     },
     UiLease {
         lease: String,
@@ -310,6 +321,7 @@ struct Entry {
     screen: Option<Arc<Mutex<screen::TerminalScreen>>>,
 }
 struct Host {
+    build_identity: String,
     generation: String,
     directory: PathBuf,
     runtime: Arc<RuntimeManager>,
@@ -383,6 +395,7 @@ impl Host {
             }
         }
         let host = Arc::new(Self {
+            build_identity: build_identity::current()?.into(),
             generation: Uuid::new_v4().to_string(),
             directory,
             runtime: Arc::new(RuntimeManager::new()),
@@ -507,7 +520,9 @@ impl Host {
                 Ok(Response::Hello {
                     protocol: PROTOCOL,
                     generation: self.generation.clone(),
+                    build_identity: Some(self.build_identity.clone()),
                     capabilities: vec![
+                        IDLE_RETIRE_CAPABILITY.into(),
                         ui_lease::CAPABILITY.into(),
                         HOME_DIRECTORY_CAPABILITY.into(),
                         ACTIVITY_CAPABILITY.into(),
@@ -908,6 +923,9 @@ impl Host {
                 self.persist()?;
                 Ok(Response::Ok)
             }
+            Request::Retire { .. } => {
+                Err("Retirement requires the isolated IPC admission path".into())
+            }
             Request::Shutdown { .. } => {
                 self.runtime.shutdown()?;
                 self.persist()?;
@@ -1032,6 +1050,19 @@ async fn serve(mut stream: Stream, host: Arc<Host>) -> Result<(), String> {
         match serde_json::from_slice::<Request>(&bytes) {
             Ok(request @ Request::OpenOrderedActivity { .. }) => {
                 return activity::serve_publisher(stream, host, request).await;
+            }
+            Ok(Request::Retire { generation }) => {
+                if generation != host.generation {
+                    Response::Error {
+                        message: "Runtime broker generation changed".into(),
+                    }
+                } else {
+                    // Exactly the accept and serve admissions may remain. Any unread
+                    // request or launch preparation defers retirement without sending signals.
+                    let retired = host.persist().is_ok() && host.try_update_exit(2);
+                    shutting_down = retired;
+                    Response::Retired { retired }
+                }
             }
             Ok(request) => {
                 let shutdown = matches!(request, Request::Shutdown { .. });
@@ -1322,3 +1353,6 @@ mod terminal_status_tests;
 
 #[cfg(all(test, unix))]
 mod lifecycle_foundation_tests;
+
+#[cfg(test)]
+mod build_replacement_tests;

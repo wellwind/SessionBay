@@ -1,4 +1,4 @@
-//! Virgin-only retirement. Any broker work attempt permanently removes eligibility.
+//! Virgin-only idle retirement and explicitly requested, atomic build replacement.
 use super::*;
 
 pub(super) struct Policy {
@@ -96,6 +96,29 @@ impl Host {
         }
         // Drop the UI guard before touching lifecycle; no inverse lock order.
         self.mark_fault();
+    }
+    pub(super) fn try_update_exit(&self, own_admissions: usize) -> bool {
+        let Ok(_writer) = self.persisted.try_lock() else {
+            return false;
+        };
+        let Ok(mut gate) = self.retirement.lock() else {
+            return false;
+        };
+        if gate.sealed
+            || gate.in_flight != own_admissions
+            || self.shutdown.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return false;
+        }
+        // Build replacement is requested by a connected app, unlike virgin-only
+        // unattended retirement. Completed records and UI leases may survive it.
+        if self.runtime.try_close_if_finished().is_err() {
+            return false;
+        }
+        gate.sealed = true;
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::Release);
+        true
     }
     pub(super) fn try_idle_exit(&self) -> bool {
         // Same writer -> lifecycle order as persist. Busy maintenance does not

@@ -33,6 +33,10 @@ impl Subscription {
 struct Inner {
     directory: PathBuf,
     generation: String,
+    build_identity: Option<String>,
+    // The build this client would start; a broker of any other build is stale.
+    expected_build_identity: String,
+    idle_retire_supported: bool,
     home_directory_supported: bool,
     activity_supported: bool,
     terminal_status_supported: bool,
@@ -94,10 +98,23 @@ impl BrokerClient {
         Err("Runtime broker has not released its ownership lock after explicit stop".into())
     }
     pub fn connect(parent: &Path, executable: &Path) -> Result<Self, String> {
-        Self::connect_with_start(parent, || Self::spawn_broker(parent, executable))
+        // An unreadable executable cannot start a broker either; report that later, in order.
+        let expected = match super::build_identity::of(executable) {
+            Ok(identity) => identity,
+            Err(_) => super::build_identity::current()?.into(),
+        };
+        Self::connect_expecting(parent, expected, || Self::spawn_broker(parent, executable))
     }
+    #[cfg(test)]
     pub(super) fn connect_with_start(
         parent: &Path,
+        start: impl FnOnce() -> Result<ChildExit, String>,
+    ) -> Result<Self, String> {
+        Self::connect_expecting(parent, super::build_identity::current()?.into(), start)
+    }
+    fn connect_expecting(
+        parent: &Path,
+        expected: String,
         start: impl FnOnce() -> Result<ChildExit, String>,
     ) -> Result<Self, String> {
         let directory = transport::private_directory(parent).map_err(|e| e.to_string())?;
@@ -106,8 +123,24 @@ impl BrokerClient {
         let mut child_exit = None;
         let mut last_error = String::new();
         while Instant::now() < deadline {
-            match Self::existing(&directory) {
-                Ok(client) => return Ok(client),
+            match Self::existing(&directory).map(|client| client.expecting(&expected)) {
+                Ok(client) => {
+                    let keep = (|| {
+                        Ok::<_, String>(
+                            !client.build_mismatch()?
+                                || client.running_count()? != 0
+                                || !client.retire_if_idle()?,
+                        )
+                    })();
+                    match keep {
+                        Ok(true) => return Ok(client),
+                        Ok(false) => (),
+                        Err(error) => last_error = error,
+                    }
+                    // A successful retirement still owns its reply and lock. Retry
+                    // the normal ownership-checked startup path until both are released.
+                    // Death between Hello/List/Retire also returns to normal startup.
+                }
                 Err(error) => last_error = error,
             }
             if Instant::now() >= deadline {
@@ -184,17 +217,23 @@ impl BrokerClient {
             exchange(directory, &Request::Hello { protocol: PROTOCOL })?,
         )
     }
-    fn from_hello(directory: &Path, response: Response) -> Result<Self, String> {
+    pub(super) fn from_hello(directory: &Path, response: Response) -> Result<Self, String> {
         match response {
             Response::Hello {
                 protocol: PROTOCOL,
                 generation,
                 capabilities,
                 ui_lease_offer,
+                build_identity,
             } => Ok(Self {
                 inner: Arc::new(Inner {
                     directory: directory.into(),
                     generation,
+                    build_identity,
+                    expected_build_identity: super::build_identity::current()?.into(),
+                    idle_retire_supported: capabilities
+                        .iter()
+                        .any(|value| value == super::IDLE_RETIRE_CAPABILITY),
                     home_directory_supported: capabilities
                         .iter()
                         .any(|value| value == HOME_DIRECTORY_CAPABILITY),
@@ -279,6 +318,43 @@ impl BrokerClient {
             return Err("The runtime broker does not support ordered activity publishers".into());
         }
         OrderedActivityPublisher::open(self, runtime_id, provider, provider_session_id)
+    }
+    pub fn build_mismatch(&self) -> Result<bool, String> {
+        Ok(!self.inner.idle_retire_supported
+            || self.inner.build_identity.as_deref()
+                != Some(self.inner.expected_build_identity.as_str()))
+    }
+    /// A freshly handshaken client has no other owners, so its expectation can still change.
+    fn expecting(mut self, expected: &str) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.expected_build_identity = expected.into();
+        }
+        self
+    }
+    pub fn running_count(&self) -> Result<usize, String> {
+        Ok(self
+            .list()?
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.info.state.as_str(),
+                    "running" | "stopping" | "unknown"
+                )
+            })
+            .count())
+    }
+    pub fn retire_if_idle(&self) -> Result<bool, String> {
+        // Legacy Shutdown kills runtimes and cannot close the List/Launch race.
+        // Only an explicit user-confirmed restart may use that older request.
+        if !self.inner.idle_retire_supported {
+            return Ok(false);
+        }
+        match self.request(Request::Retire {
+            generation: self.generation(),
+        })? {
+            Response::Retired { retired } => Ok(retired),
+            _ => Err("Invalid runtime retirement response".into()),
+        }
     }
     pub fn list(&self) -> Result<Vec<RuntimeRecord>, String> {
         match self.request(Request::List {

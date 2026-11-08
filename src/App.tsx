@@ -5,6 +5,7 @@ import type { FileReference, Pane as FileLinkPane } from './types';
 import { RuntimeActivityProvider, RuntimeActivityIndicator } from './components/RuntimeActivity';
 import { AttentionNotifier } from './components/AttentionNotifier';
 import { UpdateNotice } from './components/UpdateNotice';
+import { BrokerNotice } from './components/BrokerNotice';
 import { projectOpenCount, tabRuntimeSummary } from './project-runtime';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -150,6 +151,7 @@ interface Confirmation {
   text: string;
   action: () => Promise<void>;
   onCancel?: () => void;
+  confirmLabel?: string;
 }
 const noIndex: IndexStatus = {
   running: false,
@@ -1788,6 +1790,16 @@ function AppContent() {
             </div>
           ) : (
             <>
+              <BrokerNotice enabled={ready && desktop} onRestart={(status) => setConfirmation({
+                title: t('Restart background service'),
+                text: t('Restart the background service? {{count}} agents are running. This ends all running agents across every workspace, including terminals and development servers. They will not restart automatically.', { count: status.runningCount }),
+                confirmLabel: t('End agents and restart'),
+                action: async () => {
+                  await api.restartBackgroundService(status.generation, true);
+                  const records = await api.runtimes();
+                  setWorkspace((current) => reconcileRuntimes(current, records));
+                },
+              })} />
               {current && !current.exists && (
                 <div className="project-warning">
                   <AlertTriangle size={15} />
@@ -2331,7 +2343,7 @@ function AppContent() {
                   .finally(() => { confirmationLock.current = false; setBusy(false); });
               }}
             >
-              {busy ? t('Working…') : t('End and close')}
+              {busy ? t('Working…') : confirmation.confirmLabel ?? t('End and close')}
             </button>
           </div>
         </Dialog>

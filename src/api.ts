@@ -11,6 +11,7 @@ import type {
   AgentKind,
   HistorySourceDiscovery,
   Bootstrap,
+  BrokerStatus,
   IndexStatus,
   Installation,
   LaunchRequest,
@@ -52,6 +53,9 @@ export const api = {
     await getCurrentWebview().setZoom(percent / 100);
   },
   bootstrap: () => call<Bootstrap>('bootstrap'),
+  backgroundServiceStatus: () => call<BrokerStatus>('background_service_status'),
+  restartBackgroundService: (generation: string, confirmed: boolean) =>
+    call<BrokerStatus>('restart_background_service', { generation, confirmed }),
   importProductionProfile: () => call<Settings>('import_production_profile'),
   detect: () => call<Installation[]>('detect_installations'),
   detectShells: () => call<ShellCandidate[]>('detect_shells'),

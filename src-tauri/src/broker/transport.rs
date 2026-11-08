@@ -469,11 +469,28 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
+    /// Store initialization takes and releases the lock; a child that another test
+    /// thread forks at that moment holds a copy until it execs, so wait it out.
+    fn lock_fresh_store(directory: &Path) -> File {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            match lock(directory) {
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                result => return result.unwrap(),
+            }
+        }
+    }
+
     #[test]
     fn private_listener_connects_and_authenticates_with_owner_only_permissions() {
         let parent = tempfile::tempdir().unwrap();
         let directory = private_directory(parent.path()).unwrap();
-        let _ownership = lock(&directory).unwrap();
+        let _ownership = lock_fresh_store(&directory);
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

@@ -81,6 +81,31 @@ fn seal(registry: &mut Registry) -> Result<(), RuntimeQuiescence> {
 }
 
 impl RuntimeManager {
+    /// Seal launch admission for a requested build replacement, without signaling
+    /// any process. A completed supervisor is required for every retained runtime.
+    pub(crate) fn try_close_if_finished(&self) -> Result<(), RuntimeQuiescence> {
+        let mut registry = self
+            .registry
+            .lock()
+            .map_err(|_| RuntimeQuiescence::Unverified)?;
+        if registry.cleanup_uncertain {
+            return Err(RuntimeQuiescence::Unverified);
+        }
+        for runtime in registry.runtimes.values() {
+            let control = runtime
+                .control
+                .lock()
+                .map_err(|_| RuntimeQuiescence::Unverified)?;
+            if !control.done {
+                return Err(RuntimeQuiescence::Active);
+            }
+            if control.cleanup_error.is_some() {
+                return Err(RuntimeQuiescence::Unverified);
+            }
+        }
+        registry.shutting_down = true;
+        Ok(())
+    }
     /// Snapshot only. It says nothing about UI leases, broker request preparation,
     /// historical metadata, or other owners, and cannot authorize broker exit.
     pub fn quiescence(&self) -> RuntimeQuiescence {
@@ -136,6 +161,42 @@ mod tests {
             runtimes: HashMap::from([("synthetic".into(), runtime)]),
             ..Registry::default()
         }
+    }
+
+    #[test]
+    fn requested_replacement_requires_finished_supervisors_and_never_signals_them() {
+        for (done, error, expected) in [
+            (false, None, Err(RuntimeQuiescence::Active)),
+            (
+                true,
+                Some("synthetic cleanup error"),
+                Err(RuntimeQuiescence::Unverified),
+            ),
+            (true, None, Ok(())),
+        ] {
+            let manager = RuntimeManager::new();
+            // A public exited label alone cannot authorize replacement.
+            let runtime = record("exited", done, false, error);
+            *manager.registry.lock().unwrap() = registry_with(runtime.clone());
+            assert_eq!(manager.try_close_if_finished(), expected);
+            assert_eq!(
+                manager.registry.lock().unwrap().shutting_down,
+                expected.is_ok()
+            );
+            assert!(!runtime.control.lock().unwrap().stop_requested);
+            runtime.control.lock().unwrap().done = true;
+        }
+    }
+
+    #[test]
+    fn requested_replacement_preserves_unknown_rollback_and_pruning_evidence() {
+        let manager = RuntimeManager::new();
+        manager.registry.lock().unwrap().cleanup_uncertain = true;
+        assert_eq!(
+            manager.try_close_if_finished(),
+            Err(RuntimeQuiescence::Unverified)
+        );
+        assert!(!manager.registry.lock().unwrap().shutting_down);
     }
 
     #[test]

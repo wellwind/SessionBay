@@ -44,6 +44,8 @@ vi.mock('./api', () => ({
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
   api: {
     bootstrap: vi.fn(),
+    backgroundServiceStatus: vi.fn(),
+    restartBackgroundService: vi.fn(),
     kanbanBoard: vi.fn(),
     listWorkspaceFiles: vi.fn(),
     searchWorkspaceFiles: vi.fn().mockResolvedValue({ paths: [], truncated: false }),
@@ -250,6 +252,8 @@ async function nativeClose() {
 }
 
 beforeEach(() => {
+  vi.mocked(api.backgroundServiceStatus).mockResolvedValue({ generation: 'synthetic-current', buildMismatch: false, runningCount: 0 });
+  vi.mocked(api.restartBackgroundService).mockReset().mockResolvedValue({ generation: 'synthetic-current', buildMismatch: false, runningCount: 0 });
   vi.mocked(api.listWorkspaceFiles).mockResolvedValue({ entries: [], nextOffset: null });
   vi.mocked(canPickDirectory).mockReturnValue(false);
   vi.mocked(pickDirectory).mockReset();
@@ -3788,4 +3792,47 @@ it('opens the full board from the command palette and returns to terminals by se
   fireEvent.click(document.querySelector<HTMLButtonElement>('.workspace-tab-select')!);
   expect(document.querySelector('.project-board')).not.toBeInTheDocument();
   expect(screen.getByTestId('workspace-canvas')).toBeVisible();
+});
+
+
+describe('background service build notice and shared restart confirmation', () => {
+  it.each([0, 2])('requires explicit confirmation with %i running agents, then reconciles panes', async (count) => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.backgroundServiceStatus).mockResolvedValue({ generation: 'synthetic-old', buildMismatch: true, runningCount: count });
+    vi.mocked(api.runtimes).mockResolvedValue([brokerRecord({ state: 'interrupted' })]);
+    render(<App />); await tick();
+    const notice = screen.getByText(/背景服務來自另一個版本/);
+    expect(notice).toHaveTextContent(`目前有 ${count} 個 Agent 正在執行`);
+    expect(notice).toHaveTextContent('新 Agent 仍使用舊版啟動邏輯');
+    expect(notice).toHaveTextContent('所有執行中的 Agent 結束後便會自動更新');
+    const open = () => fireEvent.click(screen.getByRole('button', { name: '重新啟動背景服務' }));
+    open();
+    let dialog = screen.getByRole('dialog', { name: '重新啟動背景服務' });
+    expect(dialog).toHaveTextContent(`目前有 ${count} 個 Agent 正在執行`);
+    expect(dialog).toHaveTextContent('所有工作區');
+    expect(api.restartBackgroundService).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    expect(api.restartBackgroundService).not.toHaveBeenCalled();
+    open();
+    dialog = screen.getByRole('dialog', { name: '重新啟動背景服務' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '結束 Agent 並重新啟動' }));
+    await tick();
+    expect(api.restartBackgroundService).toHaveBeenCalledExactlyOnceWith('synthetic-old', true);
+    expect(screen.queryByRole('dialog', { name: '重新啟動背景服務' })).not.toBeInTheDocument();
+    expect(api.runtimes).toHaveBeenCalled();
+    vi.mocked(api.backgroundServiceStatus).mockResolvedValue({ generation: 'synthetic-current', buildMismatch: false, runningCount: 0 });
+    await tick(2000);
+    expect(screen.queryByText(/背景服務來自另一個版本/)).not.toBeInTheDocument();
+  });
+  it('retains the notice and confirmation when restarting fails', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    vi.mocked(api.backgroundServiceStatus).mockResolvedValue({ generation: 'synthetic-old', buildMismatch: true, runningCount: 1 });
+    vi.mocked(api.restartBackgroundService).mockRejectedValue(new Error('Synthetic restart failure'));
+    render(<App />); await tick();
+    fireEvent.click(screen.getByRole('button', { name: '重新啟動背景服務' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '重新啟動背景服務' })).getByRole('button', { name: '結束 Agent 並重新啟動' }));
+    await tick();
+    expect(screen.getByRole('dialog', { name: '重新啟動背景服務' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Synthetic restart failure');
+  });
 });

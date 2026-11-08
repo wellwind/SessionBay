@@ -204,6 +204,7 @@ fn home_policy_validation_and_generation_authority_are_preserved() {
     let client = BrokerClient::from_hello(
         Path::new("/unused"),
         Response::Hello {
+            build_identity: None,
             protocol: PROTOCOL,
             generation: host.generation.clone(),
             capabilities: vec![HOME_DIRECTORY_CAPABILITY.into()],
@@ -244,6 +245,7 @@ fn legacy_encoded_global_shell_launches_resolved_home_without_a_project() {
     let client = BrokerClient::from_hello(
         Path::new("/unused"),
         Response::Hello {
+            build_identity: None,
             protocol: PROTOCOL,
             generation: host.generation.clone(),
             capabilities: vec![],

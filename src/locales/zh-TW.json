@@ -2349,5 +2349,9 @@
   "Enable live status": "啟用即時狀態",
   "Live status needs Claude Code 2.1.295 or later, and this version could not be confirmed. Showing process state only.": "即時狀態需要 Claude Code 2.1.295 以上，但無法確認目前的版本。目前僅顯示程序狀態。",
   "Live status needs OpenCode 2.2.0–2.2.5, and this version could not be confirmed. Showing process state only.": "即時狀態需要 OpenCode 2.2.0–2.2.5，但無法確認目前的版本。目前僅顯示程序狀態。",
-  "Live status needs a reviewed {{agent}} version, and this version could not be confirmed. Showing process state only.": "即時狀態需要已審查的 {{agent}} 版本，但無法確認目前的版本。目前僅顯示程序狀態。"
+  "Live status needs a reviewed {{agent}} version, and this version could not be confirmed. Showing process state only.": "即時狀態需要已審查的 {{agent}} 版本，但無法確認目前的版本。目前僅顯示程序狀態。",
+  "The background service is from another version. {{count}} agents are running. New agents still use the old launch logic. It updates automatically once all running agents end, if supported by this service. Older services require a confirmed restart.": "背景服務來自另一個版本。目前有 {{count}} 個 Agent 正在執行。新 Agent 仍使用舊版啟動邏輯。若服務支援，所有執行中的 Agent 結束後便會自動更新；較舊的服務需要確認後重新啟動。",
+  "Restart background service": "重新啟動背景服務",
+  "Restart the background service? {{count}} agents are running. This ends all running agents across every workspace, including terminals and development servers. They will not restart automatically.": "要重新啟動背景服務嗎？目前有 {{count}} 個 Agent 正在執行。這會結束所有工作區中執行的 Agent，包括終端機與開發伺服器，且不會自動重新啟動它們。",
+  "End agents and restart": "結束 Agent 並重新啟動"
 }
