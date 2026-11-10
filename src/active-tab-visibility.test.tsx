@@ -14,12 +14,13 @@ it('reveals a changed selection in the strip only, handles zoom, and leaves outp
   const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(200);
   const { container, rerender } = render(<Fixture active="a" />);
   const strip = container.firstElementChild!;
-  expect(strip.scrollLeft).toBeCloseTo(160 / 1.5);
+  // 160 / 1.5 rounds up so a fractional remainder never leaves the tab clipped.
+  expect(strip.scrollLeft).toBe(Math.ceil(160 / 1.5));
   strip.scrollLeft = 12;
   rerender(<Fixture active="a" output="new terminal output" />);
   expect(strip.scrollLeft).toBe(12);
   rerender(<Fixture active="b" />);
-  expect(strip.scrollLeft).toBeCloseTo(12 + 160 / 1.5);
+  expect(strip.scrollLeft).toBe(12 + Math.ceil(160 / 1.5));
   expect(document.documentElement.scrollLeft).toBe(0);
   expect(document.documentElement.scrollTop).toBe(0);
   rect.mockRestore(); offset.mockRestore(); client.mockRestore();

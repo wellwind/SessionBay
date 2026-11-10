@@ -412,6 +412,7 @@ impl Catalog {
         if version < 8 {
             kanban::migrate_actions(&mut conn)?;
         }
+        kanban::canonicalize_columns(&mut conn)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

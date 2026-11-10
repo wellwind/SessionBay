@@ -47,9 +47,9 @@
   "{{count}} source problems_one": "{{count}} source problem",
   "{{count}} staged files_one": "{{count}} staged file",
   "{{count}} tabs_one": "{{count}} tab",
-  "{{count}} new sessions_one": "{{count}} new session",
   "Archived automatically after {{count}} days_one": "Archived automatically after {{count}} day",
   "The background service is from another version. {{count}} agents are running. New agents still use the old launch logic. It updates automatically once all running agents end, if supported by this service. Older services require a confirmed restart._one": "The background service is from another version. {{count}} agent is running. New agents still use the old launch logic. It updates automatically once all running agents end, if supported by this service. Older services require a confirmed restart.",
   "Restart the background service? {{count}} agents are running. This ends all running agents across every workspace, including terminals and development servers. They will not restart automatically._one": "Restart the background service? {{count}} agent is running. This ends all running agents across every workspace, including terminals and development servers. They will not restart automatically.",
+  "{{count}} sessions are not in a task yet_one": "{{count}} session is not in a task yet",
   "Resume {{count}} interrupted panes?_one": "Resume {{count}} interrupted pane?"
 }

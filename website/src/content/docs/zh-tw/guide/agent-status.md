@@ -5,7 +5,7 @@ sidebar:
   order: 5
 ---
 
-Session Bay 會在分頁、側欄、**全部工作區**與附加的[看板工作](/SessionBay/zh-tw/guide/kanban/)顯示每個 Agent 的狀態：
+Session Bay 會在分頁、側欄、**全部工作區**與附加的[看板任務](/SessionBay/zh-tw/guide/kanban/)顯示每個 Agent 的狀態：
 
 | 狀態 | 意思 |
 | --- | --- |

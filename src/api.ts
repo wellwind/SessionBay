@@ -1,7 +1,7 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 import type {
-  KanbanBoard, KanbanCard, KanbanColumn, KanbanStage, KanbanSessionDisposition,
+  KanbanBoard, KanbanCard, KanbanColumn, KanbanSessionDisposition,
   WorkspaceFilePage,
   TerminalFileResolution,
   WorkspaceFileSearch,
@@ -80,11 +80,7 @@ export const api = {
   kanbanBoard: (projectId: string) => call<KanbanBoard | null>('kanban_board', { projectId }),
   listKanbanBoards: () => call<KanbanBoard[]>('list_kanban_boards'),
   setKanbanBoardEnabled: (projectId: string, enabled: boolean) => call<KanbanBoard>('set_kanban_board_enabled', { projectId, enabled }),
-  createKanbanColumn: (projectId: string, name: string, stage?: KanbanStage) => call<KanbanColumn>('create_kanban_column', { projectId, name, stage }),
   renameKanbanColumn: (columnId: string, name: string) => call<KanbanColumn>('rename_kanban_column', { columnId, name }),
-  setKanbanColumnStage: (columnId: string, stage: KanbanStage) => call<KanbanColumn>('set_kanban_column_stage', { columnId, stage }),
-  reorderKanbanColumns: (projectId: string, columnIds: string[]) => call<void>('reorder_kanban_columns', { projectId, columnIds }),
-  deleteKanbanColumn: (columnId: string, targetColumnId: string) => call<void>('delete_kanban_column', { columnId, targetColumnId }),
   createKanbanCard: (columnId: string, title: string, notes: string) => call<KanbanCard>('create_kanban_card', { columnId, title, notes }),
   editKanbanCard: (cardId: string, title: string, notes: string) => call<KanbanCard>('edit_kanban_card', { cardId, title, notes }),
   moveKanbanCard: (cardId: string, columnId: string, position: number) => call<KanbanCard>('move_kanban_card', { cardId, columnId, position }),

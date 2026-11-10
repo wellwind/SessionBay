@@ -48,9 +48,8 @@ board.enabled = params.get('board') !== 'off';
 const webBoard = kanbanFixture('p-web', []);
 webBoard.columns.forEach(column => { column.id = 'web-' + column.id; });
 webBoard.columns[1].name = L('Ready to build', '準備開發');
-webBoard.columns.push({ ...webBoard.columns[1], id: 'web-todo-second', name: 'Later', position: 5 });
 webBoard.cards = [{
-  ...webBoard.cards[0], id: 'web-task', columnId: 'web-todo-second',
+  ...webBoard.cards[0], id: 'web-task', columnId: 'web-column-1',
   title: L('Polish the dashboard filters', '改善儀表板篩選功能'), notes: 'Synthetic dashboard planning',
 }, {
   ...webBoard.cards[0], id: 'web-archived', columnId: 'web-column-1', title: 'Archived web task', archived: true,
@@ -220,6 +219,13 @@ mockIPC((command, payload = {}) => {
     case 'delete_kanban_card': return deleteFixtureCard(board, String(args.cardId), String(args.sessions));
     case 'merge_kanban_cards': return mergeFixtureCards(board, String(args.sourceCardId), String(args.targetCardId));
     case 'split_kanban_session': return splitFixtureSession(board, String(args.cardId), String(args.sessionId));
+    case 'attach_kanban_session': {
+      const owner = boards.find(board => board.cards.some(card => card.id === args.cardId))!;
+      const link = owner.cards.flatMap(card => card.sessions).find(link => link.session.id === args.sessionId)
+        ?? { session: sessions.find(session => session.id === args.sessionId)!, branch: null };
+      owner.cards.forEach(card => { card.sessions = card.sessions.filter(item => item.session.id !== args.sessionId); });
+      const card = owner.cards.find(card => card.id === args.cardId)!; card.sessions.push(link); return structuredClone(card);
+    }
     case 'trash_session':
       for (const card of board.cards) card.sessions = card.sessions.filter(link => link.session.id !== args.sessionId);
       return 'synthetic-trash-' + String(args.sessionId);
@@ -252,32 +258,10 @@ mockIPC((command, payload = {}) => {
       if (!owner.columns.some(column => column.id === args.columnId)) throw new Error('Cross-project move');
       return structuredClone(moveFixtureCard(owner, String(args.cardId), String(args.columnId), Number(args.position)));
     }
-    case 'reorder_kanban_columns': {
-      (args.columnIds as string[]).forEach((id, position) => { board.columns.find(column => column.id === id)!.position = position; });
-      return;
-    }
-    case 'create_kanban_column': {
-      const column = { id: `column-${board.columns.length}`, projectId: board.projectId, name: String(args.name), defaultName: null,
-        stage: (args.stage ?? 'doing') as typeof board.columns[number]['stage'], position: board.columns.length, systemRole: null };
-      board.columns.push(column);
-      return structuredClone(column);
-    }
     case 'rename_kanban_column': {
       const column = board.columns.find(column => column.id === args.columnId)!;
       column.name = String(args.name);
       return structuredClone(column);
-    }
-    case 'set_kanban_column_stage': {
-      const column = board.columns.find(column => column.id === args.columnId)!;
-      column.stage = args.stage as typeof column.stage;
-      return structuredClone(column);
-    }
-    case 'delete_kanban_column': {
-      for (const card of board.cards.filter(card => card.columnId === args.columnId))
-        moveFixtureCard(board, card.id, String(args.targetColumnId), board.cards.filter(item => item.columnId === args.targetColumnId).length);
-      board.columns = board.columns.filter(column => column.id !== args.columnId);
-      board.columns.sort((a, b) => a.position - b.position).forEach((column, index) => { column.position = index; });
-      return;
     }
     case 'set_locale': case 'frontend_diagnostic': return true;
     case 'start_index': case 'index_status': return bootstrap.index;

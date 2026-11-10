@@ -1191,6 +1191,10 @@ function AppContent() {
   const openFullBoard = () => {
     setAllBoards(false); setWorkspaceOverview(false); setView('board'); setMaximizedId(null);
   };
+  const openAllBoards = () => {
+    setWorkspaceOverview(false); setOverviewReturn(false); setSelectedId(undefined);
+    setAllSessionsSearch(false); setView('history'); setMaximizedId(null); setAllBoards(true);
+  };
   const commands: Command[] = [
     { id: 'toggle-workspace-overview', label: workspaceOverview ? t('Leave the all-workspaces overview') : t('Open the all-workspaces overview'), disabled: !boot,
       run: () => workspaceOverview ? closeWorkspaceOverview() : openWorkspaceOverview() },
@@ -1200,9 +1204,9 @@ function AppContent() {
       run: () => setActiveActivity(activeActivity === 'sessions' ? null : 'sessions') },
     { id: 'toggle-project-files', label: t('Show / hide project files'), disabled: !filesAvailable,
       run: () => setActiveActivity(activeActivity === 'files' ? null : 'files') },
-    { id: 'toggle-project-board', label: t('Show / hide project board'), disabled: !boardAvailable,
+    { id: 'toggle-project-board', label: t('Show / hide focus panel'), disabled: !boardAvailable,
       run: () => setActiveActivity(activeActivity === 'board' ? null : 'board') },
-    { id: 'open-project-board', label: t('Open full board'), disabled: !boardAvailable, run: openFullBoard },
+    { id: 'open-project-board', label: t('Open board'), disabled: !boardAvailable, run: openFullBoard },
     { id: 'toggle-project-git', label: t('Show / hide project Git'), disabled: !filesAvailable,
       run: () => setActiveActivity(activeActivity === 'git' ? null : 'git') },
     {
@@ -1521,7 +1525,7 @@ function AppContent() {
       renderSidebar: () => <div className="project-git-sidebar-host" ref={setGitSidebarHost} /> },
     createBoardActivity({ project: current, data: boardData,
       shortcut: conflicts.has('toggle-project-board') ? '' : effectiveShortcuts['toggle-project-board'],
-      onOpenBoard: openFullBoard,
+      onOpenBoard: openFullBoard, onFocusPane: focus,
       onStart: startBoardTask, onResume: resume, onHistoryChanged: refresh }),
   ];
   const projectNavigation = <ProjectNavigation hidden={!sidebarOpen || compactWorkspace}
@@ -1575,10 +1579,7 @@ function AppContent() {
               <LayoutGrid size={17} />{t('All workspaces')}<span>{Object.keys(workspace.panes).length}</span>
             </button>
             <button className={`sidebar-global ${allBoards ? 'active' : ''}`} disabled={!boot}
-              aria-pressed={allBoards} onClick={() => {
-                setWorkspaceOverview(false); setOverviewReturn(false); setSelectedId(undefined);
-                setAllSessionsSearch(false); setView('history'); setMaximizedId(null); setAllBoards(true);
-              }}>
+              aria-pressed={allBoards} onClick={openAllBoards}>
               <Columns3 size={17} aria-hidden="true" />{t('All boards')}
             </button>
             <div className="sidebar-section">
@@ -1838,6 +1839,11 @@ function AppContent() {
                 </div>
               )}
               {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar">
+                {boardAvailable && current && <button type="button" className={`workspace-board-tab${view === 'board' ? ' active' : ''}`}
+                  aria-pressed={view === 'board'} onClick={openFullBoard}>
+                  <Columns3 size={14} aria-hidden="true" />{t('Board')}
+                  {boardData.attentionCount > 0 && <span className="workspace-board-badge" aria-label={t('{{label}}: {{badge}}', { label: t('Needs attention'), badge: boardData.attentionCount })}>{boardData.attentionCount}</span>}
+                </button>}
                 <div className="workspace-tabs">
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   mixedBadges={(tab) => tabProjectIds(tab, workspace.panes).map(projectBadge)}
@@ -1879,7 +1885,9 @@ function AppContent() {
                   key={allBoards ? 'all-boards' : current!.id} {...(allBoards ? { projects } : { project: current! })}
                   workspace={workspace} refreshToken={refreshToken}
                   model={allBoards ? undefined : boardData} onStart={startBoardTask}
-                  onResume={resume} onHistoryChanged={refresh} />}
+                  onResume={resume} onHistoryChanged={refresh}
+                  scopes={projects.filter(project => project.curated && !project.workspaceOnly)}
+                  onScope={project => { if (project) { selectProject(project); openFullBoard(); } else openAllBoards(); }} />}
                 <div className="project-file-document-host" ref={setFileDocumentHost} hidden={view !== 'files'} />
                 <div className="project-file-document-host" ref={setGitDocumentHost} hidden={view !== 'git'} />
                 {temporaryWorkspace && !activeTab && <div className="empty-state">

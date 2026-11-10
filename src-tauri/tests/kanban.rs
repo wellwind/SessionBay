@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde_json::json;
 use sessionbay_lib::{
     catalog::{kanban::*, session_identity, Catalog},
@@ -120,79 +120,59 @@ fn boards_require_curated_projects_and_disable_without_destroying_tasks() {
 }
 
 #[test]
-fn column_commands_validate_roles_stages_order_and_atomic_relocation() {
+fn legacy_custom_columns_fold_into_one_column_per_stage_on_open() {
     let h = Harness::new();
     let b = h.enable();
-    let custom = h
-        .catalog
-        .create_kanban_column(&h.project, "Blocked", None)
+    h.catalog
+        .rename_kanban_column(&b.columns[0].id, "Inbox")
         .unwrap();
-    assert_eq!(custom.stage, KanbanStage::Doing);
-    assert_eq!(
-        h.catalog
-            .set_kanban_column_stage(&custom.id, KanbanStage::Review)
-            .unwrap()
-            .stage,
-        KanbanStage::Review
-    );
-    assert_eq!(
-        h.catalog
-            .rename_kanban_column(&b.columns[0].id, "Inbox")
-            .unwrap()
-            .name
-            .as_deref(),
-        Some("Inbox")
-    );
-    for col in [&b.columns[0], &b.columns[4]] {
-        assert!(h
-            .catalog
-            .delete_kanban_column(&col.id, &b.columns[1].id)
-            .is_err());
-        assert!(h
-            .catalog
-            .set_kanban_column_stage(&col.id, KanbanStage::Todo)
-            .is_err());
-    }
     assert!(h
         .catalog
-        .create_kanban_column(&h.project, " \n", None)
+        .rename_kanban_column(&b.columns[1].id, &"x".repeat(501))
         .is_err());
-    assert!(h
-        .catalog
-        .rename_kanban_column(&custom.id, &"x".repeat(501))
-        .is_err());
-    let mut ids: Vec<_> = h.board().columns.iter().map(|c| c.id.clone()).collect();
-    ids.reverse();
-    h.catalog.reorder_kanban_columns(&h.project, &ids).unwrap();
-    assert_eq!(h.board().columns[0].id, custom.id);
-    let revision = h.catalog.revision().unwrap();
-    assert!(h
-        .catalog
-        .reorder_kanban_columns(&h.project, &vec![ids[0].clone(); 6])
-        .is_err());
-    assert_eq!(h.catalog.revision().unwrap(), revision);
-    let a = h.catalog.create_kanban_card(&custom.id, "A", "").unwrap();
     let z = h
         .catalog
-        .create_kanban_card(&b.columns[1].id, "Z", "")
+        .create_kanban_card(&b.columns[2].id, "Z", "")
         .unwrap();
-    h.catalog.archive_kanban_card(&a.id, true).unwrap();
-    assert!(h
-        .catalog
-        .delete_kanban_column(&custom.id, &custom.id)
-        .is_err());
-    h.catalog
-        .delete_kanban_column(&custom.id, &b.columns[1].id)
+    let db = h.db();
+    // A board from before fixed stages: an extra leading In progress column and no Review.
+    db.execute(
+        "INSERT INTO kanban_columns VALUES('blocked',?1,'Blocked',NULL,'doing',0,NULL)",
+        [&h.project],
+    )
+    .unwrap();
+    db.execute("INSERT INTO kanban_cards(id,project_id,column_id,title,notes,position,archived,created_at,updated_at) VALUES('a',?1,'blocked','A','',0,1,?2,?2)", params![&h.project, OLD]).unwrap();
+    db.execute("DELETE FROM kanban_columns WHERE id=?1", [&b.columns[3].id])
         .unwrap();
-    let board = h.board();
-    let moved = board.cards.iter().find(|c| c.id == a.id).unwrap();
-    assert_eq!(moved.column_id, z.column_id);
-    assert_eq!(moved.position, 1);
-    assert!(moved.archived);
+    drop(db);
+    let path = h.temp.path().canonicalize().unwrap().join("catalog.sqlite");
+    let reopened = Catalog::open(&path).unwrap();
+    let board = reopened.kanban_board(&h.project).unwrap().unwrap();
+    assert_eq!(
+        board.columns.iter().map(|c| c.stage).collect::<Vec<_>>(),
+        vec![
+            KanbanStage::Unsorted,
+            KanbanStage::Todo,
+            KanbanStage::Doing,
+            KanbanStage::Review,
+            KanbanStage::Done
+        ]
+    );
     assert_eq!(
         board.columns.iter().map(|c| c.position).collect::<Vec<_>>(),
         vec![0, 1, 2, 3, 4]
     );
+    assert_eq!(board.columns[0].name.as_deref(), Some("Inbox"));
+    assert_eq!(board.columns[2].id, b.columns[2].id);
+    assert_eq!(board.columns[3].default_name.as_deref(), Some("Review"));
+    let moved = board.cards.iter().find(|c| c.id == "a").unwrap();
+    assert_eq!(moved.column_id, z.column_id);
+    assert_eq!(moved.position, 1);
+    assert!(moved.archived);
+    assert_eq!(moved.updated_at, OLD);
+    let revision = reopened.revision().unwrap();
+    drop(reopened);
+    assert_eq!(Catalog::open(&path).unwrap().revision().unwrap(), revision);
 }
 
 #[test]
@@ -392,10 +372,6 @@ fn commands_reject_cross_project_columns_cards_and_sessions_without_mutating() {
     assert!(h
         .catalog
         .merge_kanban_cards(&foreign.id, &local.id)
-        .is_err());
-    assert!(h
-        .catalog
-        .delete_kanban_column(&b.columns[1].id, &other_board.columns[1].id)
         .is_err());
     assert_eq!(h.catalog.revision().unwrap(), revision);
 }

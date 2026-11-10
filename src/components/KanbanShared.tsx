@@ -2,7 +2,10 @@ import { useRef, useState, type RefObject } from 'react';
 import { GitBranch, Plus } from 'lucide-react';
 import { agentNames } from '../agents';
 import { locale, t } from '../i18n';
-import type { KanbanCard } from '../types';
+import type { KanbanCard, Project } from '../types';
+import { projectInitials } from '../project-identity';
+import { AgentIcon } from './AgentIcon';
+import { dateLabel } from './History';
 import type { KanbanBoards } from './useKanbanBoards';
 
 export function relativeCardTime(value: string) {
@@ -12,16 +15,31 @@ export function relativeCardTime(value: string) {
       : Math.abs(seconds) < 2592000 ? ['day', 86400] : Math.abs(seconds) < 31536000 ? ['month', 2592000] : ['year', 31536000];
   return new Intl.RelativeTimeFormat(locale(), { numeric: 'auto' }).format(Math.round(seconds / size), unit);
 }
-export function KanbanCardMetadata({ card, status }: { card: KanbanCard; status: KanbanBoards['status'] }) {
+/** Live state worth reading on a card: input, error or work in progress. Idle and stopped sessions stay quiet. */
+export function liveStatus(card: KanbanCard, status: KanbanBoards['status']) {
+  const states = card.sessions.map(status);
+  return states.find(state => state.attention) ?? states.find(state => state.kind === 'working');
+}
+export function KanbanCardMetadata({ card, status, project, color }: {
+  card: KanbanCard; status: KanbanBoards['status']; project?: Project; color?: string;
+}) {
+  const kinds = [...new Set(card.sessions.map(link => link.session.kind))];
+  const names = kinds.map(kind => agentNames[kind]).join(', ');
+  const live = liveStatus(card, status);
+  const branches = [...new Set(card.sessions.flatMap(link => link.branch ? [link.branch] : []))];
   return <div className="kanban-card-metadata">
-    <div className="kanban-card-agents">{card.sessions.map(link => {
-      const live = status(link);
-      return <span key={link.session.id} className={`kanban-status attention-${live.kind}`} title={`${agentNames[link.session.kind]} · ${live.text}`}>
-        <span className="kanban-status-dot" aria-hidden="true" />{agentNames[link.session.kind]} · {live.shortText}
-      </span>;
-    })}</div>
-    {[...new Set(card.sessions.flatMap(link => link.branch ? [link.branch] : []))].map(branch =>
-      <span className="kanban-branch" key={branch} title={branch}><GitBranch size={12} aria-hidden="true" />{branch}</span>)}
+    <div className="kanban-card-meta">
+      {project && <span className="project-initials" style={{ ['--pane-project' as string]: color }} title={project.name}>
+        {projectInitials(project.name)}<span className="organization-sr-only"> {project.name}</span></span>}
+      {kinds.length > 0 && <span className="kanban-card-agents" role="img" aria-label={names} title={names}>
+        {kinds.slice(0, 3).map(kind => <AgentIcon key={kind} kind={kind} name={agentNames[kind]} />)}
+        {kinds.length > 3 && <span className="kanban-agent-more">+{kinds.length - 3}</span>}
+      </span>}
+      {live && <span className={`kanban-status attention-${live.kind}`} title={live.text}>
+        <span className="kanban-status-dot" aria-hidden="true" />{live.shortText}</span>}
+      <time dateTime={card.updatedAt} title={t('Updated {{time}}', { time: dateLabel(card.updatedAt) })}>{relativeCardTime(card.updatedAt)}</time>
+    </div>
+    {branches.map(branch => <span className="kanban-branch" key={branch} title={branch}><GitBranch size={12} aria-hidden="true" />{branch}</span>)}
   </div>;
 }
 export function KanbanQuickAdd({ busy, onCreate }: { busy: boolean; onCreate: (title: string) => Promise<boolean> }) {
@@ -42,5 +60,5 @@ export function KanbanQuickAdd({ busy, onCreate }: { busy: boolean; onCreate: (t
 }
 export function KanbanUndo({ data, root }: { data: KanbanBoards; root: RefObject<HTMLElement | null> }) {
   if (!data.undo || (data.undo.origin?.isConnected && data.undo.origin !== root.current)) return null;
-  return <div className="kanban-undo" role="status">{data.undo.message}<button disabled={data.busy} onClick={() => void data.undoLast()}>{t('Undo')}</button></div>;
+  return <div className="kanban-undo" role="status" key={data.undo.message}>{data.undo.message}<button disabled={data.busy} onClick={() => void data.undoLast()}>{t('Undo')}</button></div>;
 }

@@ -19,17 +19,6 @@ pub enum KanbanStage {
     Review,
     Done,
 }
-impl KanbanStage {
-    fn key(self) -> &'static str {
-        match self {
-            Self::Unsorted => "unsorted",
-            Self::Todo => "todo",
-            Self::Doing => "doing",
-            Self::Review => "review",
-            Self::Done => "done",
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +70,64 @@ pub struct KanbanBoard {
 pub enum KanbanSessionDisposition {
     Unsorted,
     Detach,
+}
+
+/// Every board has exactly one column per stage, in this order.
+const STAGE_COLUMNS: [(&str, &str, Option<&str>); 5] = [
+    ("Unsorted", "unsorted", Some("unsorted")),
+    ("Todo", "todo", None),
+    ("In progress", "doing", None),
+    ("Review", "review", None),
+    ("Done", "done", Some("done")),
+];
+
+/// Folds boards created before fixed stages onto one column per stage. Cards from extra
+/// columns are appended to the surviving column in their previous order; their task
+/// timestamps are left alone so auto-archive is unaffected. Canonical boards are not
+/// written, so opening a catalog does not bump its revision.
+pub(super) fn canonicalize_columns(conn: &mut Connection) -> Result<(), String> {
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(error)?;
+    for project in strings(
+        &tx,
+        "SELECT project_id FROM kanban_boards ORDER BY project_id",
+        "",
+    )? {
+        for (position, (name, stage, role)) in STAGE_COLUMNS.iter().enumerate() {
+            // System columns survive, then default columns, then the earliest custom one.
+            let ids = strings(&tx, &format!("SELECT id FROM kanban_columns WHERE project_id=?1 AND stage='{stage}' ORDER BY system_role IS NULL,default_name IS NULL,position,id"), &project)?;
+            let survivor = match ids.first() {
+                Some(id) => id.clone(),
+                None => {
+                    let id = id();
+                    tx.execute(
+                        "INSERT INTO kanban_columns VALUES(?1,?2,NULL,?3,?4,?5,?6)",
+                        params![id, project, name, stage, 100 + position as i64, role],
+                    )
+                    .map_err(error)?;
+                    id
+                }
+            };
+            for extra in ids.iter().skip(1) {
+                for card in strings(
+                    &tx,
+                    "SELECT id FROM kanban_cards WHERE column_id=?1 ORDER BY position,id",
+                    extra,
+                )? {
+                    tx.execute("UPDATE kanban_cards SET column_id=?1,position=(SELECT COALESCE(MAX(position)+1,0) FROM kanban_cards WHERE column_id=?1) WHERE id=?2", params![survivor, card]).map_err(error)?;
+                }
+                tx.execute("DELETE FROM kanban_columns WHERE id=?1", [extra])
+                    .map_err(error)?;
+            }
+            tx.execute(
+                "UPDATE kanban_columns SET position=?1 WHERE id=?2 AND position<>?1",
+                params![position as i64, survivor],
+            )
+            .map_err(error)?;
+        }
+    }
+    tx.commit().map_err(error)
 }
 
 pub(super) fn migrate(conn: &mut Connection) -> Result<(), String> {
@@ -307,42 +354,11 @@ impl Catalog {
                 }
             }
             if existed.is_none() {
-                for (position, (name,stage,role)) in [("Unsorted","unsorted",Some("unsorted")),("Todo","todo",None),("In progress","doing",None),("Review","review",None),("Done","done",Some("done"))].iter().enumerate() {
+                for (position, (name,stage,role)) in STAGE_COLUMNS.iter().enumerate() {
                     conn.execute("INSERT INTO kanban_columns VALUES(?1,?2,NULL,?3,?4,?5,?6)", params![id(),project_id,name,stage,position as i64,role]).map_err(error)?;
                 }
             }
             board(conn,project_id)?.ok_or(tr!("Kanban board not found."))
-        })
-    }
-    pub fn create_kanban_column(
-        &self,
-        project_id: &str,
-        name: &str,
-        stage: Option<KanbanStage>,
-    ) -> Result<KanbanColumn, String> {
-        title_valid(name, false)?;
-        self.kanban_write(|conn| {
-            require_enabled(conn, project_id)?;
-            let position: i64 = conn
-                .query_row(
-                    "SELECT COALESCE(MAX(position)+1,0) FROM kanban_columns WHERE project_id=?1",
-                    [project_id],
-                    |r| r.get(0),
-                )
-                .map_err(error)?;
-            let id = id();
-            conn.execute(
-                "INSERT INTO kanban_columns VALUES(?1,?2,?3,NULL,?4,?5,NULL)",
-                params![
-                    id,
-                    project_id,
-                    name,
-                    stage.unwrap_or(KanbanStage::Doing).key(),
-                    position
-                ],
-            )
-            .map_err(error)?;
-            column(conn, &id)
         })
     }
     pub fn rename_kanban_column(
@@ -359,99 +375,6 @@ impl Catalog {
             )
             .map_err(error)?;
             column(conn, column_id)
-        })
-    }
-    pub fn set_kanban_column_stage(
-        &self,
-        column_id: &str,
-        stage: KanbanStage,
-    ) -> Result<KanbanColumn, String> {
-        self.kanban_write(|conn| {
-            let col = column(conn, column_id)?;
-            require_enabled(conn, &col.project_id)?;
-            if col.system_role.is_some_and(|role| role != stage) {
-                return Err(tr!(
-                    "System columns have a fixed stage and cannot be deleted."
-                ));
-            }
-            conn.execute(
-                "UPDATE kanban_columns SET stage=?1 WHERE id=?2",
-                params![stage.key(), column_id],
-            )
-            .map_err(error)?;
-            column(conn, column_id)
-        })
-    }
-    pub fn reorder_kanban_columns(
-        &self,
-        project_id: &str,
-        column_ids: &[String],
-    ) -> Result<(), String> {
-        self.kanban_write(|conn| {
-            require_enabled(conn, project_id)?;
-            let existing = strings(
-                conn,
-                "SELECT id FROM kanban_columns WHERE project_id=?1",
-                project_id,
-            )?;
-            let unique: HashSet<_> = column_ids.iter().collect();
-            if existing.len() != column_ids.len()
-                || unique.len() != column_ids.len()
-                || existing.iter().any(|id| !unique.contains(id))
-            {
-                return Err(tr!("Supply every column exactly once when reordering."));
-            }
-            for (position, id) in column_ids.iter().enumerate() {
-                conn.execute(
-                    "UPDATE kanban_columns SET position=?1 WHERE id=?2",
-                    params![position as i64, id],
-                )
-                .map_err(error)?;
-            }
-            Ok(())
-        })
-    }
-    pub fn delete_kanban_column(
-        &self,
-        column_id: &str,
-        target_column_id: &str,
-    ) -> Result<(), String> {
-        self.kanban_write(|conn| {
-            let col = column(conn, column_id)?;
-            require_enabled(conn, &col.project_id)?;
-            same_project(&col.project_id, &column(conn, target_column_id)?.project_id)?;
-            if col.system_role.is_some() {
-                return Err(tr!(
-                    "System columns have a fixed stage and cannot be deleted."
-                ));
-            }
-            if column_id == target_column_id {
-                return Err(tr!("Choose a different destination column."));
-            }
-            for id in strings(
-                conn,
-                "SELECT id FROM kanban_cards WHERE column_id=?1 ORDER BY position,id",
-                column_id,
-            )? {
-                move_card(conn, &id, target_column_id, None)?;
-            }
-            conn.execute("DELETE FROM kanban_columns WHERE id=?1", [column_id])
-                .map_err(error)?;
-            for (position, id) in strings(
-                conn,
-                "SELECT id FROM kanban_columns WHERE project_id=?1 ORDER BY position,id",
-                &col.project_id,
-            )?
-            .iter()
-            .enumerate()
-            {
-                conn.execute(
-                    "UPDATE kanban_columns SET position=?1 WHERE id=?2",
-                    params![position as i64, id],
-                )
-                .map_err(error)?;
-            }
-            Ok(())
         })
     }
     pub fn create_kanban_card(

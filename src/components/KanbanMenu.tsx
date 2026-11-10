@@ -3,7 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { FloatingPanel, useDismiss } from './controls';
 
 /** Shared overflow control with dismissal, focus restoration and arrow navigation. */
-export function KanbanMenu({ label, disabled, children, trigger: triggerContent }: { label: string; disabled?: boolean; children: ReactNode; trigger?: ReactNode }) {
+export function KanbanMenu({ label, disabled, children, trigger: triggerContent, triggerClassName }: { label: string; disabled?: boolean; children: ReactNode; trigger?: ReactNode; triggerClassName?: string }) {
   const root = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const id = useId();
@@ -12,7 +12,7 @@ export function KanbanMenu({ label, disabled, children, trigger: triggerContent 
   useEffect(() => { if (open) panel.current?.querySelector<HTMLElement>('button:not(:disabled), select:not(:disabled)')?.focus(); }, [open]);
   useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   return <div ref={root} className="kanban-overflow">
-    <button ref={trigger} type="button" className={triggerContent ? 'secondary kanban-menu-trigger' : 'icon-button'} disabled={disabled} aria-label={label}
+    <button ref={trigger} type="button" className={triggerClassName ?? (triggerContent ? 'secondary kanban-menu-trigger' : 'icon-button')} disabled={disabled} aria-label={label}
       aria-haspopup="true" aria-expanded={open} aria-controls={open ? id : undefined}
       onClick={() => setOpen(!open)}>{triggerContent ?? <MoreHorizontal size={16} aria-hidden="true" />}</button>
     {open && <FloatingPanel anchor={root} panel={panel} className="select-options kanban-menu" id={id} aria-label={label}
