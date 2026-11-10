@@ -26,11 +26,19 @@ stops intake and edits. Re-enabling does not backfill sessions from the disabled
 period. Removing a project from the curated list hides its board from the
 overview and suspends mutations/intake; re-adding the project restores access.
 
-A new board has Unsorted, Todo, In progress, Review and Done columns. A null column
-name uses its stable defaultName translation key in the current interface
-language. Renaming stores a literal name. Unsorted and Done are system roles:
-they can be renamed/reordered, but cannot be deleted or assigned another stage.
-Other columns default to doing and can use any stage.
+Every board has exactly one column per stage, in the fixed order Unsorted, Todo,
+In progress, Review and Done (see [ADR 0001](adr/0001-fixed-board-stages.md)). A
+null column name uses its stable defaultName translation key in the current
+interface language. Renaming stores a literal name; it is the only column edit.
+Unsorted holds intake and is shown as suggestions rather than a column.
+
+Opening the catalog folds boards with extra columns onto this shape in one
+transaction: for each stage the system column survives, then the default column,
+then the earliest custom one. Cards from the other columns are appended in their
+previous order without touching updatedAt, a missing stage gets a default column,
+and positions follow stage order. Canonical boards are not written, so opening
+does not bump the catalog revision. Custom column names are not preserved. The
+schema version is unchanged, so 0.3/0.4 builds can still open the catalog.
 
 ## Commands and read models
 
@@ -43,12 +51,7 @@ camelCase wrappers.
 - kanban_board(projectId): nullable board, including archived cards.
 - list_kanban_boards(): enabled boards belonging to curated projects.
 - set_kanban_board_enabled(projectId, enabled): preserves existing content.
-- create_kanban_column(projectId, name, stage?): append a column.
 - rename_kanban_column(columnId, name).
-- set_kanban_column_stage(columnId, stage).
-- reorder_kanban_columns(projectId, columnIds): every column exactly once.
-- delete_kanban_column(columnId, targetColumnId): append all cards, including
-  archived cards, to the chosen column before removing the source.
 - create_kanban_card(columnId, title, notes): append an empty task.
 - edit_kanban_card(cardId, title, notes).
 - move_kanban_card(cardId, columnId, position): zero-based insertion index in the
@@ -116,18 +119,25 @@ links. Index clear itself never detaches.
 
 ## Card details and start
 
-Task details edit title/notes, resume individual sessions, split sessions, attach
-explicitly selected project history and offer a keyboard-accessible merge target.
-Pointer drops on the middle 40% of a card request a merge confirmation; its edges
-retain ordering. The right-side task drawer retains explicit title/notes saving and discard
-confirmation. The header contains Stage, task actions, then Close in DOM/tab order;
-initial focus goes to the title. A single Save button after Notes saves both fields,
-before the Sessions section. Save and start saves first and opens the existing launcher only
-after a successful save. Its Stage selector provides a pointer alternative to
-dragging; Position in the task actions menu also reorders without dragging. Done-stage tasks offer archive, delete with an explicit
-Unsorted/detach choice, and recycling through one existing identity-checked
+The right-side task drawer edits title and notes, resumes individual sessions,
+splits sessions, attaches explicitly selected project history (filterable, up
+to 100 recent sessions) and offers a keyboard-accessible merge target. Title and
+notes save automatically 600 ms after the last edit through edit_kanban_card,
+outside the board-wide mutation lock so typing never disables controls. Saves are
+serialized; closing the drawer, continuing or starting flushes a pending save
+first and stays open with a retry when it fails. There is no Save button and no
+discard prompt. The header contains Stage, task actions, then Close in DOM/tab
+order; initial focus goes to the title.
+
+The primary action is **Continue with <agent>** (resume the latest attached
+session) when that session can resume, with **Start a new session** in its menu;
+otherwise it is **Start work**. Starting a task in Todo or Unsorted first moves it
+to In progress through move_kanban_card, with Undo. This user-initiated move is the
+only automatic stage change. Done-stage tasks offer archive, delete with an
+explicit suggest-again/detach choice, and recycling through one identity-checked
 trash_session confirmation per visible session. No card action moves agent files
-to the system trash. Archived tasks have a separate recoverable project view.
+to the system trash. Pointer drops never merge; merging is a confirmed
+same-project action from the task menu.
 
 Start opens the existing New work launcher, with the task's bound worktree or
 effective project folder. Agent/shell selection, launch preview, enablement,
@@ -175,64 +185,70 @@ require a host that permits binding the Playwright development server ports.
 
 ## All boards overview
 
-The shared ProjectBoard component reads list_kanban_boards() for the overview.
-Only enabled boards belonging to curated projects are displayed, with archived
-cards hidden. Columns are grouped by their stage into five fixed columns,
-independent of project-specific names and ordering. Project identity uses the
-existing palette and initials. Group by Project renders one swimlane per project
-and shows its name once, with the same five stage columns. Project, text (title, notes and session titles),
-agent and live needs-attention filters combine.
+The shared ProjectBoard component renders a single project or every enabled board
+of a curated project (list_kanban_boards()) with the same four stage columns. A
+scope menu switches between all projects and one project's board; the app owns
+that navigation. Archived cards are hidden outside the archived view. Project
+identity uses the existing palette and initials. Group by Project renders one
+swimlane per project. Text (title, notes and session titles), agent and live
+needs-attention filters combine and also apply to suggestions.
 
-Overview moves resolve the card's owning board first, sort that board's columns
-by position and select the first column for the target stage. The UI calls the
-existing move_kanban_card command with that column's ID and the full destination
-card count, including archived/filtered cards, to append the task. A missing stage
-is ignored for pointer/keyboard moves and absent from the owning board’s drawer
-column selector. There is no
-cross-project destination or overview reorder command. Pointer drops over another
-card change stage only; merging remains an explicit same-project details action
-or a confirmed project-board drop. Shared details resolve the owning project for
-history, start and worktree actions.
+Moves resolve the card's owning board and its single column for the target stage,
+and call move_kanban_card with a position from that column's full catalog order,
+including archived and filtered cards. Dropping on another project's card changes
+only the stage and appends. There is no cross-project move. Shared details resolve
+the owning project for history, start and worktree actions; New task asks for the
+project.
 
-## Board activity and interaction
+## Board interaction
 
-The Board activity is contributed through `createBoardActivity`; ActivityShell
+Unsorted cards render as a collapsible suggestions list above the columns. **Add
+to task…** attaches each session to the chosen task with attach_kanban_session,
+then deletes the empty source card with the detach disposition, so the target
+keeps its title and notes. **Make it a task** moves the card to Todo. **Dismiss**
+deletes it with detach, which records the exclusion; **Dismiss all** confirms
+first. Rows fold out over 180 ms before the catalog change.
+
+Cards show agent icons, the last update and, only for working, input or error
+states, a live status chip. Needs attention appears in the toolbar only while a
+task needs input or reports an error. Done columns initially show five cards and
+link to the archived view. Columns provide inline quick-add.
+
+Alt+Up/Down reorders and Alt+Left/Right changes stage, using catalog positions
+even when archived cards are hidden. Card drags use a four-pixel movement
+threshold. Moves and manual archives offer one six-second Undo that reissues the
+original move or restores the archived card; it is not a transaction history.
+Errors retain the board and allow retry. Board-local N and / shortcuts ignore text
+fields, terminals and IME composition.
+
+Motion follows Animate UI's timing tokens in CSS: cards and focus rows enter with
+`@starting-style` on ease-out (220 ms), reorders use a 220 ms FLIP on the same
+curve, press feedback scales cards to 0.985, the drawer slides in on the soft
+ease-out (360 ms) and the Undo toast lands with a slight overshoot. Insertion lines
+use box-shadow so drops never shift layout. Under reduced motion transforms are
+removed and only fades remain.
+
+## Focus panel
+
+The Focus activity is contributed through `createBoardActivity`; ActivityShell
 continues to know only generic contribution IDs, labels, availability, badges,
-shortcuts and panel renderers. Badge accessibility text uses a translated
-`{{label}}: {{badge}}` template. Project availability and shortcut registration
-remain the app owner's responsibility. Activity selection is retained in memory
-per project and normal/Zen mode, not serialized into the workspace.
+shortcuts and panel renderers. It lists Needs you (tasks with an input, permission
+or error session), In progress (In progress stage, or a working session), and the
+first three Todo tasks with Start, plus Todo quick-add and a link to pending
+suggestions. Go to terminal focuses the pane already showing the session through
+the app; otherwise it resumes. A start that resolves after the project changed is
+dropped. The badge counts active tasks that need attention. Mod+Shift+K toggles
+the panel through the regular command/shortcut registry; the project tab bar has a
+Board entry, and Open board is also a palette command.
 
-The app owns one `useKanbanBoards` instance for the current project and shares
-it with the full board view and compact activity panel. The hook owns catalog
-snapshots, live session identity/status matching, five-second polling, window
-focus refresh, stale-read generations and the mutation lock. The All boards view
-uses the same hook implementation with the list command. No IPC shapes change.
+The app owns one `useKanbanBoards` instance for the current project and shares it
+with the board and the Focus panel. The hook owns catalog snapshots, live session
+identity/status matching, five-second polling, window focus refresh, stale-read
+generations, the mutation lock and the autosave path.
 
-The compact panel groups active cards by column order, starts Done groups
-collapsed, accepts whole-card pointer drops on collapsed headers, and offers
-Todo quick-add. Alt+Up/Down reorders and Alt+Left/Right changes columns, using
-catalog positions even when archived cards are hidden. Moves announce the same
-translated message on both surfaces. Clicks open the shared accessible drawer.
-
-The project toolbar combines search, a filter popover with removable chips,
-needs-attention count, Board/Archived segmentation, overflow actions and New task.
-The system Unsorted column is an inbox strip with Todo and Merge shortcuts.
-Columns provide inline quick-add and Done columns initially show five cards.
-Card drags use a four-pixel movement threshold and an explicit center-merge
-preview. Drop/reorder animations last 180 ms and respect reduced motion.
-
-Moves and manual archives offer one six-second Undo action. Undo reissues the
-existing move command with the original column/position, or restores the archived
-card; it is not a transaction history. Errors retain the board and allow retry.
-Delete and merge retain confirmation and do not offer Undo. Board-local N and /
-shortcuts ignore text fields, terminals and IME composition. Mod+Shift+K toggles
-the Board activity through the regular configurable command/shortcut registry.
-
-The drawer is 420 px wide at desktop sizes and full width below 1024 px. It reuses
+The drawer is 440 px wide at desktop sizes and full width below 1024 px. It reuses
 Dialog's focus trap, Escape, IME handling and focus restoration with a transparent
-backdrop. Worktree binding retries, delete disposition and identity-checked
-per-session recycling retain their existing command paths and confirmations.
+backdrop.
 
 ### Board scrolling
 

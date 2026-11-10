@@ -28,7 +28,7 @@ Session Bay 會索引每個支援 Agent 的本機歷史，依專案集中起來�
 - **真正的終端機**：分頁與分割面板都是真的 PTY，保留 10,000 行捲動歷史，Agent、開發伺服器和測試可以並排跑。重新附接時會還原目前畫面，以及最多 1 MiB 的最新捲動歷史輸出。
 - **關掉視窗也繼續跑**：背景 broker 持有程序，重新開啟後會附接回原本還在執行的 Agent。
 - **提醒通知**：Agent 等你回覆、完成或失敗時跳出系統通知，點一下就切到那個面板。可另行啟用合成音效、調整音量及逐一試聽（預設關閉）。[音效設定與勿擾限制](https://fullstackladder.dev/SessionBay/zh-tw/guide/settings/#提醒通知與音效)。
-- **[看板](https://fullstackladder.dev/SessionBay/zh-tw/guide/kanban/)**：依專案規劃工作，加入備註與多個 Agent Sessions。可移動、合併、拆分、封存工作或綁定 worktree，並在全部看板依階段追蹤所有已啟用看板。
+- **[看板](https://fullstackladder.dev/SessionBay/zh-tw/guide/kanban/)**：用固定的四個階段把 Agent 工作規劃成任務，從任務啟動 Agent，並保留它產生的每個 Session。新的 Sessions 會建議你歸入任務，終端機旁的焦點面板顯示接下來需要你處理的事，全部看板可追蹤所有已啟用的看板。
 - **Git 工作台**：diff 與部分暫存、commit、push／pull、歷史圖與 blame、分支、stash、worktree、三方衝突解決，以及 GitHub／自架 GitLab 的 PR。
 - **拖放檔案與圖片給 Agent**、預覽工作區檔案與圖片，不用建專案也能開臨時終端機。
 - **安全清理**：Session 先進回收筒；逐項確認要搬的檔案後，才會移到系統垃圾桶，之後也能還原。
