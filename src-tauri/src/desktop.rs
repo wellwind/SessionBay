@@ -1,6 +1,4 @@
-use crate::catalog::kanban::{
-    KanbanBoard, KanbanCard, KanbanColumn, KanbanSessionDisposition, KanbanStage,
-};
+use crate::catalog::kanban::{KanbanBoard, KanbanCard, KanbanColumn, KanbanSessionDisposition};
 use crate::tr;
 use crate::{
     broker::{RuntimeRecord, UiEvent},
@@ -377,16 +375,6 @@ async fn set_kanban_board_enabled(
     blocking(move || s.catalog.set_kanban_board_enabled(&project_id, enabled)).await
 }
 #[tauri::command]
-async fn create_kanban_column(
-    state: AppState<'_>,
-    project_id: String,
-    name: String,
-    stage: Option<KanbanStage>,
-) -> Result<KanbanColumn, String> {
-    let s = state.inner().clone();
-    blocking(move || s.catalog.create_kanban_column(&project_id, &name, stage)).await
-}
-#[tauri::command]
 async fn rename_kanban_column(
     state: AppState<'_>,
     column_id: String,
@@ -394,37 +382,6 @@ async fn rename_kanban_column(
 ) -> Result<KanbanColumn, String> {
     let s = state.inner().clone();
     blocking(move || s.catalog.rename_kanban_column(&column_id, &name)).await
-}
-#[tauri::command]
-async fn set_kanban_column_stage(
-    state: AppState<'_>,
-    column_id: String,
-    stage: KanbanStage,
-) -> Result<KanbanColumn, String> {
-    let s = state.inner().clone();
-    blocking(move || s.catalog.set_kanban_column_stage(&column_id, stage)).await
-}
-#[tauri::command]
-async fn reorder_kanban_columns(
-    state: AppState<'_>,
-    project_id: String,
-    column_ids: Vec<String>,
-) -> Result<(), String> {
-    let s = state.inner().clone();
-    blocking(move || s.catalog.reorder_kanban_columns(&project_id, &column_ids)).await
-}
-#[tauri::command]
-async fn delete_kanban_column(
-    state: AppState<'_>,
-    column_id: String,
-    target_column_id: String,
-) -> Result<(), String> {
-    let s = state.inner().clone();
-    blocking(move || {
-        s.catalog
-            .delete_kanban_column(&column_id, &target_column_id)
-    })
-    .await
 }
 #[tauri::command]
 async fn create_kanban_card(
@@ -1105,11 +1062,7 @@ pub fn run() {
             bind_kanban_worktree,
             list_kanban_boards,
             set_kanban_board_enabled,
-            create_kanban_column,
             rename_kanban_column,
-            set_kanban_column_stage,
-            reorder_kanban_columns,
-            delete_kanban_column,
             create_kanban_card,
             edit_kanban_card,
             move_kanban_card,
