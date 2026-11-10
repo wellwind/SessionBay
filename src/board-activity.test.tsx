@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 import { ActivityShell } from './components/ActivityShell';
@@ -23,27 +22,30 @@ const project: Project = { id: 'p', name: 'Synthetic project', path: '/synthetic
 const sessions: Session[] = Array.from({ length: 7 }, (_, i) => ({ id: `s-${i}`, sourceId: 'synthetic', kind: 'codex',
   externalId: `external-${i}`, title: `Task ${i}`, projectId: 'p', cwd: '/synthetic', updatedAt: '2026-10-28T10:00:00Z',
   timeSource: 'event', archived: false, parentId: null, partial: false, snippet: null }));
+// Fixture: Task 0 and Task 5 are Unsorted; Task 1, Task 6 and an empty task are Todo; Task 2 In progress; Task 3 Review; Task 4 Done.
 let board: KanbanBoard;
 let runtime: RuntimeActivityStore;
-function Harness({ workspace = emptyWorkspace(), owner = project, full = false, onOpenBoard = vi.fn(), onStart = vi.fn() }: {
+function Harness({ workspace = emptyWorkspace(), owner = project, full = false, onOpenBoard = vi.fn(), onStart = vi.fn(), onResume, onFocusPane }: {
   workspace?: Workspace; owner?: Project; full?: boolean; onOpenBoard?: () => void; onStart?: () => void;
+  onResume?: (session: Session) => void; onFocusPane?: (id: string) => void;
 }) {
   const data = useKanbanBoards(workspace, owner.id, !!owner.curated && !owner.workspaceOnly);
   runtime = useRuntimeActivity()!;
   const [active, setActive] = useState<string | null>('board');
   return <>{full && <ProjectBoard project={owner} workspace={workspace} model={data} />}
-    <ActivityShell contributions={[createBoardActivity({ project: owner, data, onOpenBoard, onStart })]}
+    <ActivityShell contributions={[createBoardActivity({ project: owner, data, onOpenBoard, onStart, onResume, onFocusPane })]}
       activeId={active} onActiveChange={setActive} /></>;
 }
 const show = async (props: Parameters<typeof Harness>[0] = {}) => {
   const result = render(<RuntimeActivityProvider><Harness {...props} /></RuntimeActivityProvider>);
-  await screen.findByRole('button', { name: 'Open full board' });
+  await screen.findByRole('button', { name: 'Open board' });
   await waitFor(() => expect(api.kanbanBoard).toHaveBeenCalled());
+  await screen.findByRole('region', { name: 'Up next' });
   return result;
 };
 const panel = () => document.getElementById('activity-board-panel')!;
-const card = (id = 'card-0') => panel().querySelector<HTMLElement>(`[data-kanban-card="${id}"]`)!;
-const group = (id: number) => panel().querySelector<HTMLElement>(`[data-kanban-column="column-${id}"]`)!;
+const section = (name: string) => within(panel()).getByRole('region', { name });
+const names = (name: string) => within(section(name)).queryAllByRole('listitem').map(item => item.querySelector('.kanban-card-open')!.textContent);
 beforeEach(() => {
   vi.clearAllMocks(); setLocale('en');
   board = kanbanFixture('p', sessions);
@@ -57,29 +59,29 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); setLocale('zh-TW'); });
 
-describe('board activity contribution', () => {
-  it('renders ordered collapsible groups, hides archived tasks, and opens the full board or shared drawer', async () => {
-    board.cards[2].archived = true;
+describe('focus panel', () => {
+  it('lists work in progress and the top of Todo, links to the board and opens the shared drawer', async () => {
+    for (let i = 0; i < 2; i++) board.cards.push({ ...board.cards[1], id: `todo-${i}`, title: `Later ${i}`, position: 20 + i, sessions: [] });
     const onOpenBoard = vi.fn(); await show({ onOpenBoard });
     expect(within(panel()).getByText('Synthetic project')).toBeVisible();
-    expect([...panel().querySelectorAll('[data-kanban-column]')].map(el => el.getAttribute('data-kanban-column')))
-      .toEqual(board.columns.map(column => column.id));
-    expect(within(panel()).queryByText('Task 2')).not.toBeInTheDocument();
-    expect(within(panel()).queryByRole('button', { name: 'Task 4' })).not.toBeInTheDocument();
-    fireEvent.click(within(group(4)).getByRole('button', { expanded: false }));
-    expect(within(group(4)).getByRole('button', { name: 'Task 4' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Open full board' })); expect(onOpenBoard).toHaveBeenCalledOnce();
-    const opener = within(card()).getByRole('button', { name: 'Task 0' }); opener.focus(); fireEvent.click(opener);
-    expect(screen.getByRole('dialog', { name: 'Task details' })).toHaveClass('dialog-drawer');
-    expect(card()).toHaveClass('kanban-selected');
+    expect(within(panel()).queryByRole('region', { name: 'Needs you' })).not.toBeInTheDocument();
+    expect(names('In progress')).toEqual(['Task 2']);
+    expect(names('Up next')).toEqual(['Task 1', 'Task 6', 'Untitled task']);
+    expect(within(panel()).queryByText('Task 4')).not.toBeInTheDocument();
+    expect(within(panel()).queryByText('Task 3')).not.toBeInTheDocument();
+    fireEvent.click(within(panel()).getByRole('button', { name: '2 more in Todo' }));
+    fireEvent.click(within(panel()).getByRole('button', { name: '2 sessions are not in a task yet →' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Open board/ }));
+    expect(onOpenBoard).toHaveBeenCalledTimes(3);
+    const opener = within(section('In progress')).getByRole('button', { name: 'Task 2' }); opener.focus(); fireEvent.click(opener);
+    expect(screen.getByRole('dialog', { name: 'Task' })).toHaveClass('dialog-drawer');
     fireEvent.keyDown(document, { key: 'Escape' });
     await waitFor(() => expect(opener).toHaveFocus());
   });
   it.each([{ ...project, curated: false }, { ...project, workspaceOnly: true }])('does not read or activate unavailable project boards', async owner => {
     render(<RuntimeActivityProvider><Harness owner={owner} /></RuntimeActivityProvider>);
-    expect(screen.getByRole('button', { name: 'Board' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Focus' })).toBeDisabled();
     expect(api.kanbanBoard).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'Enable board' })).not.toBeInTheDocument();
   });
   it('waits for loading and enables through the shared mutation lock', async () => {
     board.enabled = false;
@@ -89,69 +91,48 @@ describe('board activity contribution', () => {
     expect(screen.queryByRole('button', { name: 'Enable board' })).not.toBeInTheDocument();
     await act(async () => resolve(structuredClone(board)));
     const enable = screen.getByRole('button', { name: 'Enable board' }); fireEvent.click(enable); fireEvent.click(enable);
-    await screen.findByRole('button', { name: 'Task 0' });
+    await screen.findByRole('button', { name: 'Task 2' });
     expect(api.setKanbanBoardEnabled).toHaveBeenCalledExactlyOnceWith('p', true);
   });
-  it('badges distinct active tasks from live input/error states and omits zero', async () => {
+  it('raises waiting sessions into Needs you, badges them and goes to their open terminal', async () => {
     const workspace = emptyWorkspace();
-    workspace.panes.a = { id: 'a', projectId: 'p', title: 'Agent', kind: 'codex', state: 'running', cwd: '/synthetic', sessionId: 's-0', runtimeId: 'r' };
-    workspace.panes.b = { ...workspace.panes.a, id: 'b', sessionId: 's-2', state: 'failed' };
-    board.cards[2].archived = true;
-    await show({ workspace });
-    const button = within(screen.getByRole('navigation')).getByRole('button', { name: 'Board' });
+    workspace.panes.a = { id: 'a', projectId: 'p', title: 'Agent', kind: 'codex', state: 'running', cwd: '/synthetic', sessionId: 's-1', runtimeId: 'r' };
+    const onFocusPane = vi.fn();
+    await show({ workspace, onFocusPane });
+    const button = within(screen.getByRole('navigation')).getByRole('button', { name: 'Focus' });
     expect(button.querySelector('.activity-badge')).toBeNull();
     act(() => { runtime.begin('a', 'lease', 'r', false, false); runtime.observe('a', 'lease', {
       type: 'agentActivity', runtimeId: 'r', generation: 'test', revision: 1, observation: 'awaitingInput', validForMs: 30000,
     }); });
-    await waitFor(() => expect(within(button).getByLabelText('Board: 1')).toHaveTextContent('1'));
-    expect(card()).toHaveClass('kanban-needs-attention');
-    expect(within(card()).getByLabelText('Needs attention')).toBeInTheDocument();
+    await waitFor(() => expect(within(button).getByLabelText('Focus: 1')).toHaveTextContent('1'));
+    expect(names('Needs you')).toEqual(['Task 1']);
+    expect(names('Up next')).not.toContain('Task 1');
+    fireEvent.click(within(section('Needs you')).getByRole('button', { name: /Go to terminal/ }));
+    expect(onFocusPane).toHaveBeenCalledExactlyOnceWith('a');
   });
-  it('moves and reorders by Alt arrows using full catalog positions and announces the result', async () => {
-    board.cards.push({ ...board.cards[0], id: 'hidden', archived: true, position: 1 });
-    board.cards[5].position = 2;
+  it('starts the next task: moves it to In progress, then opens the launcher', async () => {
+    const onStart = vi.fn(); await show({ onStart });
+    fireEvent.click(within(section('Up next')).getAllByRole('button', { name: 'Start' })[0]);
+    await waitFor(() => expect(onStart).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'card-1' }), project));
+    expect(api.moveKanbanCard).toHaveBeenCalledExactlyOnceWith('card-1', 'column-2', 1);
+    await waitFor(() => expect(names('In progress')).toEqual(['Task 2', 'Task 1']));
+    expect(await within(panel()).findByRole('button', { name: 'Undo' })).toBeInTheDocument();
+  });
+  it('resumes in-progress work that has no open terminal', async () => {
+    const onResume = vi.fn(); await show({ onResume });
+    fireEvent.click(within(section('In progress')).getByRole('button', { name: 'Resume' }));
+    expect(onResume).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 's-2' }));
+  });
+  it('quick-add creates a Todo task on Enter and cancels on Escape', async () => {
     await show();
-    const opener = within(card()).getByRole('button'); opener.focus();
-    fireEvent.keyDown(opener, { key: 'ArrowDown', altKey: true, isComposing: true });
-    expect(api.moveKanbanCard).not.toHaveBeenCalled();
-    fireEvent.keyDown(opener, { key: 'ArrowDown', altKey: true });
-    await waitFor(() => expect(api.moveKanbanCard).toHaveBeenCalledExactlyOnceWith('card-0', 'column-0', 2));
-    await waitFor(() => expect(opener).toHaveFocus());
-    fireEvent.keyDown(opener, { key: 'ArrowRight', altKey: true });
-    await waitFor(() => expect(api.moveKanbanCard).toHaveBeenLastCalledWith('card-0', 'column-1', 3));
-    expect(within(panel()).getAllByRole('status').some(el => el.textContent?.includes('Moved "Task 0" to Todo, position 4.'))).toBe(true);
-  });
-  it('drags the whole card into a collapsed group header and suppresses the following click', async () => {
-    await show();
-    const source = card(), target = within(group(4)).getByRole('button', { expanded: false });
-    source.setPointerCapture = vi.fn(); source.hasPointerCapture = vi.fn(() => false);
-    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => target });
-    const pointer = (type: string, y: number) => {
-      const event = new Event(type, { bubbles: true });
-      Object.assign(event, { clientX: 10, clientY: y, button: 0, pointerId: 1, isPrimary: true }); fireEvent(source, event);
-    };
-    try {
-      pointer('pointerdown', 5); pointer('pointermove', 7);
-      expect(group(4)).not.toHaveClass('kanban-drop-column');
-      pointer('pointermove', 150); expect(group(4)).toHaveClass('kanban-drop-column');
-      pointer('pointerup', 150); fireEvent.click(source);
-      await waitFor(() => expect(api.moveKanbanCard).toHaveBeenCalledExactlyOnceWith('card-0', 'column-4', 1));
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    } finally { Reflect.deleteProperty(document, 'elementFromPoint'); }
-  });
-  it('quick-add creates on Enter, cancels on Escape, and respects composition', async () => {
-    await show(); const user = userEvent.setup();
-    fireEvent.click(within(group(1)).getByRole('button', { name: 'New task' }));
-    const input = within(group(1)).getByRole('textbox', { name: 'Task title' });
-    fireEvent.change(input, { target: { value: 'Plan a small change' } });
-    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
-    expect(api.createKanbanCard).not.toHaveBeenCalled();
-    await user.keyboard('{Enter}');
+    fireEvent.click(within(panel()).getByRole('button', { name: 'New task' }));
+    fireEvent.change(within(panel()).getByRole('textbox', { name: 'Task title' }), { target: { value: 'Plan a small change' } });
+    fireEvent.keyDown(within(panel()).getByRole('textbox'), { key: 'Enter', isComposing: true });
+    fireEvent.submit(panel().querySelector('.kanban-quick-add form')!);
     await waitFor(() => expect(api.createKanbanCard).toHaveBeenCalledExactlyOnceWith('column-1', 'Plan a small change', ''));
-    expect(within(group(1)).getByRole('button', { name: 'Plan a small change' })).toBeVisible();
-    fireEvent.click(within(group(1)).getByRole('button', { name: 'New task' }));
-    fireEvent.keyDown(within(group(1)).getByRole('textbox'), { key: 'Escape' });
-    expect(within(group(1)).queryByRole('textbox')).not.toBeInTheDocument();
+    fireEvent.click(within(panel()).getByRole('button', { name: 'New task' }));
+    fireEvent.keyDown(within(panel()).getByRole('textbox'), { key: 'Escape' });
+    expect(within(panel()).queryByRole('textbox')).not.toBeInTheDocument();
     expect(api.createKanbanCard).toHaveBeenCalledOnce();
   });
   it('shares snapshots, mutations and polling with the full board', async () => {
@@ -159,40 +140,42 @@ describe('board activity contribution', () => {
     await act(async () => { render(<RuntimeActivityProvider><Harness full /></RuntimeActivityProvider>); });
     expect(api.kanbanBoard).toHaveBeenCalledOnce();
     const main = document.querySelector<HTMLElement>('.project-board')!;
-    await act(async () => { fireEvent.keyDown(within(card()).getByRole('button'), { key: 'ArrowRight', altKey: true }); });
+    await act(async () => { fireEvent.keyDown(within(main).getByRole('button', { name: 'Task 1' }), { key: 'ArrowRight', altKey: true }); });
     expect(api.kanbanBoard).toHaveBeenCalledTimes(2);
     expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(1);
-    expect(main.querySelector('[data-kanban-card="card-0"]')?.closest('[data-kanban-column]')).toHaveAttribute('data-kanban-column', 'column-1');
+    expect(names('In progress')).toEqual(['Task 2', 'Task 1']);
     await act(async () => vi.advanceTimersByTimeAsync(5000));
     expect(api.kanbanBoard).toHaveBeenCalledTimes(3);
     await act(async () => fireEvent.focus(window));
     expect(api.kanbanBoard).toHaveBeenCalledTimes(4);
   });
-  it('isolates a late mutation from the next project and permits a new mutation there', async () => {
+  it('drops a start that finishes after switching projects and permits a new mutation there', async () => {
     const nextProject = { ...project, id: 'next', name: 'Next project' };
     const nextBoard = kanbanFixture('next', sessions.map(session => ({ ...session, projectId: 'next', title: 'Next ' + session.title })));
     vi.mocked(api.kanbanBoard).mockImplementation(async id => structuredClone(id === 'next' ? nextBoard : board));
     let finish!: () => void;
-    vi.mocked(api.moveKanbanCard).mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(structuredClone(board.cards[0])); }));
-    const view = await show();
-    fireEvent.keyDown(within(card()).getByRole('button'), { key: 'ArrowRight', altKey: true });
-    view.rerender(<RuntimeActivityProvider><Harness owner={nextProject} /></RuntimeActivityProvider>);
-    await screen.findByRole('button', { name: 'Next Task 0' });
+    vi.mocked(api.moveKanbanCard).mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(structuredClone(board.cards[1])); }));
+    const onStart = vi.fn();
+    const view = await show({ onStart });
+    fireEvent.click(within(section('Up next')).getAllByRole('button', { name: 'Start' })[0]);
+    view.rerender(<RuntimeActivityProvider><Harness owner={nextProject} onStart={onStart} /></RuntimeActivityProvider>);
+    await screen.findByRole('button', { name: 'Next Task 2' });
     await act(async () => finish());
-    expect(screen.queryByRole('button', { name: 'Task 0' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Next Task 0' })).toBeEnabled();
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Next Task 0' }), { key: 'ArrowRight', altKey: true });
-    await waitFor(() => expect(api.moveKanbanCard).toHaveBeenCalledTimes(2));
+    expect(onStart).not.toHaveBeenCalled();
+    const start = within(section('Up next')).getAllByRole('button', { name: 'Start' })[0];
+    expect(start).toBeEnabled();
+    fireEvent.click(start);
+    await waitFor(() => expect(onStart).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: 'next' }), nextProject));
   });
-  it('saves before starting and keeps the draft when saving fails', async () => {
+  it('saves a drawer edit before starting and keeps the drawer when saving fails', async () => {
     const onStart = vi.fn(); await show({ onStart });
-    fireEvent.click(within(card()).getByRole('button'));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Task title' }), { target: { value: 'Updated plan' } });
+    fireEvent.click(within(section('Up next')).getByRole('button', { name: 'Task 1' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Updated plan' } });
     vi.mocked(api.editKanbanCard).mockRejectedValueOnce('Synthetic save failure');
-    fireEvent.click(screen.getByRole('button', { name: 'Save and start' }));
-    await screen.findAllByRole('alert'); expect(onStart).not.toHaveBeenCalled();
-    expect(screen.getByRole('textbox', { name: 'Task title' })).toHaveValue('Updated plan');
-    fireEvent.click(screen.getByRole('button', { name: 'Save and start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start work' }));
+    await screen.findByRole('button', { name: 'Not saved. Try again' }); expect(onStart).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Updated plan');
+    fireEvent.click(screen.getByRole('button', { name: 'Start work' }));
     await waitFor(() => expect(onStart).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ title: 'Updated plan' }), project));
   });
 });

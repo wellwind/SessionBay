@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
 
-export interface CardDrop { columnId: string; targetId?: string; after: boolean; merge?: boolean }
+export interface CardDrop { columnId: string; targetId?: string; after: boolean }
 
 /** Cross-column pointer capture with the same cancellation and keyboard alternatives as tab reordering. */
 export function useKanbanCardDrag(root: RefObject<HTMLElement | null>, signature: string,
-  onMove: (id: string, drop: CardDrop) => void, allowMerge = true, enabled = true) {
+  onMove: (id: string, drop: CardDrop) => void, enabled = true) {
   const drag = useRef<{ id: string; pointerId: number; x: number; y: number; clientX: number; clientY: number; moved: boolean; button: HTMLElement } | null>(null);
   const scrollFrame = useRef<number | null>(null);
   const scrollTime = useRef<number | null>(null);
@@ -17,7 +17,8 @@ export function useKanbanCardDrag(root: RefObject<HTMLElement | null>, signature
       const box = element.getBoundingClientRect(), previous = rects.current.get(id);
       if (previous && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
         const x = previous.left - box.left, y = previous.top - box.top;
-        if (x || y) element.animate?.([{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }], { duration: 180, easing: 'ease-out' });
+        // Reflow: quick, no overshoot (Animate UI's ease.out), so moved cards settle instead of jumping.
+        if (x || y) element.animate?.([{ transform: `translate(${x}px, ${y}px)` }, { transform: 'translate(0, 0)' }], { duration: 220, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' });
       }
       next.set(id, box);
     });
@@ -50,14 +51,13 @@ export function useKanbanCardDrag(root: RefObject<HTMLElement | null>, signature
     if (!column) return null;
     const card = hit.closest<HTMLElement>('[data-kanban-card]');
     const box = card?.getBoundingClientRect();
-    const fraction = box ? (clientY - box.top) / box.height : 1;
-    return { merge: allowMerge && !!card && fraction >= .3 && fraction <= .7, columnId: column.dataset.kanbanColumn!, targetId: card?.dataset.kanbanCard,
+    return { columnId: column.dataset.kanbanColumn!, targetId: card?.dataset.kanbanCard,
       after: box ? clientY >= box.top + box.height / 2 : true };
   };
   const updatePreview = (id: string, drop: CardDrop | null) => setPreview(previous => {
     if (!drop) return previous === null ? previous : null;
     if (previous?.id === id && previous.columnId === drop.columnId && previous.targetId === drop.targetId &&
-      previous.after === drop.after && previous.merge === drop.merge) return previous;
+      previous.after === drop.after) return previous;
     return { ...drop, id };
   });
   const autoScroll = (time: number) => {

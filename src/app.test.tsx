@@ -3489,7 +3489,7 @@ describe('workspace focus presentation', () => {
     selectGroup();
     const rail = screen.getByRole('navigation', { name: '工作區功能' });
     expect(within(rail).getAllByRole('button').map(button => button.getAttribute('aria-label')))
-      .toEqual(['歷史 Sessions', 'Files', 'Git', '看板']);
+      .toEqual(['歷史 Sessions', 'Files', 'Git', '焦點']);
     expect(within(rail).getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', 'true');
     expect(document.getElementById('activity-sessions-panel')).toBeVisible();
     expect(document.getElementById('activity-projects-panel')).toBeNull();
@@ -3584,7 +3584,7 @@ describe('workspace focus presentation', () => {
     const saves = vi.mocked(api.saveWorkspace).mock.calls.length;
     const navigation = screen.getByRole('navigation', { name: '工作區功能' });
     expect(within(navigation).getAllByRole('button').map(button => button.getAttribute('aria-label')))
-      .toEqual(['歷史 Sessions', 'Files', 'Git', '看板']);
+      .toEqual(['歷史 Sessions', 'Files', 'Git', '焦點']);
     const sessions = within(navigation).getByRole('button', { name: '歷史 Sessions' });
     const files = within(navigation).getByRole('button', { name: 'Files' });
     fireEvent.click(sessions);
@@ -3725,12 +3725,11 @@ describe('card start through the New work launcher', () => {
     render(<App />);
     await tick();
     selectGroup();
-    fireEvent.click(within(screen.getByRole('navigation', { name: '工作區功能' })).getByRole('button', { name: '看板' }));
-    fireEvent.click(screen.getByRole('button', { name: '開啟完整看板' }));
-    fireEvent.click(within(screen.getByRole('navigation', { name: '工作區功能' })).getByRole('button', { name: '看板' }));
+    fireEvent.click(within(document.querySelector<HTMLElement>('.workspace-tab-bar')!).getByRole('button', { name: '看板' }));
     await tick();
     fireEvent.click(screen.getByRole('button', { name: 'Synthetic planned task' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '開始工作' }));
+    await tick();
     const launcher = screen.getByRole('dialog', { name: '開始新的工作' });
     expect(launcher).toHaveTextContent('/synthetic/worktree');
     if (kind === 'shell') chooseLaunchKind(launcher, kind);
@@ -3750,29 +3749,29 @@ describe('card start through the New work launcher', () => {
 });
 
 
-it('toggles the Board activity with Mod+Shift+K and the palette without a tab-bar entry', async () => {
+it('toggles the Focus activity with Mod+Shift+K and the palette; the board has its own tab-bar entry', async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
   vi.mocked(api.kanbanBoard).mockResolvedValue(kanbanFixture('project-a', []));
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
   render(<App />); await tick(); selectGroup(); await tick();
   const rail = screen.getByRole('navigation', { name: '工作區功能' });
-  const board = within(rail).getByRole('button', { name: '看板' });
+  const board = within(rail).getByRole('button', { name: '焦點' });
   const bar = document.querySelector<HTMLElement>('.workspace-tab-bar')!;
-  expect(within(bar).queryByRole('button', { name: '看板' })).not.toBeInTheDocument();
+  expect(within(bar).getByRole('button', { name: '看板' })).toHaveAttribute('aria-pressed', 'false');
   expect(bar.firstElementChild).toHaveClass('workspace-tabs');
   const terminal = screen.getByTestId('workspace-canvas');
   const input = vi.fn(); terminal.addEventListener('keydown', input);
   expect(fireEvent.keyDown(terminal, { key: 'k', ctrlKey: true, shiftKey: true })).toBe(false);
   expect(input).not.toHaveBeenCalled(); expect(board).toHaveAttribute('aria-expanded', 'true');
-  expect(screen.getByRole('button', { name: '開啟完整看板' })).toBeVisible();
+  expect(screen.getByRole('button', { name: '開啟看板' })).toBeVisible();
   fireEvent.keyDown(terminal, { key: 'k', ctrlKey: true, shiftKey: true, isComposing: true });
   expect(board).toHaveAttribute('aria-expanded', 'true');
   fireEvent.keyDown(terminal, { key: 'k', ctrlKey: true, shiftKey: true });
   expect(board).toHaveAttribute('aria-expanded', 'false');
   fireEvent.keyDown(window, { key: 'p', ctrlKey: true, shiftKey: true });
   const palette = screen.getByRole('dialog', { name: '命令面板' });
-  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: '顯示／隱藏專案看板' } });
-  fireEvent.click(within(palette).getByRole('option', { name: /顯示／隱藏專案看板/ }));
+  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: '顯示／隱藏焦點面板' } });
+  fireEvent.click(within(palette).getByRole('option', { name: /顯示／隱藏焦點面板/ }));
   expect(board).toHaveAttribute('aria-expanded', 'true');
 });
 
@@ -3784,11 +3783,12 @@ it('opens the full board from the command palette and returns to terminals by se
   render(<App />); await tick(); selectGroup(); await tick();
   fireEvent.keyDown(window, { key: 'p', ctrlKey: true, shiftKey: true });
   const palette = screen.getByRole('dialog', { name: '命令面板' });
-  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: '開啟完整看板' } });
+  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: '開啟看板' } });
   fireEvent.keyDown(within(palette).getByRole('combobox'), { key: 'Enter' });
   await tick();
   expect(document.querySelector('.project-board')).toBeVisible();
-  expect(within(screen.getByRole('navigation', { name: '工作區功能' })).getByRole('button', { name: '看板' })).toHaveAttribute('aria-expanded', 'false');
+  expect(within(screen.getByRole('navigation', { name: '工作區功能' })).getByRole('button', { name: '焦點' })).toHaveAttribute('aria-expanded', 'false');
+  expect(within(document.querySelector<HTMLElement>('.workspace-tab-bar')!).getByRole('button', { name: '看板' })).toHaveAttribute('aria-pressed', 'true');
   fireEvent.click(document.querySelector<HTMLButtonElement>('.workspace-tab-select')!);
   expect(document.querySelector('.project-board')).not.toBeInTheDocument();
   expect(screen.getByTestId('workspace-canvas')).toBeVisible();

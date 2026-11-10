@@ -3,11 +3,21 @@ import { api, errorMessage } from '../api';
 import { t } from '../i18n';
 import { paneRuntimeStatusText } from '../pane-runtime-status';
 import { paneAttention } from '../workspace-overview';
-import type { KanbanBoard, KanbanCard, KanbanColumn, KanbanSession, Pane, Workspace } from '../types';
+import type { KanbanBoard, KanbanCard, KanbanColumn, KanbanSession, KanbanStage, Pane, Workspace } from '../types';
 import { useRuntimeActivity } from './RuntimeActivity';
 
 export const columnName = (column: KanbanColumn) => column.name ?? t(column.defaultName ?? 'Untitled column');
 export const cardTitle = (card: KanbanCard) => card.title || t('Untitled task');
+export const stageNames = {
+  unsorted: 'Unsorted', todo: 'Todo', doing: 'In progress', review: 'Review', done: 'Done',
+} as const satisfies Record<KanbanStage, string>;
+/** Board columns in their fixed order; Unsorted sessions are shown as suggestions instead. */
+export const boardStages = ['todo', 'doing', 'review', 'done'] as const;
+export type BoardStage = typeof boardStages[number];
+export const stageColumn = (board: KanbanBoard | undefined, stage: KanbanStage) => board?.columns.find(column => column.stage === stage);
+export const cardStage = (board: KanbanBoard | undefined, card: KanbanCard) => board?.columns.find(column => column.id === card.columnId)?.stage;
+export const latestSession = (card: KanbanCard) => [...card.sessions]
+  .sort((a, b) => new Date(b.session.updatedAt).getTime() - new Date(a.session.updatedAt).getTime())[0]?.session;
 export const ordered = <T extends { position: number }>(items: T[]) => [...items].sort((a, b) => a.position - b.position);
 const noopSubscribe = () => () => {};
 function sessionPane(link: KanbanSession, panes: Pane[]) {
@@ -112,7 +122,7 @@ export function useKanbanBoards(workspace: Workspace, projectId?: string, eligib
       || paneRuntimeStatusText(pane, false, '') || t('Running') : t('Not running');
     const shortText = !pane ? t('Not running') : kind === 'input' ? t('Waiting for input') : kind === 'error' ? t('Needs attention')
       : kind === 'working' ? t('Working') : kind === 'idle' ? t('Idle') : kind === 'ended' ? t('Ended') : t('Preparing');
-    return { text, shortText, attention: kind === 'input' || kind === 'error', kind };
+    return { text, shortText, attention: kind === 'input' || kind === 'error', kind, paneId: pane?.id };
   };
 
   const [undo, setUndo] = useState<{ message: string; action: () => Promise<unknown>; origin: HTMLElement | null } | null>(null);
@@ -133,9 +143,20 @@ export function useKanbanBoards(workspace: Workspace, projectId?: string, eligib
     if (success) setUndo({ message: t('Archived'), action: () => api.archiveKanbanCard(id, false), origin: origin ?? null });
     return success;
   };
+  /** Autosave path: edits do not take the board-wide mutation lock, so typing never disables controls. */
+  const saveCard = async (id: string, title: string, notes: string) => {
+    try {
+      await api.editKanbanCard(id, title, notes);
+      if (alive.current) void read();
+      return true;
+    } catch (cause) {
+      if (alive.current) setError(errorMessage(cause));
+      return false;
+    }
+  };
   const undoLast = async () => { if (undo && await mutate(undo.action)) setUndo(null); };
   const attentionCount = snapshots.filter(board => board.enabled).flatMap(board => board.cards)
     .filter(card => !card.archived && card.sessions.some(link => status(link).attention)).length;
-  return { selectedId, setSelectedId, snapshots, loading, error, busy, lock, announcement, announcementOrigin, read, mutate, status, move, archive, undo, undoLast, attentionCount };
+  return { selectedId, setSelectedId, snapshots, loading, error, busy, lock, announcement, announcementOrigin, read, mutate, status, move, archive, saveCard, undo, undoLast, attentionCount };
 }
 export type KanbanBoards = ReturnType<typeof useKanbanBoards>;
