@@ -17,7 +17,8 @@ export function useActiveTabVisibility(activeKey?: string) {
       const right = left + strip.clientWidth * scale;
       const delta = target.width > right - left || target.left < left
         ? target.left - left : target.right > right ? target.right - right : 0;
-      if (Math.abs(delta) > 0.5) strip.scrollLeft += delta / scale;
+      // scrollLeft drops fractions; round away from zero so the tab is fully revealed.
+      if (Math.abs(delta) > 0.5) strip.scrollLeft += Math.sign(delta) * Math.ceil(Math.abs(delta / scale));
     };
     reveal();
     let width = strip.getBoundingClientRect().width;
