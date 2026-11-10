@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-10
+
+### Added
+
+- **Resume all interrupted panes.** After Session Bay or your computer restarts, the status bar shows how many panes were interrupted. **Resume all** lists what each pane will do and restarts them together after you confirm. Nothing restarts on its own.
+- Restarting interrupted agent work continues its conversation when Session Bay identified it while it ran: Claude Code and Codex with activity reporting on, and OpenCode once its session is indexed. Before, it started a new conversation. Grok Build and Antigravity still start a new one.
+
 ## [0.4.0] - 2026-11-08
 
 ### Changed
@@ -146,7 +153,8 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/wellwind/SessionBay/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/wellwind/SessionBay/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/wellwind/SessionBay/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/wellwind/SessionBay/compare/v0.3.1...v0.3.2
