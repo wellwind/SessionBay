@@ -38,7 +38,7 @@ If the background service has died, reloading the window starts a new service. I
 Terminals keep up to **10,000 lines of scrollback**. Reattaching restores the current screen and up to **1 MiB of the newest scrollback output**; older output may no longer be available.
 
 - **Stop** ends a pane's process. Closing a pane asks before stopping it.
-- After a restart of your Mac, panes show **interrupted**; start them again when you are ready.
+- After a restart of your Mac, panes show **interrupted**. Restart one pane, or click **Resume all** in the status bar to review what each pane will do and restart them together. Agent work whose conversation Session Bay identified while it ran continues that conversation; otherwise it starts a new one.
 
 ## Files and images for agents
 

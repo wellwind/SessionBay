@@ -55,7 +55,7 @@ Terminals are owned by a separate **broker** process (`src-tauri/src/bin/session
 - The broker keeps a bounded replay of each terminal: up to 4 MiB or 4,096 frames of recent output, 10,000 lines of scrollback, and a vt100 screen model. Reconnect restores the current screen plus at most 1 MiB of the newest scrollback text.
 - Output reaches the UI as ordered, acknowledged frames, so a slow renderer applies backpressure instead of growing memory without bound.
 - Metadata stores runtime IDs, pane, project, agent, cwd and state. It never stores PIDs, argv, environment variables or terminal content.
-- If the broker or the machine restarts, panes show `interrupted`. The user has to explicitly start them again.
+- If the broker or the machine restarts, panes show `interrupted`. Nothing restarts automatically: the user restarts a pane, or confirms **Resume all** in the status bar. Restarting new agent work that has a validated provider session ID (see Agent activity) resumes that conversation; panes with an indexed session or manual resume ID resume as before, and others start fresh. Launches still go through the backend planner.
 
 ## Process launch
 
