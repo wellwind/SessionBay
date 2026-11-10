@@ -2365,5 +2365,14 @@
   "No archived tasks.": "沒有已封存的任務。",
   "Dismiss all suggestions?": "略過所有建議？",
   "These sessions leave the board and will not be suggested again. Their history is kept, and you can still add one to a task with Attach from history.": "這些 Session 會離開看板，不會再被建議。歷史紀錄會保留，之後仍可用「從歷史附加」加入任務。",
-  "Columns are fixed to four stages so every board reads the same way. Only the name changes.": "欄位固定為四個階段，讓每個看板讀起來都一樣；這裡只會改名稱。"
+  "Columns are fixed to four stages so every board reads the same way. Only the name changes.": "欄位固定為四個階段，讓每個看板讀起來都一樣；這裡只會改名稱。",
+  "{{count}} interrupted · Resume all": "{{count}} 個已中斷 · 全部接續",
+  "Restart every interrupted pane after confirming": "確認後重新啟動所有已中斷的面板",
+  "Resume {{count}} interrupted panes?": "接續 {{count}} 個已中斷的面板？",
+  "The background processes stopped when Session Bay or the computer restarted. Each pane starts again in its saved folder with its saved launch settings.": "Session Bay 或電腦重新啟動時，背景程序已停止。每個面板會在原本的資料夾、以原本的啟動設定重新啟動。",
+  "Interrupted panes": "已中斷的面板",
+  "Continue conversation": "接續原本的對話",
+  "New conversation · no session was recorded": "開始新對話 · 沒有記錄到 Session",
+  "New shell in its folder": "在原資料夾開啟新 Shell",
+  "Resume all": "全部接續"
 }

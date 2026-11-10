@@ -2249,6 +2249,60 @@ describe('persistent broker application lifecycle', () => {
     expect(api.stop).not.toHaveBeenCalled();
     expect(api.forget).toHaveBeenCalledWith('runtime-a');
   });
+  it('restarts interrupted new agent work by resuming its hook-reported conversation', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.runtimes = [brokerRecord({ state: 'interrupted', kind: 'claude', providerSessionId: 'synthetic-provider' })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.runtimes).mockResolvedValue(data.runtimes);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: 'Restart synthetic pane' }));
+    expect(workspaceSnapshot().panes['pane-a']).toMatchObject({ resumeId: 'synthetic-provider', startToken: 1 });
+    expect(workspaceSnapshot().panes['pane-a'].runtimeId).toBeUndefined();
+  });
+  it('resumes every interrupted pane only after confirming the per-pane plan', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    const saved = data.workspace as Workspace;
+    saved.panes['pane-b'] = { id: 'pane-b', kind: 'grok', title: 'Synthetic grok', projectId: 'project-a',
+      cwd: '/synthetic/project', state: 'placeholder' };
+    saved.tabs.push({ id: 'tab-b', projectId: 'project-a', name: 'Grok', focusedPaneId: 'pane-b',
+      layout: { kind: 'pane', paneId: 'pane-b' } });
+    data.runtimes = [
+      brokerRecord({ state: 'interrupted', kind: 'claude', providerSessionId: 'synthetic-provider' }),
+      brokerRecord({ id: 'runtime-b', paneId: 'pane-b', kind: 'grok', state: 'interrupted' }),
+    ];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.runtimes).mockResolvedValue(data.runtimes);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: /2 個已中斷 · 全部接續/ }));
+    const dialog = screen.getByRole('dialog', { name: '接續 2 個已中斷的面板？' });
+    expect(within(dialog).getByText('接續原本的對話')).toBeInTheDocument();
+    expect(within(dialog).getByText('開始新對話 · 沒有記錄到 Session')).toBeInTheDocument();
+    expect(workspaceSnapshot().panes['pane-a'].startToken).toBeUndefined();
+    fireEvent.click(within(dialog).getByRole('button', { name: '全部接續' }));
+    await tick(500);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(workspaceSnapshot().panes['pane-a']).toMatchObject({ resumeId: 'synthetic-provider', startToken: 1 });
+    expect(workspaceSnapshot().panes['pane-b']).toMatchObject({ startToken: 1 });
+    expect(workspaceSnapshot().panes['pane-b'].resumeId).toBeUndefined();
+  });
+  it('cancelling the resume-all dialog restarts nothing', async () => {
+    vi.mocked(isDesktop).mockReturnValue(true);
+    const data = bootstrap();
+    data.runtimes = [brokerRecord({ state: 'interrupted' })];
+    vi.mocked(api.bootstrap).mockResolvedValue(data);
+    vi.mocked(api.runtimes).mockResolvedValue(data.runtimes);
+    render(<App />);
+    await tick();
+    fireEvent.click(screen.getByRole('button', { name: /1 個已中斷 · 全部接續/ }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '取消' }));
+    await tick(500);
+    expect(workspaceSnapshot().panes['pane-a']).toMatchObject({ state: 'interrupted', runtimeId: 'runtime-a' });
+    expect(workspaceSnapshot().panes['pane-a'].startToken).toBeUndefined();
+  });
   it('automatically removes a completed shell record without stopping it', async () => {
     vi.mocked(isDesktop).mockReturnValue(true);
     const data = bootstrap();

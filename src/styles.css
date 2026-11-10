@@ -1724,3 +1724,54 @@ kbd {
 .session-trash-note { margin-top: 8px; }
 
 .pane-task-input { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; color: var(--muted); font-size: 12px; background: var(--surface); }
+.statusbar button.status-resume-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+}
+.statusbar button.status-resume-all:hover {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+.resume-all-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.resume-all-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.resume-all-list li + li {
+  border-top: 1px solid var(--border);
+}
+.resume-all-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.resume-all-outcome {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.resume-all-outcome.resume {
+  color: var(--text);
+}
+.resume-all-outcome.new {
+  color: var(--warning);
+}

@@ -38,6 +38,7 @@ import {
   Palette,
   LayoutGrid,
   Columns3,
+  RotateCcw,
 } from 'lucide-react';
 import { api, errorMessage, isDesktop } from './api';
 import { closeFocusedExplorer } from './components/explorer-focus';
@@ -46,6 +47,8 @@ import { ProjectNavigation } from './components/ProjectNavigation';
 import { legacyProjectOrder, readSidebarPreferences, reconcileProjectOrder, reorderProject, saveSidebarPreferences } from './sidebar-preferences';
 import type { SidebarPreferences } from './sidebar-preferences';
 import { startup } from './startup';
+import { interruptedPlan, interruptedResumeId } from './interrupted-resume';
+import type { InterruptedPlanItem } from './interrupted-resume';
 import './workspace-focus.css';
 import { resumedTabName } from './display-name';
 import { acceptsWorkspaceZoomShortcut, nextWorkspaceZoom, workspaceZoomShortcut, workspaceZoomShortcutHelp, WorkspaceZoomController } from './workspace-zoom';
@@ -298,6 +301,9 @@ function AppContent() {
   const projectMutation = useRef(false);
   const projectReadGeneration = useRef(0);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [resumeAll, setResumeAll] = useState<InterruptedPlanItem[] | null>(null);
+  const resumeTimers = useRef<number[]>([]);
+  useEffect(() => () => { resumeTimers.current.forEach((timer) => window.clearTimeout(timer)); }, []);
   const [busy, setBusy] = useState(false);
   const confirmationLock = useRef(false);
   const [toast, setToast] = useState('');
@@ -818,9 +824,11 @@ function AppContent() {
         const cwd =
           cwdOverride ??
           (pane.sessionId ? project?.launchPath || pane.cwd || project?.path || '' : pane.cwd);
+        // Continue a validated provider conversation instead of starting over after an interruption.
+        const resumeId = interruptedResumeId(pane) ?? pane.resumeId;
         return {
           ...w,
-          panes: { ...w.panes, [id]: { ...pane, cwd, runtimeId: undefined, startToken: (pane.startToken ?? 0) + 1 } },
+          panes: { ...w.panes, [id]: { ...pane, cwd, resumeId, runtimeId: undefined, startToken: (pane.startToken ?? 0) + 1 } },
         };
       }),
     [],
@@ -1485,6 +1493,19 @@ function AppContent() {
   const activeCount = Object.values(workspace.panes).filter(
     (p) => p.state === 'running' || p.state === 'starting',
   ).length;
+  const interruptedCount = Object.values(workspace.panes).filter((p) => p.state === 'interrupted').length;
+  const confirmResumeAll = (items: InterruptedPlanItem[]) => {
+    setResumeAll(null);
+    // Stagger launches so several agents do not start at the same instant.
+    items.forEach(({ pane }, index) => {
+      const timer = window.setTimeout(() => {
+        resumeTimers.current = resumeTimers.current.filter((item) => item !== timer);
+        const current = stateRef.current.workspace.panes[pane.id];
+        if (current?.state === 'interrupted' && current.runtimeId === pane.runtimeId) startPane(pane.id);
+      }, index * 150);
+      resumeTimers.current.push(timer);
+    });
+  };
   const startBoardTask = (card: KanbanCard, project: Project) => {
     if (allBoards) { selectProject(project); setView('board'); }
     const kind = settings?.defaultAgent ?? 'codex';
@@ -2056,6 +2077,13 @@ function AppContent() {
           )}
         </div>
         <div>
+          {interruptedCount > 0 && (
+            <button className="status-resume-all" onClick={() => setResumeAll(interruptedPlan(stateRef.current.workspace))}
+              title={t('Restart every interrupted pane after confirming')}>
+              <RotateCcw size={11} aria-hidden="true" />
+              {t('{{count}} interrupted · Resume all', { count: interruptedCount })}
+            </button>
+          )}
           <span>{t('{{count}} running processes', { count: activeCount })}</span>
           {visibleSettings && <span role="status" aria-live="polite" title={t('Adjusts the size of the interface and terminals. ') + workspaceZoomShortcutHelp}>{t('Zoom {{percent}}%', { percent: appliedZoom ?? 100 })}{zoomError ? t(' · zoom failed') : appliedZoom !== zoomPercent ? t(' · applying') : ''}{themeSaving ? t(' · saving') : ''}</span>}
           <span className="status-separator">│</span>
@@ -2326,6 +2354,33 @@ function AppContent() {
           <div className="dialog-actions">
             <button className="secondary" onClick={() => finishHookSkip(false)}>{t('Cancel')}</button>
             <button className="primary" onClick={() => finishHookSkip(true)}>{t('Skip activity reporting and start')}</button>
+          </div>
+        </Dialog>
+      )}
+      {resumeAll && (
+        <Dialog title={t('Resume {{count}} interrupted panes?', { count: resumeAll.length })} onClose={() => setResumeAll(null)}>
+          <p className="dialog-description">{t('The background processes stopped when Session Bay or the computer restarted. Each pane starts again in its saved folder with its saved launch settings.')}</p>
+          <ul className="resume-all-list" aria-label={t('Interrupted panes')}>
+            {resumeAll.map(({ pane, outcome }) => {
+              const project = projects.find((item) => item.id === pane.projectId);
+              return (
+                <li key={pane.id}>
+                  <span className="resume-all-title" title={pane.cwd}>
+                    {pane.kind !== 'shell' && <AgentIcon kind={pane.kind} />}
+                    {project ? `${project.name} · ${pane.title}` : pane.title}
+                  </span>
+                  <span className={`resume-all-outcome ${outcome}`}>
+                    {outcome === 'resume' ? t('Continue conversation')
+                      : outcome === 'new' ? t('New conversation · no session was recorded')
+                        : t('New shell in its folder')}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="dialog-actions">
+            <button className="secondary" onClick={() => setResumeAll(null)}>{t('Cancel')}</button>
+            <button className="primary" data-dialog-confirm onClick={() => confirmResumeAll(resumeAll)}>{t('Resume all')}</button>
           </div>
         </Dialog>
       )}

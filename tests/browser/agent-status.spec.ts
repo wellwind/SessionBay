@@ -337,3 +337,19 @@ test('known hook states keep their icon without a second output signal', async (
     await expect(row).not.toHaveAccessibleDescription(/未讀輸出/);
   }
 });
+
+test('interrupted panes offer a confirmed resume-all plan without relaunching', async ({ page }, info) => {
+  await page.goto('/tests/browser/agent-status.html');
+  const resumeAll = page.getByRole('button', { name: /1 個已中斷 · 全部接續/ });
+  await expect(resumeAll).toBeVisible();
+  await page.screenshot({ path: info.outputPath('resume-all-statusbar.png') });
+  await resumeAll.click();
+  const dialog = page.getByRole('dialog', { name: '接續 1 個已中斷的面板？' });
+  await expect(dialog.getByRole('list', { name: '已中斷的面板' }).getByRole('listitem')).toHaveCount(1);
+  await expect(dialog).toContainText('開始新對話 · 沒有記錄到 Session');
+  await page.screenshot({ path: info.outputPath('resume-all-dialog.png') });
+  await dialog.getByRole('button', { name: '取消' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await page.evaluate(() =>
+    (window as unknown as { agentStatusFixture: { operations: string[] } }).agentStatusFixture.operations)).not.toContain('launch');
+});
