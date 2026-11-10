@@ -19,17 +19,6 @@ pub enum KanbanStage {
     Review,
     Done,
 }
-impl KanbanStage {
-    fn key(self) -> &'static str {
-        match self {
-            Self::Unsorted => "unsorted",
-            Self::Todo => "todo",
-            Self::Doing => "doing",
-            Self::Review => "review",
-            Self::Done => "done",
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
