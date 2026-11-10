@@ -3812,7 +3812,9 @@ it('toggles the Focus activity with Mod+Shift+K and the palette; the board has i
   const board = within(rail).getByRole('button', { name: '焦點' });
   const bar = document.querySelector<HTMLElement>('.workspace-tab-bar')!;
   expect(within(bar).getByRole('button', { name: '看板' })).toHaveAttribute('aria-pressed', 'false');
-  expect(bar.firstElementChild).toHaveClass('workspace-tabs');
+  // The Board entry is pinned before the scrolling tab strip.
+  expect(bar.firstElementChild).toHaveClass('workspace-board-tab');
+  expect(bar.children[1]).toHaveClass('workspace-tabs');
   const terminal = screen.getByTestId('workspace-canvas');
   const input = vi.fn(); terminal.addEventListener('keydown', input);
   expect(fireEvent.keyDown(terminal, { key: 'k', ctrlKey: true, shiftKey: true })).toBe(false);
