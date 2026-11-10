@@ -2353,5 +2353,14 @@
   "The background service is from another version. {{count}} agents are running. New agents still use the old launch logic. It updates automatically once all running agents end, if supported by this service. Older services require a confirmed restart.": "背景服務來自另一個版本。目前有 {{count}} 個 Agent 正在執行。新 Agent 仍使用舊版啟動邏輯。若服務支援，所有執行中的 Agent 結束後便會自動更新；較舊的服務需要確認後重新啟動。",
   "Restart background service": "重新啟動背景服務",
   "Restart the background service? {{count}} agents are running. This ends all running agents across every workspace, including terminals and development servers. They will not restart automatically.": "要重新啟動背景服務嗎？目前有 {{count}} 個 Agent 正在執行。這會結束所有工作區中執行的 Agent，包括終端機與開發伺服器，且不會自動重新啟動它們。",
-  "End agents and restart": "結束 Agent 並重新啟動"
+  "End agents and restart": "結束 Agent 並重新啟動",
+  "{{count}} interrupted · Resume all": "{{count}} 個已中斷 · 全部接續",
+  "Restart every interrupted pane after confirming": "確認後重新啟動所有已中斷的面板",
+  "Resume {{count}} interrupted panes?": "接續 {{count}} 個已中斷的面板？",
+  "The background processes stopped when Session Bay or the computer restarted. Each pane starts again in its saved folder with its saved launch settings.": "Session Bay 或電腦重新啟動時，背景程序已停止。每個面板會在原本的資料夾、以原本的啟動設定重新啟動。",
+  "Interrupted panes": "已中斷的面板",
+  "Continue conversation": "接續原本的對話",
+  "New conversation · no session was recorded": "開始新對話 · 沒有記錄到 Session",
+  "New shell in its folder": "在原資料夾開啟新 Shell",
+  "Resume all": "全部接續"
 }
