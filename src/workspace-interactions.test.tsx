@@ -79,7 +79,8 @@ beforeEach(() => {
 async function ready() {
   render(<App />);
   const navigation = await screen.findByRole('navigation', { name: '專案' });
-  fireEvent.click(within(navigation).getByRole('button', { name: /^Synthetic project/ }));
+  // The navigation can render before its project list arrives.
+  fireEvent.click(await within(navigation).findByRole('button', { name: /^Synthetic project/ }));
   fireEvent.click(screen.getByRole('button', { name: '開啟工作區 Synthetic project Terminal' }));
   await waitFor(() => expect(bridge.attach).toHaveBeenCalledOnce());
   const channel = bridge.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
