@@ -3770,6 +3770,13 @@ it.each([false, true])('shows Sessions after last runtime closes, respecting exp
   expect(screen.getByRole('button', { name: '歷史 Sessions' })).toHaveAttribute('aria-expanded', String(!dismissed));
 });
 
+function openBoardFromPalette() {
+  fireEvent.keyDown(window, { key: 'p', ctrlKey: true, shiftKey: true });
+  const palette = screen.getByRole('dialog', { name: '命令面板' });
+  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: '開啟看板' } });
+  fireEvent.keyDown(within(palette).getByRole('combobox'), { key: 'Enter' });
+}
+
 describe('card start through the New work launcher', () => {
   it.each(['codex', 'shell'] as const)('retains task context and bound cwd when starting %s', async kind => {
     const board = kanbanFixture('project-a', []);
@@ -3779,7 +3786,7 @@ describe('card start through the New work launcher', () => {
     render(<App />);
     await tick();
     selectGroup();
-    fireEvent.click(within(document.querySelector<HTMLElement>('.workspace-tab-bar')!).getByRole('button', { name: '看板' }));
+    openBoardFromPalette();
     await tick();
     fireEvent.click(screen.getByRole('button', { name: 'Synthetic planned task' }));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '開始工作' }));
@@ -3803,7 +3810,7 @@ describe('card start through the New work launcher', () => {
 });
 
 
-it('toggles the Focus activity with Mod+Shift+K and the palette; the board has its own tab-bar entry', async () => {
+it('toggles the Focus activity with Mod+Shift+K and the palette; the tab bar has no Board entry', async () => {
   vi.mocked(isDesktop).mockReturnValue(true);
   vi.mocked(api.kanbanBoard).mockResolvedValue(kanbanFixture('project-a', []));
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
@@ -3811,10 +3818,9 @@ it('toggles the Focus activity with Mod+Shift+K and the palette; the board has i
   const rail = screen.getByRole('navigation', { name: '工作區功能' });
   const board = within(rail).getByRole('button', { name: '焦點' });
   const bar = document.querySelector<HTMLElement>('.workspace-tab-bar')!;
-  expect(within(bar).getByRole('button', { name: '看板' })).toHaveAttribute('aria-pressed', 'false');
-  // The Board entry is pinned before the scrolling tab strip.
-  expect(bar.firstElementChild).toHaveClass('workspace-board-tab');
-  expect(bar.children[1]).toHaveClass('workspace-tabs');
+  // The board opens from the Focus panel or the palette, so the tab strip keeps the full width.
+  expect(within(bar).queryByRole('button', { name: '看板' })).not.toBeInTheDocument();
+  expect(bar.firstElementChild).toHaveClass('workspace-tabs');
   const terminal = screen.getByTestId('workspace-canvas');
   const input = vi.fn(); terminal.addEventListener('keydown', input);
   expect(fireEvent.keyDown(terminal, { key: 'k', ctrlKey: true, shiftKey: true })).toBe(false);
@@ -3837,14 +3843,10 @@ it('opens the full board from the command palette and returns to terminals by se
   vi.mocked(api.kanbanBoard).mockResolvedValue(kanbanFixture('project-a', []));
   vi.spyOn(navigator, 'platform', 'get').mockReturnValue('Linux');
   render(<App />); await tick(); selectGroup(); await tick();
-  fireEvent.keyDown(window, { key: 'p', ctrlKey: true, shiftKey: true });
-  const palette = screen.getByRole('dialog', { name: '命令面板' });
-  fireEvent.change(within(palette).getByRole('combobox'), { target: { value: '開啟看板' } });
-  fireEvent.keyDown(within(palette).getByRole('combobox'), { key: 'Enter' });
+  openBoardFromPalette();
   await tick();
   expect(document.querySelector('.project-board')).toBeVisible();
   expect(within(screen.getByRole('navigation', { name: '工作區功能' })).getByRole('button', { name: '焦點' })).toHaveAttribute('aria-expanded', 'false');
-  expect(within(document.querySelector<HTMLElement>('.workspace-tab-bar')!).getByRole('button', { name: '看板' })).toHaveAttribute('aria-pressed', 'true');
   fireEvent.click(document.querySelector<HTMLButtonElement>('.workspace-tab-select')!);
   expect(document.querySelector('.project-board')).not.toBeInTheDocument();
   expect(screen.getByTestId('workspace-canvas')).toBeVisible();

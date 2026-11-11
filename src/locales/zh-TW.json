@@ -2180,7 +2180,6 @@
   "In progress": "進行中",
   "Review": "待審查",
   "Untitled task": "未命名任務",
-  "Board": "看板",
   "Project board": "專案看板",
   "Untitled column": "未命名欄位",
   "Moved \"{{title}}\" to {{column}}, position {{position}}.": "已將「{{title}}」移至{{column}}，第 {{position}} 個位置。",

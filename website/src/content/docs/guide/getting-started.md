@@ -17,7 +17,7 @@ Session Bay is a desktop workbench for AI coding agents. It reads the history th
 
 ![The projects overview with cards for each project](../../../assets/screenshots/en/projects.png)
 
-To plan work, open a project, choose **Board** at the start of its tab bar, then choose **Enable board**. Start agents from a task and its sessions stay attached; **Focus** in the right activity bar shows what needs you next, and **All boards** tracks every enabled board. See [Kanban boards](/SessionBay/guide/kanban/).
+To plan work, open a project, choose **Focus** in the right activity bar, then choose **Enable board**; **Open board** there opens the full board. Start agents from a task and its sessions stay attached; **Focus** in the right activity bar shows what needs you next, and **All boards** tracks every enabled board. See [Kanban boards](/SessionBay/guide/kanban/).
 
 ## Words used in this guide
 

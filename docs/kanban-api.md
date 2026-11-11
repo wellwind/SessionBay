@@ -238,8 +238,9 @@ first three Todo tasks with Start, plus Todo quick-add and a link to pending
 suggestions. Go to terminal focuses the pane already showing the session through
 the app; otherwise it resumes. A start that resolves after the project changed is
 dropped. The badge counts active tasks that need attention. Mod+Shift+K toggles
-the panel through the regular command/shortcut registry; the project tab bar has a
-Board entry, and Open board is also a palette command.
+the panel through the regular command/shortcut registry. The full board opens from
+the panel's Open board button or the Open board palette command; the project tab
+bar has no Board entry, so the tab strip keeps its full width.
 
 The app owns one `useKanbanBoards` instance for the current project and shares it
 with the board and the Focus panel. The hook owns catalog snapshots, live session
