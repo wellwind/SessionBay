@@ -21,3 +21,9 @@ playwright-report/
 test-results-flicker/
 
 dist-monaco-smoke/
+
+# Locally installed agent skills (not part of the repo)
+/.agents/skills/animate-ui/
+/.claude/skills/animate-ui
+/.grok/skills/animate-ui
+/skills-lock.json
