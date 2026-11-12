@@ -7,7 +7,7 @@ A board turns agent work into tasks. Write down what you want done, start an age
 
 ## Enable a project board
 
-Open a project from **Projects** and choose **Board** at the start of the project tab bar, then choose **Enable board**. Only projects you have added to Projects can have a board; add a directory there first if it only appears in All directories.
+Open a project from **Projects**, choose **Focus** in the right activity bar, then choose **Enable board**. Afterwards, **Open board** in the Focus panel or the **Open board** command in the command palette opens the full board; select a workspace tab to return to your terminals. Only projects you have added to Projects can have a board; add a directory there first if it only appears in All directories.
 
 ![A project board with four stages and session suggestions](../../../assets/screenshots/en/board.png)
 

@@ -199,13 +199,6 @@
 .focus-more, .focus-suggestions { align-self: flex-start; }
 .board-activity .kanban-quick-add { padding: 0; }
 
-/* Board entry in the project tab bar */
-/* A fixed integer width keeps the scrolling tab strip beside it on whole pixels, so its last tab can always be revealed. */
-.workspace-board-tab { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 104px; width: 104px; height: 100%; padding: 0 8px; border: 0; border-right: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--muted); font-size: 13px; transition: color var(--kanban-color, 200ms ease), background-color 200ms ease; }
-.workspace-board-tab:hover { color: var(--text); background: var(--surface-hover); }
-.workspace-board-tab.active { color: var(--text); background: var(--surface); box-shadow: inset 0 -2px 0 var(--accent); }
-.workspace-board-badge { min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--warning); color: var(--bg); font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; animation: kanban-pop 300ms cubic-bezier(0.34, 1.2, 0.64, 1); }
-
 @keyframes kanban-pulse { 50% { opacity: 0.4; } }
 @keyframes kanban-swap { from { opacity: 0; filter: blur(2px); } }
 @keyframes kanban-rise { from { opacity: 0; translate: 0 4px; } }
@@ -219,7 +212,7 @@
   @starting-style { .kanban-card, .focus-card { translate: none; } }
   .kanban-suggestion { transition-property: opacity; }
   .attention-working .kanban-status-dot, .kanban-needs-attention { animation: none; }
-  .dialog.dialog-drawer, .kanban-undo, .kanban-quick-add form, .kanban-inline-form, .kanban-filter-chip, .kanban-attention-toggle, .workspace-board-badge { animation-name: kanban-fade; }
+  .dialog.dialog-drawer, .kanban-undo, .kanban-quick-add form, .kanban-inline-form, .kanban-filter-chip, .kanban-attention-toggle { animation-name: kanban-fade; }
   .kanban-suggestions-toggle > svg { transition: none; }
 }
 @keyframes kanban-fade { from { opacity: 0; } }

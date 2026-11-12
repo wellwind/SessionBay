@@ -42,25 +42,27 @@ async function drag(page: Page, source: ReturnType<Page['locator']>, destination
   await page.mouse.up();
 }
 
-test('enables a curated project board from the tab bar and preserves terminals across navigation', async ({ page }, info) => {
+test('enables a curated project board from the Focus panel and preserves terminals across navigation', async ({ page }, info) => {
   await page.goto('/tests/browser/showcase.html?board=off');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
   await page.locator('.directory-card-main').first().click();
-  await page.locator('.workspace-board-tab').click();
-  await page.locator('.project-board').getByRole('button', { name: L('Enable board', '啟用看板'), exact: true }).click();
+  // The tab bar has no Board entry; the Focus panel and the palette open the board.
+  await expect(page.locator('.workspace-tab-bar').getByRole('button', { name: L('Board', '看板'), exact: true })).toHaveCount(0);
+  await page.locator('.workspace-activity[data-activity-id="board"]').click();
+  await page.locator('.board-activity').getByRole('button', { name: L('Enable board', '啟用看板'), exact: true }).click();
+  await openFullBoard(page);
   await expect(card(page, 'card-1')).toBeVisible();
   await expect(page.locator('.kanban-column')).toHaveCount(4);
   await expect(page.getByRole('heading', { name: L('Untitled task', '未命名任務') })).toBeVisible();
   await page.screenshot({ path: info.outputPath('project-board.png') });
   await page.locator('.workspace-tab-select').first().click();
   await expect(page.locator('.xterm-screen').first()).toBeVisible();
-  await expect(page.locator('.workspace-board-tab')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.project-board')).toHaveCount(0);
   await openFullBoard(page);
   await expect(card(page, 'card-1')).toBeVisible();
   await page.locator('#navigation-directories').click();
   await page.locator('.directory-card-main').filter({ hasText: 'notes-cli' }).click();
   await expect(page.locator('.workspace-activity[data-activity-id="board"]')).toBeDisabled();
-  await expect(page.locator('.workspace-board-tab')).toHaveCount(0);
 });
 
 test('files suggestions: make a task, add to a task, or dismiss', async ({ page }) => {
@@ -270,7 +272,7 @@ test('all boards shows enabled projects by stage, switches scope and keeps termi
   await page.screenshot({ path: info.outputPath('all-boards.png') });
   await page.getByRole('combobox', { name: L('Board scope', '看板範圍') }).selectOption('p-web');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('web-dashboard');
-  await expect(page.locator('.workspace-board-tab')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.project-board')).toBeVisible();
   await expect(page.getByRole('heading', { name: L('Ready to build', '準備開發'), exact: true })).toBeVisible();
   await page.getByRole('combobox', { name: L('Board scope', '看板範圍') }).selectOption('');
   await expect(card(page, 'card-1')).toBeVisible();

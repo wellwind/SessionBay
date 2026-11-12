@@ -1839,11 +1839,6 @@ function AppContent() {
                 </div>
               )}
               {(current || allSessionsSearch || temporaryWorkspace) && <div className="workspace-tab-bar">
-                {boardAvailable && current && <button type="button" className={`workspace-board-tab${view === 'board' ? ' active' : ''}`}
-                  aria-pressed={view === 'board'} onClick={openFullBoard}>
-                  <Columns3 size={14} aria-hidden="true" />{t('Board')}
-                  {boardData.attentionCount > 0 && <span className="workspace-board-badge" aria-label={t('{{label}}: {{badge}}', { label: t('Needs attention'), badge: boardData.attentionCount })}>{boardData.attentionCount}</span>}
-                </button>}
                 <div className="workspace-tabs">
                 <WorkspaceTabs panes={workspace.panes} tabs={workspace.tabs.filter((tab) => tab.projectId === selectedId)}
                   mixedBadges={(tab) => tabProjectIds(tab, workspace.panes).map(projectBadge)}
