@@ -251,6 +251,19 @@ test('the focus panel lists in-progress work and starts the next task', async ({
   expect(geometry.overflow).toBe('auto');
 });
 
+/** Waits until a locator's box is unchanged across two frames and its entrance/reorder animations have finished. */
+async function settledBox(locator: ReturnType<Page['locator']>) {
+  let previous = '';
+  await expect.poll(async () => {
+    await locator.evaluate(element => Promise.all(element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => undefined))));
+    const box = JSON.stringify(await locator.boundingBox());
+    const stable = box === previous;
+    previous = box;
+    return stable;
+  }).toBe(true);
+  return (await locator.boundingBox())!;
+}
+
 async function openAllBoards(page: Page) {
   await page.goto('/tests/browser/showcase.html');
   await expect(page.locator('[data-app-shell]')).toHaveAttribute('data-backend-ready', 'true');
@@ -347,11 +360,13 @@ test('dragging near the horizontal edge scrolls to off-screen columns and Escape
   await page.setViewportSize({ width: 960, height: 900 });
   await openAllBoards(page);
   const scroller = page.locator('.kanban-columns');
-  const source = (await card(page, 'card-1').boundingBox())!;
+  // All boards fills in project by project; press only once the card has stopped moving.
+  const source = await settledBox(card(page, 'card-1'));
   const bounds = (await scroller.boundingBox())!;
   await page.mouse.move(source.x + source.width / 2, source.y + 12);
   await page.mouse.down();
   await page.mouse.move(bounds.x + bounds.width - 5, source.y + 12, { steps: 10 });
+  await expect(card(page, 'card-1')).toHaveClass(/kanban-dragging/);
   await expect.poll(() => scroller.evaluate(element => element.scrollLeft)).toBeGreaterThan(100);
   await page.keyboard.press('Escape');
   const stopped = await scroller.evaluate(element => element.scrollLeft);
