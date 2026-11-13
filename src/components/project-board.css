@@ -54,7 +54,9 @@
 .kanban-suggestion-empty { padding: 6px 4px; }
 
 /* Columns */
-.kanban-columns { display: grid; grid-template-rows: minmax(0, 1fr); width: 100%; gap: 12px; flex: 1; min-height: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 2px 2px 12px; align-items: stretch; }
+/* Column chrome is not selectable: a press that misses a card must not start a text-selection drag, whose native autoscroll Escape cannot stop. */
+.kanban-columns { user-select: none; display: grid; grid-template-rows: minmax(0, 1fr); width: 100%; gap: 12px; flex: 1; min-height: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 2px 2px 12px; align-items: stretch; }
+.kanban-columns :is(input, textarea) { user-select: text; }
 .kanban-column { display: flex; flex-direction: column; min-height: 0; min-width: 240px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); transition: border-color var(--kanban-color), background-color var(--kanban-color), box-shadow var(--kanban-color); }
 .kanban-column-header { display: flex; flex: 0 0 40px; min-height: 40px; align-items: center; gap: 8px; padding: 4px 8px 4px 12px; }
 .kanban-column-header h3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font-size: 13px; }
