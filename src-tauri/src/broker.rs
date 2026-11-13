@@ -10,6 +10,7 @@ pub use provider_hooks::{send_provider_callback, send_provider_state};
 mod build_identity;
 mod retirement;
 mod screen;
+mod shell_status;
 mod storage;
 mod transport;
 mod ui_lease;
@@ -327,6 +328,7 @@ struct Host {
     runtime: Arc<RuntimeManager>,
     entries: Mutex<HashMap<String, Entry>>,
     activity: Mutex<HashMap<String, activity::State>>,
+    shell_status: Mutex<HashMap<String, shell_status::ShellStatus>>,
     provider_hooks: Mutex<HashMap<String, provider_hooks::Lease>>,
     activity_permits: Arc<tokio::sync::Semaphore>,
     shutdown: std::sync::atomic::AtomicBool,
@@ -401,6 +403,7 @@ impl Host {
             runtime: Arc::new(RuntimeManager::new()),
             entries: Mutex::new(entries),
             activity: Mutex::new(HashMap::new()),
+            shell_status: Mutex::new(HashMap::new()),
             provider_hooks: Mutex::new(HashMap::new()),
             activity_permits: Arc::new(tokio::sync::Semaphore::new(MAX_ACTIVITY_PUBLISHERS)),
             shutdown: std::sync::atomic::AtomicBool::new(false),
@@ -662,7 +665,9 @@ impl Host {
                 };
                 let mut hook_guard = hook_launch.as_ref().map(|_| lock(&self.provider_hooks));
                 let screen = Arc::new(Mutex::new(screen::TerminalScreen::new(cols, rows)));
-                if terminal_status_enabled {
+                // Any program in a plain shell may report OSC 7501 program status.
+                let shell_status = kind == "shell";
+                if terminal_status_enabled || shell_status {
                     lock(&screen).enable_terminal_status();
                 }
                 if let Some(notice) = status_notice {
@@ -691,6 +696,11 @@ impl Host {
                     Arc::new(move |event| {
                         if let TerminalEvent::Exit { runtime_id, .. } = &event {
                             if let Some(host) = host.upgrade() {
+                                if shell_status {
+                                    let mut state = lock(&terminal_status);
+                                    state.1.process_exit();
+                                    host.finish_shell_terminal_status(runtime_id, state.1.status());
+                                }
                                 if let Some(launch) = &status_launch {
                                     let mut state = lock(&terminal_status);
                                     state.1.process_exit();
@@ -701,6 +711,28 @@ impl Host {
                                     );
                                 }
                                 host.finish_runtime_hooks(runtime_id);
+                            }
+                        }
+                        if let (
+                            true,
+                            TerminalEvent::Output {
+                                runtime_id, data, ..
+                            },
+                        ) = (shell_status, &event)
+                        {
+                            let mut state = lock(&terminal_status);
+                            let changes = state.0.feed(data);
+                            if !changes.is_empty() {
+                                // Shell report ids are never identity hints.
+                                for change in changes {
+                                    state.1.apply(change);
+                                }
+                                if let Some(host) = host.upgrade() {
+                                    host.receive_shell_terminal_status(
+                                        runtime_id,
+                                        state.1.status(),
+                                    );
+                                }
                             }
                         }
                         if let (
@@ -815,6 +847,7 @@ impl Host {
                 drop(hook_guard);
                 for id in retired_activity {
                     lock(&self.activity).remove(&id);
+                    lock(&self.shell_status).remove(&id);
                 }
                 if let Err(error) = self.persist() {
                     // Launch must not claim durability when saving identity failed.
@@ -849,6 +882,13 @@ impl Host {
                     }]
                 };
                 drop(entries);
+                if terminal_status {
+                    if let Some(event) =
+                        self.poll_shell_status(&runtime_id, activity_after.as_ref())
+                    {
+                        events.insert(0, event);
+                    }
+                }
                 if agent_activity {
                     if let Some(event) =
                         self.poll_activity(&runtime_id, activity_after.as_ref(), Instant::now())
@@ -920,6 +960,7 @@ impl Host {
                 }
                 lock(&self.entries).remove(&runtime_id);
                 lock(&self.activity).remove(&runtime_id);
+                lock(&self.shell_status).remove(&runtime_id);
                 self.persist()?;
                 Ok(Response::Ok)
             }

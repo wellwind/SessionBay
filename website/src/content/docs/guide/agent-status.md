@@ -16,6 +16,17 @@ Session Bay shows what each agent is doing next to its tab, in the sidebar, in *
 
 Status comes from the agents themselves (the Codex app server or the OSC 7501 terminal status sequence). Session Bay never guesses from the output text. If an agent cannot report status, its pane simply shows whether the process is running.
 
+### Status from any program in a shell
+
+Plain shell panes also read the [OSC 7501 program status](https://superlogical.com/rex/docs/build/program-status) sequence, so a script, a build tool or an agent you start by hand can report its own status:
+
+```sh
+printf '\e]7501;state=working\e\\'   # working
+printf '\e]7501;state=done\e\\'      # done; raises the completion alert when the pane is off screen
+```
+
+Supported states are `idle`, `working`, `done`, `blocked` (with `kind=permission`, `question` or `auth`), `error` and `clear`. A program should report `done`, `error` or `clear` before it exits: Session Bay sees the pane's shell, not each command, so working, blocked and idle only end when the shell itself exits or shows a new prompt with OSC 133 prompt marks (shell integration). Done and error stay until replaced. Shell status is display only: it never links the pane to an agent session.
+
 ## System notifications
 
 When an agent waits for input or permission, finishes or fails, Session Bay sends a system notification if its pane is off screen or the window is in the background. Click it to bring Session Bay forward on that pane. Each pane has a 5-second cooldown between alerts.

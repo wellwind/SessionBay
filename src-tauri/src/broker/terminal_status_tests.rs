@@ -368,3 +368,101 @@ fn below_minimum_and_opted_out_launches_only_show_process_state() {
         host.runtime.shutdown().unwrap();
     }
 }
+
+fn launch_shell(host: &Arc<Host>, root: &Path, script: &str) -> RuntimeInfo {
+    let path = root.join("synthetic-shell-tool");
+    fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+    let Response::Runtime { info: Some(info) } = host
+        .handle(Request::Launch {
+            generation: host.generation.clone(),
+            spec: Box::new(LaunchSpec {
+                executable: path.to_string_lossy().into_owned(),
+                args: vec![],
+                cwd: root.into(),
+                env: HashMap::new(),
+                session_id: None,
+                resume_key: None,
+                pane_id: "shell-pane".into(),
+            }),
+            kind: "shell".into(),
+            project_id: None,
+            profile_id: None,
+            resume_id: None,
+            home_directory: false,
+            cols: 80,
+            rows: 24,
+        })
+        .unwrap()
+    else {
+        panic!("missing runtime");
+    };
+    info
+}
+fn wait_exit(host: &Arc<Host>, id: &str) {
+    let until = Instant::now() + Duration::from_secs(5);
+    while host
+        .runtime
+        .list()
+        .iter()
+        .any(|r| r.id == id && r.state == "running")
+    {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+#[test]
+fn shell_programs_report_status_that_never_binds_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let host = Host::open(root.path().into()).unwrap();
+    let info = launch_shell(
+        &host,
+        root.path(),
+        "printf '\\033]7501;state=working:id=ses_fromShell:app=synthetic\\033\\\\'\nread -r value\nprintf '\\033]7501;state=done\\007'",
+    );
+    wait_status(&host, &info.id, Some(Status::Working));
+    // Clients without terminal status support never receive shell status.
+    assert!(!poll(&host, &info.id, false)
+        .iter()
+        .any(|event| matches!(event, UiEvent::TerminalStatus { .. })));
+    host.runtime.write(&info.id, "finish\n").unwrap();
+    wait_status(&host, &info.id, Some(Status::Done));
+    wait_exit(&host, &info.id);
+    wait_status(&host, &info.id, Some(Status::Done));
+    let record = host
+        .records()
+        .into_iter()
+        .find(|record| record.info.id == info.id)
+        .unwrap();
+    assert!(record.provider_session_id.is_none());
+    assert!(record.terminal_session_hint.is_none());
+    host.runtime.shutdown().unwrap();
+}
+#[test]
+fn shell_exit_drops_transient_status_and_quiet_shells_stay_silent() {
+    let root = tempfile::tempdir().unwrap();
+    let host = Host::open(root.path().into()).unwrap();
+    let working = launch_shell(
+        &host,
+        root.path(),
+        "printf '\\033]7501;state=blocked:kind=question\\007'\nread -r value",
+    );
+    wait_status(&host, &working.id, Some(Status::Question));
+    host.runtime.write(&working.id, "answer\n").unwrap();
+    wait_exit(&host, &working.id);
+    wait_status(&host, &working.id, None);
+    host.runtime.shutdown().unwrap();
+
+    let root = tempfile::tempdir().unwrap();
+    let host = Host::open(root.path().into()).unwrap();
+    let quiet = launch_shell(
+        &host,
+        root.path(),
+        "printf 'plain output\\n'\nread -r value",
+    );
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!poll(&host, &quiet.id, true)
+        .iter()
+        .any(|event| matches!(event, UiEvent::TerminalStatus { .. })));
+    host.runtime.shutdown().unwrap();
+}

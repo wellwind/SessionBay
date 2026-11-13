@@ -1597,8 +1597,8 @@ describe('Agent overview lifecycle signal integration', () => {
 
 
 describe('guarded terminal output activity', () => {
-  function ActivityHarness({ visible = false }: { visible?: boolean }) {
-    const [pane, setPane] = useState(makePane({ kind: 'codex', state: 'running', runtimeId: 'runtime' }));
+  function ActivityHarness({ visible = false, kind = 'codex' }: { visible?: boolean; kind?: 'codex' | 'shell' }) {
+    const [pane, setPane] = useState(makePane({ kind, state: 'running', runtimeId: 'runtime' }));
     return <RuntimeActivityProvider>
       <TerminalPane {...props(pane)} visible={visible} onPatch={(_id, patch) => setPane(current => ({ ...current, ...patch }))} />
       <RuntimeActivityIndicator tab={{ id: 'tab', name: 'Work', projectId: 'project', focusedPaneId: 'pane', layout: { kind: 'pane', paneId: 'pane' } }} panes={{ pane }} />
@@ -1617,6 +1617,18 @@ describe('guarded terminal output activity', () => {
     expect(screen.getByRole('img', { name: /已完成（終端回報）/ })).toBeInTheDocument();
     act(() => channel({ type: 'terminalStatus', runtimeId: 'runtime', generation: 'terminal-g', revision: 5, status: 'working' }));
     expect(screen.queryByRole('img', { name: /工作中（終端回報）/ })).not.toBeInTheDocument();
+  });
+  it('shows OSC 7501 program status from a plain shell but never agent hook activity', async () => {
+    render(<ActivityHarness kind="shell" />);
+    await waitFor(() => expect(mocks.attach).toHaveBeenCalledOnce());
+    const channel = mocks.attach.mock.calls[0][1] as (event: TerminalEvent) => void;
+    completeSnapshot(channel);
+    act(() => channel({ type: 'agentActivity', runtimeId: 'runtime', generation: 'hook-g', revision: 1, observation: 'awaitingPermission', validForMs: 30000 }));
+    expect(screen.queryByRole('img', { name: /Agent 最近回報/ })).not.toBeInTheDocument();
+    act(() => channel({ type: 'terminalStatus', runtimeId: 'runtime', generation: 'shell-g', revision: 2, status: 'working' }));
+    await waitFor(() => expect(screen.getByRole('img', { name: /工作中（終端回報）/ })).toBeInTheDocument());
+    act(() => channel({ type: 'terminalStatus', runtimeId: 'runtime', generation: 'shell-g', revision: 3, status: 'done' }));
+    await waitFor(() => expect(screen.getByRole('img', { name: /已完成（終端回報）/ })).toBeInTheDocument());
   });
   it('file insertion and manual Enter do not manufacture output activity; rendered Agent output still does', async () => {
     mocks.termPaste.mockReset();

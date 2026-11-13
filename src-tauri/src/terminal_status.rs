@@ -190,7 +190,7 @@ fn parse(bytes: &[u8]) -> Option<Change> {
                 }
                 id = Some(value);
             }
-            "app" if value.len() > 32 => return None,
+            // An invalid or over-long app is treated as absent (spec 0.4); app is never shown.
             "msg" if !free_text(value, 2732, 2048) => return None,
             "title" if !free_text(value, 256, 192) => return None,
             _ => (),
@@ -317,6 +317,14 @@ mod tests {
         assert_eq!(
             parse(b"7501;state=working:future=ok:state=done"),
             Some(root(Status::Done))
+        );
+        assert_eq!(
+            parse(format!("7501;state=blocked:app={}", "a".repeat(33)).as_bytes()),
+            Some(root(Status::Blocked))
+        );
+        assert_eq!(
+            parse(b"7501;state=blocked:app=my-agent"),
+            Some(root(Status::Blocked))
         );
     }
     #[test]
