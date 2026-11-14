@@ -20,6 +20,8 @@ sidebar:
 
 設定新終端機使用的 Shell、參數與環境變數。
 
+在 macOS 上，若 `LANG`、`LC_ALL`、`LC_CTYPE` 都沒有設定，Session Bay 會以 `LANG=en_US.UTF-8` 啟動終端機，與 Terminal.app、iTerm2 的做法相同。少了它，用 `pbcopy` 等工具複製中文等非 ASCII 文字時（Claude Code 就是用它複製），剪貼簿會變成空的。若要使用其他 locale，請在設定檔中設定 `LANG`。
+
 ## 外觀與預設值
 
 - **語言**：English、繁體中文，或跟隨系統語言。切換時會重新載入視窗，終端機會自動重新連線。

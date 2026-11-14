@@ -89,11 +89,30 @@ fn launcher_state(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<O
         .collect()
 }
 
+/// A macOS app opened from Finder or the Dock starts without a locale, while
+/// Terminal.app and iTerm2 set one. Without it, tools treat text as ASCII:
+/// `pbcopy` turns non-ASCII input into an empty clipboard, which breaks agents'
+/// copy commands. Only the character encoding is filled in; English messages
+/// stay as they are, and any locale the user set is kept.
+fn missing_locale(
+    mut get: impl FnMut(&str) -> Option<OsString>,
+) -> Option<(&'static str, &'static str)> {
+    let set = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .into_iter()
+        .any(|key| get(key).is_some_and(|value| !value.is_empty()));
+    (!set).then_some(("LANG", "en_US.UTF-8"))
+}
+
 /// Isolated PTYs already clear all inherited environment and do not call this.
 pub(crate) fn pty(command: &mut CommandBuilder) -> Result<(), String> {
     restore_pty(command, restore_values(|key| std::env::var_os(key))?);
     for key in launcher_state(std::env::vars_os()) {
         command.env_remove(key);
+    }
+    if cfg!(target_os = "macos") {
+        if let Some((key, value)) = missing_locale(|key| std::env::var_os(key)) {
+            command.env(key, value);
+        }
     }
     Ok(())
 }
@@ -176,6 +195,22 @@ mod tests {
             launcher_state(env(&["npm_config_prefix", "NODE", "INIT_CWD"])),
             Vec::<OsString>::new()
         );
+    }
+
+    #[test]
+    fn a_utf8_locale_is_filled_in_only_when_none_is_set() {
+        let env = |pairs: &[(&str, &str)]| {
+            let pairs: HashMap<String, OsString> = pairs
+                .iter()
+                .map(|(key, value)| (key.to_string(), OsString::from(value)))
+                .collect();
+            missing_locale(|key| pairs.get(key).cloned())
+        };
+        assert_eq!(env(&[]), Some(("LANG", "en_US.UTF-8")));
+        assert_eq!(env(&[("LANG", "")]), Some(("LANG", "en_US.UTF-8")));
+        for key in ["LC_ALL", "LC_CTYPE", "LANG"] {
+            assert_eq!(env(&[(key, "zh_TW.UTF-8")]), None);
+        }
     }
 
     #[test]
