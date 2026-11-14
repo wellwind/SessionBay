@@ -463,7 +463,8 @@ export function TerminalPane({
       active.id = event.runtimeId;
       activity?.bind(pane.id, active.lease, event.runtimeId);
       if (event.type === 'terminalStatus') {
-        if (pane.kind !== 'shell' && (!active.ended || event.status === 'done' || event.status === 'error') && !active.disconnected) activity?.observeTerminal(pane.id, active.lease, event);
+        // OSC 7501 program status is display-only, so shell programs may report it too.
+        if ((!active.ended || event.status === 'done' || event.status === 'error') && !active.disconnected) activity?.observeTerminal(pane.id, active.lease, event);
         return;
       }
       if (event.type === 'agentActivity') {

@@ -16,6 +16,17 @@ Session Bay 會在分頁、側欄、**全部工作區**與附加的[看板任務
 
 狀態由 Agent 自己回報（Codex app server 或 OSC 7501 終端狀態序列），Session Bay 不會從輸出文字去猜。如果 Agent 無法回報狀態，面板只會顯示程序是否在執行。
 
+### Shell 中任何程式的狀態
+
+一般 Shell 面板也會讀取 [OSC 7501 程式狀態](https://superlogical.com/rex/docs/build/program-status)序列，因此腳本、建置工具，或你手動啟動的 Agent 都能回報自己的狀態：
+
+```sh
+printf '\e]7501;state=working\e\\'   # 工作中
+printf '\e]7501;state=done\e\\'      # 完成；面板不在畫面上時會發出完成提醒
+```
+
+支援的狀態有 `idle`、`working`、`done`、`blocked`（可搭配 `kind=permission`、`question` 或 `auth`）、`error` 與 `clear`。程式結束前應回報 `done`、`error` 或 `clear`：Session Bay 看到的是面板的 Shell，而不是每個指令，所以工作中、等待與閒置狀態只會在 Shell 本身結束，或 Shell 以 OSC 133 提示標記（Shell 整合）顯示新提示字元時清除。完成與錯誤會保留到被取代為止。Shell 狀態只用於顯示，不會把面板連結到任何 Agent Session。
+
 ## 系統通知
 
 當 Agent 等待輸入或權限、完成或失敗，而它的面板不在畫面上或視窗在背景時，Session Bay 會發出系統通知。點一下通知，Session Bay 就會回到前景並切到那個面板。每個面板的提醒之間有 5 秒冷卻。
