@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
+### Added
+
+- **Shell panes read program status.** Any program in a shell pane can report working, waiting, done or error with OSC 7501, and the pane shows the same indicators, notifications and sounds as agent panes. Session Bay sees the pane's shell, not each command, so a program should report done, error or clear before it exits.
+- **Focus panel.** It replaces the mini board in the right activity bar and lists **Needs you** (with **Go to terminal**), **In progress** and **Up next** (with **Start**). Open the full board from its **Open board** button or the **Open board** command.
+
+### Changed
+
+- **Boards have four fixed stages:** Todo, In progress, Review and Done. Columns can only be renamed.
+  - Opening a board with custom columns folds each stage onto one column. Tasks keep their order and timestamps, but custom column names are lost.
+  - The catalog schema is unchanged, so 0.4.x can still open it.
+- **Suggestions replace the Unsorted column.** New sessions that are not in a task appear above the board with **Add to task…**, **Make it a task** and **Dismiss**. **Dismiss all** asks first.
+- **Task drawer.** Title and notes save automatically, with no Save button or discard prompt. The main action is **Continue with <agent>**, with **Start a new session** in its menu, or **Start work** for a task without sessions. Starting a Todo task moves it to In progress, with Undo.
+- Cards are quieter: agent icons and the update time, plus live state only while a session is working, waiting or failing. **Needs attention** appears only when a task needs you.
+- Merging tasks is only in the task menu; dropping a card on another no longer merges them. The **Position** menu is gone.
+- In Traditional Chinese, board tasks are now called 任務, so they no longer clash with 新增工作.
+
+### Removed
+
+- Kanban API commands to create, delete, reorder or change the stage of columns. See [docs/kanban-api.md](docs/kanban-api.md).
+
+### Fixed
+
+- On macOS, terminals opened from Finder or the Dock get `LANG=en_US.UTF-8` when no locale is set. Before, copying non-ASCII text from Claude Code left the clipboard empty. A locale from your environment or shell profile still wins.
+- Pressing on a board column's header no longer starts a text selection that keeps the board scrolling.
+
 ## [0.4.1] - 2026-11-10
 
 ### Added
@@ -153,7 +180,8 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/wellwind/SessionBay/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/wellwind/SessionBay/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/wellwind/SessionBay/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/wellwind/SessionBay/compare/v0.3.2...v0.3.3
