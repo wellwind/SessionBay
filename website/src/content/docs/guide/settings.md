@@ -20,6 +20,8 @@ Each agent has its own card:
 
 Choose which shell and arguments new terminals use, and add environment variables.
 
+On macOS, Session Bay starts terminals with `LANG=en_US.UTF-8` when none of `LANG`, `LC_ALL` or `LC_CTYPE` is set, as Terminal.app and iTerm2 do. Without it, copying non-ASCII text with tools such as `pbcopy`, which Claude Code uses, leaves the clipboard empty. Set `LANG` in a profile to use another locale.
+
 ## Appearance and defaults
 
 - **Language**: English, 繁體中文, or follow the system language. Changing it reloads the window; terminals reconnect.
