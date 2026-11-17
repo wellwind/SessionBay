@@ -1210,6 +1210,17 @@ export function SettingsPanel({
                         {t('Uses fonts installed on this computer; separate fallback fonts with commas.')}
                       </span>
                     </label>
+                    <label className="settings-field">
+                      <span>{t('Terminal engine')}</span>
+                      <select value={draft.terminalEngine ?? 'xterm'} disabled={locked} aria-describedby="terminal-engine-help"
+                        onChange={(event) => update('terminalEngine', event.target.value === 'ghostty' ? 'ghostty' : 'xterm')}>
+                        <option value="xterm">xterm.js</option>
+                        <option value="ghostty">{t('Ghostty (experimental)')}</option>
+                      </select>
+                      <span className="settings-help" id="terminal-engine-help">
+                        {t('Applies to panes opened afterwards. Ghostty uses Ghostty\'s terminal emulator compiled to WebAssembly; it does not yet change the ANSI palette of an open pane when you switch themes.')}
+                      </span>
+                    </label>
                     <TerminalPreview value={appearanceOf(draft)} />
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
