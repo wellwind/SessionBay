@@ -339,6 +339,7 @@ mod live {
                 home_directory: false,
                 cols: 80,
                 rows: 24,
+                herdr_core: None,
             })
             .unwrap()
         {

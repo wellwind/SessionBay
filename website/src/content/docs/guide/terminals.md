@@ -40,6 +40,12 @@ Terminals keep up to **10,000 lines of scrollback**. Reattaching restores the cu
 - **Stop** ends a pane's process. Closing a pane asks before stopping it.
 - After a restart of your Mac, panes show **interrupted**. Restart one pane, or click **Resume all** in the status bar to review what each pane will do and restart them together. Agent work whose conversation Session Bay identified while it ran continues that conversation; otherwise it starts a new one.
 
+## Run terminals in herdr-core (experimental)
+
+[herdr-core](https://github.com/herdrdev/herdr-core) (`hc`) is a separate terminal runtime for coding agents. Under **Settings → Appearance and defaults → Terminal backend**, choose **herdr-core (experimental)** to run new terminals in it instead of Session Bay's background service. Install herdr-core first; if `hc` is not on the `PATH` Session Bay sees, enter its full path.
+
+Session Bay starts each terminal with `hc connect`, so the terminals also appear in `hc ls` and you can read or attach to them with `hc` (labelled `sessionbay.pane`). Stopping a pane, or restarting the background service, ends its herdr-core terminal. Session Bay does not yet reattach herdr-core terminals after its background service restarts, and terminals already open keep the backend they started with.
+
 ## Files and images for agents
 
 Drag files or images onto an agent pane, or paste them, to hand them to Claude Code, Codex, Grok Build or OpenCode. Paths are inserted but not sent, so you can add a request before pressing Enter.

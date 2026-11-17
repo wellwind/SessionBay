@@ -165,6 +165,10 @@ enum Request {
         home_directory: bool,
         cols: u16,
         rows: u16,
+        /// Experimental: the herdr-core executable that runs this terminal.
+        /// Omitted for owned PTYs, so older brokers still accept the request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        herdr_core: Option<String>,
     },
     FindResume {
         generation: String,
@@ -555,6 +559,7 @@ impl Host {
                 home_directory,
                 cols,
                 rows,
+                herdr_core,
                 ..
             } => {
                 // Durable before preflight, hook preparation, or any spawn attempt.
@@ -689,108 +694,93 @@ impl Host {
                 let manager = Arc::clone(&self.runtime);
                 let host = Arc::downgrade(self);
                 let launch_started_at = chrono::Utc::now().timestamp_millis();
-                let info = self.runtime.launch(
-                    *spec,
-                    cols,
-                    rows,
-                    Arc::new(move |event| {
-                        if let TerminalEvent::Exit { runtime_id, .. } = &event {
+                let emit: crate::runtime::Emitter = Arc::new(move |event| {
+                    if let TerminalEvent::Exit { runtime_id, .. } = &event {
+                        if let Some(host) = host.upgrade() {
+                            if shell_status {
+                                let mut state = lock(&terminal_status);
+                                state.1.process_exit();
+                                host.finish_shell_terminal_status(runtime_id, state.1.status());
+                            }
+                            if let Some(launch) = &status_launch {
+                                let mut state = lock(&terminal_status);
+                                state.1.process_exit();
+                                host.receive_terminal_status(launch, runtime_id, state.1.status());
+                            }
+                            host.finish_runtime_hooks(runtime_id);
+                        }
+                    }
+                    if let (
+                        true,
+                        TerminalEvent::Output {
+                            runtime_id, data, ..
+                        },
+                    ) = (shell_status, &event)
+                    {
+                        let mut state = lock(&terminal_status);
+                        let changes = state.0.feed(data);
+                        if !changes.is_empty() {
+                            // Shell report ids are never identity hints.
+                            for change in changes {
+                                state.1.apply(change);
+                            }
                             if let Some(host) = host.upgrade() {
-                                if shell_status {
-                                    let mut state = lock(&terminal_status);
-                                    state.1.process_exit();
-                                    host.finish_shell_terminal_status(runtime_id, state.1.status());
-                                }
-                                if let Some(launch) = &status_launch {
-                                    let mut state = lock(&terminal_status);
-                                    state.1.process_exit();
-                                    host.receive_terminal_status(
-                                        launch,
-                                        runtime_id,
-                                        state.1.status(),
-                                    );
-                                }
-                                host.finish_runtime_hooks(runtime_id);
+                                host.receive_shell_terminal_status(runtime_id, state.1.status());
                             }
                         }
-                        if let (
-                            true,
-                            TerminalEvent::Output {
-                                runtime_id, data, ..
-                            },
-                        ) = (shell_status, &event)
-                        {
-                            let mut state = lock(&terminal_status);
-                            let changes = state.0.feed(data);
-                            if !changes.is_empty() {
-                                // Shell report ids are never identity hints.
-                                for change in changes {
-                                    state.1.apply(change);
-                                }
-                                if let Some(host) = host.upgrade() {
-                                    host.receive_shell_terminal_status(
-                                        runtime_id,
-                                        state.1.status(),
-                                    );
-                                }
-                            }
-                        }
-                        if let (
-                            Some(launch),
-                            TerminalEvent::Output {
-                                runtime_id, data, ..
-                            },
-                        ) = (&status_launch, &event)
-                        {
-                            let mut state = lock(&terminal_status);
-                            let changes = state.0.feed(data);
-                            if !changes.is_empty() {
-                                for change in changes {
-                                    if let crate::terminal_status::Change::Set { id, .. } = &change
-                                    {
-                                        if let Some(host) = host.upgrade() {
-                                            host.receive_terminal_session_hint(
-                                                launch, runtime_id, id,
-                                            );
-                                        }
+                    }
+                    if let (
+                        Some(launch),
+                        TerminalEvent::Output {
+                            runtime_id, data, ..
+                        },
+                    ) = (&status_launch, &event)
+                    {
+                        let mut state = lock(&terminal_status);
+                        let changes = state.0.feed(data);
+                        if !changes.is_empty() {
+                            for change in changes {
+                                if let crate::terminal_status::Change::Set { id, .. } = &change {
+                                    if let Some(host) = host.upgrade() {
+                                        host.receive_terminal_session_hint(launch, runtime_id, id);
                                     }
-                                    state.1.apply(change);
                                 }
-                                if let Some(host) = host.upgrade() {
-                                    host.receive_terminal_status(
-                                        launch,
-                                        runtime_id,
-                                        state.1.status(),
-                                    );
-                                }
+                                state.1.apply(change);
+                            }
+                            if let Some(host) = host.upgrade() {
+                                host.receive_terminal_status(launch, runtime_id, state.1.status());
                             }
                         }
-                        let ack = match &event {
-                            TerminalEvent::Output {
-                                runtime_id,
-                                sequence,
-                                ..
-                            } => Some((runtime_id.clone(), *sequence)),
-                            _ => None,
-                        };
-                        let replies = {
-                            let mut output = lock(&output);
-                            output.event(event);
-                            output.replies()
-                        };
-                        if !replies.is_empty() {
-                            if let Some((id, _)) = &ack {
-                                let _ = manager.write(id, &String::from_utf8_lossy(&replies));
-                            }
+                    }
+                    let ack = match &event {
+                        TerminalEvent::Output {
+                            runtime_id,
+                            sequence,
+                            ..
+                        } => Some((runtime_id.clone(), *sequence)),
+                        _ => None,
+                    };
+                    let replies = {
+                        let mut output = lock(&output);
+                        output.event(event);
+                        output.replies()
+                    };
+                    if !replies.is_empty() {
+                        if let Some((id, _)) = &ack {
+                            let _ = manager.write(id, &String::from_utf8_lossy(&replies));
                         }
-                        // The broker, not the WebView, consumes the PTY stream. UI
-                        // detach / slow rendering must never trigger runtime ACK timeout.
-                        if let Some((id, sequence)) = ack {
-                            manager.ack(&id, sequence)?;
-                        }
-                        Ok(())
-                    }),
-                )?;
+                    }
+                    // The broker, not the WebView, consumes the PTY stream. UI
+                    // detach / slow rendering must never trigger runtime ACK timeout.
+                    if let Some((id, sequence)) = ack {
+                        manager.ack(&id, sequence)?;
+                    }
+                    Ok(())
+                });
+                let info = match &herdr_core {
+                    Some(hc) => self.runtime.launch_herdr_core(*spec, cols, rows, emit, hc),
+                    None => self.runtime.launch(*spec, cols, rows, emit),
+                }?;
                 let mut entries = lock(&self.entries);
                 if entries.contains_key(&info.id) {
                     return Ok(Response::Runtime { info: Some(info) });
@@ -1225,6 +1215,7 @@ mod tests {
                 home_directory: false,
                 cols: 80,
                 rows: 24,
+                herdr_core: None,
             })
             .unwrap();
         let Response::Runtime { info: Some(info) } = response else {
@@ -1364,6 +1355,7 @@ mod tests {
                 home_directory: false,
                 cols: 80,
                 rows: 24,
+                herdr_core: None,
             })
             .unwrap();
         let Response::Runtime { info: Some(info) } = response else {

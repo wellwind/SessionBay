@@ -36,6 +36,9 @@ const ACK_TIMEOUT: Duration = Duration::from_secs(30);
 #[path = "runtime/cursor.rs"]
 mod cursor;
 
+#[path = "runtime/herdr_core.rs"]
+pub mod herdr_core;
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[path = "runtime/unix.rs"]
 mod platform;
@@ -45,7 +48,7 @@ mod platform;
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("Session Bay supports macOS, Linux, and Windows");
 
-type Emitter = Arc<dyn Fn(TerminalEvent) -> Result<(), String> + Send + Sync>;
+pub type Emitter = Arc<dyn Fn(TerminalEvent) -> Result<(), String> + Send + Sync>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -112,6 +115,11 @@ impl FlowControl {
 
     fn reserve(&mut self, bytes: usize) -> u64 {
         debug_assert!(bytes > 0 && bytes <= self.capacity());
+        self.record(bytes)
+    }
+
+    /// Number a chunk whose producer has its own flow control (herdr-core credit).
+    fn record(&mut self, bytes: usize) -> u64 {
         self.sent += 1;
         self.bytes += bytes;
         self.pending.push_back((self.sent, bytes));
@@ -158,6 +166,8 @@ struct Runtime {
     control: Mutex<Control>,
     changed: Condvar,
     master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    /// Set instead of `master` when herdr-core runs the program.
+    herdr: Mutex<Option<Arc<herdr_core::Link>>>,
 }
 
 impl Runtime {
@@ -168,6 +178,11 @@ impl Runtime {
             control.input_closed = true;
             control.info.state = "stopping".into();
             control.input.clear();
+            if let Some(link) = lock(&self.herdr).as_ref() {
+                if let Err(error) = link.kill() {
+                    control.cleanup_error = Some(error);
+                }
+            }
         }
         self.changed.notify_all();
     }
@@ -229,7 +244,25 @@ impl RuntimeManager {
         rows: u16,
         emit: Emitter,
     ) -> Result<RuntimeInfo, String> {
-        self.launch_environment(spec, cols, rows, emit, false)
+        self.launch_environment(spec, cols, rows, emit, Backend::Pty { isolated: false })
+    }
+    /// Experimental: run the program in herdr-core through `hc connect`.
+    pub fn launch_herdr_core(
+        &self,
+        spec: LaunchSpec,
+        cols: u16,
+        rows: u16,
+        emit: Emitter,
+        hc: &str,
+    ) -> Result<RuntimeInfo, String> {
+        let hc = hc.to_string();
+        self.launch_environment(
+            spec,
+            cols,
+            rows,
+            emit,
+            Backend::HerdrCore(Box::new(move |launch| herdr_core::Link::spawn(&hc, launch))),
+        )
     }
     /// App-owned probes only. Ordinary agent launches retain their environment.
     #[cfg(unix)]
@@ -240,7 +273,7 @@ impl RuntimeManager {
         rows: u16,
         emit: Emitter,
     ) -> Result<RuntimeInfo, String> {
-        self.launch_environment(spec, cols, rows, emit, true)
+        self.launch_environment(spec, cols, rows, emit, Backend::Pty { isolated: true })
     }
     fn launch_environment(
         &self,
@@ -248,7 +281,7 @@ impl RuntimeManager {
         cols: u16,
         rows: u16,
         emit: Emitter,
-        isolated: bool,
+        backend: Backend,
     ) -> Result<RuntimeInfo, String> {
         // Hold this lock through registration to make duplicate-session launches
         // atomic, including concurrent double clicks and shutdown races.
@@ -300,8 +333,11 @@ impl RuntimeManager {
         if !spec.cwd.is_dir() {
             return Err("The working directory is not a directory".into());
         }
+        if let Backend::HerdrCore(connect) = backend {
+            return self.spawn_herdr_core(registry, spec, cols, rows, emit, connect);
+        }
         let mut command = CommandBuilder::new(&spec.executable);
-        if isolated {
+        if matches!(backend, Backend::Pty { isolated: true }) {
             command.env_clear();
         } else {
             crate::host_environment::pty(&mut command)?;
@@ -335,6 +371,7 @@ impl RuntimeManager {
             }),
             changed: Condvar::new(),
             master: Mutex::new(None),
+            herdr: Mutex::new(None),
         });
         let spawned = match platform::spawn(Arc::clone(&runtime), command, pty_size(cols, rows)) {
             Ok(spawned) => spawned,
@@ -371,6 +408,10 @@ impl RuntimeManager {
         if data.len() > MAX_INPUT_BYTES || control.input.len() + data.len() > MAX_INPUT_BYTES {
             return Err("Terminal input is busy; wait before pasting more text".into());
         }
+        if let Some(link) = lock(&runtime.herdr).clone() {
+            drop(control);
+            return link.write(data.as_bytes());
+        }
         control.input.extend(data.as_bytes());
         runtime.changed.notify_all();
         Ok(())
@@ -379,6 +420,12 @@ impl RuntimeManager {
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<(), String> {
         validate_size(cols, rows)?;
         let runtime = self.runtime(id)?;
+        if let Some(link) = lock(&runtime.herdr).clone() {
+            if lock(&runtime.control).done {
+                return Err("The terminal has exited".into());
+            }
+            return link.resize(cols, rows);
+        }
         let master = lock(&runtime.master);
         let master = master.as_ref().ok_or("The terminal has exited")?;
         master
@@ -433,6 +480,70 @@ impl RuntimeManager {
         }
     }
 
+    fn spawn_herdr_core(
+        &self,
+        mut registry: MutexGuard<'_, Registry>,
+        spec: LaunchSpec,
+        cols: u16,
+        rows: u16,
+        emit: Emitter,
+        connect: HerdrConnect,
+    ) -> Result<RuntimeInfo, String> {
+        let (link, reader) = connect(&herdr_core::Launch {
+            executable: &spec.executable,
+            args: &spec.args,
+            cwd: &spec.cwd,
+            env: &spec.env,
+            cols,
+            rows,
+            pane_id: &spec.pane_id,
+        })?;
+        let info = RuntimeInfo {
+            id: Uuid::new_v4().to_string(),
+            pane_id: spec.pane_id,
+            session_id: spec.session_id,
+            state: "running".into(),
+            cwd: spec.cwd.to_string_lossy().into_owned(),
+            exit_code: None,
+        };
+        let runtime = Arc::new(Runtime {
+            control: Mutex::new(Control {
+                info: info.clone(),
+                resume_key: spec.resume_key,
+                flow: FlowControl::default(),
+                input: VecDeque::new(),
+                stop_requested: false,
+                input_closed: false,
+                cleanup_error: None,
+                cleanup_verified: false,
+                done: false,
+            }),
+            changed: Condvar::new(),
+            master: Mutex::new(None),
+            herdr: Mutex::new(Some(Arc::clone(&link))),
+        });
+        if registry.runtimes.len() >= MAX_RETAINED_RUNTIMES {
+            registry.prune_completed();
+        }
+        registry
+            .runtimes
+            .insert(info.id.clone(), Arc::clone(&runtime));
+        let id = info.id.clone();
+        let worker = Arc::clone(&runtime);
+        let started = thread::Builder::new()
+            .name(format!("hc-{}", &info.id[..8]))
+            .spawn(move || pump_herdr_core(worker, link, reader, id, emit));
+        if let Err(error) = started {
+            registry.runtimes.remove(&info.id);
+            if let Some(link) = lock(&runtime.herdr).take() {
+                let _ = link.kill();
+                link.close();
+            }
+            return Err(format!("Cannot start terminal supervisor: {error}"));
+        }
+        Ok(info)
+    }
+
     fn runtime(&self, id: &str) -> Result<Arc<Runtime>, String> {
         lock(&self.registry)
             .runtimes
@@ -440,6 +551,77 @@ impl RuntimeManager {
             .cloned()
             .ok_or_else(|| "Terminal not found".into())
     }
+}
+
+type HerdrConnect = Box<
+    dyn FnOnce(
+        &herdr_core::Launch,
+    ) -> Result<(Arc<herdr_core::Link>, Box<dyn std::io::Read + Send>), String>,
+>;
+
+enum Backend {
+    Pty { isolated: bool },
+    HerdrCore(HerdrConnect),
+}
+
+/// One ordered producer, like the PTY workers: all output precedes Exit.
+fn pump_herdr_core(
+    runtime: Arc<Runtime>,
+    link: Arc<herdr_core::Link>,
+    reader: Box<dyn std::io::Read + Send>,
+    id: String,
+    emit: Emitter,
+) {
+    let mut exit_code = None;
+    let mut failed = false;
+    herdr_core::pump(&link, reader, |event| match event {
+        herdr_core::StreamEvent::Output(data) => {
+            for chunk in data.chunks(OUTPUT_CHUNK_BYTES) {
+                let sequence = lock(&runtime.control).flow.record(chunk.len());
+                let _ = send(
+                    &emit,
+                    TerminalEvent::Output {
+                        runtime_id: id.clone(),
+                        sequence,
+                        data: chunk.to_vec(),
+                    },
+                );
+            }
+        }
+        herdr_core::StreamEvent::Closed(closed) => {
+            exit_code = closed.exit_code;
+            failed = !matches!(closed.reason.as_str(), "exited" | "killed");
+            if failed {
+                report_error(
+                    &emit,
+                    &id,
+                    &format!("herdr-core ended the terminal: {}", closed.reason),
+                );
+            }
+        }
+        herdr_core::StreamEvent::Failed(error) => {
+            failed = true;
+            report_error(&emit, &id, &error);
+        }
+    });
+    link.close();
+    lock(&runtime.herdr).take();
+    {
+        let mut control = lock(&runtime.control);
+        control.info.state = if failed { "failed" } else { "exited" }.into();
+        control.info.exit_code = exit_code;
+        control.input_closed = true;
+        control.input.clear();
+    }
+    let _ = send(
+        &emit,
+        TerminalEvent::Exit {
+            runtime_id: id,
+            exit_code,
+        },
+    );
+    lock(&runtime.control).done = true;
+    runtime.changed.notify_all();
 }
 
 impl Drop for RuntimeManager {
@@ -552,6 +734,91 @@ fn report_error(emit: &Emitter, id: &str, message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn herdr_core_runtimes_stream_take_input_and_stop_through_the_core() {
+        let manager = RuntimeManager::new();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let emit: Emitter = Arc::new(move |event| {
+            lock(&sink).push(event);
+            Ok(())
+        });
+        let core = Arc::new(Mutex::new(None));
+        let started = Arc::clone(&core);
+        let spec = LaunchSpec {
+            executable: "/bin/sh".into(),
+            args: vec![],
+            cwd: std::env::temp_dir(),
+            env: HashMap::new(),
+            session_id: None,
+            resume_key: None,
+            pane_id: "hc-pane".into(),
+        };
+        let info = manager
+            .launch_environment(
+                spec,
+                80,
+                24,
+                emit,
+                Backend::HerdrCore(Box::new(move |launch| {
+                    let (link, core) = herdr_core::fake::connect(launch, herdr_core::GENERATION);
+                    *lock(&started) = Some(core);
+                    link
+                })),
+            )
+            .unwrap();
+        assert_eq!(info.state, "running");
+        let mut core = lock(&core).take().unwrap().join().unwrap();
+
+        core.send(3, herdr_core::KIND_DATA, b"hello");
+        manager.write(&info.id, "ls\r").unwrap();
+        manager.resize(&info.id, 100, 30).unwrap();
+        assert_eq!(core.stream_frame().payload, b"ls\r");
+        assert_eq!(core.stream_frame().payload, [100, 0, 30, 0]);
+        // The broker ACKs every chunk it consumed; numbering must accept that.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !lock(&events)
+            .iter()
+            .any(|event| matches!(event, TerminalEvent::Output { .. }))
+        {
+            assert!(Instant::now() < deadline, "no output");
+            thread::sleep(TICK);
+        }
+        manager.ack(&info.id, 1).unwrap();
+
+        // Stop asks the core to kill the terminal; the core then closes the stream.
+        let stopper = {
+            let id = info.id.clone();
+            let manager = &manager;
+            thread::scope(|scope| {
+                let stop = scope.spawn(move || manager.stop(&id));
+                let kill = core.request();
+                assert_eq!(kill["method"], "terminal.kill");
+                assert_eq!(kill["params"]["terminal"], "t7");
+                core.send(
+                    3,
+                    herdr_core::KIND_CLOSE,
+                    br#"{"reason":"killed","exit_code":null}"#,
+                );
+                stop.join().unwrap()
+            })
+        };
+        stopper.unwrap();
+        let events = lock(&events);
+        assert!(
+            matches!(&events[0], TerminalEvent::Output { data, sequence: 1, .. } if data == b"hello")
+        );
+        assert!(matches!(
+            events.last(),
+            Some(TerminalEvent::Exit {
+                exit_code: None,
+                ..
+            })
+        ));
+        assert_eq!(manager.list()[0].state, "exited");
+        assert!(manager.write(&info.id, "late").is_err());
+    }
 
     #[test]
     fn windows_environment_rejects_case_aliases_deterministically() {

@@ -131,6 +131,12 @@ pub struct Settings {
     pub update_checks: bool,
     pub font_family: String,
     pub font_size: u16,
+    /// Who runs terminals: "native" (owned PTYs) or the experimental "herdrCore".
+    #[serde(default = "default_terminal_backend")]
+    pub terminal_backend: String,
+    /// The herdr-core executable for the "herdrCore" backend.
+    #[serde(default = "default_herdr_core_executable")]
+    pub herdr_core_executable: String,
     #[serde(default = "default_app_zoom")]
     pub app_zoom: u16,
     pub default_agent: AgentKind,
@@ -182,6 +188,8 @@ impl Default for Settings {
             update_checks: true,
             font_family: DEFAULT_FONT_FAMILY.into(),
             font_size: 14,
+            terminal_backend: default_terminal_backend(),
+            herdr_core_executable: default_herdr_core_executable(),
             app_zoom: default_app_zoom(),
             default_agent: AgentKind::Codex,
             default_profile_id: "default".into(),
@@ -223,6 +231,14 @@ const LEGACY_DEFAULT_FONT_FAMILY: &str = "ui-monospace, SFMono-Regular, Menlo, m
 
 fn default_app_zoom() -> u16 {
     100
+}
+
+fn default_terminal_backend() -> String {
+    "native".into()
+}
+
+fn default_herdr_core_executable() -> String {
+    "hc".into()
 }
 
 fn default_theme_palette() -> String {
@@ -297,6 +313,11 @@ impl Settings {
             return Err(tr!(
                 "Font size must be 9–32 and the font name cannot be empty"
             ));
+        }
+        if !["native", "herdrCore"].contains(&self.terminal_backend.as_str())
+            || !clean_string(&self.herdr_core_executable, 4096)
+        {
+            return Err(tr!("Invalid terminal backend settings"));
         }
         if !(50..=200).contains(&self.app_zoom) {
             return Err(tr!(
@@ -1258,6 +1279,31 @@ mod tests {
         assert_eq!(loaded.app_zoom, 150);
         assert_eq!(loaded.font_size, 21);
         loaded.validate().unwrap();
+    }
+    #[test]
+    fn terminal_backend_defaults_to_native_and_rejects_invalid_values() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        let object = old.as_object_mut().unwrap();
+        object.remove("terminalBackend");
+        object.remove("herdrCoreExecutable");
+        let settings: Settings = serde_json::from_value(old).unwrap();
+        assert_eq!(settings.terminal_backend, "native");
+        assert_eq!(settings.herdr_core_executable, "hc");
+        Settings {
+            terminal_backend: "herdrCore".into(),
+            herdr_core_executable: "/opt/herdr/bin/hc".into(),
+            ..Settings::default()
+        }
+        .validate()
+        .unwrap();
+        for (backend, executable) in [("tmux", "hc"), ("herdrCore", ""), ("herdrCore", "h\0c")] {
+            let settings = Settings {
+                terminal_backend: backend.into(),
+                herdr_core_executable: executable.into(),
+                ..Settings::default()
+            };
+            assert!(settings.validate().is_err());
+        }
     }
     #[test]
     fn workspace_zoom_rejects_out_of_range_and_noninteger_settings() {

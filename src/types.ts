@@ -134,6 +134,10 @@ export interface Settings {
   updateChecks?: boolean;
   fontFamily: string;
   fontSize: number;
+  /** Who runs new terminals; absent means owned PTYs. 'herdrCore' is experimental. */
+  terminalBackend?: 'native' | 'herdrCore';
+  /** herdr-core executable for the 'herdrCore' backend; absent means "hc". */
+  herdrCoreExecutable?: string;
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
   /** Missing providers default to launch-local hooks; explicit false preserves opt-out. */

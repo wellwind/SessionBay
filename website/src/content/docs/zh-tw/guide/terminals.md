@@ -40,6 +40,12 @@ sidebar:
 - **停止**會結束面板的程序。關閉面板前會先詢問。
 - 電腦重新開機後，面板會顯示**程序中斷**。可以逐一重新啟動，或按狀態列的**全部接續**，確認每個面板的處理方式後一起重新啟動。若 Session Bay 在執行期間已辨識出該 Agent 的對話，會接續原本的對話；否則會開始新對話。
 
+## 用 herdr-core 執行終端機（實驗性）
+
+[herdr-core](https://github.com/herdrdev/herdr-core)（`hc`）是另一套為 coding agent 設計的終端機執行環境。在**設定 → 外觀與預設值 → 終端機後端**選擇 **herdr-core（實驗性）**，新的終端機就會改由它執行，而不是 Session Bay 的背景服務。請先安裝 herdr-core；如果 Session Bay 找不到 `hc`，請填入完整路徑。
+
+Session Bay 用 `hc connect` 啟動每個終端機，所以它們也會出現在 `hc ls`，你可以用 `hc` 讀取或附接（標籤為 `sessionbay.pane`）。停止面板或重新啟動背景服務時，對應的 herdr-core 終端機也會結束。目前背景服務重新啟動後，Session Bay 還不會重新附接 herdr-core 終端機；已開啟的終端機會維持原本的後端。
+
 ## 把檔案與圖片交給 Agent
 
 把檔案或圖片拖到 Agent 面板上，或直接貼上，就能交給 Claude Code、Codex、Grok Build 或 OpenCode。路徑只會插入、不會送出，你可以先補充需求再按 Enter。

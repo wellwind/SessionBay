@@ -154,6 +154,7 @@ mod tests {
             }),
             changed: Condvar::new(),
             master: Mutex::new(None),
+            herdr: Mutex::new(None),
         })
     }
     fn registry_with(runtime: Arc<Runtime>) -> Registry {

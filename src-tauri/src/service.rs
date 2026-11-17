@@ -296,6 +296,8 @@ impl Service {
             "fontFamily",
             "fontSize",
             "appZoom",
+            "terminalBackend",
+            "herdrCoreExecutable",
         ] {
             previous.as_object_mut().unwrap().remove(field);
             next.as_object_mut().unwrap().remove(field);
@@ -881,6 +883,13 @@ impl Service {
         }
         Ok(None)
     }
+    /// The broker handle for new terminals, honoring the experimental backend.
+    fn launch_broker(&self) -> Result<BrokerClient, String> {
+        let settings = self.settings()?;
+        let herdr_core = (settings.terminal_backend == "herdrCore")
+            .then(|| settings.herdr_core_executable.clone());
+        Ok(self.broker()?.with_herdr_core(herdr_core))
+    }
     pub fn broker(&self) -> Result<BrokerClient, String> {
         self.broker
             .lock()
@@ -986,7 +995,7 @@ impl Service {
         request: &LaunchRequest,
         without_hooks: bool,
     ) -> Result<RuntimeInfo, String> {
-        let broker = self.broker()?;
+        let broker = self.launch_broker()?;
         let mut fresh = self
             .fresh_launches
             .lock()
@@ -1157,7 +1166,9 @@ impl Service {
             }
         }
         let spec = self.plan_launch(request)?;
-        let result = self.broker()?.launch(spec, request, attachment_id, emit)?;
+        let result = self
+            .launch_broker()?
+            .launch(spec, request, attachment_id, emit)?;
         self.record_kanban_resume(request)?;
         Ok(result)
     }

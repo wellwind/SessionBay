@@ -72,6 +72,7 @@ fn launch(host: &Arc<Host>, root: &Path, kind: AgentKind) -> RuntimeInfo {
             home_directory: false,
             cols: 80,
             rows: 24,
+            herdr_core: None,
         })
         .unwrap()
     else {
@@ -173,6 +174,7 @@ fn actual_antigravity_auth_state_reaches_production_broker() {
             home_directory: false,
             cols: 80,
             rows: 24,
+            herdr_core: None,
         })
         .unwrap()
     else {
@@ -345,6 +347,7 @@ fn below_minimum_and_opted_out_launches_only_show_process_state() {
                 home_directory: false,
                 cols: 80,
                 rows: 24,
+                herdr_core: None,
             })
             .unwrap()
         else {
@@ -392,6 +395,7 @@ fn launch_shell(host: &Arc<Host>, root: &Path, script: &str) -> RuntimeInfo {
             home_directory: false,
             cols: 80,
             rows: 24,
+            herdr_core: None,
         })
         .unwrap()
     else {
