@@ -1,245 +1,116 @@
 use super::UiEvent;
 use crate::runtime::TerminalEvent;
+use ghostty_vt::Terminal;
 use std::collections::VecDeque;
-// Replay is only the incremental catch-up buffer. Reconnect restores the vt100
-// screen, so visible history follows SCROLLBACK. The snapshot includes at most
-// SNAPSHOT_SCROLLBACK_BYTES of the newest scrollback as text; the live screen
-// is appended after it. The frame stays under MAX_SNAPSHOT_BYTES because it is
-// JSON-encoded as an array of bytes.
+// Replay is only the incremental catch-up buffer. Reconnect repaints the
+// libghostty-vt screen, so visible history follows SCROLLBACK. The snapshot
+// includes at most SNAPSHOT_SCROLLBACK_BYTES of the newest scrollback; the live
+// screen with its modes, cursor and pen follows it. The frame stays under
+// MAX_SNAPSHOT_BYTES because it is JSON-encoded as an array of bytes.
 const REPLAY_BYTES: usize = 4 * 1024 * 1024;
 const REPLAY_FRAMES: usize = 4096;
 const POLL_BYTES: usize = 64 * 1024;
+// Lines a reconnect restores; matches the renderer's scrollback.
 const SCROLLBACK: usize = 10_000;
+// libghostty-vt caps retained history by memory, not lines.
+const SCROLLBACK_MEMORY: usize = 16 * 1024 * 1024;
 const SNAPSHOT_SCROLLBACK_BYTES: usize = 1024 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 3 * 1024 * 1024;
 const MAX_ESCAPE: usize = 4096;
+const PROGRAM_STATUS_CAPABILITIES: &[u8] =
+    b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\";
+// A detached terminal answers color queries with SessionBay's default palette.
+const DEFAULT_FOREGROUND: [u8; 3] = [0xd9, 0xe1, 0xe8];
+const DEFAULT_BACKGROUND: [u8; 3] = [0x11, 0x15, 0x1a];
+const DEFAULT_CURSOR: [u8; 3] = [0x9b, 0xd9, 0xbd];
 pub fn validate_size(cols: u16, rows: u16) -> Result<(), String> {
     if !(2..=320).contains(&cols) || !(1..=120).contains(&rows) {
         return Err("Persistent terminal dimensions must be 2–320 columns and 1–120 rows".into());
     }
     Ok(())
 }
-#[derive(Default, Clone)]
-struct Modes {
-    region: Option<(u16, u16)>,
-    origin: bool,
-    saved: Option<(u16, u16, Vec<u8>)>,
+/// Queries the broker answers even with no UI. They are never forwarded, so a
+/// renderer that later attaches cannot answer them a second time.
+fn is_query(token: &[u8]) -> bool {
+    (token.starts_with(b"\x1b[") && matches!(token.last(), Some(b'n' | b'c')))
+        || [b"\x1b]10;?".as_slice(), b"\x1b]11;?", b"\x1b]12;?"]
+            .iter()
+            .any(|prefix| token.starts_with(prefix))
 }
-impl Modes {
-    fn restore(&self, screen: &vt100::Screen) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        if let Some((top, bottom)) = self.region {
-            bytes.extend_from_slice(format!("\x1b[{top};{bottom}r").as_bytes());
-        }
-        if let Some((row, col, attrs)) = &self.saved {
-            bytes.extend_from_slice(format!("\x1b[{};{}H", row + 1, col + 1).as_bytes());
-            bytes.extend(attrs);
-            bytes.extend(b"\x1b7");
-        }
-        // state_formatted deliberately recreates the right-margin pending-wrap
-        // flag. A plain CUP here would clear it and overwrite the final cell on
-        // the next byte. Use vt100's wrap-aware cursor restoration instead.
-        if self.origin {
-            bytes.extend(b"\x1b[?6h");
-        }
-        let cursor = screen.cursor_state_formatted();
-        if self.origin {
-            bytes.extend(relative_cursor(
-                &cursor,
-                self.region.map(|r| r.0 - 1).unwrap_or(0),
-            ));
-        } else {
-            bytes.extend(cursor);
-        }
-        bytes.extend(screen.attributes_formatted());
-        bytes
-    }
-}
-// Convert the absolute CUP sequences produced by vt100 into DEC-origin
-// coordinates, leaving SGR, printable characters and wrap reconstruction intact.
-fn relative_cursor(bytes: &[u8], top: u16) -> Vec<u8> {
-    let mut result = Vec::new();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index..].starts_with(b"\x1b[") {
-            let start = index + 2;
-            let end = bytes[start..]
-                .iter()
-                .position(|byte| !byte.is_ascii_digit())
-                .map(|offset| start + offset);
-            if let Some(end) = end.filter(|end| bytes.get(*end) == Some(&b';')) {
-                let column_start = end + 1;
-                let column_end = bytes[column_start..]
-                    .iter()
-                    .position(|byte| !byte.is_ascii_digit())
-                    .map(|offset| column_start + offset);
-                // Only CUP (row;column H) contains coordinates. In particular,
-                // SGR 38;5;196m and 38;2;r;g;bm must remain byte-for-byte intact.
-                if let Some(column_end) = column_end.filter(|column_end| {
-                    *column_end > column_start && bytes.get(*column_end) == Some(&b'H')
-                }) {
-                    if let Ok(row) = std::str::from_utf8(&bytes[start..end])
-                        .unwrap_or("")
-                        .parse::<u16>()
-                    {
-                        result
-                            .extend(format!("\x1b[{}", row.saturating_sub(top).max(1)).as_bytes());
-                        result.extend_from_slice(&bytes[end..=column_end]);
-                        index = column_end + 1;
-                        continue;
-                    }
-                }
-            }
-        }
-        result.push(bytes[index]);
-        index += 1;
-    }
-    result
-}
-#[derive(Default)]
-struct Queries {
-    replies: Vec<u8>,
-    terminal_status: bool,
-}
-impl vt100::Callbacks for Queries {
-    fn unhandled_osc(&mut self, _: &mut vt100::Screen, params: &[&[u8]]) {
-        if self.replies.len() >= 4096 || params.get(1) != Some(&b"?".as_slice()) {
-            return;
-        }
-        if self.terminal_status && params.first() == Some(&b"7501".as_slice()) {
-            self.replies.extend(b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\");
-            return;
-        }
-        // A detached terminal still has a deterministic default palette. This
-        // capability query cannot be delegated to a WebView that may not exist.
-        let color = match params.first().copied() {
-            Some(b"10") => "d9d9/e1e1/e8e8",
-            Some(b"11") => "1111/1515/1a1a",
-            Some(b"12") => "9b9b/d9d9/bdbd",
-            _ => return,
-        };
-        self.replies.extend(
-            format!(
-                "\x1b]{};rgb:{color}\x1b\\",
-                String::from_utf8_lossy(params[0])
-            )
-            .as_bytes(),
-        );
-    }
-    fn unhandled_csi(
-        &mut self,
-        screen: &mut vt100::Screen,
-        i1: Option<u8>,
-        _: Option<u8>,
-        params: &[&[u16]],
-        c: char,
-    ) {
-        if self.replies.len() >= 4096 {
-            return;
-        }
-        match (
-            i1,
-            params.first().and_then(|p| p.first()).copied().unwrap_or(0),
-            c,
-        ) {
-            (None, 5, 'n') => self.replies.extend(b"\x1b[0n"),
-            (None, 6, 'n') => {
-                let (r, c) = screen.cursor_position();
-                self.replies
-                    .extend(format!("\x1b[{};{}R", r + 1, c + 1).as_bytes());
-            }
-            (Some(b'?'), 6, 'n') => {
-                let (r, c) = screen.cursor_position();
-                self.replies
-                    .extend(format!("\x1b[?{};{}R", r + 1, c + 1).as_bytes());
-            }
-            (None, 0, 'c') => self.replies.extend(b"\x1b[?1;2c"),
-            (Some(b'>'), 0, 'c') => self.replies.extend(b"\x1b[>0;1;0c"),
-            _ => (),
-        }
-    }
+fn is_program_status_query(token: &[u8]) -> bool {
+    token.starts_with(b"\x1b]7501;?") && matches!(token.len(), 9 | 10)
 }
 pub struct TerminalScreen {
-    parser: vt100::Parser<Queries>,
+    terminal: Terminal,
     tokenizer: Tokens,
-    normal: Modes,
-    alternate: Modes,
+    replies: Vec<u8>,
+    terminal_status: bool,
     sequence: u64,
     replay: VecDeque<(u64, Vec<u8>)>,
     replay_bytes: usize,
     truncated: bool,
-    // Lines currently retained above the primary viewport. Used to notice when
-    // a later write scrolls a line off the cap.
-    scrollback_depth: usize,
+    // Lines currently retained above the primary screen. History that shrinks
+    // without an explicit clear means the memory cap dropped old lines.
+    history: u32,
     exit: Option<Option<i32>>,
     error: Option<String>,
 }
 impl TerminalScreen {
     pub fn new(cols: u16, rows: u16) -> Self {
+        let mut terminal = Terminal::new(cols, rows, SCROLLBACK_MEMORY);
+        terminal.set_display(
+            Some(DEFAULT_FOREGROUND),
+            Some(DEFAULT_BACKGROUND),
+            Some(DEFAULT_CURSOR),
+            None,
+        );
         Self {
-            parser: vt100::Parser::new_with_callbacks(rows, cols, SCROLLBACK, Queries::default()),
+            terminal,
             tokenizer: Tokens::default(),
-            normal: Modes::default(),
-            alternate: Modes::default(),
+            replies: Vec::new(),
+            terminal_status: false,
             sequence: 0,
             replay: VecDeque::new(),
             replay_bytes: 0,
             truncated: false,
-            scrollback_depth: 0,
+            history: 0,
             exit: None,
             error: None,
         }
     }
     pub fn enable_terminal_status(&mut self) {
-        self.parser.callbacks_mut().terminal_status = true;
+        self.terminal_status = true;
     }
     pub fn event(&mut self, event: TerminalEvent) {
         match event {
             TerminalEvent::Output { data, .. } => {
-                let started_on_primary = !self.parser.screen().alternate_screen();
                 let mut output = Vec::with_capacity(data.len());
+                let mut cleared = false;
                 for token in self.tokenizer.feed(&data) {
-                    let screen = self.parser.screen();
-                    let modes = if screen.alternate_screen() {
-                        &mut self.alternate
+                    let query = is_query(&token);
+                    // libghostty-vt answers many more queries than the broker
+                    // forwards. Keep only replies to queries the UI never sees.
+                    let keep = self.terminal.pending_responses();
+                    self.terminal.write(&token);
+                    if !query {
+                        self.terminal.drop_responses_after(keep);
+                    }
+                    if self.replies.len() < 4096 {
+                        if self.terminal_status && is_program_status_query(&token) {
+                            self.replies.extend(PROGRAM_STATUS_CAPABILITIES);
+                        }
+                        self.replies.extend(self.terminal.take_responses());
                     } else {
-                        &mut self.normal
-                    };
-                    if token == b"\x1b7" || token == b"\x1b[s" || token == b"\x1b[?1049h" {
-                        let (r, c) = screen.cursor_position();
-                        modes.saved = Some((r, c, screen.attributes_formatted()));
+                        self.terminal.take_responses();
                     }
-                    if token == b"\x1b[?6h" {
-                        modes.origin = true;
-                    } else if token == b"\x1b[?6l" {
-                        modes.origin = false;
-                    }
-                    if token.starts_with(b"\x1b[") && token.ends_with(b"r") {
-                        let value = String::from_utf8_lossy(&token[2..token.len() - 1]);
-                        let values: Vec<_> = value
-                            .split(';')
-                            .map(|v| v.parse::<u16>().unwrap_or(0))
-                            .collect();
-                        let rows = screen.size().0;
-                        let top = values.first().copied().unwrap_or(1).max(1);
-                        let bottom = values.get(1).copied().unwrap_or(rows);
-                        modes.region = (top < bottom && bottom <= rows).then_some((top, bottom));
-                    }
-                    self.parser.process(&token);
-                    // Terminal capability/cursor queries are answered by the host
-                    // even with no UI. Do not forward them and generate duplicate replies.
-                    let query = (token.starts_with(b"\x1b[")
-                        && matches!(token.last(), Some(b'n' | b'c')))
-                        || [b"\x1b]10;?".as_slice(), b"\x1b]11;?", b"\x1b]12;?"]
-                            .iter()
-                            .any(|prefix| token.starts_with(prefix));
+                    cleared |= token == b"\x1b[3J";
                     // Clipboard OSC never enters live output or persisted replay.
                     if !query && !token.starts_with(b"\x1b]52;") {
                         output.extend(token);
                     }
                 }
                 if !output.is_empty() {
-                    self.note_scrollback(&output, started_on_primary);
+                    self.note_history(cleared);
                     self.sequence += 1;
                     self.replay_bytes += output.len();
                     self.replay.push_back((self.sequence, output));
@@ -256,91 +127,39 @@ impl TerminalScreen {
         }
     }
     pub fn replies(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.parser.callbacks_mut().replies)
+        std::mem::take(&mut self.replies)
     }
     pub fn resize(&mut self, cols: u16, rows: u16) {
-        self.parser.screen_mut().set_size(rows, cols);
-        self.normal.region = None;
-        self.alternate.region = None;
-        if !self.parser.screen().alternate_screen() {
-            self.scrollback_depth = scrollback_depth(self.parser.screen_mut());
+        self.terminal.resize(cols, rows);
+        if !self.terminal.alt_screen() {
+            self.history = self.terminal.history_rows();
         }
     }
-    fn note_scrollback(&mut self, output: &[u8], started_on_primary: bool) {
-        if self.parser.screen().alternate_screen() {
+    fn note_history(&mut self, cleared: bool) {
+        if self.terminal.alt_screen() {
             return;
         }
-        let cols = usize::from(self.parser.screen().size().1.max(1));
-        let depth = scrollback_depth(self.parser.screen_mut());
-        // Byte length over-counts wide characters and under-counts cursor
-        // addressing. Once the cap is full, another screen of text means a
-        // line scrolled off.
-        if started_on_primary {
-            let newlines = output.iter().filter(|byte| **byte == b'\n').count();
-            let estimated = newlines.saturating_add(output.len() / cols);
-            if depth >= SCROLLBACK && self.scrollback_depth.saturating_add(estimated) > SCROLLBACK {
-                self.truncated = true;
-            }
+        let history = self.terminal.history_rows();
+        if history < self.history && !cleared {
+            self.truncated = true;
         }
-        self.scrollback_depth = depth;
+        self.history = history;
     }
     fn snapshot(&self) -> Result<(Vec<u8>, bool), String> {
-        let screen = self.parser.screen();
-        let (rows, cols) = screen.size();
-        let mut scratch = vt100::Parser::new(rows, cols, SCROLLBACK);
-        *scratch.screen_mut() = screen.clone();
-        if screen.alternate_screen() {
-            scratch.process(b"\x1b[?47l");
-        }
-        let normal = scratch.screen_mut();
-        // Read scrollback in viewport-sized windows, oldest first. A byte
-        // budget then drops the oldest windows so the lines closest to the
-        // current screen survive. The live screen is rendered afterward with
-        // cursor, attributes and input modes restored.
-        normal.set_scrollback(usize::MAX);
-        let depth = normal.scrollback();
-        let viewport = usize::from(rows);
-        let mut lines = Vec::new();
-        let mut consumed = 0usize;
-        while consumed < depth {
-            let offset = depth - consumed;
-            normal.set_scrollback(offset);
-            let take = offset.min(viewport);
-            if take == 0 {
-                break;
-            }
-            lines.extend(normal.rows(0, cols).take(take));
-            consumed += take;
-        }
-        normal.set_scrollback(0);
-        let mut used = 0usize;
-        let mut start = lines.len();
-        let mut omitted = false;
-        while start > 0 {
-            let len = lines[start - 1].len().saturating_add(2);
-            if used.saturating_add(len) > SNAPSHOT_SCROLLBACK_BYTES {
-                omitted = true;
-                break;
-            }
-            used += len;
-            start -= 1;
-        }
-        let mut data = Vec::new();
-        for line in &lines[start..] {
-            data.extend(line.as_bytes());
-            data.extend(b"\r\n");
-        }
-        data.extend(normal.state_formatted());
-        data.extend(self.normal.restore(normal));
-        if screen.alternate_screen() {
-            data.extend(b"\x1b[?1049h");
-            data.extend(screen.state_formatted());
-            data.extend(self.alternate.restore(screen));
+        let available = self.terminal.history_rows() as usize;
+        let base = self.terminal.paint(0).len();
+        // Halve the history until the scrollback part fits its budget, keeping
+        // the lines closest to the current screen.
+        let mut history = available.min(SCROLLBACK);
+        let mut data = self.terminal.paint(history);
+        while history > 0 && data.len().saturating_sub(base) > SNAPSHOT_SCROLLBACK_BYTES {
+            history /= 2;
+            data = self.terminal.paint(history);
         }
         if data.len() > MAX_SNAPSHOT_BYTES {
             return Err("Terminal screen exceeds the reconnect frame limit".into());
         }
-        Ok((data, omitted))
+        Ok((data, history < available))
     }
     pub fn poll(&self, id: &str, after: Option<u64>) -> Result<Vec<UiEvent>, String> {
         if after.is_some_and(|seq| seq > self.sequence) {
@@ -355,7 +174,7 @@ impl TerminalScreen {
         let mut events = Vec::new();
         let mut last = after.unwrap_or(0);
         if snapshot {
-            let (rows, cols) = self.parser.screen().size();
+            let (cols, rows) = self.terminal.size();
             let (data, omitted) = self.snapshot()?;
             events.push(UiEvent::Snapshot {
                 runtime_id: id.into(),
@@ -403,7 +222,7 @@ impl TerminalScreen {
 
 /// Never hand an incomplete UTF-8 or escape sequence to the emulator. Snapshot
 /// cursors therefore cannot split a sequence and corrupt the resumed renderer.
-/// Long OSC/DCS strings are discarded without ever allocating them in vt100.
+/// Long OSC/DCS strings are discarded without ever reaching the emulator.
 #[derive(Default)]
 struct Tokens {
     pending: Vec<u8>,
@@ -490,14 +309,6 @@ impl Tokens {
     }
 }
 
-fn scrollback_depth(screen: &mut vt100::Screen) -> usize {
-    let previous = screen.scrollback();
-    screen.set_scrollback(usize::MAX);
-    let depth = screen.scrollback();
-    screen.set_scrollback(previous);
-    depth
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,10 +319,19 @@ mod tests {
             data: bytes.into(),
         });
     }
-    fn render(screen: &TerminalScreen) -> vt100::Parser {
-        let mut parser = vt100::Parser::new(24, 80, SCROLLBACK);
-        parser.process(&screen.snapshot().unwrap().0);
-        parser
+    /// A fresh viewer that only ever sees the reconnect snapshot.
+    fn render(screen: &TerminalScreen) -> Terminal {
+        let (cols, rows) = screen.terminal.size();
+        let mut viewer = Terminal::new(cols, rows, SCROLLBACK_MEMORY);
+        viewer.write(&screen.snapshot().unwrap().0);
+        viewer
+    }
+    /// Same screen and same cursor: one more byte lands in the same cell.
+    fn assert_continues_identically(screen: &mut TerminalScreen, viewer: &mut Terminal) {
+        assert_eq!(viewer.screen_rows(), screen.terminal.screen_rows());
+        output(screen, b"B");
+        viewer.write(b"B");
+        assert_eq!(viewer.screen_rows(), screen.terminal.screen_rows());
     }
     #[test]
     fn reconnect_restores_unicode_cursor_colors_modes_and_alternate_screen() {
@@ -521,17 +341,15 @@ mod tests {
             b"normal\r\n\x1b[?1049h\x1b[31magent\x1b[3;8H\x1b[?2004h",
         );
         output(&mut screen, "中文".as_bytes());
-        let restored = render(&screen);
-        assert_eq!(
-            restored.screen().contents(),
-            screen.parser.screen().contents()
-        );
-        assert_eq!(
-            restored.screen().cursor_position(),
-            screen.parser.screen().cursor_position()
-        );
-        assert!(restored.screen().alternate_screen());
-        assert!(restored.screen().bracketed_paste());
+        let mut restored = render(&screen);
+        assert!(restored.alt_screen());
+        assert!(restored.dec_mode(2004));
+        assert_continues_identically(&mut screen, &mut restored);
+        // The hidden primary screen comes back when the program leaves.
+        output(&mut screen, b"\x1b[?1049l");
+        restored.write(b"\x1b[?1049l");
+        assert_eq!(restored.screen_rows()[0].trim_end(), "normal");
+        assert_eq!(restored.screen_rows(), screen.terminal.screen_rows());
     }
     #[test]
     fn snapshot_does_not_split_utf8_or_escape_sequences() {
@@ -543,14 +361,14 @@ mod tests {
         let events = screen.poll("r", Some(0)).unwrap();
         for event in events {
             if let UiEvent::Output { data, .. } = event {
-                restored.process(&data);
+                restored.write(&data);
             }
         }
-        assert_eq!(restored.screen().contents(), "中");
+        assert_eq!(restored.screen_rows()[0].trim_end(), "中");
         output(&mut screen, b"\x1b[31");
         assert_eq!(screen.sequence, 1);
         output(&mut screen, b"mred");
-        assert_eq!(render(&screen).screen().contents(), "中red");
+        assert_eq!(render(&screen).screen_rows()[0].trim_end(), "中red");
     }
     #[test]
     fn replay_and_osc_memory_are_bounded() {
@@ -573,7 +391,7 @@ mod tests {
         }
         assert!(screen.tokenizer.pending.len() <= MAX_ESCAPE);
         output(&mut screen, b"\x07safe");
-        assert!(screen.parser.screen().contents().ends_with("safe"));
+        assert!(screen.terminal.plain_text().ends_with("safe"));
     }
     #[test]
     fn snapshot_keeps_thousands_of_scrollback_lines() {
@@ -585,7 +403,7 @@ mod tests {
         assert!(!omitted);
         let text = String::from_utf8(data).unwrap();
         assert!(text.contains("line-0\r\n"));
-        assert!(text.contains("line-2499\r\n"));
+        assert!(text.contains("line-2499"));
         assert!(matches!(
             screen.poll("r", None).unwrap()[0],
             UiEvent::Snapshot {
@@ -595,18 +413,18 @@ mod tests {
         ));
     }
     #[test]
-    fn scrollback_beyond_the_cap_drops_the_oldest_lines() {
+    fn scrollback_beyond_the_cap_keeps_the_newest_lines() {
         let mut screen = TerminalScreen::new(80, 24);
         let total = SCROLLBACK + 40;
         for i in 0..total {
             output(&mut screen, format!("L{i:05}\r\n").as_bytes());
         }
         let (data, omitted) = screen.snapshot().unwrap();
-        assert!(!omitted);
+        assert!(omitted);
         let text = String::from_utf8_lossy(&data);
         assert!(!text.contains("L00000\r\n"));
         assert!(text.contains(&format!("L{:05}\r\n", total - 100)));
-        assert!(text.contains(&format!("L{:05}\r\n", total - 1)));
+        assert!(text.contains(&format!("L{:05}", total - 1)));
         assert!(matches!(
             screen.poll("r", None).unwrap()[0],
             UiEvent::Snapshot {
@@ -614,6 +432,24 @@ mod tests {
                 ..
             }
         ));
+    }
+    #[test]
+    fn history_dropped_by_the_memory_cap_marks_the_screen_truncated() {
+        let mut screen = TerminalScreen::new(320, 24);
+        let body = "M".repeat(300);
+        let mut i = 0;
+        while !screen.truncated && i < 200_000 {
+            output(&mut screen, format!("{body}{i:06}\r\n").as_bytes());
+            i += 1;
+        }
+        assert!(screen.truncated, "history never reached the memory cap");
+        // An explicit clear is not lost history.
+        let mut cleared = TerminalScreen::new(80, 24);
+        for i in 0..100 {
+            output(&mut cleared, format!("line-{i}\r\n").as_bytes());
+        }
+        output(&mut cleared, b"\x1b[H\x1b[2J\x1b[3J");
+        assert!(!cleared.truncated);
     }
     #[test]
     fn snapshot_scrollback_budget_keeps_the_newest_lines() {
@@ -625,6 +461,7 @@ mod tests {
         }
         let (data, omitted) = screen.snapshot().unwrap();
         assert!(omitted);
+        assert!(data.len() <= MAX_SNAPSHOT_BYTES);
         let text = String::from_utf8(data).unwrap();
         assert!(!text.contains(&format!("{body}0000")));
         let newest = format!("{body}{:04}", count - 1);
@@ -660,8 +497,17 @@ mod tests {
     fn queries_are_answered_without_any_ui() {
         let mut screen = TerminalScreen::new(80, 24);
         output(&mut screen, b"abc\x1b[6n\x1b[c");
-        assert_eq!(screen.replies(), b"\x1b[1;4R\x1b[?1;2c");
+        // Ghostty's own device attributes: VT220-class with ANSI color.
+        assert_eq!(screen.replies(), b"\x1b[1;4R\x1b[?62;22c");
         assert_eq!(screen.replay.back().unwrap().1, b"abc");
+    }
+    #[test]
+    fn queries_the_ui_still_sees_are_not_answered_twice() {
+        let mut screen = TerminalScreen::new(80, 24);
+        // XTVERSION and a DEC mode request reach the renderer, which answers them.
+        output(&mut screen, b"\x1b[>0q\x1b[?2004$p");
+        assert!(screen.replies().is_empty());
+        assert_eq!(screen.replay.back().unwrap().1, b"\x1b[>0q\x1b[?2004$p");
     }
     #[test]
     fn reconnect_preserves_pending_wrap_at_ascii_and_wide_character_margin() {
@@ -672,16 +518,7 @@ mod tests {
                 format!("{}{}", "a".repeat(78), ending).as_bytes(),
             );
             let mut restored = render(&screen);
-            output(&mut screen, b"B");
-            restored.process(b"B");
-            assert_eq!(
-                restored.screen().contents(),
-                screen.parser.screen().contents()
-            );
-            assert_eq!(
-                restored.screen().cursor_position(),
-                screen.parser.screen().cursor_position()
-            );
+            assert_continues_identically(&mut screen, &mut restored);
         }
     }
     #[test]
@@ -690,16 +527,14 @@ mod tests {
         output(&mut screen, b"\x1b[3;20r\x1b[?6h");
         output(&mut screen, &[b'x'; 80]);
         let mut restored = render(&screen);
-        output(&mut screen, b"B");
-        restored.process(b"B");
-        assert_eq!(
-            restored.screen().contents(),
-            screen.parser.screen().contents()
-        );
-        assert_eq!(
-            restored.screen().cursor_position(),
-            screen.parser.screen().cursor_position()
-        );
+        assert!(restored.dec_mode(6));
+        assert_continues_identically(&mut screen, &mut restored);
+        // The scroll region survives: a newline at its bottom scrolls only it.
+        for _ in 0..20 {
+            output(&mut screen, b"\r\nR");
+            restored.write(b"\r\nR");
+        }
+        assert_eq!(restored.screen_rows(), screen.terminal.screen_rows());
     }
     #[test]
     fn colored_origin_pending_wrap_preserves_sgr_and_cell_attributes() {
@@ -712,24 +547,18 @@ mod tests {
             output(&mut screen, attributes);
             output(&mut screen, &[b'a'; 80]);
             let mut restored = render(&screen);
-            for (row, column) in [(2, 0), (2, 79)] {
-                assert_eq!(
-                    restored.screen().cell(row, column),
-                    screen.parser.screen().cell(row, column)
-                );
-            }
             output(&mut screen, b"B");
-            restored.process(b"B");
-            assert_eq!(
-                restored.screen().cell(3, 0),
-                screen.parser.screen().cell(3, 0)
-            );
+            restored.write(b"B");
+            assert_eq!(restored.replay(), screen.terminal.replay());
         }
     }
     #[test]
     fn color_queries_are_consumed_and_answered_without_ui() {
         let mut screen = TerminalScreen::new(80, 24);
         output(&mut screen, b"\x1b]11;?\x07");
+        // The reply ends with the query's own terminator, as xterm does.
+        assert_eq!(screen.replies(), b"\x1b]11;rgb:1111/1515/1a1a\x07");
+        output(&mut screen, b"\x1b]11;?\x1b\\");
         assert_eq!(screen.replies(), b"\x1b]11;rgb:1111/1515/1a1a\x1b\\");
         assert_eq!(screen.sequence, 0);
         assert!(screen.replay.is_empty());
@@ -741,6 +570,6 @@ mod tests {
         assert!(screen.replies().is_empty());
         screen.enable_terminal_status();
         output(&mut screen, b"\x1b]7501;?\x07\x1b[c");
-        assert_eq!(screen.replies(), b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\\x1b[?1;2c");
+        assert_eq!(screen.replies(), b"\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\\x1b[?62;22c");
     }
 }

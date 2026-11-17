@@ -1352,7 +1352,7 @@ mod tests {
     fn detached_host_answers_background_color_query_through_the_pty() {
         let temp = tempfile::tempdir().unwrap();
         let host = Host::open(temp.path().into()).unwrap();
-        let spec = LaunchSpec {executable: "/bin/sh".into(), args: vec!["-c".into(), "stty raw -echo; printf '\\033]11;?\\007'; answer=$(dd bs=1 count=25 2>/dev/null); printf '\\r\\ncolor-query-completed'; sleep 60".into()], cwd: temp.path().into(), env: HashMap::new(), session_id: None, resume_key: None, pane_id: "query-pane".into()};
+        let spec = LaunchSpec {executable: "/bin/sh".into(), args: vec!["-c".into(), "stty raw -echo; printf '\\033]11;?\\007'; answer=$(dd bs=1 count=24 2>/dev/null); printf '\\r\\ncolor-query-completed'; sleep 60".into()], cwd: temp.path().into(), env: HashMap::new(), session_id: None, resume_key: None, pane_id: "query-pane".into()};
         let response = host
             .handle(Request::Launch {
                 generation: host.generation.clone(),
