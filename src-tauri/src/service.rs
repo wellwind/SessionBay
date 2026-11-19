@@ -296,6 +296,7 @@ impl Service {
             "fontFamily",
             "fontSize",
             "appZoom",
+            "terminalEngine",
         ] {
             previous.as_object_mut().unwrap().remove(field);
             next.as_object_mut().unwrap().remove(field);
@@ -1625,7 +1626,9 @@ mod tests {
         next.app_zoom = 150;
         next.theme_palette = "rose".into();
         next.terminal_theme = "ocean-light".into();
+        next.terminal_engine = "ghostty".into();
         let saved = service.save_settings(next.clone()).unwrap();
+        assert_eq!(saved.terminal_engine, "ghostty");
         assert_eq!(saved.theme_palette, "rose");
         assert_eq!(saved.app_zoom, 150);
         assert_eq!(service.config.load_settings().0.app_zoom, 150);

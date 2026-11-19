@@ -26,6 +26,7 @@ On macOS, Session Bay starts terminals with `LANG=en_US.UTF-8` when none of `LAN
 
 - **Language**: English, 繁體中文, or follow the system language. Changing it reloads the window; terminals reconnect.
 - Interface and terminal themes, palettes, fonts and workbench zoom (<kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> / <kbd>⌘</kbd><kbd>0</kbd>).
+- **Terminal engine**: xterm.js (default) or **Ghostty (experimental)**, which runs Ghostty's terminal emulator compiled to WebAssembly. The choice applies to panes opened afterwards. With Ghostty, switching themes does not yet update the ANSI colors of panes that are already open, and links inside terminal output are never opened.
 - The default agent and shell profile for **New work**, and system notifications.
 - **Updates**: check GitHub Releases for new versions at startup and once a day. Updates are never installed automatically.
 

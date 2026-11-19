@@ -134,6 +134,8 @@ export interface Settings {
   updateChecks?: boolean;
   fontFamily: string;
   fontSize: number;
+  /** Renderer for new terminal panes; absent means xterm.js. 'ghostty' is experimental. */
+  terminalEngine?: 'xterm' | 'ghostty';
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
   /** Missing providers default to launch-local hooks; explicit false preserves opt-out. */

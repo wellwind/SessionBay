@@ -26,6 +26,7 @@ sidebar:
 
 - **語言**：English、繁體中文，或跟隨系統語言。切換時會重新載入視窗，終端機會自動重新連線。
 - 介面與終端主題、色系、字型，以及工作台縮放（<kbd>⌘</kbd><kbd>+</kbd>／<kbd>⌘</kbd><kbd>-</kbd>／<kbd>⌘</kbd><kbd>0</kbd>）。
+- **終端機引擎**：xterm.js（預設）或 **Ghostty（實驗性）**，後者使用編譯成 WebAssembly 的 Ghostty 終端機模擬器。設定只套用到之後開啟的窗格。使用 Ghostty 時，切換主題暫時不會更新已開啟窗格的 ANSI 顏色；終端機輸出裡的連結一律不會被開啟。
 - **新增工作**時預設的 Agent 與 Shell Profile，以及系統通知。
 - **版本更新**：啟動時與每天一次檢查 GitHub Releases 是否有新版本。不會自動安裝更新。
 
