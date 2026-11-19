@@ -134,6 +134,10 @@ export interface Settings {
   updateChecks?: boolean;
   fontFamily: string;
   fontSize: number;
+  /** Who runs new terminals; absent means owned PTYs. 'herdrCore' is experimental. */
+  terminalBackend?: 'native' | 'herdrCore';
+  /** herdr-core executable for the 'herdrCore' backend; absent means "hc". */
+  herdrCoreExecutable?: string;
   /** Renderer for new terminal panes; absent means xterm.js. 'ghostty' is experimental. */
   terminalEngine?: 'xterm' | 'ghostty';
   /** Percentage; absent in older version 1 settings means 100. */

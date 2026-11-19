@@ -52,6 +52,7 @@ Terminals are owned by a separate **broker** process (`src-tauri/src/bin/session
 - Only one broker can serve a data directory; it holds an OS file lock.
   - On Unix, the socket and its directory are private to the user (0700/0600).
   - On Windows, the named pipe uses a DACL that grants access only to the current user's SID.
+- Experimental herdr-core backend: with **Terminal backend → herdr-core**, `RuntimeManager` starts the program through an `hc connect` child (`src-tauri/src/runtime/herdr_core.rs`, protocol generation 1) instead of an owned PTY. Output, input, resize and stop go over that terminal's attach stream; the broker's screen, replay and ACKs are unchanged. herdr-core answers terminal queries itself and strips them from the stream.
 - The broker keeps a bounded replay of each terminal: up to 4 MiB or 4,096 frames of recent output, and a libghostty-vt screen model (Ghostty's terminal emulator, `src-tauri/crates/ghostty-vt`) that keeps up to 16 MiB of scrollback. Reconnect repaints the current screen with its modes, cursor and scroll region, plus up to 10,000 of the newest scrollback lines within a 1 MiB budget. libghostty-vt also answers cursor, device-attribute and color queries while no UI is attached; other queries reach the renderer, so each is answered once.
 - Output reaches the UI as ordered, acknowledged frames, so a slow renderer applies backpressure instead of growing memory without bound.
 - Metadata stores runtime IDs, pane, project, agent, cwd and state. It never stores PIDs, argv, environment variables or terminal content.

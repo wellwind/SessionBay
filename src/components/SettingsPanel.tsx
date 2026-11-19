@@ -199,6 +199,8 @@ export function validateSettings(settings: Settings): ValidationErrors {
     errors.fontSize = t('Font size must be a whole number from 9 to 32.');
   if (!Number.isInteger(settings.appZoom ?? 100) || (settings.appZoom ?? 100) < 50 || (settings.appZoom ?? 100) > 200)
     errors.appZoom = t('Enter a workbench zoom as a whole percentage from 50 to 200.');
+  if (settings.terminalBackend === 'herdrCore' && !validText(settings.herdrCoreExecutable ?? 'hc', 4096))
+    errors.herdrCoreExecutable = t('Enter the herdr-core executable name or path.');
   if (!Number.isInteger(settings.attentionSoundVolume ?? 70) || (settings.attentionSoundVolume ?? 70) < 0 || (settings.attentionSoundVolume ?? 70) > 100)
     errors.attentionSoundVolume = t('Attention sound volume must be a whole percentage from 0 to 100');
   if (!agentKinds.includes(settings.defaultAgent))
@@ -1222,6 +1224,26 @@ export function SettingsPanel({
                       </span>
                     </label>
                     <TerminalPreview value={appearanceOf(draft)} />
+                    <div className="settings-two-columns settings-section-space">
+                      <label className="settings-field">
+                        <span>{t('Terminal backend')}</span>
+                        <select value={draft.terminalBackend ?? 'native'} disabled={locked} aria-describedby="terminal-backend-help"
+                          onChange={(event) => update('terminalBackend', event.target.value === 'herdrCore' ? 'herdrCore' : 'native')}>
+                          <option value="native">{t('Session Bay (built in)')}</option>
+                          <option value="herdrCore">{t('herdr-core (experimental)')}</option>
+                        </select>
+                      </label>
+                      {draft.terminalBackend === 'herdrCore' && <label className="settings-field">
+                        <span>{t('herdr-core executable')}</span>
+                        <input value={draft.herdrCoreExecutable ?? 'hc'} disabled={locked} spellCheck={false}
+                          onChange={(event) => update('herdrCoreExecutable', event.target.value)}
+                          aria-invalid={Boolean(errors.herdrCoreExecutable)} aria-describedby="herdr-core-executable-error" />
+                        <FieldError id="herdr-core-executable-error" message={errors.herdrCoreExecutable} />
+                      </label>}
+                    </div>
+                    <p className="settings-help" id="terminal-backend-help">
+                      {t("New terminals run in herdr-core (hc) instead of Session Bay's own process. herdr-core must be installed and its version must speak protocol generation 1. Terminals already open keep their backend.")}
+                    </p>
                     <div className="settings-section-heading settings-section-space" id="settings-history-sources">
                       <div>
                         <h3>{t('When starting new work')}</h3>

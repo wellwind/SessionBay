@@ -48,6 +48,8 @@ struct Inner {
 #[derive(Clone)]
 pub struct BrokerClient {
     inner: Arc<Inner>,
+    /// Experimental: launches through this handle run in herdr-core.
+    herdr_core: Option<String>,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
@@ -226,6 +228,7 @@ impl BrokerClient {
                 ui_lease_offer,
                 build_identity,
             } => Ok(Self {
+                herdr_core: None,
                 inner: Arc::new(Inner {
                     directory: directory.into(),
                     generation,
@@ -417,6 +420,11 @@ impl BrokerClient {
         }
         Ok(info)
     }
+    /// This handle with new launches run by the given herdr-core executable.
+    pub fn with_herdr_core(mut self, executable: Option<String>) -> Self {
+        self.herdr_core = executable;
+        self
+    }
     fn launch_request(&self, spec: LaunchSpec, request: &LaunchRequest) -> Request {
         Request::Launch {
             generation: self.generation(),
@@ -430,6 +438,7 @@ impl BrokerClient {
             home_directory: request.uses_home_directory() && self.inner.home_directory_supported,
             cols: request.cols,
             rows: request.rows,
+            herdr_core: self.herdr_core.clone(),
         }
     }
     pub fn attach(&self, id: &str, lease: String, emit: UiEmitter) -> Result<RuntimeInfo, String> {

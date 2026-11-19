@@ -340,6 +340,7 @@ mod tests {
             home_directory: false,
             cols: 80,
             rows: 24,
+            herdr_core: None,
         });
         assert!(result.unwrap_err().contains("Unknown runtime kind"));
         assert!(host.runtime.list().is_empty());
@@ -377,6 +378,7 @@ mod tests {
                 home_directory: false,
                 cols: 80,
                 rows: 24,
+                herdr_core: None,
             })
             .unwrap()
         else {
