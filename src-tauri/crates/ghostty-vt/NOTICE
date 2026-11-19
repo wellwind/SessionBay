@@ -1,0 +1,7 @@
+This crate is adapted from the `ghostty-vt` crate in herdr-core
+(https://github.com/herdrdev/herdr-core), licensed under the Apache License,
+Version 2.0 (see LICENSE in this directory). SessionBay changes: made
+`history_rows` public, adjusted crate metadata and the build path message.
+
+It links libghostty-vt, built from Ghostty (https://github.com/ghostty-org/ghostty,
+MIT License), pinned as the `src-tauri/vendor/ghostty` submodule.
