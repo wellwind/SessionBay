@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-19
+
+### Added
+
+- **Ghostty terminal engine (experimental).** **Settings → Terminal engine → Ghostty** renders new panes with Ghostty's terminal emulator compiled to WebAssembly (ghostty-web). Panes already open keep their engine. If it fails to load, the pane falls back to xterm.js and says why. Switching themes does not yet update the ANSI palette of an open Ghostty pane.
+- **herdr-core terminal backend (experimental).** **Settings → Terminal backend → herdr-core** runs new terminals in [herdr-core](https://github.com/herdrdev/herdr-core) (`hc`) instead of Session Bay's own PTYs. herdr-core must be installed separately and speak protocol generation 1. This release was tested against a synthetic server only, not a real herdr-core.
+
+### Changed
+
+- **The terminal broker models screens with libghostty-vt**, Ghostty's terminal emulator, instead of vt100. Reconnecting to a pane restores the alternate screen, cursor, modes and scroll region more faithfully, and scrollback is capped at 16 MiB of memory instead of 10,000 lines.
+- Building from source needs Zig 0.16.0 and the Ghostty submodule (`git submodule update --init`). See [docs/development.md](docs/development.md).
+
 ## [0.5.0] - 2026-11-14
 
 ### Added
@@ -180,7 +192,8 @@ First public preview. macOS on Apple Silicon only.
 - Linux and Windows builds are not validated for release.
 - Updates are not installed in the app; the update notice links to the release page.
 
-[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/wellwind/SessionBay/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/wellwind/SessionBay/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/wellwind/SessionBay/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/wellwind/SessionBay/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/wellwind/SessionBay/compare/v0.3.3...v0.4.0
