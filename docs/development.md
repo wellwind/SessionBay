@@ -4,6 +4,8 @@
 
 - Node.js 24 and npm.
 - Rust, with the version pinned by `rust-toolchain.toml`. rustup installs it on the first Cargo run.
+- [Zig 0.16.0](https://ziglang.org/download/) on `PATH`, or its path in `ZIG`. The broker's terminal model is libghostty-vt, which `src-tauri/crates/ghostty-vt` builds from the pinned Ghostty submodule. Other Zig versions are not supported by that Ghostty commit.
+- The submodule: clone with `--recurse-submodules`, or run `git submodule update --init --depth 1` once.
 - Platform tools:
   - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
   - **Linux** (Ubuntu 24.04 is the CI baseline):

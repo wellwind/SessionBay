@@ -39,6 +39,9 @@ import { fileInputChangesPrompt, fileLimits, fileProvider, fileUnsupportedReason
 import { embeddedLinkLabel, fileLinkModifier, terminalFileLinkProvider, type TerminalFileOpen } from '../terminal-file-links';
 import { handleTerminalKey } from '../terminal-keyboard';
 import { TerminalImeCommitGuard } from '../terminal-ime';
+import { createGhosttyTerminal, normalizeTerminalEngine } from '../ghostty-terminal';
+type TerminalFit = Pick<FitAddon, 'fit' | 'proposeDimensions'>;
+type TerminalSearch = { findNext(term: string, options?: { incremental?: boolean }): boolean; findPrevious(term: string): boolean };
 import type { Pane, RuntimeInfo, Settings, TerminalEvent } from '../types';
 interface Attachment {
   lease: string;
@@ -131,8 +134,11 @@ export function TerminalPane({
   useEffect(() => { activity?.visible(pane.id, activityVisible); }, [activity, pane.id, activityVisible]);
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
-  const fit = useRef<FitAddon | null>(null);
-  const search = useRef<SearchAddon | null>(null);
+  const fit = useRef<TerminalFit | null>(null);
+  const search = useRef<TerminalSearch | null>(null);
+  // The engine is fixed for a pane's lifetime; a settings change applies to new panes.
+  const engine = useRef(normalizeTerminalEngine(settings.terminalEngine)).current;
+  const [terminalReady, setTerminalReady] = useState(0);
   const runtime = useRef<string | undefined>(undefined);
   const attachment = useRef<Attachment | null>(null);
   const renderQueue = useRef<Array<(done: () => void) => void>>([]);
@@ -214,154 +220,184 @@ export function TerminalPane({
     if (!host.current) return;
     mounted.current = true;
     const queuedFrames = renderQueue.current;
-    const terminal = new Terminal({
-      // Matches the broker scrollback cap in broker/screen.rs.
-      scrollback: 10000,
-      // Claim every OSC8 range in the built-in priority provider, including
-      // hostile schemes. Activation only reveals its real target; never navigate.
-      linkHandler: {
-        allowNonHttpProtocols: true,
-        activate: (event, target) => { if (fileLinkModifier(event)) setNotice(t('The embedded terminal link was not opened. Actual target: {{target}}', { target: embeddedLinkLabel(target) })); },
-        hover: (_event, target) => { if (host.current) host.current.title = t('Embedded link (not opened): {{target}}', { target: embeddedLinkLabel(target) }); },
-        leave: () => { if (host.current) host.current.title = ''; },
-      },
-      fontSize: settings.fontSize,
-      fontFamily: settings.fontFamily,
-      theme: terminalColors,
-      cursorBlink: true,
-      allowProposedApi: false,
-      convertEol: false,
-      overviewRuler: { width: 0 },
-    });
-    const fitAddon = new FitAddon();
-    const searchAddon = new SearchAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.loadAddon(searchAddon);
     const element = host.current;
-    // Capture on the host runs before xterm's textarea listeners (see terminal-ime).
-    const ime = new TerminalImeCommitGuard((data) => terminal.input(data, true));
-    const compositionStart = (event: Event) => { if (event.target === terminal.textarea) ime.compositionStart(); };
-    const compositionEnd = (event: CompositionEvent) => {
-      if (event.target === terminal.textarea && ime.compositionEnd(event)) event.stopImmediatePropagation();
+    // Claim every OSC8 range, including hostile schemes. Activation only reveals its real target; never navigate.
+    const embeddedLinks = {
+      activate: (event: MouseEvent, target: string) => { if (fileLinkModifier(event)) setNotice(t('The embedded terminal link was not opened. Actual target: {{target}}', { target: embeddedLinkLabel(target) })); },
+      hover: (target: string) => { element.title = t('Embedded link (not opened): {{target}}', { target: embeddedLinkLabel(target) }); },
+      leave: () => { element.title = ''; },
     };
-    const imeInput = (event: Event) => {
-      if (event.target === terminal.textarea) cancelTaskPaste.current();
-      if (event.target === terminal.textarea && ime.input(event as InputEvent)) event.stopImmediatePropagation();
-    };
-    const userKey = (event: KeyboardEvent) => {
-      if (event.target === terminal.textarea && !['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(event.key)) cancelTaskPaste.current();
-    };
-    element.addEventListener('keydown', userKey, true);
-    element.addEventListener('compositionstart', compositionStart, true);
-    element.addEventListener('compositionend', compositionEnd, true);
-    element.addEventListener('input', imeInput, true);
-    const pasteFiles = (event: ClipboardEvent) => {
-      if (event.target !== terminal.textarea || !event.clipboardData) return;
-      cancelTaskPaste.current();
-      if (hasDirectory(event.clipboardData.items)) {
-        event.preventDefault(); event.stopImmediatePropagation(); setNotice(t('Folders are not supported and nothing was inserted; choose individual files.')); return;
-      }
-      const files = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file').map((item) => item.getAsFile()).filter((file): file is File => !!file);
-      if (!files.length) return; // Leave ordinary text and native CLI shortcuts unchanged.
-      event.preventDefault();
-      event.stopImmediatePropagation(); // xterm must not also insert the text representation.
-      fileInput.current(files); // File metadata text is incidental; never also paste it.
-    };
-    const dragFiles = (event: DragEvent) => {
-      if (!event.dataTransfer?.types.includes('Files')) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.dataTransfer.dropEffect = canDropFiles.current() ? 'copy' : 'none';
-    };
-    const dropFiles = (event: DragEvent) => {
-      cancelTaskPaste.current();
-      if (!event.dataTransfer?.types.includes('Files')) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (event.dataTransfer.items && hasDirectory(event.dataTransfer.items)) { setNotice(t('Folders are not supported and nothing was inserted; choose individual files.')); return; }
-      fileDrop.current(Array.from(event.dataTransfer.files));
-    };
-    element.addEventListener('paste', pasteFiles, true);
-    element.addEventListener('dragover', dragFiles, true);
-    element.addEventListener('drop', dropFiles, true);
-    terminal.attachCustomKeyEventHandler((event) => {
-      const current = latest.current;
-      const active = attachment.current;
-      if (!hasBlockingDialog() && ime.suppressXtermKey(event)) return false;
-      return handleTerminalKey(event, {
-        composing: ime.composing,
-        blocked: hasBlockingDialog(),
-        canInput: mounted.current && current.visible && current.focused && document.activeElement === terminal.textarea &&
-          current.pane.state === 'running' && !!runtime.current && current.pane.runtimeId === runtime.current &&
-          !!active?.ready && !active.ended && !active.disconnected,
-        input: (data) => terminal.input(data, true),
+    const createXterm = () => {
+      const terminal = new Terminal({
+        // Matches the broker scrollback cap in broker/screen.rs.
+        scrollback: 10000,
+        linkHandler: {
+          allowNonHttpProtocols: true,
+          activate: (event, target) => embeddedLinks.activate(event, target),
+          hover: (_event, target) => embeddedLinks.hover(target),
+          leave: () => embeddedLinks.leave(),
+        },
+        fontSize: settings.fontSize,
+        fontFamily: settings.fontFamily,
+        theme: terminalColors,
+        cursorBlink: true,
+        allowProposedApi: false,
+        convertEol: false,
+        overviewRuler: { width: 0 },
       });
-    });
-    terminal.open(element);
-    const links = terminal.registerLinkProvider(terminalFileLinkProvider(terminal,
-      () => JSON.stringify([latest.current.pane.id, latest.current.pane.runtimeId, latest.current.pane.startToken, attachment.current?.lease]),
-      request => {
-        if (!latest.current.projectAvailable) { setNotice(t('This terminal has no usable project folder, so files in its output cannot be opened.')); return; }
-        latest.current.onOpenFileLink?.(request);
-      },
-      text => { element.title = text; },
-      () => mounted.current && latest.current.visible && !!latest.current.pane.runtimeId && !hasBlockingDialog()));
-    term.current = terminal;
-    const unregisterTail = registerTerminalTail(pane.id, lines => bufferTail(terminal.buffer.active, lines));
-    fit.current = fitAddon;
-    search.current = searchAddon;
-    // OSC 52 must never read or mutate the clipboard from untrusted terminal output.
-    const clipboardBlock = terminal.parser.registerOscHandler(52, () => true);
-    inputQueue.current = new TerminalInputQueue(api.write, (error) => {
-      if (mounted.current) setNotice(errorMessage(error));
-    });
-    const input = terminal.onData((data) => {
-      // Input/Enter remains live while staging. Cancel its old prompt target first.
-      // Standard Enter, unframed multiline input, Ctrl+C/D/Z/\ interrupt the prompt.
-      // Printable typing remains in the same prompt; do not buffer or replay input.
-      if (actionPending.current && !filePasting.current && fileInputChangesPrompt(data)) {
-        actionGeneration.current += 1;
-        if (fileStaging.current) setNotice(t('File preparation was cancelled: the current input was sent or interrupted, so files not yet inserted will not be added to the next message.'));
-      }
-      if (runtime.current) inputQueue.current?.enqueue(runtime.current, data);
-    });
-    let frame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(fitNow);
-    });
-    observer.observe(host.current);
-    const zoomed = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(fitNow); };
-    window.addEventListener(workspaceZoomEvent, zoomed);
-    fitNow();
+      const fitAddon = new FitAddon();
+      const searchAddon = new SearchAddon();
+      terminal.loadAddon(fitAddon);
+      terminal.loadAddon(searchAddon);
+      return { terminal, fit: fitAddon as TerminalFit, search: searchAddon as TerminalSearch };
+    };
+    const setup = ({ terminal, fit: fitAddon, search: searchAddon }: { terminal: Terminal; fit: TerminalFit; search: TerminalSearch }) => {
+      // Capture on the host runs before xterm's textarea listeners (see terminal-ime).
+      const ime = new TerminalImeCommitGuard((data) => terminal.input(data, true));
+      const compositionStart = (event: Event) => { if (event.target === terminal.textarea) ime.compositionStart(); };
+      const compositionEnd = (event: CompositionEvent) => {
+        if (event.target === terminal.textarea && ime.compositionEnd(event)) event.stopImmediatePropagation();
+      };
+      const imeInput = (event: Event) => {
+        if (event.target === terminal.textarea) cancelTaskPaste.current();
+        if (event.target === terminal.textarea && ime.input(event as InputEvent)) event.stopImmediatePropagation();
+      };
+      const userKey = (event: KeyboardEvent) => {
+        if (event.target === terminal.textarea && !['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(event.key)) cancelTaskPaste.current();
+      };
+      element.addEventListener('keydown', userKey, true);
+      element.addEventListener('compositionstart', compositionStart, true);
+      element.addEventListener('compositionend', compositionEnd, true);
+      element.addEventListener('input', imeInput, true);
+      const pasteFiles = (event: ClipboardEvent) => {
+        if (event.target !== terminal.textarea || !event.clipboardData) return;
+        cancelTaskPaste.current();
+        if (hasDirectory(event.clipboardData.items)) {
+          event.preventDefault(); event.stopImmediatePropagation(); setNotice(t('Folders are not supported and nothing was inserted; choose individual files.')); return;
+        }
+        const files = Array.from(event.clipboardData.items).filter((item) => item.kind === 'file').map((item) => item.getAsFile()).filter((file): file is File => !!file);
+        if (!files.length) return; // Leave ordinary text and native CLI shortcuts unchanged.
+        event.preventDefault();
+        event.stopImmediatePropagation(); // xterm must not also insert the text representation.
+        fileInput.current(files); // File metadata text is incidental; never also paste it.
+      };
+      const dragFiles = (event: DragEvent) => {
+        if (!event.dataTransfer?.types.includes('Files')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = canDropFiles.current() ? 'copy' : 'none';
+      };
+      const dropFiles = (event: DragEvent) => {
+        cancelTaskPaste.current();
+        if (!event.dataTransfer?.types.includes('Files')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.dataTransfer.items && hasDirectory(event.dataTransfer.items)) { setNotice(t('Folders are not supported and nothing was inserted; choose individual files.')); return; }
+        fileDrop.current(Array.from(event.dataTransfer.files));
+      };
+      element.addEventListener('paste', pasteFiles, true);
+      element.addEventListener('dragover', dragFiles, true);
+      element.addEventListener('drop', dropFiles, true);
+      terminal.attachCustomKeyEventHandler((event) => {
+        const current = latest.current;
+        const active = attachment.current;
+        if (!hasBlockingDialog() && ime.suppressXtermKey(event)) return false;
+        return handleTerminalKey(event, {
+          composing: ime.composing,
+          blocked: hasBlockingDialog(),
+          canInput: mounted.current && current.visible && current.focused && document.activeElement === terminal.textarea &&
+            current.pane.state === 'running' && !!runtime.current && current.pane.runtimeId === runtime.current &&
+            !!active?.ready && !active.ended && !active.disconnected,
+          input: (data) => terminal.input(data, true),
+        });
+      });
+      terminal.open(element);
+      const links = terminal.registerLinkProvider(terminalFileLinkProvider(terminal,
+        () => JSON.stringify([latest.current.pane.id, latest.current.pane.runtimeId, latest.current.pane.startToken, attachment.current?.lease]),
+        request => {
+          if (!latest.current.projectAvailable) { setNotice(t('This terminal has no usable project folder, so files in its output cannot be opened.')); return; }
+          latest.current.onOpenFileLink?.(request);
+        },
+        text => { element.title = text; },
+        () => mounted.current && latest.current.visible && !!latest.current.pane.runtimeId && !hasBlockingDialog()));
+      term.current = terminal;
+      const unregisterTail = registerTerminalTail(pane.id, lines => bufferTail(terminal.buffer.active, lines));
+      fit.current = fitAddon;
+      search.current = searchAddon;
+      // OSC 52 must never read or mutate the clipboard from untrusted terminal output.
+      const clipboardBlock = terminal.parser.registerOscHandler(52, () => true);
+      inputQueue.current = new TerminalInputQueue(api.write, (error) => {
+        if (mounted.current) setNotice(errorMessage(error));
+      });
+      const input = terminal.onData((data) => {
+        // Input/Enter remains live while staging. Cancel its old prompt target first.
+        // Standard Enter, unframed multiline input, Ctrl+C/D/Z/\ interrupt the prompt.
+        // Printable typing remains in the same prompt; do not buffer or replay input.
+        if (actionPending.current && !filePasting.current && fileInputChangesPrompt(data)) {
+          actionGeneration.current += 1;
+          if (fileStaging.current) setNotice(t('File preparation was cancelled: the current input was sent or interrupted, so files not yet inserted will not be added to the next message.'));
+        }
+        if (runtime.current) inputQueue.current?.enqueue(runtime.current, data);
+      });
+      let frame = 0;
+      const observer = new ResizeObserver(() => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(fitNow);
+      });
+      observer.observe(element);
+      const zoomed = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(fitNow); };
+      window.addEventListener(workspaceZoomEvent, zoomed);
+      fitNow();
+      return () => {
+        const current = attachment.current;
+        attachment.current = null;
+        if (current) activity?.remove(pane.id, current.lease);
+        runtime.current = undefined;
+        inputQueue.current?.cancel();
+        resizePending.current = null;
+        if (current?.id) void api.detach(current.id, current.lease).catch(() => undefined);
+        // Any queued frames acknowledge their own obsolete lease without repainting.
+        for (const frame of queuedFrames.splice(0)) frame(() => undefined);
+        observer.disconnect();
+        window.removeEventListener(workspaceZoomEvent, zoomed);
+        cancelAnimationFrame(frame);
+        input.dispose();
+        element.removeEventListener('compositionstart', compositionStart, true);
+        element.removeEventListener('compositionend', compositionEnd, true);
+        element.removeEventListener('input', imeInput, true);
+        element.removeEventListener('keydown', userKey, true);
+        element.removeEventListener('paste', pasteFiles, true);
+        element.removeEventListener('dragover', dragFiles, true);
+        element.removeEventListener('drop', dropFiles, true);
+        clipboardBlock.dispose();
+        links.dispose();
+        cancelFollow();
+        unregisterTail();
+        terminal.dispose();
+        term.current = null;
+      };
+    };
+    let disposed = false;
+    let teardown: (() => void) | undefined;
+    if (engine === 'ghostty') {
+      void createGhosttyTerminal({ fontSize: settings.fontSize, fontFamily: settings.fontFamily, theme: terminalColors, scrollback: 10000, links: embeddedLinks })
+        .catch((error: unknown) => {
+          if (!disposed) setNotice(t('The Ghostty terminal engine could not load, so this pane uses xterm.js: {{error}}', { error: errorMessage(error) }));
+          return createXterm();
+        })
+        .then((created) => {
+          if (disposed) { created.terminal.dispose(); return; }
+          teardown = setup(created);
+          setTerminalReady(value => value + 1);
+        });
+    } else {
+      teardown = setup(createXterm());
+      setTerminalReady(value => value + 1);
+    }
     return () => {
+      disposed = true;
       mounted.current = false;
-      const current = attachment.current;
-      attachment.current = null;
-      if (current) activity?.remove(pane.id, current.lease);
-      runtime.current = undefined;
-      inputQueue.current?.cancel();
-      resizePending.current = null;
-      if (current?.id) void api.detach(current.id, current.lease).catch(() => undefined);
-      // Any queued frames acknowledge their own obsolete lease without repainting.
-      for (const frame of queuedFrames.splice(0)) frame(() => undefined);
-      observer.disconnect();
-      window.removeEventListener(workspaceZoomEvent, zoomed);
-      cancelAnimationFrame(frame);
-      input.dispose();
-      element.removeEventListener('compositionstart', compositionStart, true);
-      element.removeEventListener('compositionend', compositionEnd, true);
-      element.removeEventListener('input', imeInput, true);
-      element.removeEventListener('keydown', userKey, true);
-      element.removeEventListener('paste', pasteFiles, true);
-      element.removeEventListener('dragover', dragFiles, true);
-      element.removeEventListener('drop', dropFiles, true);
-      clipboardBlock.dispose();
-      links.dispose();
-      cancelFollow();
-      unregisterTail();
-      terminal.dispose();
-      term.current = null;
+      teardown?.();
     };
     // Terminal instances live for the pane lifetime; appearance updates below do not remount them.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -381,18 +417,18 @@ export function TerminalPane({
       fitNow();
     });
     return () => { pending = false; rendered.dispose(); };
-  }, [visible, fitNow, cancelFollow]);
+  }, [visible, fitNow, cancelFollow, terminalReady]);
   useEffect(() => {
     if (term.current) {
       term.current.options.fontSize = settings.fontSize;
       term.current.options.fontFamily = settings.fontFamily;
       fitNow();
     }
-  }, [settings.fontSize, settings.fontFamily, fitNow]);
+  }, [settings.fontSize, settings.fontFamily, fitNow, terminalReady]);
   useEffect(() => {
     // Colors never resize, reset, refocus or reconnect a running terminal.
     if (term.current) term.current.options.theme = terminalColors;
-  }, [terminalColors]);
+  }, [terminalColors, terminalReady]);
   const previousHookOptIn = useRef(pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind));
   useEffect(() => {
     const enabled = pane.kind !== 'shell' && isAgentHooksEnabled({ agentHooks: settings.agentHooks }, pane.kind);
@@ -410,7 +446,7 @@ export function TerminalPane({
       });
       return () => cancelAnimationFrame(frame);
     }
-  }, [visible, focused, fitNow, pane.state]);
+  }, [visible, focused, fitNow, pane.state, terminalReady]);
   useEffect(() => {
     const token = pane.startToken ?? 0;
     // A remounted component must attach its recorded runtime, never replay an old start action.
@@ -604,7 +640,7 @@ export function TerminalPane({
           latest.current.onPatch(pane.id, { state: 'disconnected' });
       }
     });
-  }, [pane, projectAvailable, reconnect, fitNow, onPatch, activity]);
+  }, [pane, projectAvailable, reconnect, fitNow, onPatch, activity, terminalReady]);
   const live = pane.state === 'running' || pane.state === 'starting';
   const copy = async () => {
     try {

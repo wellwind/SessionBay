@@ -54,7 +54,7 @@ ureq = { version = "=3.5.0", default-features = false, features = ["rustls", "pl
 tempfile = "3"
 interprocess = { version = "2.4", features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "net", "io-util", "time", "sync"] }
-vt100 = "0.16"
+ghostty-vt = { path = "crates/ghostty-vt" }
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]

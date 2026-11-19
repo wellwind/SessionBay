@@ -2380,5 +2380,10 @@
   "herdr-core executable": "herdr-core 執行檔",
   "New terminals run in herdr-core (hc) instead of Session Bay's own process. herdr-core must be installed and its version must speak protocol generation 1. Terminals already open keep their backend.": "新的終端機改由 herdr-core（hc）執行，而不是 Session Bay 自己的程序。需要先安裝 herdr-core，且版本要支援第 1 代協定。已經開啟的終端機維持原本的後端。",
   "Invalid terminal backend settings": "終端機後端設定無效",
-  "Enter the herdr-core executable name or path.": "請輸入 herdr-core 執行檔名稱或路徑。"
+  "Enter the herdr-core executable name or path.": "請輸入 herdr-core 執行檔名稱或路徑。",
+  "Terminal engine": "終端機引擎",
+  "Ghostty (experimental)": "Ghostty（實驗性）",
+  "Applies to panes opened afterwards. Ghostty uses Ghostty's terminal emulator compiled to WebAssembly; it does not yet change the ANSI palette of an open pane when you switch themes.": "只套用到之後開啟的窗格。Ghostty 使用編譯成 WebAssembly 的 Ghostty 終端機模擬器；切換主題時，已開啟窗格的 ANSI 色盤暫時不會跟著變。",
+  "The Ghostty terminal engine could not load, so this pane uses xterm.js: {{error}}": "無法載入 Ghostty 終端機引擎，此窗格改用 xterm.js：{{error}}",
+  "Unknown terminal engine": "未知的終端機引擎"
 }

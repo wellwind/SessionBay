@@ -1,0 +1,8 @@
+[package]
+name = "ghostty-vt"
+version = "0.0.0"
+description = "Minimal binding to upstream libghostty-vt (vendor/ghostty), adapted from herdr-core"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+links = "ghostty-vt"

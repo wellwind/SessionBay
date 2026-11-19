@@ -138,6 +138,8 @@ export interface Settings {
   terminalBackend?: 'native' | 'herdrCore';
   /** herdr-core executable for the 'herdrCore' backend; absent means "hc". */
   herdrCoreExecutable?: string;
+  /** Renderer for new terminal panes; absent means xterm.js. 'ghostty' is experimental. */
+  terminalEngine?: 'xterm' | 'ghostty';
   /** Percentage; absent in older version 1 settings means 100. */
   appZoom?: number;
   /** Missing providers default to launch-local hooks; explicit false preserves opt-out. */

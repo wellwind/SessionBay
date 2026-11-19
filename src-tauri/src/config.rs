@@ -137,6 +137,9 @@ pub struct Settings {
     /// The herdr-core executable for the "herdrCore" backend.
     #[serde(default = "default_herdr_core_executable")]
     pub herdr_core_executable: String,
+    /// Renderer for new terminal panes: "xterm" or the experimental "ghostty".
+    #[serde(default = "default_terminal_engine")]
+    pub terminal_engine: String,
     #[serde(default = "default_app_zoom")]
     pub app_zoom: u16,
     pub default_agent: AgentKind,
@@ -190,6 +193,7 @@ impl Default for Settings {
             font_size: 14,
             terminal_backend: default_terminal_backend(),
             herdr_core_executable: default_herdr_core_executable(),
+            terminal_engine: default_terminal_engine(),
             app_zoom: default_app_zoom(),
             default_agent: AgentKind::Codex,
             default_profile_id: "default".into(),
@@ -239,6 +243,10 @@ fn default_terminal_backend() -> String {
 
 fn default_herdr_core_executable() -> String {
     "hc".into()
+}
+
+fn default_terminal_engine() -> String {
+    "xterm".into()
 }
 
 fn default_theme_palette() -> String {
@@ -318,6 +326,9 @@ impl Settings {
             || !clean_string(&self.herdr_core_executable, 4096)
         {
             return Err(tr!("Invalid terminal backend settings"));
+        }
+        if !["xterm", "ghostty"].contains(&self.terminal_engine.as_str()) {
+            return Err(tr!("Unknown terminal engine"));
         }
         if !(50..=200).contains(&self.app_zoom) {
             return Err(tr!(
@@ -1300,6 +1311,28 @@ mod tests {
             let settings = Settings {
                 terminal_backend: backend.into(),
                 herdr_core_executable: executable.into(),
+                ..Settings::default()
+            };
+            assert!(settings.validate().is_err());
+        }
+    }
+    #[test]
+    fn terminal_engine_defaults_to_xterm_and_rejects_unknown_engines() {
+        let mut old = serde_json::to_value(Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("terminalEngine");
+        let settings: Settings = serde_json::from_value(old).unwrap();
+        assert_eq!(settings.terminal_engine, "xterm");
+        for engine in ["xterm", "ghostty"] {
+            Settings {
+                terminal_engine: engine.into(),
+                ..Settings::default()
+            }
+            .validate()
+            .unwrap();
+        }
+        for engine in ["", "webgl", "Ghostty"] {
+            let settings = Settings {
+                terminal_engine: engine.into(),
                 ..Settings::default()
             };
             assert!(settings.validate().is_err());
